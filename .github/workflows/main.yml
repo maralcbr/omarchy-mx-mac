@@ -61,7 +61,7 @@ jobs:
           # Only fail on actual errors; exclude network/dynamic source checks
           # Exclude migrations/ to avoid flagging historical scripts
           mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*' | grep -v '^migrations/')
-          shellcheck -S error -e SC1090,SC1091 "${files[@]}"
+          shellcheck -s bash -S error -e SC1090,SC1091 "${files[@]}"
 
       - name: shfmt (check only)
         if: steps.list_scripts.outputs.count != '0'
