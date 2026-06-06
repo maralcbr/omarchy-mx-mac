@@ -10,6 +10,14 @@ _This project is not optimized for Parallels or VMs_
 
 ---
 
+## Project status
+
+This repository is a maintained fork of the original Omarchy Mac work by Malik NA. The goal of this fork is to keep Omarchy Mac aligned with official Omarchy releases while preserving Apple Silicon and Asahi Alarm support.
+
+Mac releases use their own tag namespace, such as `v3.8.2-mac.5`, to avoid conflicts with official Omarchy tags.
+
+---
+
 ## Quick links
 
 - Start installer — `curl https://asahi-alarm.org/installer-bootstrap.sh | sh`
@@ -21,6 +29,7 @@ _This project is not optimized for Parallels or VMs_
 
 ## Table of contents
 
+- [Project status](#project-status)
 - [Before you begin](#before-you-begin)
 - [Quick start](#quick-start)
 - [Detailed installation](#detailed-installation)
@@ -251,7 +260,7 @@ Open issues and discussions at https://github.com/maralcbr/omarchy-mac.
 
 ## Acknowledgements
 
-Thanks to Asahi Linux and Asahi Alarm for enabling Linux on Apple Silicon, and to DHH for creating Omarchy.
+Thanks to Asahi Linux and Asahi Alarm for enabling Linux on Apple Silicon, to DHH for creating Omarchy, and to Malik NA for the original Omarchy Mac fork this project builds on.
 
 If this guide helped you, please star the repository and share feedback in issues or discussions. If you enjoy Omarchy Mac, please share your experience on Twitter/X by tagging [@tiredkebab](https://x.com/tiredkebab).
 
