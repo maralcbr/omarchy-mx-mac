@@ -4,19 +4,17 @@
 # Omarchy Mac — Dual Boot Installation
 A concise, beginner-friendly guide to install Omarchy Mac (Asahi Alarm + Omarchy) alongside macOS on Apple Silicon (M1/M2).
 
-## **[Omarchy Mac Fedora](https://github.com/malik-na/omarchy-mac-fedora)** is here!
-
 _This project is not optimized for Parallels or VMs_
 
-[![License](https://img.shields.io/github/license/malik-na/omarchy-mac)](LICENSE) [![Stars](https://img.shields.io/github/stars/malik-na/omarchy-mac?style=social)](https://github.com/malik-na/omarchy-mac/stargazers)
+[![License](https://img.shields.io/github/license/maralcbr/omarchy-mac)](LICENSE) [![Stars](https://img.shields.io/github/stars/maralcbr/omarchy-mac?style=social)](https://github.com/maralcbr/omarchy-mac/stargazers)
 
 ---
 
 ## Quick links
 
 - Start installer — `curl https://asahi-alarm.org/installer-bootstrap.sh | sh`
-- External monitor guide — https://github.com/malik-na/omarchy-mac/discussions/73
-- Support the project — https://buymeacoffee.com/malik2015no
+- Source repository — https://github.com/maralcbr/omarchy-mac
+- External monitor guide — https://github.com/maralcbr/omarchy-mac/discussions
 - Discord — https://discord.gg/KNQRk7dMzy
 
 ---
@@ -163,7 +161,7 @@ cd yay
 makepkg -si
 
 # Clone and run Omarchy Mac installer
-git clone https://github.com/malik-na/omarchy-mac.git ~/.local/share/omarchy
+git clone https://github.com/maralcbr/omarchy-mac.git ~/.local/share/omarchy
 cd ~/.local/share/omarchy
 bash install.sh
 ```
@@ -234,7 +232,7 @@ https://youtu.be/nMnWTq2H-N0?si=yzssSL-dBHa4x0l-
 
 ## Support
 
-Consider supporting the project: [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/malik2015no)
+Open issues and discussions at https://github.com/maralcbr/omarchy-mac.
 
 ---
 
@@ -242,13 +240,13 @@ Consider supporting the project: [![Buy Me A Coffee](https://img.shields.io/badg
 
 - Asahi Linux (device support) — https://asahilinux.org/fedora/#device-support
 - Asahi Alarm — https://asahi-alarm.org/
-- External monitor discussion — https://github.com/malik-na/omarchy-mac/discussions/73
+- External monitor discussion — https://github.com/maralcbr/omarchy-mac/discussions
 - Discord — https://discord.gg/KNQRk7dMzy
 
 ---
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=malik-na/omarchy-mac&type=date&legend=top-left)](https://www.star-history.com/#malik-na/omarchy-mac&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=maralcbr/omarchy-mac&type=date&legend=top-left)](https://www.star-history.com/#maralcbr/omarchy-mac&type=date&legend=top-left)
 ---
 
 ## Acknowledgements

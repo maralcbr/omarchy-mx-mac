@@ -3,6 +3,9 @@ set -e
 
 # Reinstall the Omarchy configuration directory from the git source.
 
-git clone --depth=1 "https://github.com/basecamp/omarchy.git" ~/.local/share/omarchy-new >/dev/null
-mv $OMARCHY_PATH ~/.local/share/omarchy-old
-mv ~/.local/share/omarchy-new $OMARCHY_PATH
+repo_url="${OMARCHY_REPO_URL:-$(git -C "$OMARCHY_PATH" remote get-url origin)}"
+branch="${OMARCHY_REF:-$(git -C "$OMARCHY_PATH" branch --show-current)}"
+
+git clone --depth=1 --branch "$branch" "$repo_url" ~/.local/share/omarchy-new >/dev/null
+mv "$OMARCHY_PATH" ~/.local/share/omarchy-old
+mv ~/.local/share/omarchy-new "$OMARCHY_PATH"
