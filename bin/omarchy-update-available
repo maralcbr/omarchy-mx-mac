@@ -1,15 +1,21 @@
 #!/bin/bash
 
-# omarchy:summary=Get remote tag
+# omarchy:summary=Check whether an Omarchy update is available
 
-latest_tag=$(git -C "$OMARCHY_PATH" ls-remote --tags origin | grep -v "{}" | awk '{print $2}' | sed 's#refs/tags/##' | sort -V | tail -n 1)
+# Official Omarchy tags can point at different commits in this fork, so only
+# compare tags from the Mac release namespace.
+latest_tag=$(git -C "$OMARCHY_PATH" ls-remote --tags --sort="version:refname" origin "v*-mac.*" | awk '{print $2}' | sed 's#refs/tags/##' | tail -n 1)
 if [[ -z $latest_tag ]]; then
   echo "Error: Could not retrieve latest tag."
   exit 1
 fi
 
 # Get local tag
-current_tag=$(git -C "$OMARCHY_PATH" describe --tags $(git -C "$OMARCHY_PATH" rev-list --tags --max-count=1))
+current_tag=""
+while IFS= read -r tag; do
+  current_tag="$tag"
+  break
+done < <(git -C "$OMARCHY_PATH" tag --merged HEAD --list "v*-mac.*" --sort=-version:refname)
 if [[ -z $current_tag ]]; then
   echo "Error: Could not retrieve current tag."
   exit 1

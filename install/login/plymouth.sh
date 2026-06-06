@@ -103,14 +103,14 @@ Documentation=https://github.com/maralcbr/omarchy-mac
 Conflicts=getty@tty1.service
 After=systemd-user-sessions.service getty@tty1.service plymouth-quit.service systemd-logind.service
 PartOf=graphical.target
+StartLimitIntervalSec=30
+StartLimitBurst=2
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/seamless-login uwsm start -- hyprland.desktop
 Restart=always
 RestartSec=2
-StartLimitIntervalSec=30
-StartLimitBurst=2
 User=$USER
 TTYPath=/dev/tty1
 TTYReset=yes
