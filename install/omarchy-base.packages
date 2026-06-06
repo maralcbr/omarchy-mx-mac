@@ -39,6 +39,7 @@ widevine
 btop
 clang
 claude-code
+cliamp
 cups
 cups-browsed
 cups-filters
@@ -46,6 +47,8 @@ cups-pdf
 docker
 docker-buildx
 docker-compose
+dosfstools
+#dotnet-runtime-9.0 (not available in current Asahi ALARM repositories)
 dust
 evince
 exfatprogs
@@ -115,6 +118,8 @@ sushi
 swaybg
 swayosd
 system-config-printer
+tesseract
+tesseract-data-eng
 tldr
 tree-sitter-cli
 tmux

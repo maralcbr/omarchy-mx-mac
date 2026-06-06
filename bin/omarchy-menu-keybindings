@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Show keybindings menu
 
 # Display Hyprland keybindings defined in your configuration using fuzzel for an interactive search menu.
 

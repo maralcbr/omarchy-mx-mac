@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Refresh fuzzel configuration
 
 omarchy-refresh-config fuzzel/fuzzel.ini
 omarchy-restart-fuzzel

@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Install Steam on Asahi ALARM
 
 # Install and launch Steam after first letting the user pick the correct grahics card drivers.
 

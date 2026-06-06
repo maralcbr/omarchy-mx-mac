@@ -7,14 +7,12 @@ base-devel
 #broadcom-wl (x86_64 DKMS driver, unsupported on aarch64)
 btrfs-progs
 #dart (binary distribution not available on aarch64)
+dkms
 egl-wayland
 git
 grim
 gst-plugin-pipewire
 gtk4-layer-shell
-htop
-intltool
-iwd
 jdk-openjdk
 libpulse
 libsass
@@ -36,13 +34,27 @@ pipewire-alsa
 pipewire-jack
 pipewire-pulse
 qt6-wayland
-sassc
 snapper
 wayfreeze-git
+sof-firmware
+#thermald (not available in current Asahi ALARM repositories)
 webp-pixbuf-loader
-wget
 yay-debug
 zram-generator
 
 # Apple Silicon Vulkan driver, installed by hardware detection when present
 vulkan-asahi
+
+# Surface laptop support packages
+linux-firmware-marvell
+
+# Dell laptop support packages
+#dell-xps-touchpad-haptics (not available in current Asahi ALARM repositories)
+
+# T2 MacBook support packages
+#apple-bcm-firmware (not available in current Asahi ALARM repositories)
+#apple-t2-audio-config (not available in current Asahi ALARM repositories)
+#linux-t2 (not available in current Asahi ALARM repositories)
+#linux-t2-headers (not available in current Asahi ALARM repositories)
+#t2fanrd (not available in current Asahi ALARM repositories)
+#tiny-dfr (not available in current Asahi ALARM repositories)

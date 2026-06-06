@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Install NPX applications
 
 # Install an npx wrapper for a given npm package.
 # Usage: omarchy-npx-install <package> [command-name]

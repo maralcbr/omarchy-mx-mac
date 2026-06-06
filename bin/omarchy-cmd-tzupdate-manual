@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Update timezone manually
 # Manual timezone selection interface
 
 # Source the timezone detection functions

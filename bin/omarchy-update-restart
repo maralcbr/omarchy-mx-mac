@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Prompt for reboot after updates
 
 # Compare kernel version before and after updates
 kernel_before=$(cat /tmp/omarchy-kernel-before 2>/dev/null)

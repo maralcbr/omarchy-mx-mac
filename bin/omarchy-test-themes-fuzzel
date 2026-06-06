@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Test fuzzel theme rendering
 
 # Iterate all themes and verify fuzzel.ini exists and is parsable by fuzzel.
 # Optionally run a quick visual smoke test (2s) if a Wayland session with fuzzel is available.

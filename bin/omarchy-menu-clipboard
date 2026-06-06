@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Open the clipboard menu
 
 set -euo pipefail
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# omarchy:summary=Set up zsh shell
 # Setup zsh as the default interactive shell for Omarchy
 # This configures zsh with Omarchy customizations and optionally auto-launches it from bash
 

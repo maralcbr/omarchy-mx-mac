@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Reinstall the Omarchy source directory from git
 set -e
 
 # Reinstall the Omarchy configuration directory from the git source.

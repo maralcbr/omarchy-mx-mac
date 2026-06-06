@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Open the background menu
 
 set -euo pipefail
 

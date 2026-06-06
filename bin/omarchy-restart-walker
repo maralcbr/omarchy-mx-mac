@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Restart walker
 
 # Compatibility wrapper for old Walker-era callers.
 omarchy-restart-fuzzel

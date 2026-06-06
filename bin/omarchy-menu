@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Launch the Omarchy Mac menu
 
 #
 #   Main menu implemented on top of the fuzzel frontend.

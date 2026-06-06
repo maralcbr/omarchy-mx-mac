@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Print the active package channel
 
 # Determine mirror source from system mirrorlist
 mirror="unknown"

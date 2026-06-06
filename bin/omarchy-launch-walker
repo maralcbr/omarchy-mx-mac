@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Launch the application menu
 
 # Compatibility wrapper for old Walker-era callers.
 exec omarchy-launch-fuzzel "$@"

@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Install packages with Asahi fallback handling
+# omarchy:args=<packages...>
 
 OMARCHY_INSTALL=${OMARCHY_INSTALL:-"$HOME/.local/share/omarchy/install"}
 source "$OMARCHY_INSTALL/helpers/packages.sh"

@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Record the screen
 
 # Start and stop a screenrecording, which will be saved to ~/Videos by default.
 # Alternative location can be set via OMARCHY_SCREENRECORD_DIR or XDG_VIDEOS_DIR ENVs.

@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Remove an AppImage application
 
 APPS_DIR="$HOME/.local/share/applications/appimages"
 DESKTOP_DIR="$HOME/.local/share/applications"

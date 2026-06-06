@@ -1,3 +1,4 @@
 #!/bin/bash
+# omarchy:summary=Restart fuzzel
 
 pkill fuzzel 2>/dev/null || true

@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Refresh walker configuration
 
 # Compatibility wrapper for old Walker-era callers.
 omarchy-refresh-fuzzel

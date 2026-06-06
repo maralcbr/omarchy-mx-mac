@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Open the emoji picker
 # Emoji picker using fuzzel
 # Uses official emoji list from unicode.org, cache it & parse to fuzzel
 # Written originally by George Dobreff
