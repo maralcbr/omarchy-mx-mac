@@ -3,6 +3,7 @@ ARCH="$(uname -m)"
 if [[ "$ARCH" == "x86_64" ]] && command -v limine &>/dev/null; then
   sudo tee /etc/mkinitcpio.conf.d/omarchy_hooks.conf <<EOF >/dev/null
 HOOKS=(base udev plymouth keyboard autodetect microcode modconf kms keymap consolefont block encrypt filesystems fsck btrfs-overlayfs)
+FILES+=(/etc/vconsole.conf)
 EOF
   sudo tee /etc/mkinitcpio.conf.d/thunderbolt_module.conf <<EOF >/dev/null
 MODULES+=(thunderbolt)
