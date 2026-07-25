@@ -44,16 +44,86 @@ migration_entries() {
   done
 }
 
+migration_skip_marker() {
+  printf '%s.skipped\n' "$1"
+}
+
+valid_skip_marker() {
+  local skip_marker="$1"
+  local timestamp disposition reason extra
+
+  [[ -f $skip_marker ]] || return 1
+  IFS=$'\t' read -r timestamp disposition reason extra <"$skip_marker" || return 1
+  [[ -n $timestamp && ( $disposition == "handled" || $disposition == "skipped" ) && -n $reason && -z $extra ]]
+}
+
+migration_settled() {
+  local marker="$1"
+  local skip_marker
+
+  [[ -f $marker ]] && return 0
+  (( asahi )) || return 1
+  skip_marker=$(migration_skip_marker "$marker")
+  valid_skip_marker "$skip_marker"
+}
+
+apple_silicon() {
+  if [[ -x $OMARCHY_PATH/bin/omarchy-hw-apple-silicon ]]; then
+    "$OMARCHY_PATH/bin/omarchy-hw-apple-silicon"
+  else
+    [[ $(uname -m) == "aarch64" ]] && grep -aq 'apple,' /proc/device-tree/compatible 2>/dev/null
+  fi
+}
+
+asahi_migration_disposition() {
+  case "$1" in
+    1778623107.sh) printf 'handled\tmpv-mpris installed by the Asahi Quattro package transition\n' ;;
+    1780057136.sh|1780294774.sh|1780517689.sh|1781587663.sh|1782049344.sh|1784479832.sh|1784508556.sh|1784521870.sh|1784568652.sh|1784763917.sh|1784767406.sh|1784818437.sh|1784849592.sh|1784909971.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1780739888.sh) printf 'handled\tdua installed and dust retired by the Quattro transition\n' ;;
+    1781043107.sh) printf 'handled\ttheme state moved by the Quattro user transition\n' ;;
+    1781063758.sh) printf 'handled\tHyprland configuration replaced by the Quattro user transition\n' ;;
+    1781158082.sh) printf 'handled\ttheme links rebuilt by the Quattro user transition\n' ;;
+    1781286586.sh) printf 'skipped\ttensaku is not in the Asahi package set\n' ;;
+    1781485962.sh) printf 'handled\tHyprland defaults reconciled by the Quattro user transition\n' ;;
+    1781793381.sh) printf 'handled\tudiskie installed by the Asahi Quattro package transition\n' ;;
+    1781984677.sh) printf 'skipped\tSnapper and Limine repair is not applicable to Asahi\n' ;;
+    1782002156.sh) printf 'handled\tnetwork transition completed with the Asahi iwd backend\n' ;;
+    1784401744.sh) printf 'handled\tAsahi hardware and Vulkan ownership handled by the Quattro transition\n' ;;
+    1784476564.sh) printf 'skipped\tLimine must not rebuild the Asahi initramfs\n' ;;
+    1784510887.sh) printf 'skipped\tunsupported AUR browser replacement on Asahi\n' ;;
+    1784672586.sh) printf 'handled\tvalidated quickshell-git package installed by the Quattro transition\n' ;;
+    1784914435.sh) printf 'handled\tpackaged NetworkManager policy installed by the Quattro transition\n' ;;
+    1784917531.sh) printf 'skipped\tLimine kernel and initramfs repair is not applicable to Asahi\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+record_skipped_migration() {
+  local marker="$1"
+  local disposition="$2"
+  local reason="$3"
+  local skip_marker tmp
+
+  skip_marker=$(migration_skip_marker "$marker")
+  mkdir -p "$(dirname "$skip_marker")"
+  tmp="$skip_marker.tmp.$$"
+  printf '%s\t%s\t%s\n' "$(date --iso-8601=seconds)" "$disposition" "$reason" >"$tmp"
+  mv "$tmp" "$skip_marker"
+}
+
 pending_migrations() {
   local name file marker
 
   while IFS=$'\t' read -r name file marker; do
     [[ -n $name ]] || continue
-    if [[ ! -f $marker ]]; then
+    if ! migration_settled "$marker"; then
       printf '%s\n' "$name"
     fi
   done < <(migration_entries)
 }
+
+asahi=0
+apple_silicon && asahi=1
 
 if [[ $mode == "pending" ]]; then
   pending_output=$(pending_migrations)
@@ -88,12 +158,26 @@ mkdir -p "$STATE_DIR"
 while IFS=$'\t' read -r name file marker; do
   [[ -n $name ]] || continue
 
-  if [[ ! -f $marker ]]; then
-    echo -e "\e[32m\nRunning migration (${name%.sh})\e[0m"
-    OMARCHY_PATH="$OMARCHY_PATH" bash -euo pipefail "$file"
-    mkdir -p "$(dirname "$marker")"
-    touch "$marker"
+  migration_settled "$marker" && continue
+
+  if (( asahi )); then
+    disposition_record=""
+    if ! disposition_record=$(asahi_migration_disposition "$name"); then
+      echo "Migration '$name' has not been reviewed for Apple Silicon; leaving it pending." >&2
+      exit 1
+    fi
+    IFS=$'\t' read -r disposition reason <<<"$disposition_record"
+    if [[ $disposition != "run" ]]; then
+      echo "Settling migration (${name%.sh}): $disposition - $reason"
+      record_skipped_migration "$marker" "$disposition" "$reason"
+      continue
+    fi
   fi
+
+  echo -e "\e[32m\nRunning migration (${name%.sh})\e[0m"
+  OMARCHY_PATH="$OMARCHY_PATH" bash -euo pipefail "$file"
+  mkdir -p "$(dirname "$marker")"
+  touch "$marker"
 done < <(migration_entries)
 
 # Clear notifications queued while an update was installing migrations. The

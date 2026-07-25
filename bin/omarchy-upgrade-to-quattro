@@ -146,7 +146,11 @@ fi
 asahi_package_archives=()
 
 validate_asahi_packages() {
-  local directory package_name pattern archive metadata path settings_paths version
+  local directory package_name pattern archive metadata path package_paths version
+  local manifest manifest_line manifest_hash manifest_file actual_hash
+  local manifest_format="" manifest_source="" manifest_hash_count=0
+  local settings_bundle runtime_bundle
+  local -A manifest_hashes=()
   local matches=()
   local required_packages=(
     omarchy-keyring
@@ -159,6 +163,29 @@ validate_asahi_packages() {
   [[ -d $asahi_packages_dir && -r $asahi_packages_dir ]] || fail "Asahi package directory '$asahi_packages_dir' is not a readable directory. No changes were made."
   command -v bsdtar >/dev/null 2>&1 || fail "bsdtar is required to inspect Asahi package archives. No changes were made."
   directory=$(realpath -e -- "$asahi_packages_dir") || fail "Could not resolve Asahi package directory '$asahi_packages_dir'. No changes were made."
+  manifest="$directory/asahi-quattro-bundle.manifest"
+  [[ -f $manifest && ! -L $manifest ]] || fail "Asahi package directory must contain a regular asahi-quattro-bundle.manifest. No changes were made."
+
+  while IFS= read -r manifest_line; do
+    case "$manifest_line" in
+      format=*) manifest_format=${manifest_line#format=} ;;
+      source_commit=*) manifest_source=${manifest_line#source_commit=} ;;
+      sha256=*)
+        manifest_line=${manifest_line#sha256=}
+        manifest_hash=${manifest_line%%  *}
+        manifest_file=${manifest_line#*  }
+        [[ $manifest_hash =~ ^[0-9a-f]{64}$ && $manifest_file == "$(basename "$manifest_file")" ]] || \
+          fail "Invalid checksum entry in Asahi bundle manifest. No changes were made."
+        [[ -z ${manifest_hashes[$manifest_file]:-} ]] || fail "Duplicate checksum for '$manifest_file'. No changes were made."
+        manifest_hashes[$manifest_file]=$manifest_hash
+        ((manifest_hash_count += 1))
+        ;;
+      "") ;;
+      *) fail "Unknown entry in Asahi bundle manifest: '$manifest_line'. No changes were made." ;;
+    esac
+  done <"$manifest"
+  [[ $manifest_format == "1" ]] || fail "Unsupported Asahi bundle manifest format. No changes were made."
+  [[ $manifest_source =~ ^[0-9a-f]{40}$ ]] || fail "Asahi bundle manifest has no valid source commit. No changes were made."
 
   shopt -s nullglob
   for package_name in "${required_packages[@]}"; do
@@ -184,28 +211,50 @@ validate_asahi_packages() {
     pacman -Qp -- "$archive" >/dev/null 2>&1 || fail "'$archive' is not a valid pacman package archive. No changes were made."
     metadata=$(bsdtar -xOf "$archive" .PKGINFO 2>/dev/null) || fail "Could not inspect metadata in '$archive'. No changes were made."
     grep -Fxq "pkgname = $package_name" <<<"$metadata" || fail "Archive '$archive' does not contain package '$package_name'. No changes were made."
+    if bsdtar -tf "$archive" | grep -Eq '^(\./)?\.INSTALL$' && [[ $package_name != "omarchy-settings-dev" ]]; then
+      fail "Package '$package_name' contains an unexpected install script. No changes were made."
+    fi
     if [[ $package_name == omarchy-settings-dev || $package_name == omarchy-dev || $package_name == quickshell-git ]]; then
       grep -Fxq 'arch = aarch64' <<<"$metadata" || fail "Package '$package_name' is not built for aarch64. No changes were made."
     else
       grep -Fxq 'arch = any' <<<"$metadata" || fail "Package '$package_name' is not architecture-independent. No changes were made."
     fi
+    actual_hash=$(sha256sum "$archive")
+    actual_hash=${actual_hash%% *}
+    [[ ${manifest_hashes[$(basename "$archive")]:-} == $actual_hash ]] || \
+      fail "Checksum mismatch or missing manifest entry for '$(basename "$archive")'. No changes were made."
     asahi_package_archives+=("$archive")
   done
   shopt -u nullglob
+  (( manifest_hash_count == ${#required_packages[@]} )) || fail "Asahi bundle manifest must contain exactly ${#required_packages[@]} package checksums. No changes were made."
 
   metadata=$(bsdtar -xOf "${asahi_package_archives[2]}" .PKGINFO)
   if grep -Eq '^depend = (limine|snapper)([<>=:]|$)' <<<"$metadata"; then
     fail "omarchy-dev must not depend on Limine or Snapper for an Asahi migration. No changes were made."
   fi
+  for package_name in iwd networkmanager; do
+    grep -Fxq "depend = $package_name" <<<"$metadata" || \
+      fail "omarchy-dev must depend on $package_name for an Asahi migration. No changes were made."
+  done
 
-  settings_paths=$(bsdtar -tf "${asahi_package_archives[1]}") || fail "Could not inspect paths in omarchy-settings-dev. No changes were made."
-  while IFS= read -r path; do
-    path=${path#./}
-    path=${path#/}
-    if grep -Eqi '(^|/)etc/mkinitcpio|limine|snapper|usb[-_]autosuspend' <<<"$path"; then
-      fail "omarchy-settings-dev contains unsafe Asahi path '$path'. No changes were made."
-    fi
-  done <<<"$settings_paths"
+  for archive in "${asahi_package_archives[@]}"; do
+    package_paths=$(bsdtar -tf "$archive") || fail "Could not inspect paths in '$(basename "$archive")'. No changes were made."
+    while IFS= read -r path; do
+      path=${path#./}
+      path=${path#/}
+      if grep -Eqi '^(boot|etc/(default/grub|grub|limine|mkinitcpio|pacman\.conf|pacman\.d)|usr/lib/initcpio)(/|$)' <<<"$path"; then
+        fail "Package '$(basename "$archive")' contains unsafe Asahi path '$path'. No changes were made."
+      fi
+    done <<<"$package_paths"
+  done
+
+  metadata=$(bsdtar -xOf "${asahi_package_archives[1]}" .PKGINFO)
+  settings_bundle=$(sed -n 's/^provides = omarchy-quattro-bundle=//p' <<<"$metadata")
+  metadata=$(bsdtar -xOf "${asahi_package_archives[2]}" .PKGINFO)
+  runtime_bundle=$(sed -n 's/^provides = omarchy-quattro-bundle=//p' <<<"$metadata")
+  [[ $settings_bundle =~ ^[0-9a-f]{40}$ ]] || fail "omarchy-settings-dev has no valid Quattro bundle ID. No changes were made."
+  [[ $runtime_bundle == $settings_bundle ]] || fail "Omarchy packages were built from different source bundles. No changes were made."
+  [[ $runtime_bundle == $manifest_source ]] || fail "Omarchy package bundle does not match its manifest source commit. No changes were made."
 
   version=$(bsdtar -xOf "${asahi_package_archives[2]}" usr/share/omarchy/version 2>/dev/null || \
     bsdtar -xOf "${asahi_package_archives[2]}" ./usr/share/omarchy/version 2>/dev/null) || \
@@ -756,6 +805,7 @@ install_asahi_quattro_packages() {
     lua51
     mpv-mpris
     nautilus-python
+    networkmanager
     ruby
     rust
     udiskie
@@ -880,7 +930,7 @@ remove_retired_default_packages() {
   local pkg
   local installed_retired=()
   for pkg in "${retired_packages[@]}"; do
-    if (( asahi_mode )) && [[ $pkg == wf-recorder ]]; then
+    if (( asahi_mode )) && [[ $pkg == iwd || $pkg == wf-recorder ]]; then
       continue
     fi
     if package_installed_exact "$pkg"; then
@@ -1258,6 +1308,7 @@ run_post_upgrade_migrations() {
 
   log "Running Omarchy migrations"
   if ! run_as_user_omarchy OMARCHY_UPGRADE_TO_QUATTRO_LIVE=1 omarchy-migrate; then
+    (( asahi_mode )) && fail "Could not settle reviewed Apple Silicon migrations."
     warn "Could not run Omarchy migrations; the user may be prompted to run them after login."
   fi
 }
@@ -1438,6 +1489,21 @@ EOF
   enable_system_service bluetooth.service
   enable_system_service power-profiles-daemon.service
   enable_system_service sddm.service
+
+  if (( asahi_mode )); then
+    command -v NetworkManager >/dev/null 2>&1 || fail "NetworkManager is required for the Asahi network transition."
+    command -v iwd >/dev/null 2>&1 || fail "iwd is required for the Asahi NetworkManager backend."
+    as_root systemctl enable NetworkManager.service >/dev/null 2>&1 || fail "Could not enable NetworkManager for the next boot."
+    as_root install -d -m 0755 /etc/NetworkManager/conf.d
+    if ! as_root test -e /etc/NetworkManager/conf.d/wifi_backend.conf; then
+      printf '%s\n' '[device]' 'wifi.backend=iwd' | \
+        as_root tee /etc/NetworkManager/conf.d/wifi_backend.conf >/dev/null
+      as_root chmod 0644 /etc/NetworkManager/conf.d/wifi_backend.conf
+    fi
+    if ! as_root NetworkManager --print-config | grep -Fxq 'wifi.backend=iwd'; then
+      fail "NetworkManager is not configured to use the required Asahi iwd backend."
+    fi
+  fi
 
   apply_firewall_defaults
 
@@ -2243,6 +2309,8 @@ enable_user_unit() {
 enable_user_unit bt-agent.service
 enable_user_unit omarchy-sleep-lock.service
 enable_user_unit omarchy-recover-internal-monitor.service
+enable_user_unit omarchy-update-user-notify.path
+enable_user_unit omarchy-update-user-notify.service
 mkdir -p "$HOME/.config/systemd/user/default.target.wants"
 for unit in pipewire-pulse.service pipewire-pulse.socket; do
   if [[ -e /usr/lib/systemd/user/$unit ]]; then
@@ -2491,7 +2559,7 @@ ensure_sleep_lock_service
 remove_retired_default_packages
 # The packaged migration history includes Limine, mkinitcpio, and Snapper
 # repairs. The transitions above provide the safe Quattro cutover on Asahi.
-(( asahi_mode )) || run_post_upgrade_migrations
+run_post_upgrade_migrations
 run_final_system_package_upgrade
 (( asahi_mode )) || run_post_upgrade_update_steps
 refresh_current_theme_after_upgrade

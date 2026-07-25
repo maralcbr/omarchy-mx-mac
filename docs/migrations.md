@@ -77,6 +77,12 @@ omarchy-migrate
 
 at any time. Already-completed migrations are skipped.
 
+On Apple Silicon, migrations run through an explicit reviewed policy. Migrations
+handled by the Quattro transition or inapplicable to Asahi receive an auditable
+`<migration filename>.skipped` marker containing the disposition and reason.
+Unknown migrations remain pending until they are reviewed rather than running
+automatically against the Asahi kernel and boot stack.
+
 ## Inspecting pending migrations
 
 Use:

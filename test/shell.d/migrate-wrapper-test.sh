@@ -11,6 +11,12 @@ test_root="$test_tmp/omarchy"
 test_home="$test_tmp/home"
 stub_bin="$test_tmp/bin"
 mkdir -p "$test_root/migrations" "$test_home" "$stub_bin"
+mkdir -p "$test_root/bin"
+cat >"$test_root/bin/omarchy-hw-apple-silicon" <<'SH'
+#!/bin/bash
+exit 1
+SH
+chmod +x "$test_root/bin/omarchy-hw-apple-silicon"
 
 cat >"$stub_bin/omarchy-notification-dismiss" <<'SH'
 #!/bin/bash

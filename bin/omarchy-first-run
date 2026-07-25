@@ -42,7 +42,8 @@ if omarchy-done check "$FIRST_RUN_DONE" && (( force == 0 )); then
   exit 0
 fi
 
-omarchy-finalize-user "${finalize_user_args[@]}" || true
+finalize_user_status=0
+omarchy-finalize-user "${finalize_user_args[@]}" || finalize_user_status=$?
 
 mkdir -p "$state_dir"
 
@@ -52,6 +53,11 @@ first_run_failed=0
 log_first_run() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$FIRST_RUN_LOG"
 }
+
+if (( finalize_user_status != 0 )); then
+  first_run_failed=1
+  log_first_run "Failed: finalize user (exit code: $finalize_user_status)"
+fi
 
 notification_server_ready() {
   if omarchy-cmd-present gdbus; then
@@ -130,4 +136,5 @@ if (( first_run_failed == 0 )); then
   omarchy-done mark "$FIRST_RUN_DONE"
 else
   log_first_run "One or more first-run steps failed; first-run will retry next login"
+  exit 1
 fi

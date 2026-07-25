@@ -3,6 +3,8 @@ run_logged "$OMARCHY_INSTALL/config/increase-lockout-limit.sh"
 run_logged "$OMARCHY_INSTALL/config/lockscreen-pam.sh"
 run_logged "$OMARCHY_INSTALL/config/fix-powerprofilesctl-shebang.sh"
 run_logged "$OMARCHY_INSTALL/config/docker.sh"
-run_logged "$OMARCHY_INSTALL/config/snapper.sh"
+if ! omarchy-hw-apple-silicon; then
+  run_logged "$OMARCHY_INSTALL/config/snapper.sh"
+fi
 run_logged "$OMARCHY_INSTALL/config/enable-services.sh"
 run_logged "$OMARCHY_INSTALL/config/firewall.sh"

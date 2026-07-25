@@ -10,6 +10,12 @@ trap 'rm -rf "$test_tmp"' EXIT
 test_root="$test_tmp/omarchy"
 test_home="$test_tmp/home"
 mkdir -p "$test_root/migrations" "$test_home"
+mkdir -p "$test_root/bin"
+cat >"$test_root/bin/omarchy-hw-apple-silicon" <<'SH'
+#!/bin/bash
+exit 1
+SH
+chmod +x "$test_root/bin/omarchy-hw-apple-silicon"
 
 cat >"$test_root/migrations/100-first.sh" <<'SH'
 [[ $OMARCHY_PATH == "$TEST_EXPECTED_OMARCHY_PATH" ]]
@@ -56,6 +62,8 @@ pass "migration runner detects no pending migrations"
 failure_root="$test_tmp/failure-omarchy"
 failure_home="$test_tmp/failure-home"
 mkdir -p "$failure_root/migrations" "$failure_home"
+mkdir -p "$failure_root/bin"
+cp "$test_root/bin/omarchy-hw-apple-silicon" "$failure_root/bin/"
 
 cat >"$failure_root/migrations/500-fail.sh" <<'SH'
 echo before-fail >>"$TEST_CALLS"

@@ -25,6 +25,8 @@ grep -F 'systemd-networkd.service' "$hardware_network" >/dev/null
 grep -F 'systemd-networkd.socket' "$hardware_network" >/dev/null
 grep -F '20-wlan.network' "$hardware_network" >/dev/null
 grep -F 'omarchy-networkd-retired' "$hardware_network" >/dev/null
+grep -F 'omarchy-hw-apple-silicon' "$hardware_network" >/dev/null
+grep -F 'wifi.backend=iwd' "$hardware_network" >/dev/null
 pass "hardware setup retires archinstall networkd state"
 
 grep -F 'OMARCHY_UPGRADE_TO_QUATTRO_LIVE' "$migration" >/dev/null

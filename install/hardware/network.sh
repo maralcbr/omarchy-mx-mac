@@ -1,4 +1,10 @@
 # NetworkManager enablement is centralized in enable-services.sh.
+if omarchy-hw-apple-silicon && [[ ! -e /etc/NetworkManager/conf.d/wifi_backend.conf ]]; then
+  install -Dm644 /dev/stdin /etc/NetworkManager/conf.d/wifi_backend.conf <<'EOF'
+[device]
+wifi.backend=iwd
+EOF
+fi
 systemctl disable iwd.service 2>/dev/null || true
 
 # Fresh Omarchy uses NetworkManager. Archinstall's legacy "copy ISO network"

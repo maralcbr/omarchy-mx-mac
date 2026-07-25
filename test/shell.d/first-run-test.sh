@@ -31,5 +31,9 @@ fi
 if grep -F 'skip-first-run-update-notification' "$ROOT/install/user/first-run/wifi.sh" >/dev/null; then
   fail "first-run does not track update notifications separately"
 fi
+grep -Fq 'omarchy-finalize-user "${finalize_user_args[@]}" || finalize_user_status=$?' "$ROOT/bin/omarchy-first-run" || \
+  fail "first-run records user finalization failures"
+grep -Fq 'first_run_failed=1' "$ROOT/bin/omarchy-first-run" || fail "first-run keeps failed setup retryable"
+grep -Fq 'exit 1' "$ROOT/bin/omarchy-first-run" || fail "failed first-run exits non-zero"
 
 pass "first-run uses one lifecycle completion marker"
