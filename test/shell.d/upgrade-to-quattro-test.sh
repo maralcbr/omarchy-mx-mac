@@ -88,7 +88,7 @@ grep -Fq -- "--overwrite '/usr/local/share/wayland-sessions/omarchy.desktop'" "$
 grep -Fq -- "--overwrite '/usr/share/plymouth/themes/omarchy/*'" "$upgrade_to_quattro"
 grep -Fq -- "--overwrite '/usr/share/omarchy/*'" "$upgrade_to_quattro"
 grep -Fq '"${asahi_package_archives[@]}"' "$upgrade_to_quattro"
-grep -Fq 'pacman -S --needed --noconfirm --ask 4 vulkan-asahi wf-recorder' "$upgrade_to_quattro"
+grep -Fq 'pacman -Syu --needed --noconfirm --ask 4 vulkan-asahi wf-recorder' "$upgrade_to_quattro"
 grep -Fq '(( asahi_mode )) || remove_legacy_limine_configs' "$upgrade_to_quattro"
 grep -Fq '(( asahi_mode )) || migrate_1password_beta_package' "$upgrade_to_quattro"
 grep -Fq '(( asahi_mode )) || run_post_upgrade_migrations' "$upgrade_to_quattro"

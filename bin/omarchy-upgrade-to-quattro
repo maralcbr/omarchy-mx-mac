@@ -753,7 +753,10 @@ install_asahi_quattro_packages() {
     ttf-jetbrains-mono-nerd-basic
 
   log "Ensuring minimal Apple Silicon runtime packages"
-  as_root pacman -S --needed --noconfirm --ask 4 vulkan-asahi wf-recorder
+  # ALARM split the Asahi Vulkan driver and Mesa's implicit layer from mesa
+  # without changing the release number. A full transaction lets pacman
+  # replace the old unversioned mesa package and transfer file ownership.
+  as_root env OMARCHY_UPDATE_PACMAN=1 pacman -Syu --needed --noconfirm --ask 4 vulkan-asahi wf-recorder
   mark_packages_explicit vulkan-asahi wf-recorder
 }
 
