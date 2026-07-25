@@ -74,6 +74,8 @@ pass "Omarchy 4 upgrade preflights local package identity, architecture, content
 grep -Fq 'create_asahi_system_backup' "$upgrade_to_quattro"
 grep -Fq '/var/lib/omarchy/backups/quattro-$backup_suffix' "$upgrade_to_quattro"
 grep -Fq 'mirrorlists=(/etc/pacman.d/*mirrorlist*)' "$upgrade_to_quattro"
+grep -Fq '/etc/NetworkManager/conf.d/wifi_backend.conf' "$upgrade_to_quattro"
+grep -Fq '/etc/udev/rules.d/99-wifi-powersave.rules' "$upgrade_to_quattro"
 grep -Fq '/etc/mkinitcpio.conf.d' "$upgrade_to_quattro"
 grep -Fq '/boot/grub/grub.cfg' "$upgrade_to_quattro"
 grep -Fq 'pacman -Q | as_root tee "$backup_dir/installed-packages.txt"' "$upgrade_to_quattro"
@@ -91,6 +93,10 @@ grep -Fq '"${asahi_package_archives[@]}"' "$upgrade_to_quattro"
 grep -Fq '[[ ! -f /usr/lib/libvulkan_asahi.so ]]' "$upgrade_to_quattro"
 grep -Fq 'runtime_packages+=(vulkan-asahi)' "$upgrade_to_quattro"
 grep -Fq 'pacman -Syu --needed --noconfirm --ask 4 "${runtime_packages[@]}"' "$upgrade_to_quattro"
+grep -Fq 'remove_legacy_asahi_udev_rules' "$upgrade_to_quattro"
+grep -Fq 'iwd' "$upgrade_to_quattro"
+grep -Fq 'udiskie' "$upgrade_to_quattro"
+grep -Fq 'expac' "$upgrade_to_quattro"
 grep -Fq '(( asahi_mode )) || remove_legacy_limine_configs' "$upgrade_to_quattro"
 grep -Fq '(( asahi_mode )) || migrate_1password_beta_package' "$upgrade_to_quattro"
 grep -Fq '(( asahi_mode )) || run_post_upgrade_migrations' "$upgrade_to_quattro"
@@ -107,7 +113,7 @@ repository_branch=$(awk '
     block=""
   }
 ' "$upgrade_to_quattro")
-[[ $repository_branch == *$'create_asahi_system_backup\nelse\n  create_pre_upgrade_snapshot\n  configure_pacman_channel\n  install_keyrings'* ]] || \
+[[ $repository_branch == *$'create_asahi_system_backup\n  remove_legacy_asahi_udev_rules\nelse\n  create_pre_upgrade_snapshot\n  configure_pacman_channel\n  install_keyrings'* ]] || \
   fail "Asahi migration bypasses snapshots and upstream repository setup"
 
 package_branch=$(awk '

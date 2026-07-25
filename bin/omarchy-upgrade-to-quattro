@@ -451,6 +451,9 @@ create_asahi_system_backup() {
   local backup_sources=(
     /etc/pacman.conf
     /etc/fstab
+    /etc/NetworkManager/conf.d/wifi_backend.conf
+    /etc/udev/rules.d/99-power-profile.rules
+    /etc/udev/rules.d/99-wifi-powersave.rules
     /etc/mkinitcpio.conf
     /etc/mkinitcpio.conf.d
     /etc/mkinitcpio.d
@@ -483,6 +486,13 @@ create_asahi_system_backup() {
   fi
   as_root chown -R root:root "$backup_dir"
   as_root chmod 0700 "$backup_dir"
+}
+
+remove_legacy_asahi_udev_rules() {
+  log "Removing legacy Asahi power-management udev rules"
+  as_root rm -f \
+    /etc/udev/rules.d/99-power-profile.rules \
+    /etc/udev/rules.d/99-wifi-powersave.rules
 }
 
 configure_pacman_channel() {
@@ -735,7 +745,23 @@ install_omarchy_quattro_packages() {
 }
 
 install_asahi_quattro_packages() {
-  local runtime_packages=(wf-recorder)
+  local runtime_packages=(
+    dua-cli
+    expac
+    foot
+    gnome-disk-utility
+    inotify-tools
+    iwd
+    libyaml
+    lua51
+    mpv-mpris
+    nautilus-python
+    ruby
+    rust
+    udiskie
+    wf-recorder
+    wtype
+  )
 
   log "Installing validated local Apple Silicon Omarchy packages"
   # Restrict replacement to the package-backed Omarchy tree. In particular,
@@ -2435,6 +2461,7 @@ refresh_current_theme_after_upgrade() {
 suppress_hyprland_config_reload
 if (( asahi_mode )); then
   create_asahi_system_backup
+  remove_legacy_asahi_udev_rules
 else
   create_pre_upgrade_snapshot
   configure_pacman_channel
