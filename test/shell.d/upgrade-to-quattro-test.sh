@@ -6,7 +6,12 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 upgrade_to_quattro="$ROOT/bin/omarchy-upgrade-to-quattro"
 
+guard_line=$(grep -n '^if apple_silicon; then$' "$upgrade_to_quattro" | cut -d: -f1)
 snapshot_line=$(grep -n '^create_pre_upgrade_snapshot$' "$upgrade_to_quattro" | cut -d: -f1)
+[[ -n $guard_line && -n $snapshot_line ]] || fail "Apple Silicon guard and first mutation call exist"
+(( guard_line < snapshot_line )) || fail "Apple Silicon guard runs before the first upgrade mutation"
+pass "Omarchy 4 upgrade guards Apple Silicon before mutation"
+
 pacman_line=$(grep -n '^configure_pacman_channel$' "$upgrade_to_quattro" | cut -d: -f1)
 [[ -n $snapshot_line && -n $pacman_line ]] || fail "upgrade snapshot and first mutation calls exist"
 (( snapshot_line < pacman_line )) || fail "upgrade snapshot runs before pacman configuration"

@@ -38,6 +38,18 @@ fail() {
   exit 1
 }
 
+apple_silicon() {
+  if command -v omarchy-hw-apple-silicon >/dev/null 2>&1; then
+    omarchy-hw-apple-silicon
+  else
+    [[ $(uname -m) == "aarch64" ]] && grep -aq 'apple,' /proc/device-tree/compatible 2>/dev/null
+  fi
+}
+
+if apple_silicon; then
+  fail "Upgrading to Omarchy Quattro is not supported on Apple Silicon. No changes were made."
+fi
+
 normalize_channel() {
   case "${1:-}" in
     stable|master|main) echo stable ;;

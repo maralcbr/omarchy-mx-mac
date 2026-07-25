@@ -77,6 +77,10 @@ write_stub omarchy-version-channel '#!/bin/bash
 printf "%s\n" "${OMARCHY_TEST_VERSION_CHANNEL:-unknown}"
 '
 
+write_stub omarchy-hw-apple-silicon '#!/bin/bash
+exit 1
+'
+
 write_stub pacman '#!/bin/bash
 [[ $1 == "-Q" ]] || exit 1
 shift

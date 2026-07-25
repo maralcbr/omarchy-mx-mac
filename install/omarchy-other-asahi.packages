@@ -1,0 +1,21 @@
+# Packages installed outside the core package set on Apple Silicon/Asahi.
+# This list intentionally excludes x86, Limine, multilib, and PC hardware stacks.
+
+autoconf-archive
+base
+base-devel
+btrfs-progs
+dkms
+gst-plugin-pipewire
+gtk4-layer-shell
+libpulse
+linux-firmware
+pipewire
+pipewire-alsa
+pipewire-jack
+pipewire-pulse
+qt6-wayland
+vulkan-asahi
+webp-pixbuf-loader
+yay-debug
+zram-generator

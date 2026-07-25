@@ -41,6 +41,10 @@ link_dev_checkout() {
 
 (( $# > 0 )) || { usage; exit 1; }
 
+if omarchy-hw-apple-silicon; then
+  fail "Omarchy package channels are not available for Apple Silicon; preserving the existing Arch Linux ARM repositories."
+fi
+
 dev_checkout=""
 channel="$1"
 leaving_dev=0

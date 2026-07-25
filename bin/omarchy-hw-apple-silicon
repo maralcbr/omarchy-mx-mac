@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# omarchy:summary=Detect whether the computer is an Apple Silicon Mac.
+
+proc_root="${OMARCHY_PROC_ROOT:-/proc}"
+
+[[ $(uname -m) == "aarch64" ]] &&
+  grep -aq 'apple,' "$proc_root/device-tree/compatible" 2>/dev/null
