@@ -739,6 +739,10 @@ install_asahi_quattro_packages() {
   # Restrict replacement to the package-backed Omarchy tree. In particular,
   # never allow local packages to replace boot or mkinitcpio configuration.
   as_root pacman -U --needed --noconfirm --ask 4 \
+    --overwrite '/etc/sudoers.d/omarchy-tzupdate' \
+    --overwrite '/usr/lib/systemd/system-sleep/unmount-fuse' \
+    --overwrite '/usr/local/share/wayland-sessions/omarchy.desktop' \
+    --overwrite '/usr/share/plymouth/themes/omarchy/*' \
     --overwrite '/usr/share/omarchy/*' \
     "${asahi_package_archives[@]}"
   mark_packages_explicit \
