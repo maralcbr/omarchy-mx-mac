@@ -735,6 +735,8 @@ install_omarchy_quattro_packages() {
 }
 
 install_asahi_quattro_packages() {
+  local runtime_packages=(wf-recorder)
+
   log "Installing validated local Apple Silicon Omarchy packages"
   # Restrict replacement to the package-backed Omarchy tree. In particular,
   # never allow local packages to replace boot or mkinitcpio configuration.
@@ -753,11 +755,13 @@ install_asahi_quattro_packages() {
     ttf-jetbrains-mono-nerd-basic
 
   log "Ensuring minimal Apple Silicon runtime packages"
-  # ALARM split the Asahi Vulkan driver and Mesa's implicit layer from mesa
-  # without changing the release number. A full transaction lets pacman
-  # replace the old unversioned mesa package and transfer file ownership.
-  as_root env OMARCHY_UPDATE_PACMAN=1 pacman -Syu --needed --noconfirm --ask 4 vulkan-asahi wf-recorder
-  mark_packages_explicit vulkan-asahi wf-recorder
+  # The higher-priority asahi-alarm Mesa package may already own the Asahi
+  # Vulkan driver. Do not mix it with Arch's split vulkan-asahi package.
+  if [[ ! -f /usr/lib/libvulkan_asahi.so ]]; then
+    runtime_packages+=(vulkan-asahi)
+  fi
+  as_root env OMARCHY_UPDATE_PACMAN=1 pacman -Syu --needed --noconfirm --ask 4 "${runtime_packages[@]}"
+  mark_packages_explicit "${runtime_packages[@]}"
 }
 
 install_hardware_transition_packages() {
