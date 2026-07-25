@@ -211,7 +211,8 @@ validate_asahi_packages() {
     pacman -Qp -- "$archive" >/dev/null 2>&1 || fail "'$archive' is not a valid pacman package archive. No changes were made."
     metadata=$(bsdtar -xOf "$archive" .PKGINFO 2>/dev/null) || fail "Could not inspect metadata in '$archive'. No changes were made."
     grep -Fxq "pkgname = $package_name" <<<"$metadata" || fail "Archive '$archive' does not contain package '$package_name'. No changes were made."
-    if bsdtar -tf "$archive" | grep -Eq '^(\./)?\.INSTALL$' && [[ $package_name != "omarchy-settings-dev" ]]; then
+    if bsdtar -tf "$archive" | grep -Eq '^(\./)?\.INSTALL$' && \
+      [[ $package_name != "omarchy-keyring" && $package_name != "omarchy-settings-dev" ]]; then
       fail "Package '$package_name' contains an unexpected install script. No changes were made."
     fi
     if [[ $package_name == omarchy-settings-dev || $package_name == omarchy-dev || $package_name == quickshell-git ]]; then
