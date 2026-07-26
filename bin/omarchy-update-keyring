@@ -15,8 +15,12 @@ if omarchy-pkg-missing omarchy-keyring || ! sudo pacman-key --list-keys 40DFB630
   sudo pacman-key --list-keys 40DFB630FF42BCFFB047046CF0134EE680CAC571
 fi
 
-# Ensure we have the latest archlinux-keyring, maintainer keys might have changed
-# Always reinstall, as the keyring can be updated without a package version bump.
+# Ensure we have the platform keyring, which can change without a package
+# version bump. Arch Linux ARM uses its own signing keys on Apple Silicon.
+platform_keyring=archlinux-keyring
+if omarchy-hw-apple-silicon; then
+  platform_keyring=archlinuxarm-keyring
+fi
 echo -e "\e[32m\nUpdate Arch signing keys\e[0m"
-sudo pacman -Sy --noconfirm archlinux-keyring >/dev/null 2> >(grep -vE '^warning: archlinux-keyring-[^ ]+ is up to date -- reinstalling$' >&2)
+sudo pacman -Sy --noconfirm "$platform_keyring" >/dev/null 2> >(grep -vE "^warning: ${platform_keyring}-[^ ]+ is up to date -- reinstalling$" >&2)
 echo "Keys are correct"

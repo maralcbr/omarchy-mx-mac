@@ -15,30 +15,40 @@ echo -e "\e[32m\nUpdate system packages\e[0m"
 # the omarchy packages, but files can land there unowned (in-place extension
 # work, script-written files), which would abort the whole upgrade. Packaged
 # content always wins there.
-sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm \
-  --overwrite '/etc/docker/daemon.json' \
-  --overwrite '/etc/gnupg/dirmngr.conf' \
-  --overwrite '/etc/mkinitcpio.conf.d/omarchy_hooks.conf' \
-  --overwrite '/etc/mkinitcpio.conf.d/thunderbolt_module.conf' \
-  --overwrite '/etc/modprobe.d/omarchy-usb-autosuspend.conf' \
-  --overwrite '/etc/sddm.conf.d/10-theme.conf' \
-  --overwrite '/etc/sddm.conf.d/10-wayland.conf' \
-  --overwrite '/etc/sudoers.d/omarchy-asdcontrol' \
-  --overwrite '/etc/sudoers.d/omarchy-passwd-tries' \
-  --overwrite '/etc/sudoers.d/omarchy-tzupdate' \
-  --overwrite '/etc/sysctl.d/90-omarchy-file-watchers.conf' \
-  --overwrite '/etc/sysctl.d/99-omarchy-sysctl.conf' \
-  --overwrite '/etc/systemd/logind.conf.d/10-ignore-power-button.conf' \
-  --overwrite '/etc/systemd/resolved.conf.d/10-disable-multicast.conf' \
-  --overwrite '/etc/systemd/resolved.conf.d/20-docker-dns.conf' \
-  --overwrite '/etc/systemd/system.conf.d/10-faster-shutdown.conf' \
-  --overwrite '/etc/systemd/system/user@.service.d/10-faster-shutdown.conf' \
-  --overwrite '/etc/systemd/system/docker.service.d/no-block-boot.conf' \
-  --overwrite '/etc/systemd/system/plocate-updatedb.service.d/ac-only.conf' \
-  --overwrite '/etc/systemd/system.conf.d/20-omarchy-nofile.conf' \
-  --overwrite '/etc/systemd/user.conf.d/20-omarchy-nofile.conf' \
-  --overwrite '/usr/lib/systemd/system-sleep/unmount-fuse' \
-  --overwrite '/usr/share/plymouth/themes/omarchy/*' \
-  --overwrite '/usr/share/sddm/hyprland.lua' \
-  --overwrite '/usr/share/sddm/themes/omarchy/*' \
-  --overwrite '/usr/share/omarchy/*'
+overwrite_paths=(
+  /etc/docker/daemon.json
+  /etc/gnupg/dirmngr.conf
+  /etc/mkinitcpio.conf.d/omarchy_hooks.conf
+  /etc/mkinitcpio.conf.d/thunderbolt_module.conf
+  /etc/modprobe.d/omarchy-usb-autosuspend.conf
+  /etc/sddm.conf.d/10-theme.conf
+  /etc/sddm.conf.d/10-wayland.conf
+  /etc/sudoers.d/omarchy-asdcontrol
+  /etc/sudoers.d/omarchy-passwd-tries
+  /etc/sudoers.d/omarchy-tzupdate
+  /etc/sysctl.d/90-omarchy-file-watchers.conf
+  /etc/sysctl.d/99-omarchy-sysctl.conf
+  /etc/systemd/logind.conf.d/10-ignore-power-button.conf
+  /etc/systemd/resolved.conf.d/10-disable-multicast.conf
+  /etc/systemd/resolved.conf.d/20-docker-dns.conf
+  /etc/systemd/system.conf.d/10-faster-shutdown.conf
+  /etc/systemd/system/user@.service.d/10-faster-shutdown.conf
+  /etc/systemd/system/docker.service.d/no-block-boot.conf
+  /etc/systemd/system/plocate-updatedb.service.d/ac-only.conf
+  /etc/systemd/system.conf.d/20-omarchy-nofile.conf
+  /etc/systemd/user.conf.d/20-omarchy-nofile.conf
+  /usr/lib/systemd/system-sleep/unmount-fuse
+  /usr/share/plymouth/themes/omarchy/*
+  /usr/share/sddm/hyprland.lua
+  /usr/share/sddm/themes/omarchy/*
+  /usr/share/omarchy/*
+)
+pacman_args=(-Syu --noconfirm)
+for path in "${overwrite_paths[@]}"; do
+  if omarchy-hw-apple-silicon && [[ $path == /etc/mkinitcpio* || $path == *usb-autosuspend* ]]; then
+    continue
+  fi
+  pacman_args+=(--overwrite "$path")
+done
+
+sudo env OMARCHY_UPDATE_PACMAN=1 pacman "${pacman_args[@]}"
