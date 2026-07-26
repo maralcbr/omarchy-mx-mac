@@ -8,6 +8,10 @@ The repository slug changed, while the Omarchy Mac product and existing command
 names remain unchanged for compatibility. The old repository name must remain
 unused so GitHub can continue redirecting legacy installations.
 
+The old `maralcbr.github.io/omarchy-mac/` project path is preserved by the
+`maralcbr/maralcbr.github.io` compatibility site. Its `boot.sh` forwards to the
+new Pages deployment without recreating the old repository.
+
 This plan intentionally separates preparation from the GitHub rename so release
 downloads and installation commands can be checked before the public URL changes.
 

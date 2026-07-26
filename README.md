@@ -180,7 +180,8 @@ The first release bundle is pinned to source commit `bf71823f`.
 The repository was renamed from `maralcbr/omarchy-mac` to
 `maralcbr/omarchy-mx-mac`. The Omarchy Mac product and existing command names
 remain unchanged for compatibility. GitHub redirects existing clone and web
-URLs, but legacy Git checkouts can update their remote explicitly:
+URLs. A compatibility shim also preserves the old GitHub Pages `boot.sh` URL,
+but legacy Git checkouts can update their remote explicitly:
 
 ```bash
 git -C ~/.local/share/omarchy remote set-url origin \
