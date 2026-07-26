@@ -3,13 +3,13 @@
 # =============================================================================
 # Omarchy Mac Bootstrap Setup Script
 # =============================================================================
-# This script downloads the omarchy-mac repository to the correct location
+# This script downloads the omarchy-mx-mac repository to the correct location
 # and guides the user to run the actual bootstrap script locally.
 #
 # Usage (as root after first boot):
-#   curl -fsSL https://raw.githubusercontent.com/maralcbr/omarchy-mac/main/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/bootstrap.sh | bash
 #   OR
-#   wget -qO- https://raw.githubusercontent.com/maralcbr/omarchy-mac/main/bootstrap.sh | bash
+#   wget -qO- https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/bootstrap.sh | bash
 # =============================================================================
 
 set -e
@@ -74,7 +74,7 @@ check_root() {
 
 # Clone repository and setup
 clone_repository() {
-    local repo_url="https://github.com/${OMARCHY_REPO:-maralcbr/omarchy-mac}.git"
+    local repo_url="https://github.com/${OMARCHY_REPO:-maralcbr/omarchy-mx-mac}.git"
     local target_dir="/root/.local/share/omarchy"
     
     print_step "Downloading Omarchy Mac repository..."

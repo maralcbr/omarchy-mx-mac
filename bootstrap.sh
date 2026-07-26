@@ -167,7 +167,7 @@ install_yay() {
 
 clone_repo_to_user() {
     local username="$1"
-    local repo="${OMARCHY_REPO:-maralcbr/omarchy-mac}"
+    local repo="${OMARCHY_REPO:-maralcbr/omarchy-mx-mac}"
     local ref="${OMARCHY_REF:-main}"
 
     print_step "Cloning Omarchy Mac into user's home"

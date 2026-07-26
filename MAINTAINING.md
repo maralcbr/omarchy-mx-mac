@@ -7,7 +7,7 @@ This fork keeps Omarchy usable on Apple Silicon through Asahi ALARM. The goal is
 Use these remotes in the development clone:
 
 ```bash
-origin            https://github.com/maralcbr/omarchy-mac.git
+origin            https://github.com/maralcbr/omarchy-mx-mac.git
 upstream-omarchy  https://github.com/basecamp/omarchy.git
 asahi-alarm       https://github.com/asahi-alarm/asahi-alarm.git
 ```

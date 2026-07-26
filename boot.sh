@@ -133,7 +133,7 @@ show_spinner "Updating package database and installing git" \
     ${SUDO:+$SUDO }pacman -Syu --noconfirm --needed git
 
 # Use custom repo if specified, otherwise default to the maintained Mac fork
-OMARCHY_REPO="${OMARCHY_REPO:-maralcbr/omarchy-mac}"
+OMARCHY_REPO="${OMARCHY_REPO:-maralcbr/omarchy-mx-mac}"
 
 show_spinner "Cloning Omarchy Mac repository" \
     bash -lc 'set -e; target="$HOME/.local/share/omarchy"; mkdir -p "$(dirname "$target")"; rm -rf "$target"; git clone "https://github.com/'"$OMARCHY_REPO"'.git" "$target"'
