@@ -177,7 +177,7 @@ The first release bundle is pinned to source commit `bf71823f`.
 
 ## Repository Name
 
-The repository is moving from `maralcbr/omarchy-mac` to
+The repository was renamed from `maralcbr/omarchy-mac` to
 `maralcbr/omarchy-mx-mac`. The Omarchy Mac product and existing command names
 remain unchanged for compatibility. GitHub redirects existing clone and web
 URLs, but legacy Git checkouts can update their remote explicitly:
