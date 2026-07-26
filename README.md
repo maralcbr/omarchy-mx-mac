@@ -21,6 +21,10 @@ Before upgrading, keep Ethernet available and back up `/boot`, `/etc/pacman.conf
 reboot if the upgrade reports an error. This repository is not a fresh Asahi
 installer.
 
+The first public bundle is limited to the tested 14-inch 2021 MacBook Pro with
+M1 Pro (`apple,j314s`). Download and checksum the bootstrap using the
+[pinned release instructions](https://github.com/maralcbr/omarchy-pkgs/tree/asahi-quattro#apple-silicon-quattro-preview).
+
 ## License
 
 Omarchy is released under the [MIT License](https://opensource.org/licenses/MIT).
