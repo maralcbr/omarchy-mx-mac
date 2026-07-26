@@ -10,7 +10,7 @@ This fork currently supports one experimental path: upgrading an existing,
 working `omarchy-mac` installation on the maintainer's MacBook Pro with M1 Pro.
 Other Apple Silicon models and fresh Asahi installations are untested.
 
-The upgrade requires a five-package aarch64 bundle built from the matching
+The upgrade requires a six-package aarch64 bundle built from the matching
 `dev` source commit and accompanied by `asahi-quattro-bundle.manifest`. The
 upgrade preserves the Arch Linux ARM repositories, `linux-asahi`, GRUB, and the
 NetworkManager iwd backend. It fails closed when a package, migration, or

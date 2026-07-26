@@ -156,6 +156,7 @@ validate_asahi_packages() {
     omarchy-keyring
     omarchy-settings-dev
     omarchy-dev
+    omarchy-nvim
     quickshell-git
     ttf-jetbrains-mono-nerd-basic
   )
