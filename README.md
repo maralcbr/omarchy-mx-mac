@@ -23,7 +23,7 @@ installer.
 
 The first public bundle is limited to the tested 14-inch 2021 MacBook Pro with
 M1 Pro (`apple,j314s`). Download and checksum the bootstrap using the
-[pinned release instructions](https://github.com/maralcbr/omarchy-pkgs/blob/d4a6599121c6dfa24909f7867db42af2ee218a91/README.md#apple-silicon-quattro-preview).
+[pinned release instructions](https://github.com/maralcbr/omarchy-pkgs/blob/0b4ad6d28b12a812bb70cef5967959c3a069e3e9/README.md#apple-silicon-quattro-preview).
 
 ## License
 
