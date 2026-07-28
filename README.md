@@ -1,78 +1,172 @@
 ![Omarchy running on Apple Silicon](https://github.com/user-attachments/assets/86b2651c-4b49-4ec5-ae78-023b01e46a15)
 
-# Omarchy Mac: Quattro on Apple Silicon
+# Omarchy Mac on Apple Silicon
 
-An experimental compatibility project for running Omarchy Quattro on Apple
-Silicon through Arch Linux ARM and Asahi Linux.
+Run Omarchy on Apple Silicon through Arch Linux ARM and Asahi Linux.
 
 [![License](https://img.shields.io/github/license/maralcbr/omarchy-mx-mac)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/maralcbr/omarchy-mx-mac?style=social)](https://github.com/maralcbr/omarchy-mx-mac/stargazers)
 
-> [!IMPORTANT]
-> The current public release is an upgrade for an existing, working
-> `omarchy-mac` installation. It is not a fresh Asahi Linux installer.
+This project currently offers two paths:
 
-## Project Direction
+| Version | Status | Installation |
+| --- | --- | --- |
+| Omarchy `3.8.2` | Recommended stable version | Fresh installation on Asahi Arch Minimal |
+| Omarchy Quattro | Experimental `dev` preview | Upgrade from an existing working Omarchy Mac installation |
 
-This project is moving from a general Apple Silicon installation guide to a
-tested compatibility and release path for Omarchy Quattro on Mac hardware. The
-focus is preserving the platform components supplied by Asahi while adopting
-the current package-backed Omarchy architecture.
+> [!NOTE]
+> This project is currently running on and tested with a 14-inch 2021 MacBook
+> Pro with M1 Pro (`apple,j314s`). Apple Silicon support still depends on the
+> upstream Asahi Linux support available for each model.
 
-The upgrade is designed to preserve:
+## Before You Begin
 
-- The `linux-asahi` kernel and initramfs
-- GRUB and the existing Asahi boot configuration
-- Arch Linux ARM and Asahi package repositories
-- NetworkManager with the iwd Wi-Fi backend
-- Apple-specific audio, camera, display, power, and input support
+- Back up macOS and important Linux data.
+- Review the [Asahi Linux device support](https://asahilinux.org/fedora/#device-support)
+  for your Mac.
+- Keep at least 50 GB free on the internal SSD; 100 GB is recommended.
+- Use AC power and a reliable Internet connection during installation.
+- Expect model-specific limitations around external displays, speakers,
+  cameras, power management, or other hardware.
 
-Unsafe boot, repository, networking, and migration changes fail closed instead
-of being applied speculatively.
+This project is not intended for Parallels, virtual machines, or non-Asahi ARM
+systems.
 
-## Tested Hardware
+## Install Stable Omarchy 3.8.2
 
-The first public Quattro preview was tested on this machine:
+This is the recommended installation. The instructions pin the repository to
+Mac release `v3.8.2-mac.5`, which is based on Omarchy `3.8.2`.
 
-| Component | Tested configuration |
+### 1. Install Asahi Arch Minimal
+
+From macOS Terminal, run the Asahi Alarm installer:
+
+```bash
+curl https://asahi-alarm.org/installer-bootstrap.sh | sh
+```
+
+Follow the installer prompts and select **Asahi Arch Minimal**. Allocate enough
+space for Linux, finish the installation, and boot into the new Arch system.
+
+### 2. Prepare Arch Linux
+
+Sign in as `root` using the credentials provided by the Asahi installer. If
+networking is not active, connect through NetworkManager:
+
+```bash
+nmtui
+```
+
+Update the system and install Git:
+
+```bash
+pacman -Syu --needed git
+```
+
+### 3. Download The Stable Mac Release
+
+Clone the pinned stable release instead of the moving `main` branch:
+
+```bash
+mkdir -p /root/.local/share
+git clone --branch v3.8.2-mac.5 --depth 1 \
+  https://github.com/maralcbr/omarchy-mx-mac.git \
+  /root/.local/share/omarchy
+```
+
+### 4. Run The Stable Bootstrap
+
+Keep the repository and version pin while the bootstrap creates the regular
+user installation:
+
+```bash
+OMARCHY_REPO=maralcbr/omarchy-mx-mac \
+OMARCHY_REF=v3.8.2-mac.5 \
+bash /root/.local/share/omarchy/bootstrap.sh
+```
+
+The bootstrap will:
+
+- Install required system packages and the `yay` AUR helper
+- Create or configure a regular user with sudo access
+- Clone the same stable tag into `~/.local/share/omarchy`
+- Run the Omarchy Mac installer for that user
+
+Enter the requested username and passwords carefully. Do not interrupt package
+transactions.
+
+### 5. Reboot And Check The Desktop
+
+After the installer completes successfully:
+
+```bash
+reboot
+```
+
+Confirm that the display, keyboard, touchpad, Wi-Fi, audio, brightness, and
+power controls work before making additional changes.
+
+Verify the installed Omarchy Mac version:
+
+```bash
+cat ~/.local/share/omarchy/version
+```
+
+Expected output:
+
+```text
+3.8.2-mac.5
+```
+
+## Optional: Install Omarchy Quattro From `dev`
+
+> [!WARNING]
+> Quattro is not the default or recommended installation. It is an experimental,
+> one-way upgrade for adventurous users who understand the risk and are willing
+> to recover from backups if it fails.
+
+The Quattro preview is developed on the [`dev` branch](https://github.com/maralcbr/omarchy-mx-mac/tree/dev).
+Do not clone `dev` and run `install.sh` as a fresh installer. The reviewed path
+uses a checksummed six-package aarch64 bundle built from `dev` source commit
+`bf71823f`.
+
+### Quattro Support Boundary
+
+The current public Quattro bootstrap accepts only the machine used for complete
+validation:
+
+| Component | Validated configuration |
 | --- | --- |
 | Model | MacBook Pro 14-inch, 2021 |
 | SoC | Apple M1 Pro |
 | Device tree | `apple,j314s` |
 | Architecture | `aarch64` |
-| Kernel package | `linux-asahi` |
-| Network stack | NetworkManager with iwd |
+| Kernel | `linux-asahi` |
 | Bootloader | GRUB |
+| Wi-Fi backend | NetworkManager with iwd |
 
-Validation included a real Quattro upgrade, a complete `omarchy update`, two
-successful reboots, suspend and resume, Wi-Fi, DNS, audio, microphone, camera,
-brightness controls, and power profiles.
+Validation on this MacBook Pro included the real Quattro upgrade, a complete
+`omarchy update`, two reboots, suspend and resume, Wi-Fi, DNS, audio,
+microphone, camera, brightness, and power profiles.
 
-The public bootstrap currently rejects every other Apple Silicon model. A
-different M1 Pro MacBook, an M1/M2/M3 desktop, or a newer Mac may be similar,
-but it is not considered supported until it is tested explicitly.
+Other M1 Pro configurations and other Apple Silicon models are intentionally
+rejected until they complete equivalent testing.
 
-## Install Omarchy Quattro
-
-### Requirements
-
-You need all of the following:
+### Quattro Requirements
 
 - The exact `apple,j314s` MacBook Pro described above
-- An existing, working `omarchy-mac` desktop
-- Arch Linux ARM with the Asahi repositories still configured
-- The `linux-asahi`, `networkmanager`, and `iwd` packages
-- NetworkManager configured with `wifi.backend=iwd`
-- A current backup and at least one reliable network connection
-- AC power connected during the upgrade
+- An existing, working Omarchy Mac installation
+- Arch Linux ARM and the Asahi repositories still configured
+- `linux-asahi`, `networkmanager`, and `iwd` installed
+- NetworkManager using `wifi.backend=iwd`
+- A current backup and preferably Ethernet available
 
-Before starting, back up important data and, at minimum, `/boot`,
-`/etc/pacman.conf`, `/etc/pacman.d`, `/etc/NetworkManager`, and
-`~/.local/state/omarchy`. Keeping Ethernet available is recommended.
+Back up important data and, at minimum, `/boot`, `/etc/pacman.conf`,
+`/etc/pacman.d`, `/etc/NetworkManager`, and `~/.local/state/omarchy`.
 
-### Download And Verify
+### 1. Download And Verify Quattro
 
-Run these commands as your regular Omarchy user, not as root:
+Run these commands as the regular Omarchy user, not as root:
 
 ```bash
 mkdir -p ~/Downloads/omarchy-quattro
@@ -84,37 +178,37 @@ curl -fLO "$release/SHA256SUMS"
 sha256sum --ignore-missing --check SHA256SUMS
 ```
 
-You can verify the complete 291 MB release without changing the system:
+Verify the complete release without changing the system:
 
 ```bash
 bash install-asahi-quattro --verify-only
 ```
 
-A successful check ends with:
+A successful verification ends with:
 
 ```text
 Verified asahi-quattro-bf71823f for the tested apple,j314s MacBook Pro.
 ```
 
-### Run The Upgrade
+### 2. Run The Quattro Upgrade
 
-Start the interactive upgrade:
+Start the interactive upgrade only after verification succeeds:
 
 ```bash
 bash install-asahi-quattro
 ```
 
-Read the preflight summary and confirmation carefully. The upgrader downloads
-and validates the six-package aarch64 bundle before mutation, creates a
-root-owned recovery backup, and then performs the reviewed Apple Silicon
-transition.
+The bootstrap and upgrader verify the hardware, Asahi repositories, networking
+backend, package identities, architectures, checksums, source bundle, migration
+policy, and forbidden boot paths before mutation. The upgrader also creates a
+root-owned recovery backup.
 
 Do not reboot if the upgrade reports an error. Save the terminal output and
-open an issue with the failure and relevant logs.
+open an issue before proceeding.
 
-### After The Upgrade
+### 3. Verify Quattro After Reboot
 
-Reboot when the upgrade completes successfully, then confirm the core state:
+After a successful upgrade and reboot:
 
 ```bash
 uname -r
@@ -131,87 +225,64 @@ omarchy-dev 4.0.0.r5665.gbf71823-1
 omarchy-settings-dev 4.0.0.r5665.gbf71823-1
 ```
 
-## What The Bootstrap Checks
+## Troubleshooting
 
-Before invoking the upgrader, the public bootstrap verifies:
+### Network Is Unavailable
 
-- `aarch64` architecture and the exact `apple,j314s` device tree
-- An existing Omarchy command and required Asahi packages
-- The `[asahi-alarm]`, `[core]`, `[extra]`, `[alarm]`, and `[aur]` repositories
-- NetworkManager's effective iwd backend
-- The release manifest and embedded upgrader checksum
-- Exactly one valid archive for each of the six required packages
-- Every package checksum before the upgrade script runs
+Inspect NetworkManager without assuming a fixed interface name:
 
-The upgrader performs deeper package metadata, architecture, dependency,
-forbidden-path, migration, and source-bundle checks before asking for final
-confirmation.
+```bash
+nmcli device status
+nmcli device wifi list
+sudo systemctl restart NetworkManager
+sudo journalctl -u NetworkManager -b
+```
 
-## Current Limitations
+### An Installation Or Upgrade Failed
 
-- Fresh installations are not supported by the Quattro preview.
-- Only `apple,j314s` has completed the full validation sequence.
-- The release is experimental and published as a GitHub prerelease.
-- Parallels, virtual machines, and non-Asahi ARM systems are unsupported.
-- Downgrading from Quattro is not supported; use backups for recovery.
+- Do not reboot during or after a failed package transaction.
+- Preserve the complete terminal output.
+- Check `/var/log/pacman.log` and the backup path printed by the installer.
+- Open a verified bug report with hardware and package information.
 
-## Releases And Development
+## Releases And Support
 
-- [Apple Silicon Quattro preview release](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-bf71823f)
+- [Stable `v3.8.2-mac.5` source](https://github.com/maralcbr/omarchy-mx-mac/tree/v3.8.2-mac.5)
+- [Quattro prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-bf71823f)
 - [`dev` source branch](https://github.com/maralcbr/omarchy-mx-mac/tree/dev)
-- [`asahi-quattro` package branch](https://github.com/maralcbr/omarchy-pkgs/tree/asahi-quattro)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
 
-`main` remains the stable integration branch. Apple Silicon Quattro changes are
-developed and validated on `dev`, then packaged from an immutable source commit.
-The first release bundle is pinned to source commit `bf71823f`.
+When requesting support, include:
 
-## Roadmap
+```bash
+uname -a
+cat /proc/device-tree/model 2>/dev/null
+tr '\0' '\n' </proc/device-tree/compatible 2>/dev/null
+pacman-conf --repo-list
+```
 
-- Collect validation reports from the exact supported model
-- Add explicit support only for Apple Silicon models tested end to end
-- Automate reproducible package release and verification workflows
-- Design a separate, safe fresh-install path without replacing Asahi platform
-  repositories, kernels, or boot configuration
+Never post passwords, Wi-Fi credentials, private keys, or complete connection
+profiles.
 
 ## Repository Name
 
 The repository was renamed from `maralcbr/omarchy-mac` to
-`maralcbr/omarchy-mx-mac`. The Omarchy Mac product and existing command names
-remain unchanged for compatibility. GitHub redirects existing clone and web
-URLs. A compatibility shim also preserves the old GitHub Pages `boot.sh` URL,
-but legacy Git checkouts can update their remote explicitly:
+`maralcbr/omarchy-mx-mac`. GitHub redirects legacy repository and Git URLs, and
+a compatibility shim preserves the old GitHub Pages `boot.sh` URL.
+
+Legacy installations can update their remote explicitly:
 
 ```bash
 git -C ~/.local/share/omarchy remote set-url origin \
   https://github.com/maralcbr/omarchy-mx-mac.git
 ```
 
-See the operational [rename plan](REPOSITORY_RENAME_PLAN.md) for integration
-and rollback details.
-
-## Support
-
-Search existing issues before opening a new one. Include the output of:
-
-```bash
-uname -a
-cat /proc/device-tree/model 2>/dev/null
-tr '\0' '\n' </proc/device-tree/compatible 2>/dev/null
-pacman -Q linux-asahi networkmanager iwd omarchy-dev omarchy-settings-dev
-pacman-conf --repo-list
-NetworkManager --print-config
-```
-
-Do not include passwords, Wi-Fi credentials, private keys, or complete network
-connection profiles.
-
 ## Acknowledgements
 
 Thanks to Asahi Linux and Asahi Alarm for enabling Linux on Apple Silicon, DHH
 and the Omarchy contributors for Omarchy, Malik NA for the original Omarchy Mac
-work, and everyone who has tested and improved the Apple Silicon path.
+work, and everyone testing the Apple Silicon path.
 
 ## License
 
