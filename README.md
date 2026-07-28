@@ -12,7 +12,7 @@ This project currently offers two paths:
 | Version | Status | Installation |
 | --- | --- | --- |
 | Omarchy `3.8.2` | Recommended stable version | Fresh installation on Asahi Arch Minimal |
-| Omarchy Quattro | Experimental `dev` preview | Upgrade from an existing working Omarchy Mac installation |
+| Omarchy Quattro | Experimental `quattro` preview | Upgrade from an existing working Omarchy Mac installation |
 
 > [!NOTE]
 > This project is currently running on and tested with a 14-inch 2021 MacBook
@@ -118,17 +118,17 @@ Expected output:
 3.8.2-mac.5
 ```
 
-## Optional: Install Omarchy Quattro From `dev`
+## Optional: Install Omarchy Quattro
 
 > [!WARNING]
 > Quattro is not the default or recommended installation. It is an experimental,
 > one-way upgrade for adventurous users who understand the risk and are willing
 > to recover from backups if it fails.
 
-The Quattro preview is developed on the [`dev` branch](https://github.com/maralcbr/omarchy-mx-mac/tree/dev).
-Do not clone `dev` and run `install.sh` as a fresh installer. The reviewed path
-uses a checksummed six-package aarch64 bundle built from `dev` source commit
-`bf71823f`.
+The Quattro preview is developed on the [`quattro` branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro).
+Do not clone `quattro` and run `install.sh` as a fresh installer. The reviewed
+path uses a checksummed six-package aarch64 bundle built from `quattro` source
+commit `41fcbfbe`.
 
 ### Quattro Support Boundary
 
@@ -172,7 +172,7 @@ Run these commands as the regular Omarchy user, not as root:
 mkdir -p ~/Downloads/omarchy-quattro
 cd ~/Downloads/omarchy-quattro
 
-release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-bf71823f
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-41fcbfbe
 curl -fLO "$release/install-asahi-quattro"
 curl -fLO "$release/SHA256SUMS"
 sha256sum --ignore-missing --check SHA256SUMS
@@ -187,7 +187,7 @@ bash install-asahi-quattro --verify-only
 A successful verification ends with:
 
 ```text
-Verified asahi-quattro-bf71823f for the tested apple,j314s MacBook Pro.
+Verified asahi-quattro-41fcbfbe for the tested apple,j314s MacBook Pro.
 ```
 
 ### 2. Run The Quattro Upgrade
@@ -221,8 +221,8 @@ omarchy-migrate --pending
 The expected Quattro packages for this preview are:
 
 ```text
-omarchy-dev 4.0.0.r5665.gbf71823-1
-omarchy-settings-dev 4.0.0.r5665.gbf71823-1
+omarchy-dev 4.0.0.r5770.g41fcbfb-1
+omarchy-settings-dev 4.0.0.r5770.g41fcbfb-1
 ```
 
 ## Troubleshooting
@@ -248,8 +248,8 @@ sudo journalctl -u NetworkManager -b
 ## Releases And Support
 
 - [Stable `v3.8.2-mac.5` source](https://github.com/maralcbr/omarchy-mx-mac/tree/v3.8.2-mac.5)
-- [Quattro prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-bf71823f)
-- [`dev` source branch](https://github.com/maralcbr/omarchy-mx-mac/tree/dev)
+- [Quattro prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-41fcbfbe)
+- [`quattro` source branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
 
