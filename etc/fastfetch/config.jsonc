@@ -78,7 +78,7 @@
       "type": "command",
       "key": "│ ├󰔫",
       "keyColor": "blue",
-      "text": "channel=$(omarchy-version-channel); echo \"$channel\""
+      "text": "channel=$(omarchy-version-channel); [[ $channel == \"unknown\" ]] || echo \"$channel\""
     },
     {
       "type": "kernel",

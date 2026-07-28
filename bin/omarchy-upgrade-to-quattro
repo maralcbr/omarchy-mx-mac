@@ -1777,7 +1777,6 @@ always_copy_config_files=(
   hypr/input.lua
   hypr/looknfeel.lua
   hypr/monitors.lua
-  omarchy/bar.json
   omarchy/extensions/omarchy-menu.jsonc
   omarchy/hooks/pre-refresh-pacman.d/add-custom-repo.sample
   omarchy/shell.json
@@ -2311,8 +2310,8 @@ enable_user_unit() {
 enable_user_unit bt-agent.service
 enable_user_unit omarchy-sleep-lock.service
 enable_user_unit omarchy-recover-internal-monitor.service
-enable_user_unit omarchy-update-user-notify.path
-enable_user_unit omarchy-update-user-notify.service
+enable_user_unit omarchy-migrate-notify.service
+enable_user_unit omarchy-fcitx5.service
 mkdir -p "$HOME/.config/systemd/user/default.target.wants"
 for unit in pipewire-pulse.service pipewire-pulse.socket; do
   if [[ -e /usr/lib/systemd/user/$unit ]]; then

@@ -78,7 +78,7 @@ apple_silicon() {
 asahi_migration_disposition() {
   case "$1" in
     1778623107.sh) printf 'handled\tmpv-mpris installed by the Asahi Quattro package transition\n' ;;
-    1780057136.sh|1780294774.sh|1780517689.sh|1781587663.sh|1782049344.sh|1784479832.sh|1784508556.sh|1784521870.sh|1784568652.sh|1784763917.sh|1784767406.sh|1784818437.sh|1784849592.sh|1784909971.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1780057136.sh|1780294774.sh|1780517689.sh|1781587663.sh|1782049344.sh|1784479832.sh|1784508556.sh|1784521870.sh|1784568652.sh|1784763917.sh|1784767406.sh|1784809451.sh|1784818437.sh|1784849592.sh|1784909971.sh|1784960000.sh|1784970000.sh|1784989000.sh|1785002349.sh|1785095882.sh|1785101000.sh|1785166747.sh|1785167800.sh|1785189600.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     1780739888.sh) printf 'handled\tdua installed and dust retired by the Quattro transition\n' ;;
     1781043107.sh) printf 'handled\ttheme state moved by the Quattro user transition\n' ;;
     1781063758.sh) printf 'handled\tHyprland configuration replaced by the Quattro user transition\n' ;;
@@ -94,6 +94,9 @@ asahi_migration_disposition() {
     1784672586.sh) printf 'handled\tvalidated quickshell-git package installed by the Quattro transition\n' ;;
     1784914435.sh) printf 'handled\tpackaged NetworkManager policy installed by the Quattro transition\n' ;;
     1784917531.sh) printf 'skipped\tLimine kernel and initramfs repair is not applicable to Asahi\n' ;;
+    1784809452.sh) printf 'skipped\tSnapper timeline cleanup is not applicable to Asahi\n' ;;
+    1784961000.sh|1785013000.sh) printf 'skipped\tzram tuning is held until validated on Asahi\n' ;;
+    1785090473.sh) printf 'skipped\tfingerprint hardware is unsupported on this Apple Silicon path\n' ;;
     *) return 1 ;;
   esac
 }
@@ -180,6 +183,7 @@ while IFS=$'\t' read -r name file marker; do
   touch "$marker"
 done < <(migration_entries)
 
-# Clear notifications queued while an update was installing migrations. The
-# substring matches both the current and legacy notification titles.
+# Clear a login-time notification the user left sitting there and then resolved
+# by running migrations some other way. The substring matches both the current
+# and legacy notification titles.
 omarchy-notification-dismiss "Omarchy Migrations" >/dev/null 2>&1 || true
