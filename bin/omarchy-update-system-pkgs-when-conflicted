@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# omarchy:summary=Recover unowned files blocking a system package update
+# omarchy:summary=Retry a system package update after resolving file conflicts
 # omarchy:hidden=true
 
 # Internal to omarchy-update-system-pkgs. Not a command to run by hand: it acts
@@ -73,7 +73,7 @@ mapfile -t leftovers < <(
 if omarchy-hw-apple-silicon; then
   for path in "${leftovers[@]}"; do
     case "$path" in
-      /boot|/boot/*|/etc/default/grub|/etc/grub|/etc/grub/*|/etc/limine|/etc/limine/*|/etc/mkinitcpio*|/etc/pacman.conf|/etc/pacman.d|/etc/pacman.d/*|/usr/lib/initcpio|/usr/lib/initcpio/*)
+      /boot|/boot/*|/etc/default/grub|/etc/grub|/etc/grub/*|/etc/limine|/etc/limine/*|/etc/mkinitcpio*|/etc/modprobe.d/omarchy-usb-autosuspend.conf|/etc/pacman.conf|/etc/pacman.d|/etc/pacman.d/*|/etc/systemd/oomd.conf.d|/etc/systemd/oomd.conf.d/*|/etc/tmpfiles.d/omarchy-zswap.conf|/usr/lib/initcpio|/usr/lib/initcpio/*|/usr/lib/systemd/user/app.slice.d|/usr/lib/systemd/user/app.slice.d/*|/usr/lib/systemd/zram-generator.conf.d|/usr/lib/systemd/zram-generator.conf.d/*)
         echo "Refusing to replace Apple Silicon platform path: $path" >&2
         exit 1
         ;;

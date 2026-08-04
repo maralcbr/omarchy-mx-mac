@@ -56,6 +56,23 @@ HOME="$test_home" OMARCHY_PATH="$test_root" TEST_CALLS="$calls" \
 grep -Fq $'handled\tmpv-mpris installed' "$state_dir/1778623107.sh.skipped" || fail "Asahi policy repairs malformed markers"
 pass "Asahi migration policy rejects malformed skip markers"
 
+rm -f "$test_root/migrations"/* "$state_dir"/*
+for migration in "$ROOT"/migrations/*.sh; do
+  filename=$(basename "$migration")
+  printf ':\n' >"$test_root/migrations/$filename"
+done
+HOME="$test_home" OMARCHY_PATH="$test_root" TEST_CALLS="$calls" \
+  "$ROOT/bin/omarchy-migrate" >"$test_tmp/all-reviewed.out"
+pass "Asahi migration policy reviews every bundled migration"
+
+for migration in 1785273276.sh 1785424256.sh 1785637426.sh; do
+  [[ -f $state_dir/$migration.skipped ]] || fail "Asahi migration policy skips $migration"
+done
+grep -Fq $'skipped\tT2 Limine and mkinitcpio' "$state_dir/1785273276.sh.skipped" || fail "T2 migration records its Apple Silicon reason"
+grep -Fq $'skipped\tsystemd-oomd reclaim tuning' "$state_dir/1785424256.sh.skipped" || fail "oomd migration records its Asahi reason"
+grep -Fq $'skipped\tomacalc is unavailable' "$state_dir/1785637426.sh.skipped" || fail "omacalc migration records its repository reason"
+pass "Asahi migration policy blocks unvalidated platform changes"
+
 cat >"$test_root/migrations/9999999999.sh" <<'SH'
 printf '%s\n' unknown >>"$TEST_CALLS"
 SH

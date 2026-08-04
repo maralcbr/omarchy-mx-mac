@@ -29,6 +29,7 @@ cups
 cups-browsed
 cups-filters
 cups-pdf
+ddcutil
 docker
 docker-buildx
 docker-compose
@@ -71,7 +72,6 @@ inxi
 jq
 kdenlive
 kernel-modules-hook
-kvantum-qt5
 lazydocker
 lazygit
 less
@@ -105,11 +105,10 @@ power-profiles-daemon
 python-gobject
 python-poetry-core
 python-terminaltexteffects
-qt5-wayland
 quickshell-git
+qrencode
 ripgrep
 ruby
-rust
 sddm
 slurp
 socat

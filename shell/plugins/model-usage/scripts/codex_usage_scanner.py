@@ -71,6 +71,7 @@ today_tokens_by_model = {}
 model_usage = {}
 sessions_by_day = {day: set() for day in recent_dates}
 today_sessions = set()
+active_days = set()
 
 today_prompts = 0
 today_total_tokens = 0
@@ -86,6 +87,7 @@ def add_usage(day, session_key, model, input_tokens, output_tokens, cache_read, 
   total = input_tokens + output_tokens + cache_read + cache_write
   total_prompts += 1
   total_sessions.add(session_key)
+  active_days.add(day)
 
   bucket = model_usage.setdefault(model, {
     "inputTokens": 0,
@@ -211,12 +213,17 @@ def scan_native_codex_sessions():
           if payload.get("type") != "token_count":
             continue
           info = payload.get("info") or {}
-          usage = info.get("total_token_usage") or {}
-          input_tokens = number(usage.get("input_tokens"))
-          output_tokens = number(usage.get("output_tokens")) + number(usage.get("reasoning_output_tokens"))
+          # total_token_usage is cumulative for the session. Adding every
+          # snapshot makes usage grow quadratically, so count the last turn.
+          usage = info.get("last_token_usage") or {}
           cache_read = number(usage.get("cached_input_tokens"))
-          cache_write = 0
-          if not (input_tokens or output_tokens or cache_read):
+          cache_write = number(usage.get("cache_write_input_tokens"))
+          # Cached tokens are included in input_tokens, and reasoning tokens
+          # are included in output_tokens. Keep the cache split without
+          # counting either category twice.
+          input_tokens = max(0, number(usage.get("input_tokens")) - cache_read - cache_write)
+          output_tokens = number(usage.get("output_tokens"))
+          if not (input_tokens or output_tokens or cache_read or cache_write):
             continue
           day = local_day(entry.get("timestamp") or path.stat().st_mtime)
           add_usage(day, str(path), current_model, input_tokens, output_tokens, cache_read, cache_write)
@@ -336,6 +343,11 @@ out = {
   "recentDays": [recent[day] for day in recent_dates],
   "totalPrompts": total_prompts,
   "totalSessions": len(total_sessions),
+  # Days with any recorded usage, for the all-time "N days" summary.
+  # The dates travel too: merging snapshots from several machines needs
+  # their union, which a count alone cannot give.
+  "activeDays": len(active_days),
+  "activeDates": sorted(active_days),
   "modelUsage": model_usage,
   "usageStatusText": usage_status,
   "authHelpText": usage_help,

@@ -14,3 +14,7 @@ systemctl enable NetworkManager.service
 systemctl mask NetworkManager-wait-online.service
 systemctl enable power-profiles-daemon.service
 systemctl enable sddm.service
+if ! omarchy-hw-apple-silicon; then
+  # [Install] also enables the socket that reports app.slice candidacy.
+  systemctl enable systemd-oomd.service
+fi

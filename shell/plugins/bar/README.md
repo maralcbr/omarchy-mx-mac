@@ -16,7 +16,7 @@ the shell for its whole session.
 
 The bar config lives under the `bar:` key of [`~/.config/omarchy/shell.json`](../../README.md#shelljson-shape). Out of the box the shell uses [`config/omarchy/shell.json`](../../../config/omarchy/shell.json). Once you customize anything via the bar gestures, `omarchy bar ...`, or by editing shell.json directly, your file is canonical — there is no deep-merge.
 
-The bar is configured directly on the bar itself: drag empty bar space (or click-and-hold) to move the bar to another screen edge, double-left-click empty center-bar space to toggle transparency, and drag widgets to reorder them. The `omarchy bar position` and `omarchy bar transparent` commands do the same from scripts. For scriptable widget changes, use `omarchy bar plugin add`, `omarchy bar plugin move`, `omarchy bar plugin remove`, and `omarchy bar plugin set` (widget ids come from `omarchy plugin list`).
+The bar is configured directly on the bar itself: drag empty bar space (or click-and-hold) to move the bar to another screen edge, double-left-click empty center-bar space to toggle transparency, and drag widgets to reorder them. The `omarchy bar position`, `omarchy bar transparent`, `omarchy bar move`, and `omarchy bar set` commands do the same from scripts. Enable or disable widgets with `omarchy plugin enable` and `omarchy plugin disable` (widget ids come from `omarchy plugin list`).
 
 Example `shell.json` (bar subtree only shown):
 
@@ -67,8 +67,8 @@ Example `shell.json` (bar subtree only shown):
 | `omarchy.audio` | Volume icon + popup with master slider, output-device picker, per-app mixer | left = popup · right = mute · middle = popup · scroll = volume |
 | `omarchy.network` | Wi-Fi/Ethernet icon + popup with Wi-Fi scan, signal, connect, DNS provider selection | left = popup · right = nmtui |
 | `omarchy.tailscale` | Tailscale status, connection switcher, machine browser, and copy actions | left = popup · right = toggle · middle = refresh |
-| `omarchy.model-usage` | Claude Code and Codex usage, limits, synced usage aggregation, and settings | left = popup · right = settings · middle = refresh |
-| `omarchy.power` | Battery/AC icon + popup with battery stats, power profiles, and system info | left = popup |
+| `omarchy.model-usage` | Claude Code and Codex limits with pace, today, last week, and all-time model breakdown | left = panel · right = refresh · middle = next subscription |
+| `omarchy.power` | Battery/AC icon + popup with battery stats, power profiles, and system info | left = popup · right = toggle percentage |
 | `omarchy.bluetooth` | Bluetooth icon + popup with device list, connect/disconnect, battery | left = popup · right = toggle radio · middle = bluetoothctl TUI |
 | `omarchy.monitor` | Brightness and laptop display controls | left = popup |
 
@@ -178,6 +178,6 @@ namespaced ids.
 Third-party widgets ship as separate plugins under
 `~/.config/omarchy/plugins/<plugin-id>/` with their own `manifest.json`
 declaring `kinds: ["bar-widget"]` and a `barWidget` entry point. See
-[../../README.md](../../README.md) for the manifest schema. Enable,
-rescan, and place third-party plugins with `omarchy plugin enable`,
-`omarchy plugin rescan`, and `omarchy bar plugin add`.
+[../../README.md](../../README.md) for the manifest schema. Rescan, enable,
+and place third-party plugins with `omarchy-shell shell rescanPlugins`,
+`omarchy plugin enable`, and `omarchy bar move`.

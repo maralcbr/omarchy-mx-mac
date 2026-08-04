@@ -244,7 +244,7 @@ validate_asahi_packages() {
     while IFS= read -r path; do
       path=${path#./}
       path=${path#/}
-      if grep -Eqi '^(boot|etc/(default/grub|grub|limine|mkinitcpio|pacman\.conf|pacman\.d)|usr/lib/initcpio)(/|$)' <<<"$path"; then
+      if grep -Eqi '^(boot|etc/(default/grub|grub|limine|mkinitcpio|pacman\.conf|pacman\.d|systemd/oomd\.conf\.d|tmpfiles\.d/omarchy-zswap\.conf)|etc/modprobe\.d/omarchy-usb-autosuspend\.conf|usr/lib/(initcpio|systemd/user/app\.slice\.d|systemd/zram-generator\.conf\.d))(/|$)' <<<"$path"; then
         fail "Package '$(basename "$archive")' contains unsafe Asahi path '$path'. No changes were made."
       fi
     done <<<"$package_paths"
@@ -798,8 +798,10 @@ install_omarchy_quattro_packages() {
 install_asahi_quattro_packages() {
   local runtime_packages=(
     dua-cli
+    ddcutil
     expac
     foot
+    gnome-calculator
     gnome-disk-utility
     inotify-tools
     iwd
@@ -808,8 +810,8 @@ install_asahi_quattro_packages() {
     mpv-mpris
     nautilus-python
     networkmanager
+    qrencode
     ruby
-    rust
     udiskie
     wf-recorder
     wtype
@@ -1717,6 +1719,7 @@ retire	systemd/user/bt-agent.service	0406b577a1225dc2a9f86638d3c346eb3635168576f
 retire	systemd/user/omarchy-recover-internal-monitor.service	b9b92cedc44cf3cb6216948629be55b53d16746e31896dc6469fd49ba55e82f4
 retire	systemd/user/omarchy-recover-internal-monitor.service	e1483079b9f2aefcd43b4722c75a31643e5f3bb5a2eada5f52f1d7d201e8c289
 retire	systemd/user/omarchy-sleep-lock.service	6870b232a6c0474b59187882e6d25ae771bba735098bcbedef8a2b73b97e2b6a
+retire	systemd/user/omarchy-sleep-lock.service	bcd1a76cb5c63514922bc5e11af22ae480fc6d06a99863364e02bdf3c7bdceaf
 retire	uwsm/default	2e89b03a3710b70cf754ea0c8db4388bb35a7519870036abff5ea8a584eafbc0
 retire	uwsm/default	3622ba134d29b639a155424a5226215e213c8508144e98001ffe128a8967c9b5
 retire	uwsm/default	73712c5a677532bd4afcee5800ae9b76e3d02a2130659a96a8b7fbe2fd2c3d53
