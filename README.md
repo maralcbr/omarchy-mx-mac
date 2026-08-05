@@ -11,7 +11,7 @@ This project currently offers two paths:
 
 | Version | Status | Installation |
 | --- | --- | --- |
-| Omarchy `3.8.2` | Recommended stable version | Fresh installation on Asahi Arch Minimal |
+| Omarchy `3.8.4` | Recommended stable version | Fresh installation on Asahi Arch Minimal |
 | Omarchy Quattro | Experimental `quattro` preview | Upgrade from an existing working Omarchy Mac installation |
 
 > [!NOTE]
@@ -32,10 +32,10 @@ This project currently offers two paths:
 This project is not intended for Parallels, virtual machines, or non-Asahi ARM
 systems.
 
-## Install Stable Omarchy 3.8.2
+## Install Stable Omarchy 3.8.4
 
 This is the recommended installation. The instructions pin the repository to
-Mac release `v3.8.2-mac.5`, which is based on Omarchy `3.8.2`.
+Mac release `v3.8.4-mac.1`, which is based on Omarchy `3.8.4`.
 
 ### 1. Install Asahi Arch Minimal
 
@@ -69,7 +69,7 @@ Clone the pinned stable release instead of the moving `main` branch:
 
 ```bash
 mkdir -p /root/.local/share
-git clone --branch v3.8.2-mac.5 --depth 1 \
+git clone --branch v3.8.4-mac.1 --depth 1 \
   https://github.com/maralcbr/omarchy-mx-mac.git \
   /root/.local/share/omarchy
 ```
@@ -81,7 +81,7 @@ user installation:
 
 ```bash
 OMARCHY_REPO=maralcbr/omarchy-mx-mac \
-OMARCHY_REF=v3.8.2-mac.5 \
+OMARCHY_REF=v3.8.4-mac.1 \
 bash /root/.local/share/omarchy/bootstrap.sh
 ```
 
@@ -115,7 +115,7 @@ cat ~/.local/share/omarchy/version
 Expected output:
 
 ```text
-3.8.2-mac.5
+3.8.4-mac.1
 ```
 
 ## Optional: Install Omarchy Quattro
@@ -128,7 +128,7 @@ Expected output:
 The Quattro preview is developed on the [`quattro` branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro).
 Do not clone `quattro` and run `install.sh` as a fresh installer. The reviewed
 path uses a checksummed six-package aarch64 bundle built from `quattro` source
-commit `41fcbfbe`.
+commit `6f5ac5a0`.
 
 ### Quattro Support Boundary
 
