@@ -32,6 +32,47 @@ This project currently offers two paths:
 This project is not intended for Parallels, virtual machines, or non-Asahi ARM
 systems.
 
+## Fork Features
+
+Omarchy MX Mac keeps Omarchy's desktop experience while adapting installation,
+hardware integration, and updates for Apple Silicon:
+
+- Bootstrap from a fresh Asahi Arch Minimal installation into a complete
+  Omarchy desktop and regular user account.
+- Native Arch Linux ARM and Asahi stack with `linux-asahi`, Asahi firmware,
+  regional ARM mirrors, and the dedicated Asahi package repository.
+- Hardware-accelerated Apple GPU graphics through the Mesa `vulkan-asahi`
+  driver.
+- MacBook keyboard-backlight controls, Apple SMC lid handling, display
+  brightness integration, and low-battery notifications.
+- Widevine support for DRM-protected browser streaming when the package is
+  available from the configured Asahi repositories.
+- Optional Steam installation through the Asahi ARM64/FEX compatibility
+  environment.
+- ARM64-native application paths, including Cursor, plus a Fuzzel-based app
+  launcher suited to the platform.
+- Asahi-aware updates that track `linux-asahi` changes and offer a reboot when
+  a new kernel is installed.
+
+Hardware support still depends on Asahi Linux. The stable release is tested on
+the MacBook listed above; external displays, speakers, cameras, suspend, and
+power management can vary by model.
+
+## Mac Screenshot Shortcuts
+
+The fork adds familiar number-row screenshot shortcuts with `Control` included
+so Omarchy's existing `Command+Shift+3/4/5` workspace controls remain intact.
+On Apple keyboards, the Command key is Hyprland's `SUPER` modifier.
+
+| Shortcut | Action |
+| --- | --- |
+| `Control+Shift+Command+3` | Capture the focused display |
+| `Control+Shift+Command+4` | Select a region or click a window to capture it |
+| `Control+Shift+Command+5` | Open screenshot and screen-recording controls |
+
+The existing Print Screen shortcuts and all Omarchy workspace bindings remain
+available.
+
 ## Install Stable Omarchy 3.8.4
 
 This is the recommended installation. The instructions pin the repository to

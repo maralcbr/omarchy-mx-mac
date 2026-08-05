@@ -88,4 +88,30 @@ else
   exit 1
 fi
 
+echo "=== Testing Mac screenshot shortcuts ==="
+UTILITIES_BINDINGS="$OMARCHY_PATH/default/hypr/bindings/utilities.conf"
+TILING_BINDINGS="$OMARCHY_PATH/default/hypr/bindings/tiling-v2.conf"
+
+grep -Fxq 'bindd = SUPER CTRL SHIFT, code:12, Screenshot display, exec, omarchy-capture-screenshot fullscreen' "$UTILITIES_BINDINGS" || {
+  echo "✗ Missing Control+Shift+Command+3 screenshot binding"
+  exit 1
+}
+grep -Fxq 'bindd = SUPER CTRL SHIFT, code:13, Screenshot selection, exec, omarchy-capture-screenshot' "$UTILITIES_BINDINGS" || {
+  echo "✗ Missing Control+Shift+Command+4 screenshot binding"
+  exit 1
+}
+grep -Fxq 'bindd = SUPER CTRL SHIFT, code:14, Capture menu, exec, omarchy-menu capture' "$UTILITIES_BINDINGS" || {
+  echo "✗ Missing Control+Shift+Command+5 capture binding"
+  exit 1
+}
+
+for workspace in 3 4 5; do
+  key=$((workspace + 9))
+  grep -Fq "bindd = SUPER SHIFT, code:$key, Move window to workspace $workspace," "$TILING_BINDINGS" || {
+    echo "✗ Default window movement binding for workspace $workspace changed"
+    exit 1
+  }
+done
+echo "✓ Mac screenshot shortcuts preserve Omarchy workspace bindings"
+
 echo "=== All Asahi Linux compatibility tests passed ==="
