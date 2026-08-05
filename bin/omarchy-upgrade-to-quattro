@@ -1496,7 +1496,7 @@ EOF
 
   if (( asahi_mode )); then
     command -v NetworkManager >/dev/null 2>&1 || fail "NetworkManager is required for the Asahi network transition."
-    command -v iwd >/dev/null 2>&1 || fail "iwd is required for the Asahi NetworkManager backend."
+    command -v iwctl >/dev/null 2>&1 || fail "iwd is required for the Asahi NetworkManager backend."
     as_root systemctl enable NetworkManager.service >/dev/null 2>&1 || fail "Could not enable NetworkManager for the next boot."
     as_root install -d -m 0755 /etc/NetworkManager/conf.d
     if ! as_root test -e /etc/NetworkManager/conf.d/wifi_backend.conf; then
