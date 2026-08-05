@@ -38,6 +38,9 @@ o.bind("SUPER + ALT + code:34", "Make webcam overlay smaller", "omarchy-capture-
 o.bind("SUPER + ALT + code:35", "Make webcam overlay larger", "omarchy-capture-webcam-resize larger")
 o.bind("SUPER + PRINT", "Color picker", "pkill hyprpicker || hyprpicker -a")
 o.bind("SUPER + CTRL + PRINT", "Extract text (OCR) from screenshot", "omarchy-capture-text")
+o.bind("SUPER + CTRL + SHIFT + code:12", "Screenshot display", "omarchy-capture-screenshot fullscreen")
+o.bind("SUPER + CTRL + SHIFT + code:13", "Screenshot selection", "omarchy-capture-screenshot")
+o.bind("SUPER + CTRL + SHIFT + code:14", "Capture menu", "omarchy-menu toggle capture")
 
 -- While the slurp region picker is open, Return captures the entire focused
 -- monitor. The bind lives exactly as long as a selection layer is on screen

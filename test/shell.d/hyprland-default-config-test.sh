@@ -105,6 +105,30 @@ grep -Fq $'SUPER + RETURN	Terminal' <<<"$fresh_output" || fail "default applicat
 grep -Fq $'SUPER + SHIFT + A	ChatGPT' <<<"$fresh_output" || fail "default application bindings include preinstalled web apps"
 pass "default application bindings load from package defaults"
 
+default_output=$(run_omarchy_bindings "$fresh_home")
+grep -Fq $'SUPER + CTRL + SHIFT + code:12\tScreenshot display' <<<"$default_output" ||
+  fail "default bindings include Control+Shift+Command+3 screenshot"
+grep -Fq $'SUPER + CTRL + SHIFT + code:13\tScreenshot selection' <<<"$default_output" ||
+  fail "default bindings include Control+Shift+Command+4 screenshot"
+grep -Fq $'SUPER + CTRL + SHIFT + code:14\tCapture menu' <<<"$default_output" ||
+  fail "default bindings include Control+Shift+Command+5 capture menu"
+
+for workspace in 3 4 5; do
+  key=$((workspace + 9))
+  grep -Fq "SUPER + SHIFT + code:$key"$'\t'"Move window to workspace $workspace" <<<"$default_output" ||
+    fail "Mac screenshot shortcuts preserve workspace $workspace window movement"
+done
+pass "Mac screenshot shortcuts preserve Omarchy workspace bindings"
+
+utilities="$ROOT/default/hypr/bindings/utilities.lua"
+grep -Fxq 'o.bind("SUPER + CTRL + SHIFT + code:12", "Screenshot display", "omarchy-capture-screenshot fullscreen")' "$utilities" ||
+  fail "display screenshot binding invokes fullscreen capture"
+grep -Fxq 'o.bind("SUPER + CTRL + SHIFT + code:13", "Screenshot selection", "omarchy-capture-screenshot")' "$utilities" ||
+  fail "selection screenshot binding invokes smart capture"
+grep -Fxq 'o.bind("SUPER + CTRL + SHIFT + code:14", "Capture menu", "omarchy-menu toggle capture")' "$utilities" ||
+  fail "capture shortcut opens the capture menu"
+pass "Mac screenshot shortcuts invoke the expected commands"
+
 grep -F 'hl.dsp.send_key_state({ mods = mods, key = key, state = "down" })' "$ROOT/default/hypr/bindings/clipboard.lua" >/dev/null ||
   fail "universal clipboard shortcuts send explicit mods to the focused surface"
 pass "universal clipboard shortcuts send explicit mods to the focused surface"
