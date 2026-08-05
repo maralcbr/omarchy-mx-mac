@@ -172,7 +172,7 @@ Run these commands as the regular Omarchy user, not as root:
 mkdir -p ~/Downloads/omarchy-quattro
 cd ~/Downloads/omarchy-quattro
 
-release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-41fcbfbe
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-6f5ac5a0
 curl -fLO "$release/install-asahi-quattro"
 curl -fLO "$release/SHA256SUMS"
 sha256sum --ignore-missing --check SHA256SUMS
@@ -187,7 +187,7 @@ bash install-asahi-quattro --verify-only
 A successful verification ends with:
 
 ```text
-Verified asahi-quattro-41fcbfbe for the tested apple,j314s MacBook Pro.
+Verified asahi-quattro-6f5ac5a0 for the tested apple,j314s MacBook Pro.
 ```
 
 ### 2. Run The Quattro Upgrade
@@ -221,8 +221,8 @@ omarchy-migrate --pending
 The expected Quattro packages for this preview are:
 
 ```text
-omarchy-dev 4.0.0.r5770.g41fcbfb-1
-omarchy-settings-dev 4.0.0.r5770.g41fcbfb-1
+omarchy-dev 4.0.0.r5871.g6f5ac5a-1
+omarchy-settings-dev 4.0.0.r5871.g6f5ac5a-1
 ```
 
 ## Troubleshooting
@@ -247,8 +247,8 @@ sudo journalctl -u NetworkManager -b
 
 ## Releases And Support
 
-- [Stable `v3.8.2-mac.5` source](https://github.com/maralcbr/omarchy-mx-mac/tree/v3.8.2-mac.5)
-- [Quattro prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-41fcbfbe)
+- [Stable `v3.8.4-mac.1` source](https://github.com/maralcbr/omarchy-mx-mac/tree/v3.8.4-mac.1)
+- [Quattro prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-6f5ac5a0)
 - [`quattro` source branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
