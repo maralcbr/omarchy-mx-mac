@@ -169,7 +169,7 @@ Expected output:
 The Quattro preview is developed on the [`quattro` branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro).
 Do not clone `quattro` and run `install.sh` as a fresh installer. The reviewed
 path uses a checksummed six-package aarch64 bundle built from `quattro` source
-commit `6f5ac5a0`.
+commit `d3c9064f`.
 
 ### Quattro Support Boundary
 
@@ -186,9 +186,9 @@ validation:
 | Bootloader | GRUB |
 | Wi-Fi backend | NetworkManager with iwd |
 
-Validation on this MacBook Pro included the real Quattro upgrade, a complete
-`omarchy update`, two reboots, suspend and resume, Wi-Fi, DNS, audio,
-microphone, camera, brightness, and power profiles.
+Validation on this MacBook Pro included a real six-package installation and
+reboot, package integrity and protected-file checks, Wi-Fi, DNS, audio,
+microphone, camera, brightness, power profiles, and desktop screenshots.
 
 Other M1 Pro configurations and other Apple Silicon models are intentionally
 rejected until they complete equivalent testing.
@@ -213,7 +213,7 @@ Run these commands as the regular Omarchy user, not as root:
 mkdir -p ~/Downloads/omarchy-quattro
 cd ~/Downloads/omarchy-quattro
 
-release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-6f5ac5a0
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-d3c9064f
 curl -fLO "$release/install-asahi-quattro"
 curl -fLO "$release/SHA256SUMS"
 sha256sum --ignore-missing --check SHA256SUMS
@@ -228,7 +228,7 @@ bash install-asahi-quattro --verify-only
 A successful verification ends with:
 
 ```text
-Verified asahi-quattro-6f5ac5a0 for the tested apple,j314s MacBook Pro.
+Verified asahi-quattro-d3c9064f for the tested apple,j314s MacBook Pro.
 ```
 
 ### 2. Run The Quattro Upgrade
@@ -262,8 +262,8 @@ omarchy-migrate --pending
 The expected Quattro packages for this preview are:
 
 ```text
-omarchy-dev 4.0.0.r5871.g6f5ac5a-1
-omarchy-settings-dev 4.0.0.r5871.g6f5ac5a-1
+omarchy-dev 4.0.0.r5890.gd3c9064-1
+omarchy-settings-dev 4.0.0.r5890.gd3c9064-1
 ```
 
 ## Troubleshooting
@@ -289,7 +289,7 @@ sudo journalctl -u NetworkManager -b
 ## Releases And Support
 
 - [Stable `v3.8.4-mac.1` source](https://github.com/maralcbr/omarchy-mx-mac/tree/v3.8.4-mac.1)
-- [Quattro prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-6f5ac5a0)
+- [Quattro prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-d3c9064f)
 - [`quattro` source branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
