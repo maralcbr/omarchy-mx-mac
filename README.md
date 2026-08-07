@@ -21,9 +21,12 @@ Before upgrading, keep Ethernet available and back up `/boot`, `/etc/pacman.conf
 reboot if the upgrade reports an error. This repository is not a fresh Asahi
 installer.
 
-The first public bundle is limited to the tested 14-inch 2021 MacBook Pro with
-M1 Pro (`apple,j314s`). Download and checksum the bootstrap using the
-[pinned release instructions](https://github.com/maralcbr/omarchy-pkgs/blob/962591bea723de2c65b636808bceeaeb2e8dc5f4/README.md#apple-silicon-quattro-preview).
+The current public bundle is limited to the tested 14-inch 2021 MacBook Pro
+with M1 Pro (`apple,j314s`). It was built from source commit `d3c9064f` as
+`omarchy-dev` and `omarchy-settings-dev` version
+`4.0.0.r5890.gd3c9064-1`. Download and checksum the bootstrap using the
+[release instructions](https://github.com/maralcbr/omarchy-pkgs/blob/asahi-quattro/README.md#apple-silicon-quattro-preview),
+or inspect the [exact prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-d3c9064f).
 
 ## Apple Silicon Adaptations
 
