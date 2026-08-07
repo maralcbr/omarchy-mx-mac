@@ -76,7 +76,7 @@ available.
 ## Install Stable Omarchy 3.8.4
 
 This is the recommended installation. The instructions pin the repository to
-Mac release `v3.8.4-mac.1`, which is based on Omarchy `3.8.4`.
+Mac release `v3.8.4-mac.2`, which is based on Omarchy `3.8.4`.
 
 ### 1. Install Asahi Arch Minimal
 
@@ -110,7 +110,7 @@ Clone the pinned stable release instead of the moving `main` branch:
 
 ```bash
 mkdir -p /root/.local/share
-git clone --branch v3.8.4-mac.1 --depth 1 \
+git clone --branch v3.8.4-mac.2 --depth 1 \
   https://github.com/maralcbr/omarchy-mx-mac.git \
   /root/.local/share/omarchy
 ```
@@ -122,7 +122,7 @@ user installation:
 
 ```bash
 OMARCHY_REPO=maralcbr/omarchy-mx-mac \
-OMARCHY_REF=v3.8.4-mac.1 \
+OMARCHY_REF=v3.8.4-mac.2 \
 bash /root/.local/share/omarchy/bootstrap.sh
 ```
 
@@ -156,7 +156,7 @@ cat ~/.local/share/omarchy/version
 Expected output:
 
 ```text
-3.8.4-mac.1
+3.8.4-mac.2
 ```
 
 ## Optional: Install Omarchy Quattro
@@ -288,7 +288,7 @@ sudo journalctl -u NetworkManager -b
 
 ## Releases And Support
 
-- [Stable `v3.8.4-mac.1` source](https://github.com/maralcbr/omarchy-mx-mac/tree/v3.8.4-mac.1)
+- [Stable `v3.8.4-mac.2` source](https://github.com/maralcbr/omarchy-mx-mac/tree/v3.8.4-mac.2)
 - [Quattro prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-d3c9064f)
 - [`quattro` source branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
