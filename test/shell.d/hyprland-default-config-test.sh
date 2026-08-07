@@ -143,6 +143,14 @@ if grep -F 'wtype -M' "$ROOT/default/hypr/bindings/clipboard.lua" >/dev/null; th
 fi
 pass "universal clipboard shortcuts avoid virtual keyboard modifier merging"
 
+terminals="$ROOT/default/hypr/apps/terminals.lua"
+grep -Fq 'foot' "$terminals" || fail "terminal tag includes Foot"
+grep -Fq 'org\\.omarchy\\..*' "$terminals" || fail "terminal tag includes Omarchy terminal app ids"
+grep -Fq 'TUI\\..*' "$terminals" || fail "terminal tag includes Omarchy TUI app ids"
+grep -Fq 'window.tags or {}' "$ROOT/default/hypr/bindings/clipboard.lua" || fail "clipboard routing reads active window tags"
+grep -Fq 'tag:gsub("%*$", "") == "terminal"' "$ROOT/default/hypr/bindings/clipboard.lua" || fail "clipboard routing accepts dynamic terminal tags"
+pass "universal clipboard shortcuts share the terminal tag contract"
+
 removed_home="$tmpdir/removed-home"
 mkdir -p "$removed_home/.local/state/omarchy"
 touch "$removed_home/.local/state/omarchy/preinstalls-removed"

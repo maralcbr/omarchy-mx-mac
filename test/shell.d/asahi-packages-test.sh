@@ -21,6 +21,19 @@ fi
 rm -f "${TMPDIR:-/tmp}/omarchy-asahi-forbidden.$$"
 pass "Asahi manifests exclude x86 kernels, Limine, multilib, NVIDIA, Intel, and T2 packages"
 
-grep -Fq '"gnome-calculator"' "$ROOT/default/hypr/bindings/utilities.lua" || fail "Asahi calculator bindings use the available GNOME Calculator"
+utilities="$ROOT/default/hypr/bindings/utilities.lua"
+grep -Fxq 'o.bind("SUPER + CTRL + Q", "Calculator", "gnome-calculator")' "$utilities" || fail "Asahi calculator shortcut uses the available GNOME Calculator"
+grep -Fxq 'o.bind("XF86Calculator", "Calculator", "gnome-calculator")' "$utilities" || fail "Asahi calculator key uses the available GNOME Calculator"
+if grep -Fq '"omacalc"' "$utilities"; then
+  fail "Asahi calculator bindings exclude unavailable omacalc"
+fi
 grep -Fq '"org.gnome.Calculator"' "$ROOT/default/hypr/apps/system.lua" || fail "Asahi window rules match GNOME Calculator"
 pass "Asahi defaults retain GNOME Calculator"
+
+nordvpn_installer="$ROOT/bin/omarchy-install-service-nordvpn"
+grep -Fxq 'omarchy-pkg-aur-add nordvpn-bin' "$nordvpn_installer" || fail "Asahi NordVPN installation retains the aarch64 AUR path"
+if grep -Fxq 'omarchy-pkg-add nordvpn-bin' "$nordvpn_installer"; then
+  fail "Asahi NordVPN installation avoids the unavailable direct package"
+fi
+grep -Fq '"label":"NordVPN [AUR]"' "$ROOT/default/omarchy/omarchy-menu.jsonc" || fail "Asahi menu identifies NordVPN as an AUR install"
+pass "Asahi NordVPN installation uses the available package source"
