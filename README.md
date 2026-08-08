@@ -12,7 +12,7 @@ This project currently offers two paths:
 | Version | Status | Installation |
 | --- | --- | --- |
 | Omarchy `3.8.4` | Recommended stable version | Fresh installation on Asahi Arch Minimal |
-| Omarchy Quattro | Experimental `quattro` preview | Upgrade from an existing working Omarchy Mac installation |
+| Omarchy Quattro | Quattro beta | Upgrade from an existing working Omarchy Mac installation |
 
 > [!NOTE]
 > This project is currently running on and tested with a 14-inch 2021 MacBook
@@ -162,11 +162,11 @@ Expected output:
 ## Optional: Install Omarchy Quattro
 
 > [!WARNING]
-> Quattro is not the default or recommended installation. It is an experimental,
+> Quattro is not the default or recommended installation. It is a beta,
 > one-way upgrade for adventurous users who understand the risk and are willing
 > to recover from backups if it fails.
 
-The Quattro preview is developed on the [`quattro` branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro).
+The Quattro beta is developed on the [`quattro` branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro).
 Do not clone `quattro` and run `install.sh` as a fresh installer. The reviewed
 path uses a checksummed six-package aarch64 bundle built from `quattro` source
 commit `d3c9064f`.
@@ -259,7 +259,7 @@ nmcli device status
 omarchy-migrate --pending
 ```
 
-The expected Quattro packages for this preview are:
+The expected Quattro packages for this beta are:
 
 ```text
 omarchy-dev 4.0.0.r5890.gd3c9064-1
