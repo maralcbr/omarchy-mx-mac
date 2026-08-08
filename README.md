@@ -6,7 +6,7 @@ Read more at [omarchy.org](https://omarchy.org).
 
 ## Apple Silicon Beta
 
-This fork currently supports one beta path: upgrading an existing,
+This fork currently supports one Beta path: upgrading an existing,
 working `omarchy-mac` installation on the maintainer's MacBook Pro with M1 Pro.
 Other Apple Silicon models and fresh Asahi installations are untested.
 
