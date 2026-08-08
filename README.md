@@ -4,9 +4,9 @@ Omarchy is a beautiful, modern & opinionated Linux distribution by DHH.
 
 Read more at [omarchy.org](https://omarchy.org).
 
-## Apple Silicon Preview
+## Apple Silicon Beta
 
-This fork currently supports one experimental path: upgrading an existing,
+This fork currently supports one beta path: upgrading an existing,
 working `omarchy-mac` installation on the maintainer's MacBook Pro with M1 Pro.
 Other Apple Silicon models and fresh Asahi installations are untested.
 
@@ -25,7 +25,7 @@ The current public bundle is limited to the tested 14-inch 2021 MacBook Pro
 with M1 Pro (`apple,j314s`). It was built from source commit `d3c9064f` as
 `omarchy-dev` and `omarchy-settings-dev` version
 `4.0.0.r5890.gd3c9064-1`. Download and checksum the bootstrap using the
-[release instructions](https://github.com/maralcbr/omarchy-pkgs/blob/asahi-quattro/README.md#apple-silicon-quattro-preview),
+[release instructions](https://github.com/maralcbr/omarchy-pkgs/blob/asahi-quattro/README.md#apple-silicon-quattro-beta),
 or inspect the [exact prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-d3c9064f).
 
 ## Apple Silicon Adaptations
