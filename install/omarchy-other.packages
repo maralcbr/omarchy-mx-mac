@@ -58,3 +58,6 @@ linux-firmware-marvell
 #linux-t2-headers (not available in current Asahi ALARM repositories)
 #t2fanrd (not available in current Asahi ALARM repositories)
 #tiny-dfr (not available in current Asahi ALARM repositories)
+
+# Framework 16
+#qmk-hid (Framework x86 hardware, not applicable to Apple Silicon)
