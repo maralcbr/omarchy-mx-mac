@@ -75,6 +75,7 @@ kernel-modules-hook
 lazydocker
 lazygit
 less
+libvips
 libsecret
 libyaml
 llvm
@@ -107,6 +108,7 @@ python-poetry-core
 python-terminaltexteffects
 quickshell-git
 qrencode
+zbar
 ripgrep
 ruby
 sddm

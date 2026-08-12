@@ -65,12 +65,16 @@ HOME="$test_home" OMARCHY_PATH="$test_root" TEST_CALLS="$calls" \
   "$ROOT/bin/omarchy-migrate" >"$test_tmp/all-reviewed.out"
 pass "Asahi migration policy reviews every bundled migration"
 
-for migration in 1785273276.sh 1785424256.sh 1785637426.sh; do
+for migration in 1785273276.sh 1785424256.sh 1785637426.sh 1785944594.sh 1786137597.sh 1786273938.sh 1786355450.sh 1786482992.sh; do
   [[ -f $state_dir/$migration.skipped ]] || fail "Asahi migration policy skips $migration"
 done
 grep -Fq $'skipped\tT2 Limine and mkinitcpio' "$state_dir/1785273276.sh.skipped" || fail "T2 migration records its Apple Silicon reason"
 grep -Fq $'skipped\tsystemd-oomd reclaim tuning' "$state_dir/1785424256.sh.skipped" || fail "oomd migration records its Asahi reason"
 grep -Fq $'skipped\tomacalc is unavailable' "$state_dir/1785637426.sh.skipped" || fail "omacalc migration records its repository reason"
+grep -Fq $'skipped\tT2 Limine and mkinitcpio' "$state_dir/1785944594.sh.skipped" || fail "T2 defaults migration records its Apple Silicon reason"
+grep -Fq $'skipped\therdr is unavailable' "$state_dir/1786273938.sh.skipped" || fail "herdr migration records its repository reason"
+grep -Fq $'skipped\tttfx is unavailable' "$state_dir/1786355450.sh.skipped" || fail "ttfx migration records its repository reason"
+grep -Fq $'skipped\tLimine boot image repair' "$state_dir/1786482992.sh.skipped" || fail "Limine repair migration records its Asahi reason"
 pass "Asahi migration policy blocks unvalidated platform changes"
 
 cat >"$test_root/migrations/9999999999.sh" <<'SH'

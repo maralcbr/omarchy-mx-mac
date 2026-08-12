@@ -22,6 +22,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [[ -z ${WAYLAND_DISPLAY:-} ]]; then
+  pass "no Wayland compositor; skipping tray menu activation test"
+  exit 0
+fi
+
 if ! command -v quickshell >/dev/null 2>&1; then
   pass "quickshell not installed; skipping tray menu activation test"
   exit 0
@@ -51,6 +56,9 @@ cp "$SHELL_TEST_DIR/fixtures/tray-menu-activation/shell.qml" "$config_dir/shell.
 OMARCHY_PATH="$ROOT" \
 OMARCHY_QML_TEST_RESULT="$result" \
 HOME="$TMPDIR/home" \
+XDG_CONFIG_HOME="$TMPDIR/home/.config" \
+XDG_CACHE_HOME="$TMPDIR/home/.cache" \
+XDG_STATE_HOME="$TMPDIR/home/.local/state" \
   quickshell -p "$config_dir" --no-color >"$qs_log" 2>&1 &
 QS_PID=$!
 

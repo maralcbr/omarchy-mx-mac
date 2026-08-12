@@ -7,7 +7,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 base_manifest="$ROOT/install/omarchy-base-asahi.packages"
 other_manifest="$ROOT/install/omarchy-other-asahi.packages"
 
-for package in linux-asahi linux-asahi-headers asahi-desktop-meta asahi-fwextract mesa vulkan-asahi ddcutil gnome-calculator qrencode; do
+for package in linux-asahi linux-asahi-headers asahi-desktop-meta asahi-fwextract mesa vulkan-asahi ddcutil gnome-calculator qrencode libvips zbar; do
   grep -Fx "$package" "$base_manifest" "$other_manifest" >/dev/null || fail "Asahi manifests include $package"
 done
 pass "Asahi manifests include Apple Silicon platform requirements"
