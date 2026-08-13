@@ -4,6 +4,8 @@ set -euo pipefail
 
 source "$(dirname "$0")/base-test.sh"
 
+grep -Fq 'asahi_status == 3' "$ROOT/bin/omarchy-update-available" || fail "availability checks tolerate bundle transport outages"
+
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 

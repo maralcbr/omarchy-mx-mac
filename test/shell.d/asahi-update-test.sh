@@ -19,6 +19,7 @@ grep -Fq 'omarchy-dev,omarchy-keyring,omarchy-nvim,omarchy-settings-dev,quickshe
 grep -Fq 'omarchy-keyring,omarchy-settings-dev,omarchy-dev,omarchy-nvim,quickshell-git,ttf-jetbrains-mono-nerd-basic' "$system_packages" || fail "pacman updates exclude the complete Asahi bundle"
 grep -Fq 'omarchy-update-asahi-bundle --yes' "$update" || fail "normal updates install the dedicated Asahi bundle"
 grep -Fq 'asahi-quattro-release.pending' "$update" || fail "normal updates commit bundle state only after migrations and hooks"
+grep -Fq 'bundle_status == 3' "$update" || fail "bundle transport outages do not block platform package updates"
 grep -Fq 'pacman -U --noconfirm -- "${archives[@]}"' "$bundle_update" || fail "Asahi bundle installs in one exact transaction"
 grep -Fq "grep -Fxq 'apple,j314s'" "$bundle_update" || fail "Asahi bundle updater is limited to the validated device"
 grep -Fq 'refusing signed release rollback' "$bundle_update" || fail "Asahi bundle updater has an anti-rollback gate"

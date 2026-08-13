@@ -65,7 +65,10 @@ actual_fingerprint=$(gpg --batch --show-keys --with-colons "$trusted_key_file" 2
 gpg --batch --homedir "$gnupg_dir" --import "$trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy signing key"
 
 download() {
-  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" --output "$2"
+  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" --output "$2" || {
+    echo "Apple Silicon bundle update: could not download $1" >&2
+    exit 3
+  }
 }
 
 verify_signature() {

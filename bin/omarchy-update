@@ -32,7 +32,15 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
 
   omarchy-update-dev
   if omarchy-hw-apple-silicon; then
+    set +e
     omarchy-update-asahi-bundle --yes
+    bundle_status=$?
+    set -e
+    if (( bundle_status == 3 )); then
+      echo "Apple Silicon bundle update deferred because its release channel is unavailable." >&2
+    elif (( bundle_status != 0 )); then
+      exit "$bundle_status"
+    fi
   fi
   omarchy-update-keyring
   omarchy-update-system-pkgs
