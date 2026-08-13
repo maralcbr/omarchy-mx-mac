@@ -166,8 +166,8 @@ shows the current and target releases and asks before changing immutable tags.
 
 The Quattro Beta is developed on the [`quattro` branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro).
 Do not clone `quattro` and run `install.sh` as a fresh installer. The reviewed
-path uses a checksummed six-package aarch64 bundle built from `quattro` source
-commit `d3c9064f`.
+path uses a signed six-package aarch64 bundle built from a validated `quattro`
+source commit.
 
 ### Quattro Support Boundary
 
@@ -261,8 +261,8 @@ omarchy-migrate --pending
 The expected Quattro packages for this Beta are:
 
 ```text
-omarchy-dev 4.0.0.r5890.gd3c9064-1
-omarchy-settings-dev 4.0.0.r5890.gd3c9064-1
+omarchy-dev 4.0.0.rRELEASE.gCOMMIT-1
+omarchy-settings-dev 4.0.0.rRELEASE.gCOMMIT-1
 ```
 
 ## Troubleshooting

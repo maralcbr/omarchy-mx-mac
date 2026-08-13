@@ -25,4 +25,6 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   omarchy-snapshot create || (($? == 127))
   omarchy-update-git
   omarchy-update-perform
+  state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/releases"
+  [[ ! -f $state_dir/stable-mac.pending ]] || mv "$state_dir/stable-mac.pending" "$state_dir/stable-mac"
 fi

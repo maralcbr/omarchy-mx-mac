@@ -7,12 +7,20 @@ on:
       - ".github/workflows/**"
       - "**/*.sh"
       - "scripts/**"
+      - "bin/omarchy-*"
+      - "install-omarchy-mx-mac"
+      - "boot.sh"
+      - "bootstrap.sh"
   pull_request:
     branches: [ main, v0.* ]
     paths:
       - ".github/workflows/**"
       - "**/*.sh"
       - "scripts/**"
+      - "bin/omarchy-*"
+      - "install-omarchy-mx-mac"
+      - "boot.sh"
+      - "bootstrap.sh"
   workflow_dispatch:
 
 concurrency:
@@ -50,7 +58,7 @@ jobs:
         id: list_scripts
         run: |
           # Exclude legacy migrations from lint/format to reduce noise
-          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*|^bin/omarchy-' | grep -v '^migrations/' || true)
+          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*|^bin/omarchy-|^install-omarchy-mx-mac$' | grep -v '^migrations/' || true)
           printf "%s\n" "${files[@]}"
           echo "count=${#files[@]}" >> "$GITHUB_OUTPUT"
 
@@ -60,14 +68,14 @@ jobs:
           shellcheck --version
           # Only fail on actual errors; exclude network/dynamic source checks
           # Exclude migrations/ to avoid flagging historical scripts
-          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*|^bin/omarchy-' | grep -v '^migrations/')
+          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*|^bin/omarchy-|^install-omarchy-mx-mac$' | grep -v '^migrations/')
           shellcheck -s bash -S error -e SC1090,SC1091 "${files[@]}"
 
       - name: shfmt (check only)
         if: steps.list_scripts.outputs.count != '0'
         run: |
           # Show diffs but don't fail the build on formatting; exclude migrations/
-          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*|^bin/omarchy-' | grep -v '^migrations/')
+          mapfile -t files < <(git ls-files | grep -E '\.sh$|^scripts/.*|^bin/omarchy-|^install-omarchy-mx-mac$' | grep -v '^migrations/')
           shfmt -i 2 -ci -d "${files[@]}" || true
 
   # 2) Syntax + smoke tests (safe, non-privileged)
@@ -98,7 +106,7 @@ jobs:
             echo "::group::bash -n $f"
             bash -n "$f"
             echo "::endgroup::"
-          done < <(git ls-files -z | grep -z -E '\.sh$|^scripts/.*|^bin/omarchy-')
+          done < <(git ls-files -z | grep -z -E '\.sh$|^scripts/.*|^bin/omarchy-|^install-omarchy-mx-mac$')
 
       - name: Smoke run selected scripts in DRY_RUN/--help mode
         env:

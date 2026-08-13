@@ -32,13 +32,16 @@ while (($#)); do
 done
 cp "${url#file://}" "$output"
 EOF
-cat >"$tmp/bin/gpgv" <<'EOF'
-#!/bin/bash
-exit "${GPGV_EXIT:-0}"
-EOF
 cat >"$tmp/bin/gpg" <<'EOF'
 #!/bin/bash
-echo 'fpr:::::::::40DFB630FF42BCFFB047046CF0134EE680CAC571:'
+if [[ " $* " == *" --show-keys "* ]]; then
+  echo 'fpr:::::::::40DFB630FF42BCFFB047046CF0134EE680CAC571:'
+elif [[ " $* " == *" --import "* ]]; then
+  exit 0
+elif [[ " $* " == *" --verify "* ]]; then
+  (( ${GPG_EXIT:-0} == 0 )) || exit "$GPG_EXIT"
+  echo '[GNUPG:] VALIDSIG SIGNINGSUBKEY 2026-01-01 0 4 0 1 10 00 40DFB630FF42BCFFB047046CF0134EE680CAC571'
+fi
 EOF
 chmod +x "$tmp/bin"/*
 
@@ -52,7 +55,7 @@ run_resolver() {
 [[ $(run_resolver source_tag) == "v3.8.5-mac.1" ]]
 [[ $(run_resolver source_commit) == "0123456789abcdef0123456789abcdef01234567" ]]
 
-GPGV_EXIT=1 run_resolver >/dev/null 2>&1 && { echo "not ok - invalid signature accepted"; exit 1; }
+GPG_EXIT=1 run_resolver >/dev/null 2>&1 && { echo "not ok - invalid signature accepted"; exit 1; }
 
 sed -i 's/^sequence=3$/sequence=2/' "$tmp/release/omarchy-mx-mac-release"
 printf 'format=1\ntrack=stable-mac\nsequence=3\n' >"$tmp/state/omarchy/releases/stable-mac"

@@ -38,5 +38,4 @@ hyprctl reload &>/dev/null || true
 
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/releases"
 mkdir -p "$state_dir"
-printf '%s\n' "$descriptor" >"$state_dir/stable-mac.tmp"
-mv "$state_dir/stable-mac.tmp" "$state_dir/stable-mac"
+printf '%s\n' "$descriptor" >"$state_dir/stable-mac.pending"

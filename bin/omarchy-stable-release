@@ -18,7 +18,7 @@ fail() {
   exit 1
 }
 
-for command_name in curl gpg gpgv; do
+for command_name in curl gpg; do
   command -v "$command_name" >/dev/null 2>&1 || fail "Required command is unavailable: $command_name"
 done
 [[ -r $release_keyring ]] || fail "Omarchy release keyring is unavailable: $release_keyring"
@@ -30,8 +30,13 @@ curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
   --output "$work_dir/$descriptor_name" "$release_base_url/$descriptor_name"
 curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
   --output "$work_dir/$descriptor_name.sig" "$release_base_url/$descriptor_name.sig"
-gpgv --keyring "$release_keyring" "$work_dir/$descriptor_name.sig" "$work_dir/$descriptor_name" >/dev/null 2>&1 ||
-  fail "Stable release signature verification failed"
+gnupg_dir="$work_dir/gnupg"
+mkdir -m 0700 "$gnupg_dir"
+gpg --batch --homedir "$gnupg_dir" --import "$release_keyring" >/dev/null 2>&1 || fail "Could not load Omarchy release key"
+signature_status=$(gpg --batch --homedir "$gnupg_dir" --status-fd 1 --verify \
+  "$work_dir/$descriptor_name.sig" "$work_dir/$descriptor_name" 2>/dev/null) || fail "Stable release signature verification failed"
+valid_fingerprint=$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $NF; exit }' <<<"$signature_status")
+[[ $valid_fingerprint == "$expected_fingerprint" ]] || fail "Stable release signer fingerprint mismatch"
 
 declare -A release=()
 while IFS='=' read -r key value; do
