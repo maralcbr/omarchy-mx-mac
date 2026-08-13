@@ -136,6 +136,35 @@ grep -Fq 'sequence 2 was reused for different source' "$test_tmp/reuse.err" ||
   fail "release sequence reuse explains the refusal" "$(cat "$test_tmp/reuse.err")"
 pass "signed release sequence cannot be rebound to another source"
 
+cat >"$state" <<EOF
+format=1
+sequence=1
+tag=asahi-quattro-old
+source_commit=fedcba9876543210fedcba9876543210fedcba98
+EOF
+cat >"$state.pending" <<EOF
+format=1
+sequence=2
+tag=asahi-quattro-test
+source_commit=$source_commit
+EOF
+write_channel 2 "$source_commit"
+run_check >"$test_tmp/pending.out"
+grep -Fxq 'Apple Silicon Quattro bundle asahi-quattro-test has pending migrations' "$test_tmp/pending.out" ||
+  fail "pending bundle resumes migrations without reinstalling" "$(cat "$test_tmp/pending.out")"
+pass "pending signed Asahi release resumes migrations"
+
+write_channel 3 fedcba9876543210fedcba9876543210fedcba98
+set +e
+run_check >"$test_tmp/pending-newer.out" 2>"$test_tmp/pending-newer.err"
+status=$?
+set -e
+[[ $status -eq 2 ]] || fail "new release cannot leapfrog pending migrations" "status $status"
+grep -Fq 'finish pending release sequence 2 before installing sequence 3' "$test_tmp/pending-newer.err" ||
+  fail "pending migration refusal explains the blocker" "$(cat "$test_tmp/pending-newer.err")"
+pass "new signed release cannot leapfrog pending migrations"
+rm -f "$state.pending"
+
 cat >"$stub_bin/gpg" <<'SH'
 #!/bin/bash
 if [[ " $* " == *" --show-keys "* ]]; then

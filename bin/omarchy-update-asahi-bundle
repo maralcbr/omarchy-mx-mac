@@ -136,6 +136,37 @@ if [[ -e $state_file ]]; then
   installed_source=$state_source
 fi
 
+pending_file="${state_file}.pending"
+pending_sequence=0 pending_source=""
+if [[ -e $pending_file ]]; then
+  if [[ ${OMARCHY_ASAHI_TESTING:-0} != 1 ]]; then
+    permissions=$(stat -c '%a' "$pending_file")
+    [[ $(stat -c '%u' "$pending_file") == 0 ]] || fail "pending release state is not root-owned"
+    (( (8#$permissions & 8#022) == 0 )) || fail "pending release state is writable by non-root users"
+  fi
+  pending_format=""
+  while IFS= read -r line; do
+    case "$line" in
+      format=*) pending_format=${line#format=} ;;
+      sequence=*) pending_sequence=${line#sequence=} ;;
+      tag=*) ;;
+      source_commit=*) pending_source=${line#source_commit=} ;;
+      "") ;;
+      *) fail "pending release state is malformed" ;;
+    esac
+  done <"$pending_file"
+  [[ $pending_format == "1" && $pending_sequence =~ ^[1-9][0-9]*$ && $pending_source =~ ^[0-9a-f]{40}$ ]] || fail "pending release state is malformed"
+  (( pending_sequence >= installed_sequence )) || fail "pending release state predates installed state"
+  (( channel_sequence == pending_sequence )) || fail "finish pending release sequence $pending_sequence before installing sequence $channel_sequence"
+  [[ $channel_source == "$pending_source" ]] || fail "pending release sequence $pending_sequence has a different source"
+  if [[ $mode == "check" ]]; then
+    echo "Apple Silicon Quattro bundle $channel_tag has pending migrations"
+  else
+    echo "Apple Silicon Quattro bundle $channel_tag is installed; resuming migrations"
+  fi
+  exit 0
+fi
+
 (( channel_sequence >= installed_sequence )) || fail "refusing signed release rollback from sequence $installed_sequence to $channel_sequence"
 if (( channel_sequence == installed_sequence )); then
   [[ $channel_source == "$installed_source" ]] || fail "release sequence $channel_sequence was reused for different source"
@@ -251,7 +282,7 @@ for package in "${packages[@]}"; do
   installed_version=$(pacman -Q "$package" | awk '{print $2}')
   [[ $installed_version == "${manifest_versions[$package]}" ]] || fail "$package did not install the signed version"
 done
-pending_state="${state_file}.pending"
+pending_state="$pending_file"
 state_tmp=$(mktemp)
 printf 'format=1\nsequence=%s\ntag=%s\nsource_commit=%s\n' "$channel_sequence" "$channel_tag" "$channel_source" >"$state_tmp"
 sudo install -D -o root -g root -m 0644 "$state_tmp" "$pending_state"

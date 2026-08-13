@@ -2727,6 +2727,17 @@ refresh_current_theme_after_upgrade
 # Omarchy quattro Lua-config cutover.
 restore_hyprland_config_reload
 
+if (( asahi_mode )) && [[ -n ${OMARCHY_ASAHI_RELEASE_SEQUENCE:-} ]]; then
+  [[ $OMARCHY_ASAHI_RELEASE_SEQUENCE =~ ^[1-9][0-9]*$ ]] || fail "Invalid signed Asahi release sequence."
+  [[ ${OMARCHY_ASAHI_RELEASE_TAG:-} == asahi-quattro-* && $OMARCHY_ASAHI_RELEASE_TAG != */* ]] || fail "Invalid signed Asahi release tag."
+  [[ ${OMARCHY_ASAHI_RELEASE_SOURCE:-} =~ ^[0-9a-f]{40}$ ]] || fail "Invalid signed Asahi release source."
+  release_state=$(mktemp)
+  printf 'format=1\nsequence=%s\ntag=%s\nsource_commit=%s\n' \
+    "$OMARCHY_ASAHI_RELEASE_SEQUENCE" "$OMARCHY_ASAHI_RELEASE_TAG" "$OMARCHY_ASAHI_RELEASE_SOURCE" >"$release_state"
+  as_root install -D -o root -g root -m 0644 "$release_state" /var/lib/omarchy/asahi-quattro-release
+  rm -f "$release_state"
+fi
+
 upgrade_completed=1
 
 cat <<EOF
