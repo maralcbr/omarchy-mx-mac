@@ -18,6 +18,8 @@
 # machines including the T2-less iMac19,1 and iMac19,2, and BCM4377/4378/4387
 # from the T2 era on. The BCM4360 in 2013-2015 Macs is deliberately absent: it
 # runs the out-of-tree wl driver, which never reads a brcmfmac option.
+omarchy-hw-apple-silicon && return 0
+
 sys_vendor="$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)"
 
 if lspci -nn | grep "106b:180[12]" >/dev/null ||
