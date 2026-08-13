@@ -287,8 +287,8 @@ sudo journalctl -u NetworkManager -b
 
 ## Releases And Support
 
-- [Stable `v3.8.4-mac.2` source](https://github.com/maralcbr/omarchy-mx-mac/tree/v3.8.4-mac.2)
-- [Quattro prerelease](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-d3c9064f)
+- [Latest stable release](https://github.com/maralcbr/omarchy-mx-mac/releases/latest)
+- [Latest signed Quattro channel](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel)
 - [`quattro` source branch](https://github.com/maralcbr/omarchy-mx-mac/tree/quattro)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)

@@ -48,6 +48,22 @@ jobs:
         env:
           RELEASE_PRIVATE_KEY: ${{ secrets.OMARCHY_RELEASE_PRIVATE_KEY }}
         run: printf '%s' "$RELEASE_PRIVATE_KEY" | gpg --batch --import
+      - name: Require a forward release sequence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SEQUENCE: ${{ inputs.sequence }}
+        run: |
+          mkdir -p /tmp/current-release
+          if gh release download --pattern 'omarchy-mx-mac-release*' --dir /tmp/current-release 2>/dev/null; then
+            status=$(gpg --batch --status-fd 1 --verify \
+              /tmp/current-release/omarchy-mx-mac-release.sig \
+              /tmp/current-release/omarchy-mx-mac-release 2>/dev/null)
+            signer=$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $NF; exit }' <<<"$status")
+            [[ $signer == 40DFB630FF42BCFFB047046CF0134EE680CAC571 ]]
+            current_sequence=$(sed -n 's/^sequence=//p' /tmp/current-release/omarchy-mx-mac-release)
+            [[ $current_sequence =~ ^[1-9][0-9]*$ ]]
+            (( RELEASE_SEQUENCE > current_sequence ))
+          fi
       - name: Build signed release assets
         env:
           RELEASE_TAG: ${{ inputs.tag }}
