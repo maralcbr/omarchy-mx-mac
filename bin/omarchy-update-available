@@ -6,6 +6,20 @@ set -euo pipefail
 
 updates=()
 
+asahi=0
+if omarchy-hw-apple-silicon; then
+  asahi=1
+  set +e
+  update=$(omarchy-update-asahi-bundle --check)
+  asahi_status=$?
+  set -e
+  if (( asahi_status == 0 )); then
+    updates+=("$update")
+  elif (( asahi_status != 1 )); then
+    exit "$asahi_status"
+  fi
+fi
+
 if [[ $OMARCHY_PATH != "/usr/share/omarchy" ]]; then
   upstream=$(git -C "$OMARCHY_PATH" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
   if [[ -n $upstream ]]; then
@@ -27,7 +41,7 @@ elif pacman -Qq omarchy >/dev/null 2>&1; then
   package=omarchy
 fi
 
-if [[ -n $package ]]; then
+if [[ -n $package ]] && (( ! asahi )); then
   update=$(checkupdates --nocolor 2>/dev/null | awk -v package="$package" '$1 == package { print; exit }' || true)
 fi
 

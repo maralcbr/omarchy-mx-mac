@@ -182,7 +182,7 @@ asahi_package_archives=()
 validate_asahi_packages() {
   local directory package_name pattern archive metadata path package_paths version
   local manifest manifest_line manifest_hash manifest_file actual_hash
-  local manifest_format="" manifest_source="" manifest_hash_count=0
+  local manifest_format="" manifest_bundle="" manifest_source="" manifest_package_count="" manifest_hash_count=0
   local settings_bundle runtime_bundle
   local -A manifest_hashes=()
   local matches=()
@@ -204,12 +204,12 @@ validate_asahi_packages() {
   while IFS= read -r manifest_line; do
     case "$manifest_line" in
       format=*) manifest_format=${manifest_line#format=} ;;
+      bundle=*) manifest_bundle=${manifest_line#bundle=} ;;
       source_commit=*) manifest_source=${manifest_line#source_commit=} ;;
-      sha256=*)
-        manifest_line=${manifest_line#sha256=}
-        manifest_hash=${manifest_line%%  *}
-        manifest_file=${manifest_line#*  }
-        [[ $manifest_hash =~ ^[0-9a-f]{64}$ && $manifest_file == "$(basename "$manifest_file")" ]] || \
+      package_count=*) manifest_package_count=${manifest_line#package_count=} ;;
+      package=*)
+        IFS='|' read -r _ _ _ _ manifest_file manifest_hash extra <<<"${manifest_line#package=}"
+        [[ $manifest_hash =~ ^[0-9a-f]{64}$ && $manifest_file == "$(basename "$manifest_file")" && -z $extra ]] || \
           fail "Invalid checksum entry in Asahi bundle manifest. No changes were made."
         [[ -z ${manifest_hashes[$manifest_file]:-} ]] || fail "Duplicate checksum for '$manifest_file'. No changes were made."
         manifest_hashes[$manifest_file]=$manifest_hash
@@ -219,7 +219,7 @@ validate_asahi_packages() {
       *) fail "Unknown entry in Asahi bundle manifest: '$manifest_line'. No changes were made." ;;
     esac
   done <"$manifest"
-  [[ $manifest_format == "1" ]] || fail "Unsupported Asahi bundle manifest format. No changes were made."
+  [[ $manifest_format == "2" && $manifest_bundle == "asahi-quattro" && $manifest_package_count == "6" ]] || fail "Unsupported Asahi bundle manifest format. No changes were made."
   [[ $manifest_source =~ ^[0-9a-f]{40}$ ]] || fail "Asahi bundle manifest has no valid source commit. No changes were made."
 
   shopt -s nullglob
@@ -1482,7 +1482,7 @@ run_final_system_package_upgrade() {
   )
 
   if (( asahi_mode )); then
-    pacman_args+=(--ignore omarchy-keyring,omarchy-settings-dev,omarchy-dev,quickshell-git,ttf-jetbrains-mono-nerd-basic)
+    pacman_args+=(--ignore omarchy-keyring,omarchy-settings-dev,omarchy-dev,omarchy-nvim,quickshell-git,ttf-jetbrains-mono-nerd-basic)
   fi
   for overwrite_path in "${overwrite_paths[@]}"; do
     if (( asahi_mode )) && [[ $overwrite_path == /etc/mkinitcpio* || $overwrite_path == *usb-autosuspend* ]]; then

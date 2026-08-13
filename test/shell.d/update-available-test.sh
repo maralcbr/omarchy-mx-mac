@@ -53,6 +53,12 @@ exit 0
 SH
 chmod +x "$stub_bin/pacman"
 
+cat >"$stub_bin/omarchy-hw-apple-silicon" <<'SH'
+#!/bin/bash
+exit 1
+SH
+chmod +x "$stub_bin/omarchy-hw-apple-silicon"
+
 cat >"$stub_bin/git" <<'SH'
 #!/bin/bash
 

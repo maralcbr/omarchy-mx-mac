@@ -137,7 +137,7 @@ package_branch=$(awk '
 [[ $package_branch == *$'install_asahi_quattro_packages\nelse\n  install_omarchy_quattro_packages\n  install_hardware_transition_packages\n  normalize_limine_config\n  preserve_kernel_cmdline_root\n  configure_snapper_policy'* ]] || \
   fail "Asahi migration bypasses default-package, hardware, Limine, and Snapper setup"
 grep -Fq '[[ $overwrite_path == /etc/mkinitcpio* || $overwrite_path == *usb-autosuspend* ]]' "$upgrade_to_quattro"
-grep -Fq 'pacman_args+=(--ignore omarchy-keyring,omarchy-settings-dev,omarchy-dev,quickshell-git,ttf-jetbrains-mono-nerd-basic)' "$upgrade_to_quattro"
+grep -Fq 'pacman_args+=(--ignore omarchy-keyring,omarchy-settings-dev,omarchy-dev,omarchy-nvim,quickshell-git,ttf-jetbrains-mono-nerd-basic)' "$upgrade_to_quattro"
 pass "Omarchy 4 upgrade preserves Asahi repositories and excludes boot-specific overwrite paths"
 
 pacman_line=$(grep -n '^[[:space:]]*configure_pacman_channel$' "$upgrade_to_quattro" | cut -d: -f1)

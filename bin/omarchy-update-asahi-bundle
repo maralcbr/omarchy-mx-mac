@@ -1,0 +1,258 @@
+#!/bin/bash
+
+# omarchy:summary=Update the signed Apple Silicon Quattro package bundle
+# omarchy:args=[--check] [--yes]
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+set -euo pipefail
+
+repo="${OMARCHY_ASAHI_BUNDLE_REPO:-maralcbr/omarchy-pkgs}"
+state_file="${OMARCHY_ASAHI_BUNDLE_STATE:-/var/lib/omarchy/asahi-quattro-release}"
+trusted_key=40DFB630FF42BCFFB047046CF0134EE680CAC571
+trusted_key_file="${OMARCHY_ASAHI_KEY_FILE:-/usr/share/pacman/keyrings/omarchy.gpg}"
+mode=update
+yes=0
+packages=(
+  omarchy-keyring
+  omarchy-settings-dev
+  omarchy-dev
+  omarchy-nvim
+  quickshell-git
+  ttf-jetbrains-mono-nerd-basic
+)
+
+fail() {
+  echo "Apple Silicon bundle update: $*" >&2
+  exit 2
+}
+
+while (($#)); do
+  case "$1" in
+    --check) mode=check ;;
+    -y|--yes) yes=1 ;;
+    -h|--help)
+      echo "Usage: omarchy-update-asahi-bundle [--check] [--yes]"
+      exit 0
+      ;;
+    *) fail "unknown option '$1'" ;;
+  esac
+  shift
+done
+
+omarchy-hw-apple-silicon || exit 1
+
+root_path() {
+  printf '%s%s\n' "${OMARCHY_ASAHI_ROOT:-}" "$1"
+}
+
+compatible=$(tr '\0' '\n' <"$(root_path /proc/device-tree/compatible)" 2>/dev/null || true)
+[[ $(uname -m) == "aarch64" ]] || fail "only aarch64 is supported"
+grep -Fxq 'apple,j314s' <<<"$compatible" || fail "only the validated apple,j314s device is supported"
+
+for command in bsdtar curl gpg sha256sum vercmp; do
+  omarchy-cmd-present "$command" || fail "$command is required"
+done
+
+workdir=$(mktemp -d)
+trap 'rm -rf "$workdir"' EXIT
+gnupg_dir="$workdir/gnupg"
+mkdir -m 0700 "$gnupg_dir"
+[[ -r $trusted_key_file ]] || fail "trusted Omarchy signing key is not installed"
+actual_fingerprint=$(gpg --batch --show-keys --with-colons "$trusted_key_file" 2>/dev/null |
+  awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $actual_fingerprint == "$trusted_key" ]] || fail "trusted Omarchy signing key fingerprint does not match"
+gpg --batch --homedir "$gnupg_dir" --import "$trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy signing key"
+
+download() {
+  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" --output "$2"
+}
+
+verify_signature() {
+  local file="$1" signature="$2" status
+  status=$(gpg --homedir "$gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
+    fail "signature verification failed for $(basename "$file")"
+  awk -v key="$trusted_key" '$2 == "VALIDSIG" && ($3 == key || $NF == key) { valid=1 } END { exit !valid }' <<<"$status" ||
+    fail "$(basename "$file") was not signed by the trusted Omarchy key"
+}
+
+if [[ -n ${OMARCHY_ASAHI_CHANNEL_URL:-} ]]; then
+  channel_url=$OMARCHY_ASAHI_CHANNEL_URL
+  channel_signature_url="${OMARCHY_ASAHI_CHANNEL_SIGNATURE_URL:-$channel_url.sig}"
+else
+  tag=asahi-quattro-channel
+  base="https://github.com/$repo/releases/download/$tag"
+  channel_url="$base/asahi-quattro-channel"
+  channel_signature_url="$channel_url.sig"
+fi
+
+download "$channel_url" "$workdir/channel"
+download "$channel_signature_url" "$workdir/channel.sig"
+verify_signature "$workdir/channel" "$workdir/channel.sig"
+
+channel_format="" channel_name="" channel_sequence="" channel_tag="" channel_source="" manifest_name="" manifest_hash=""
+while IFS= read -r line; do
+  case "$line" in
+    format=*) channel_format=${line#format=} ;;
+    channel=*) channel_name=${line#channel=} ;;
+    sequence=*) channel_sequence=${line#sequence=} ;;
+    release_tag=*) channel_tag=${line#release_tag=} ;;
+    source_commit=*) channel_source=${line#source_commit=} ;;
+    manifest=*) manifest_name=${line#manifest=} ;;
+    manifest_sha256=*) manifest_hash=${line#manifest_sha256=} ;;
+    release_sha256=*) [[ ${line#release_sha256=} =~ ^[0-9a-f]{64}$ ]] || fail "invalid release descriptor checksum" ;;
+    "") ;;
+    *) fail "unknown signed channel entry '$line'" ;;
+  esac
+done <"$workdir/channel"
+
+[[ $channel_format == "1" && $channel_name == "asahi-quattro" ]] || fail "unsupported channel format"
+[[ $channel_sequence =~ ^[1-9][0-9]*$ ]] || fail "invalid release sequence"
+[[ $channel_tag == asahi-quattro-* && $channel_tag != */* ]] || fail "invalid release tag"
+[[ $channel_source =~ ^[0-9a-f]{40}$ ]] || fail "invalid source commit"
+[[ $manifest_name == "asahi-quattro-bundle.manifest" ]] || fail "invalid manifest name"
+[[ $manifest_hash =~ ^[0-9a-f]{64}$ ]] || fail "invalid manifest checksum"
+
+installed_sequence=0 installed_source=""
+if [[ -e $state_file ]]; then
+  if [[ ${OMARCHY_ASAHI_TESTING:-0} != 1 ]]; then
+    permissions=$(stat -c '%a' "$state_file")
+    [[ $(stat -c '%u' "$state_file") == 0 ]] || fail "release state is not root-owned"
+    (( (8#$permissions & 8#022) == 0 )) || fail "release state is writable by non-root users"
+  fi
+  state_format="" state_sequence="" state_source=""
+  while IFS= read -r line; do
+    case "$line" in
+      format=*) state_format=${line#format=} ;;
+      sequence=*) state_sequence=${line#sequence=} ;;
+      tag=*) ;;
+      source_commit=*) state_source=${line#source_commit=} ;;
+      "") ;;
+      *) fail "release state is malformed" ;;
+    esac
+  done <"$state_file"
+  [[ $state_format == "1" && $state_sequence =~ ^[1-9][0-9]*$ && $state_source =~ ^[0-9a-f]{40}$ ]] || fail "release state is malformed"
+  installed_sequence=$state_sequence
+  installed_source=$state_source
+fi
+
+(( channel_sequence >= installed_sequence )) || fail "refusing signed release rollback from sequence $installed_sequence to $channel_sequence"
+if (( channel_sequence == installed_sequence )); then
+  [[ $channel_source == "$installed_source" ]] || fail "release sequence $channel_sequence was reused for different source"
+  [[ $mode != "check" ]] || exit 1
+  echo "Apple Silicon Quattro bundle is up to date"
+  exit 0
+fi
+
+if [[ $mode == "check" ]]; then
+  echo "Apple Silicon Quattro bundle $channel_tag is available"
+  exit 0
+fi
+
+[[ -f $(root_path /boot/vmlinuz-linux-asahi) ]] || fail "/boot/vmlinuz-linux-asahi is missing"
+pacman -Qq linux-asahi >/dev/null 2>&1 || fail "linux-asahi is not installed"
+[[ -f $(root_path /boot/grub/grub.cfg) ]] || fail "GRUB configuration is missing"
+pacman_conf=$(root_path /etc/pacman.conf)
+for repository in asahi-alarm core extra alarm aur; do
+  grep -Eq "^[[:space:]]*\[$repository\][[:space:]]*$" "$pacman_conf" || fail "required [$repository] repository is missing"
+done
+grep -RqsE '^[[:space:]]*wifi\.backend[[:space:]]*=[[:space:]]*iwd[[:space:]]*$' "$(root_path /etc/NetworkManager)" ||
+  fail "NetworkManager is not configured with the iwd backend"
+if [[ -r $(root_path /proc/swaps) ]] && awk 'NR > 1 { found=1 } END { exit !found }' "$(root_path /proc/swaps)"; then
+  fail "swap or zram is active"
+fi
+[[ ! -r $(root_path /sys/module/zswap/parameters/enabled) ]] ||
+  grep -Eq '^(N|0)$' "$(root_path /sys/module/zswap/parameters/enabled)" || fail "zswap is enabled"
+
+base="${OMARCHY_ASAHI_RELEASE_BASE_URL:-https://github.com/$repo/releases/download/$channel_tag}"
+download "$base/$manifest_name" "$workdir/$manifest_name"
+download "$base/$manifest_name.sig" "$workdir/$manifest_name.sig"
+verify_signature "$workdir/$manifest_name" "$workdir/$manifest_name.sig"
+[[ $(sha256sum "$workdir/$manifest_name" | cut -d' ' -f1) == "$manifest_hash" ]] || fail "manifest checksum does not match the signed channel"
+
+manifest_format="" manifest_bundle="" manifest_source="" manifest_package_count="" checksum_count=0
+declare -A manifest_files=() manifest_hashes=() manifest_versions=() manifest_arches=()
+while IFS= read -r line; do
+  case "$line" in
+    format=*) manifest_format=${line#format=} ;;
+    bundle=*) manifest_bundle=${line#bundle=} ;;
+    source_commit=*) manifest_source=${line#source_commit=} ;;
+    package_count=*) manifest_package_count=${line#package_count=} ;;
+    package=*)
+      IFS='|' read -r sequence package version arch filename hash extra <<<"${line#package=}"
+      [[ $sequence =~ ^[1-6]$ && $package == "${packages[$((sequence - 1))]}" ]] || fail "invalid package sequence"
+      [[ -n $version && $arch =~ ^(aarch64|any)$ && $filename == "$(basename "$filename")" && $filename == "$package"-*.pkg.tar* ]] || fail "invalid package record"
+      [[ $hash =~ ^[0-9a-f]{64}$ && -z $extra && -z ${manifest_hashes[$package]:-} ]] || fail "invalid package checksum entry"
+      manifest_files[$package]=$filename
+      manifest_hashes[$package]=$hash
+      manifest_versions[$package]=$version
+      manifest_arches[$package]=$arch
+      ((checksum_count += 1))
+      ;;
+    "") ;;
+    *) fail "unknown bundle manifest entry '$line'" ;;
+  esac
+done <"$workdir/$manifest_name"
+[[ $manifest_format == "2" && $manifest_bundle == "asahi-quattro" && $manifest_source == "$channel_source" ]] || fail "manifest source does not match the signed channel"
+[[ $manifest_package_count == "6" ]] || fail "manifest package count is invalid"
+(( checksum_count == 6 )) || fail "manifest must contain exactly six packages"
+
+archives=()
+for package in "${packages[@]}"; do
+  filename=${manifest_files[$package]:-}
+  [[ -n $filename ]] || fail "manifest must contain exactly one $package package"
+  archive="$workdir/$filename"
+  download "$base/$filename" "$archive"
+  download "$base/$filename.sig" "$archive.sig"
+  verify_signature "$archive" "$archive.sig"
+  [[ $(sha256sum "$archive" | cut -d' ' -f1) == "${manifest_hashes[$package]}" ]] || fail "checksum mismatch for $filename"
+  metadata=$(bsdtar -xOf "$archive" .PKGINFO 2>/dev/null) || fail "$filename is not a package archive"
+  grep -Fxq "pkgname = $package" <<<"$metadata" || fail "$filename has the wrong package name"
+  if [[ $package == omarchy-settings-dev || $package == omarchy-dev || $package == quickshell-git ]]; then
+    grep -Fxq 'arch = aarch64' <<<"$metadata" || fail "$package is not aarch64"
+  else
+    grep -Fxq 'arch = any' <<<"$metadata" || fail "$package is not architecture-independent"
+  fi
+  incoming_version=$(sed -n 's/^pkgver = //p' <<<"$metadata")
+  [[ $incoming_version == "${manifest_versions[$package]}" ]] || fail "$package version does not match the signed manifest"
+  grep -Fxq "arch = ${manifest_arches[$package]}" <<<"$metadata" || fail "$package architecture does not match the signed manifest"
+  installed_version=$(pacman -Q "$package" 2>/dev/null | awk '{print $2}' || true)
+  [[ -z $installed_version ]] || (( $(vercmp "$incoming_version" "$installed_version") >= 0 )) || fail "$package would be downgraded"
+  archives+=("$archive")
+done
+
+settings_source=$(bsdtar -xOf "${archives[1]}" .PKGINFO | sed -n 's/^provides = omarchy-quattro-bundle=//p')
+runtime_source=$(bsdtar -xOf "${archives[2]}" .PKGINFO | sed -n 's/^provides = omarchy-quattro-bundle=//p')
+[[ $settings_source == "$channel_source" && $runtime_source == "$channel_source" ]] || fail "paired packages do not match the source commit"
+
+for archive in "${archives[@]}"; do
+  if bsdtar -tf "$archive" | sed 's|^\./||; s|^/||' | grep -Eqi '^(boot|etc/(default/grub|grub|limine|mkinitcpio|pacman\.conf|pacman\.d|systemd/oomd\.conf\.d|tmpfiles\.d/omarchy-zswap\.conf)|etc/modprobe\.d/omarchy-usb-autosuspend\.conf|usr/lib/(initcpio|systemd/user/app\.slice\.d|systemd/zram-generator\.conf\.d))(/|$)'; then
+    fail "$(basename "$archive") contains an Apple Silicon unsafe path"
+  fi
+done
+
+if (( ! yes )); then
+  gum confirm "Install signed Apple Silicon bundle $channel_tag?" </dev/tty || exit 0
+fi
+
+backup="/var/lib/omarchy/backups/asahi-bundle-$(date +%Y%m%d%H%M%S)"
+backup_tmp=$(mktemp -d)
+pacman -Q >"$backup_tmp/installed-packages.txt"
+sha256sum "$(root_path /boot/vmlinuz-linux-asahi)" >"$backup_tmp/boot-sha256.txt"
+find "$(root_path /etc/pacman.conf)" "$(root_path /etc/pacman.d)" "$(root_path /etc/NetworkManager)" \
+  -type f -exec sha256sum {} + >"$backup_tmp/config-sha256.txt"
+sudo install -d -o root -g root -m 0700 "$backup"
+sudo cp -a "$backup_tmp"/. "$backup/"
+rm -rf "$backup_tmp"
+
+sudo env OMARCHY_UPDATE_PACMAN=1 pacman -U --noconfirm -- "${archives[@]}"
+for package in "${packages[@]}"; do
+  installed_version=$(pacman -Q "$package" | awk '{print $2}')
+  [[ $installed_version == "${manifest_versions[$package]}" ]] || fail "$package did not install the signed version"
+done
+pending_state="${state_file}.pending"
+state_tmp=$(mktemp)
+printf 'format=1\nsequence=%s\ntag=%s\nsource_commit=%s\n' "$channel_sequence" "$channel_tag" "$channel_source" >"$state_tmp"
+sudo install -D -o root -g root -m 0644 "$state_tmp" "$pending_state"
+rm -f "$state_tmp"
+echo "Installed Apple Silicon Quattro bundle $channel_tag; finalizing migrations (backup: $backup)"

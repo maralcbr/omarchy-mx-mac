@@ -68,6 +68,7 @@ for command in \
   pkexec \
   systemd-inhibit \
   omarchy-update-dev \
+  omarchy-hw-apple-silicon \
   omarchy-update-keyring \
   omarchy-update-system-pkgs \
   omarchy-migrate \
@@ -80,6 +81,7 @@ for command in \
   omarchy-update-restart; do
   write_stub "$command" 'exit 0'
 done
+write_stub omarchy-hw-apple-silicon 'exit 1'
 write_stub omarchy-update-available 'exit 1'
 write_stub pkexec 'exec "$@"'
 

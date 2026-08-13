@@ -31,10 +31,16 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   omarchy-update-stay-awake start
 
   omarchy-update-dev
+  if omarchy-hw-apple-silicon; then
+    omarchy-update-asahi-bundle --yes
+  fi
   omarchy-update-keyring
   omarchy-update-system-pkgs
   omarchy-migrate
   omarchy-hook post-update
+  if omarchy-hw-apple-silicon && [[ -f /var/lib/omarchy/asahi-quattro-release.pending ]]; then
+    sudo mv /var/lib/omarchy/asahi-quattro-release.pending /var/lib/omarchy/asahi-quattro-release
+  fi
   omarchy-update-aur-pkgs
   omarchy-update-mise
   omarchy-update-orphan-pkgs

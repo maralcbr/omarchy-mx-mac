@@ -1,0 +1,157 @@
+#!/bin/bash
+
+set -euo pipefail
+
+source "$(dirname "$0")/base-test.sh"
+
+updater="$ROOT/bin/omarchy-update-asahi-bundle"
+grep -Fq 'manifest_format == "2"' "$updater" || fail "Asahi updater consumes manifest format 2"
+grep -Fq 'package=*)' "$updater" || fail "Asahi updater consumes canonical package records"
+grep -Fq 'channel=*) channel_name=' "$updater" || fail "Asahi updater validates the signed channel name"
+
+test_tmp=$(mktemp -d)
+trap 'rm -rf "$test_tmp"' EXIT
+stub_bin="$test_tmp/bin"
+assets="$test_tmp/assets"
+state="$test_tmp/state"
+source_commit=0123456789abcdef0123456789abcdef01234567
+mkdir -p "$stub_bin" "$assets" "$test_tmp/root/proc/device-tree"
+: >"$test_tmp/omarchy.gpg"
+printf 'apple,j314s\0apple,arm-platform\0' >"$test_tmp/root/proc/device-tree/compatible"
+
+write_channel() {
+  local sequence="$1" source="$2"
+  cat >"$assets/asahi-quattro-channel" <<EOF
+format=1
+channel=asahi-quattro
+sequence=$sequence
+release_tag=asahi-quattro-test
+source_commit=$source
+manifest=asahi-quattro-bundle.manifest
+manifest_sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+  : >"$assets/asahi-quattro-channel.sig"
+}
+
+cat >"$stub_bin/omarchy-hw-apple-silicon" <<'SH'
+#!/bin/bash
+exit 0
+SH
+cat >"$stub_bin/omarchy-cmd-present" <<'SH'
+#!/bin/bash
+exit 0
+SH
+cat >"$stub_bin/uname" <<'SH'
+#!/bin/bash
+echo aarch64
+SH
+cat >"$stub_bin/curl" <<'SH'
+#!/bin/bash
+output=""
+url=""
+while (($#)); do
+  case "$1" in
+    --output) output="$2"; shift 2 ;;
+    http*|file:*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+cp "$TEST_ASSETS/${url##*/}" "$output"
+SH
+cat >"$stub_bin/gpg" <<'SH'
+#!/bin/bash
+if [[ " $* " == *" --show-keys "* ]]; then
+  echo 'fpr:::::::::40DFB630FF42BCFFB047046CF0134EE680CAC571:'
+  exit 0
+fi
+if [[ " $* " == *" --import "* ]]; then
+  exit 0
+fi
+echo '[GNUPG:] VALIDSIG 40DFB630FF42BCFFB047046CF0134EE680CAC571 2026-01-01 0 4 0 1 10 00 40DFB630FF42BCFFB047046CF0134EE680CAC571'
+SH
+cat >"$stub_bin/jq" <<'SH'
+#!/bin/bash
+exit 1
+SH
+cat >"$stub_bin/bsdtar" <<'SH'
+#!/bin/bash
+exit 1
+SH
+cat >"$stub_bin/vercmp" <<'SH'
+#!/bin/bash
+echo 0
+SH
+chmod +x "$stub_bin"/*
+
+run_check() {
+  TEST_ASSETS="$assets" \
+    OMARCHY_ASAHI_TESTING=1 \
+    OMARCHY_ASAHI_ROOT="$test_tmp/root" \
+    OMARCHY_ASAHI_BUNDLE_STATE="$state" \
+    OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy.gpg" \
+    OMARCHY_ASAHI_CHANNEL_URL="https://example.test/asahi-quattro-channel" \
+    PATH="$stub_bin:$PATH" \
+    "$updater" --check
+}
+
+write_channel 2 "$source_commit"
+run_check >"$test_tmp/available.out"
+grep -Fxq 'Apple Silicon Quattro bundle asahi-quattro-test is available' "$test_tmp/available.out" ||
+  fail "signed Asahi channel reports an available release" "$(cat "$test_tmp/available.out")"
+pass "signed Asahi channel reports an available release"
+
+cat >"$state" <<EOF
+format=1
+sequence=2
+tag=asahi-quattro-test
+source_commit=$source_commit
+EOF
+set +e
+run_check >"$test_tmp/current.out"
+status=$?
+set -e
+if (( status == 0 )); then
+  fail "current Asahi release is not reported as available"
+fi
+[[ $status -eq 1 ]] || fail "current Asahi release uses the no-update status"
+pass "current signed Asahi release is not offered again"
+
+write_channel 1 fedcba9876543210fedcba9876543210fedcba98
+set +e
+run_check >"$test_tmp/rollback.out" 2>"$test_tmp/rollback.err"
+status=$?
+set -e
+[[ $status -eq 2 ]] || fail "signed rollback fails closed" "status $status"
+grep -Fq 'refusing signed release rollback from sequence 2 to 1' "$test_tmp/rollback.err" ||
+  fail "signed rollback explains the refusal" "$(cat "$test_tmp/rollback.err")"
+pass "signed Asahi release sequence prevents rollback"
+
+write_channel 2 fedcba9876543210fedcba9876543210fedcba98
+set +e
+run_check >"$test_tmp/reuse.out" 2>"$test_tmp/reuse.err"
+status=$?
+set -e
+[[ $status -eq 2 ]] || fail "release sequence reuse fails closed" "status $status"
+grep -Fq 'sequence 2 was reused for different source' "$test_tmp/reuse.err" ||
+  fail "release sequence reuse explains the refusal" "$(cat "$test_tmp/reuse.err")"
+pass "signed release sequence cannot be rebound to another source"
+
+cat >"$stub_bin/gpg" <<'SH'
+#!/bin/bash
+if [[ " $* " == *" --show-keys "* ]]; then
+  echo 'fpr:::::::::40DFB630FF42BCFFB047046CF0134EE680CAC571:'
+  exit 0
+fi
+if [[ " $* " == *" --import "* ]]; then
+  exit 0
+fi
+exit 1
+SH
+set +e
+run_check >"$test_tmp/signature.out" 2>"$test_tmp/signature.err"
+status=$?
+set -e
+[[ $status -eq 2 ]] || fail "invalid channel signature fails closed" "status $status"
+grep -Fq 'signature verification failed' "$test_tmp/signature.err" ||
+  fail "invalid signature explains the refusal" "$(cat "$test_tmp/signature.err")"
+pass "unsigned Asahi channel is rejected"

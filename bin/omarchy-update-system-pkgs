@@ -10,12 +10,17 @@ echo -e "\e[32m\nUpdate system packages\e[0m"
 errors=$(mktemp)
 trap 'rm -f "$errors"' EXIT
 
+pacman_args=()
+if omarchy-hw-apple-silicon; then
+  pacman_args+=(--ignore omarchy-keyring,omarchy-settings-dev,omarchy-dev,omarchy-nvim,quickshell-git,ttf-jetbrains-mono-nerd-basic)
+fi
+
 # /usr/share/omarchy is wholly Omarchy's; files can land there unowned and would
 # otherwise abort the upgrade. Packaged content wins there.
 # Progress bars stay on stdout. Errors are on stderr, kept for the conflict
 # handler below; LC_ALL=C is what keeps them parseable in any locale.
 if sudo env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm \
-  --overwrite '/usr/share/omarchy/*' 2>"$errors"; then
+  --overwrite '/usr/share/omarchy/*' "${pacman_args[@]}" 2>"$errors"; then
   cat "$errors" >&2
   exit 0
 fi
