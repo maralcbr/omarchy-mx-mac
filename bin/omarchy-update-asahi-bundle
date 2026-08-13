@@ -165,6 +165,7 @@ fi
   grep -Eq '^(N|0)$' "$(root_path /sys/module/zswap/parameters/enabled)" || fail "zswap is enabled"
 
 base="${OMARCHY_ASAHI_RELEASE_BASE_URL:-https://github.com/$repo/releases/download/$channel_tag}"
+base=${base%/}
 download "$base/$manifest_name" "$workdir/$manifest_name"
 download "$base/$manifest_name.sig" "$workdir/$manifest_name.sig"
 verify_signature "$workdir/$manifest_name" "$workdir/$manifest_name.sig"
