@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status
-#set -eEo pipefail
+set -eEo pipefail
 
 # Terminal control codes
 export ANSI_HIDE_CURSOR="\033[?25l"

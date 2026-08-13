@@ -2,26 +2,16 @@
 
 # omarchy:summary=Check whether an Omarchy update is available
 
-# Official Omarchy tags can point at different commits in this fork, so only
-# compare tags from the Mac release namespace.
-latest_tag=$(git -C "$OMARCHY_PATH" ls-remote --tags --sort="version:refname" origin "v*-mac.*" | awk '{print $2}' | sed 's#refs/tags/##' | tail -n 1)
-if [[ -z $latest_tag ]]; then
-  echo "Error: Could not retrieve latest tag."
-  exit 1
-fi
+set -euo pipefail
 
-# Get local tag
-current_tag=""
-while IFS= read -r tag; do
-  current_tag="$tag"
-  break
-done < <(git -C "$OMARCHY_PATH" tag --merged HEAD --list "v*-mac.*" --sort=-version:refname)
-if [[ -z $current_tag ]]; then
-  echo "Error: Could not retrieve current tag."
-  exit 1
-fi
+latest_tag=$(omarchy-stable-release source_tag)
+current_tag=$(git -C "$OMARCHY_PATH" describe --tags --exact-match --match "v*-mac.*" 2>/dev/null || true)
+[[ -n $current_tag ]] || current_tag="unreleased"
 
-if [[ $current_tag != $latest_tag ]]; then
+if [[ $current_tag != "unreleased" ]] && (( $(vercmp "${latest_tag#v}" "${current_tag#v}") < 0 )); then
+  echo "Error: Refusing stable release rollback ($current_tag -> $latest_tag)." >&2
+  exit 2
+elif [[ $current_tag != $latest_tag ]]; then
   echo "Omarchy update available ($latest_tag)"
   exit 0
 else

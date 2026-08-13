@@ -2,7 +2,7 @@
 
 # omarchy:summary=Pull the latest Omarchy git changes
 
-set -e
+set -euo pipefail
 
 echo -e "\e[32mUpdate Omarchy\e[0m"
 
@@ -11,20 +11,32 @@ omarchy-update-time
 # Suppress Hyprland config errors while git updates default config files mid-pull
 hyprctl keyword debug:suppress_errors true &>/dev/null || true
 
-git -C "$OMARCHY_PATH" fetch origin --prune --no-tags
-git -C "$OMARCHY_PATH" pull --autostash
-git -C "$OMARCHY_PATH" --no-pager diff --check || git -C "$OMARCHY_PATH" reset --merge
+descriptor=$(omarchy-stable-release)
+source_tag=$(sed -n 's/^source_tag=//p' <<<"$descriptor")
+source_commit=$(sed -n 's/^source_commit=//p' <<<"$descriptor")
+current_tag=$(git -C "$OMARCHY_PATH" describe --tags --exact-match --match "v*-mac.*" 2>/dev/null || true)
+if [[ -n $current_tag ]] && (( $(vercmp "${source_tag#v}" "${current_tag#v}") < 0 )); then
+  echo "Error: Refusing stable release rollback from $current_tag to $source_tag." >&2
+  exit 1
+fi
+
+if ! git -C "$OMARCHY_PATH" diff --quiet || ! git -C "$OMARCHY_PATH" diff --cached --quiet; then
+  echo "Error: Omarchy has local tracked changes. Commit or stash them before updating." >&2
+  exit 1
+fi
+
+git -C "$OMARCHY_PATH" fetch origin --prune --no-tags "refs/tags/$source_tag:refs/tags/$source_tag"
+resolved_commit=$(git -C "$OMARCHY_PATH" rev-list -n 1 "$source_tag")
+[[ $resolved_commit == "$source_commit" ]] || {
+  echo "Error: Stable release tag does not match its signed source commit." >&2
+  exit 1
+}
+git -C "$OMARCHY_PATH" switch --detach "$source_commit"
+git -C "$OMARCHY_PATH" --no-pager diff --check
 
 hyprctl reload &>/dev/null || true
 
-# Update version file from latest Mac release tag. Official Omarchy tags can
-# point at different commits in this fork, so only use the -mac tag namespace.
-latest_tag=""
-while IFS= read -r tag; do
-  latest_tag="$tag"
-  break
-done < <(git -C "$OMARCHY_PATH" tag --merged HEAD --list "v*-mac.*" --sort=-version:refname)
-
-if [[ -n $latest_tag ]]; then
-  echo "${latest_tag#v}" > "$OMARCHY_PATH/version"
-fi
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/releases"
+mkdir -p "$state_dir"
+printf '%s\n' "$descriptor" >"$state_dir/stable-mac.tmp"
+mv "$state_dir/stable-mac.tmp" "$state_dir/stable-mac"

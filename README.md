@@ -73,10 +73,10 @@ On Apple keyboards, the Command key is Hyprland's `SUPER` modifier.
 The existing Print Screen shortcuts and all Omarchy workspace bindings remain
 available.
 
-## Install Stable Omarchy 3.8.4
+## Install Stable Omarchy
 
-This is the recommended installation. The instructions pin the repository to
-Mac release `v3.8.4-mac.2`, which is based on Omarchy `3.8.4`.
+This is the recommended installation. The signed installer resolves the latest
+validated, immutable Omarchy Mac release. It never installs moving `main`.
 
 ### 1. Install Asahi Arch Minimal
 
@@ -98,45 +98,46 @@ networking is not active, connect through NetworkManager:
 nmtui
 ```
 
-Update the system and install Git:
+Update the system and install the release verification tools:
 
 ```bash
-pacman -Syu --needed git
+pacman -Syu --needed curl git gnupg
 ```
 
-### 3. Download The Stable Mac Release
+### 3. Install The Latest Stable Mac Release
 
-Clone the pinned stable release instead of the moving `main` branch:
+Download and verify the installer from the latest stable GitHub release:
 
 ```bash
-mkdir -p /root/.local/share
-git clone --branch v3.8.4-mac.2 --depth 1 \
-  https://github.com/maralcbr/omarchy-mx-mac.git \
-  /root/.local/share/omarchy
+mkdir -p /root/omarchy-mx-mac-install
+cd /root/omarchy-mx-mac-install
+release=https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download
+curl -fLO "$release/install-omarchy-mx-mac"
+curl -fLO "$release/install-omarchy-mx-mac.sig"
+key_home=$(mktemp -d)
+chmod 700 "$key_home"
+GNUPGHOME="$key_home" gpg --keyserver hkps://keys.openpgp.org \
+  --recv-keys 40DFB630FF42BCFFB047046CF0134EE680CAC571
+test "$(GNUPGHOME="$key_home" gpg --with-colons --fingerprint \
+  40DFB630FF42BCFFB047046CF0134EE680CAC571 | awk -F: '$1 == "fpr" { print $10; exit }')" = \
+  40DFB630FF42BCFFB047046CF0134EE680CAC571
+GNUPGHOME="$key_home" gpg --verify install-omarchy-mx-mac.sig install-omarchy-mx-mac
+rm -rf "$key_home"
+bash install-omarchy-mx-mac
 ```
 
-### 4. Run The Stable Bootstrap
-
-Keep the repository and version pin while the bootstrap creates the regular
-user installation:
-
-```bash
-OMARCHY_REPO=maralcbr/omarchy-mx-mac \
-OMARCHY_REF=v3.8.4-mac.2 \
-bash /root/.local/share/omarchy/bootstrap.sh
-```
-
-The bootstrap will:
+The signed installer and bootstrap will:
 
 - Install required system packages and the `yay` AUR helper
 - Create or configure a regular user with sudo access
-- Clone the same stable tag into `~/.local/share/omarchy`
+- Verify the release signature against the pinned Omarchy signing fingerprint
+- Clone the exact signed stable tag into `~/.local/share/omarchy`
 - Run the Omarchy Mac installer for that user
 
 Enter the requested username and passwords carefully. Do not interrupt package
 transactions.
 
-### 5. Reboot And Check The Desktop
+### 4. Reboot And Check The Desktop
 
 After the installer completes successfully:
 
@@ -153,11 +154,8 @@ Verify the installed Omarchy Mac version:
 cat ~/.local/share/omarchy/version
 ```
 
-Expected output:
-
-```text
-3.8.4-mac.2
-```
+Future validated releases are offered during `omarchy update`. The updater
+shows the current and target releases and asks before changing immutable tags.
 
 ## Optional: Install Omarchy Quattro
 
@@ -213,10 +211,11 @@ Run these commands as the regular Omarchy user, not as root:
 mkdir -p ~/Downloads/omarchy-quattro
 cd ~/Downloads/omarchy-quattro
 
-release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-d3c9064f
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel
 curl -fLO "$release/install-asahi-quattro"
-curl -fLO "$release/SHA256SUMS"
-sha256sum --ignore-missing --check SHA256SUMS
+curl -fLO "$release/install-asahi-quattro.sig"
+gpgv --keyring /usr/share/pacman/keyrings/omarchy.gpg \
+  install-asahi-quattro.sig install-asahi-quattro
 ```
 
 Verify the complete release without changing the system:
@@ -228,7 +227,7 @@ bash install-asahi-quattro --verify-only
 A successful verification ends with:
 
 ```text
-Verified asahi-quattro-d3c9064f for the tested apple,j314s MacBook Pro.
+Verified asahi-quattro-COMMIT for the tested apple,j314s MacBook Pro.
 ```
 
 ### 2. Run The Quattro Upgrade

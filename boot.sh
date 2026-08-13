@@ -129,33 +129,22 @@ if [[ -n "$SUDO" ]]; then
         trap 'sudo -k; kill ${SUDO_KEEPALIVE_PID:-} 2>/dev/null' EXIT INT TERM
 fi
 
-show_spinner "Updating package database and installing git" \
-    ${SUDO:+$SUDO }pacman -Syu --noconfirm --needed git
+show_spinner "Installing release download tools" \
+    ${SUDO:+$SUDO }pacman -Syu --noconfirm --needed curl gnupg
 
-# Use custom repo if specified, otherwise default to the maintained Mac fork
-OMARCHY_REPO="${OMARCHY_REPO:-maralcbr/omarchy-mx-mac}"
+release_url="https://github.com/${OMARCHY_REPO:-maralcbr/omarchy-mx-mac}/releases/latest/download/install-omarchy-mx-mac"
+installer=$(mktemp "${TMPDIR:-/tmp}/install-omarchy-mx-mac.XXXXXXXX")
+signature="$installer.sig"
+key_home=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-release-key.XXXXXXXX")
+chmod 700 "$key_home"
+trap 'rm -f "$installer" "$signature"; rm -rf "$key_home"; sudo -k 2>/dev/null || true; kill ${SUDO_KEEPALIVE_PID:-} 2>/dev/null' EXIT INT TERM
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$installer" "$release_url"
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$signature" "$release_url.sig"
+fingerprint=40DFB630FF42BCFFB047046CF0134EE680CAC571
+GNUPGHOME="$key_home" gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$fingerprint"
+actual_fingerprint=$(GNUPGHOME="$key_home" gpg --with-colons --fingerprint "$fingerprint" | awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $actual_fingerprint == "$fingerprint" ]] || { echo "Omarchy release key fingerprint mismatch" >&2; exit 1; }
+GNUPGHOME="$key_home" gpg --batch --verify "$signature" "$installer"
 
-show_spinner "Cloning Omarchy Mac repository" \
-    bash -lc 'set -e; target="$HOME/.local/share/omarchy"; mkdir -p "$(dirname "$target")"; rm -rf "$target"; git clone "https://github.com/'"$OMARCHY_REPO"'.git" "$target"'
-
-# Use custom branch if instructed, otherwise default to main
-OMARCHY_REF="${OMARCHY_REF:-main}"
-if [[ $OMARCHY_REF != "main" ]]; then
-    echo "Using branch: $OMARCHY_REF"
-    cd ~/.local/share/omarchy
-    git fetch origin "${OMARCHY_REF}" && git checkout "${OMARCHY_REF}"
-    cd -
-fi
-
-# Success message
-show_message "## ✅ Omarchy Mac cloned successfully!" \
-    "" \
-    "The repository has been cloned to \`~/.local/share/omarchy\`" \
-    "" \
-    "Run command: \"bash ~/.local/share/omarchy/bootstrap.sh\"" \
-    "" \
-    "The bootstrap script will:" \
-    "• Configure network and locale" \
-    "• Update system and install essential packages" \
-    "• Create user account with sudo access" \
-    "• Install AUR helper and Omarchy Mac"
+show_message "The stable release installer will verify the signed release before cloning it."
+${SUDO:+$SUDO } bash "$installer"

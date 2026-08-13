@@ -3,6 +3,7 @@
 
 gum style --border normal --border-foreground 6 --padding "1 2" \
   "Ready to update Omarchy?" \
+  "${OMARCHY_UPDATE_RELEASE:-}" \
   "" \
   "• You cannot stop the update once you start!" \
   "• Make sure you're connected to power or have a full battery"

@@ -1,0 +1,36 @@
+name: Publish stable Mac release
+
+on:
+  push:
+    tags: ["v*-mac.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install test and signing tools
+        run: sudo apt-get update && sudo apt-get install -y jq shellcheck gnupg
+      - name: Run source tests
+        run: |
+          bash test/omarchy-cli-test.sh
+          bash tests/test-asahi-compatibility.sh
+          bash tests/stable-release-test.sh
+      - name: Import release key
+        env:
+          RELEASE_PRIVATE_KEY: ${{ secrets.OMARCHY_RELEASE_PRIVATE_KEY }}
+        run: printf '%s' "$RELEASE_PRIVATE_KEY" | gpg --batch --import
+      - name: Build signed release assets
+        env:
+          OMARCHY_RELEASE_SEQUENCE: ${{ github.run_number }}
+          OMARCHY_RELEASE_SIGNING_KEY: 40DFB630FF42BCFFB047046CF0134EE680CAC571
+        run: scripts/build-stable-release "$GITHUB_REF_NAME"
+      - name: Publish immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/stable-release/* --verify-tag --title "Omarchy MX Mac ${GITHUB_REF_NAME#v}" --generate-notes

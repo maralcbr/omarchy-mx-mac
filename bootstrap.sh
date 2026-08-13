@@ -168,10 +168,17 @@ install_yay() {
 clone_repo_to_user() {
     local username="$1"
     local repo="${OMARCHY_REPO:-maralcbr/omarchy-mx-mac}"
-    local ref="${OMARCHY_REF:-main}"
+    local ref="${OMARCHY_REF:-}"
+
+    if [[ -z $ref ]]; then
+        ref=$(git -C "$(dirname -- "${BASH_SOURCE[0]}")" describe --tags --exact-match --match "v*-mac.*" 2>/dev/null || true)
+    fi
+    [[ -n $ref ]] || { print_error "Bootstrap requires a validated Omarchy Mac release tag."; exit 1; }
+    [[ $ref =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$ ]] || { print_error "Invalid Omarchy Mac release tag."; exit 1; }
+    [[ -z ${OMARCHY_RELEASE_COMMIT:-} || $OMARCHY_RELEASE_COMMIT =~ ^[0-9a-f]{40}$ ]] || { print_error "Invalid Omarchy Mac release commit."; exit 1; }
 
     print_step "Cloning Omarchy Mac into user's home"
-    su - "$username" -c "bash -lc 'set -e; mkdir -p ~/.local/share; rm -rf ~/.local/share/omarchy; git clone https://github.com/${repo}.git ~/.local/share/omarchy; cd ~/.local/share/omarchy; if [[ \"${ref}\" != \"main\" ]]; then git fetch origin \"${ref}\" && git checkout \"${ref}\"; fi'"
+    su - "$username" -c "bash -lc 'set -e; mkdir -p ~/.local/share; rm -rf ~/.local/share/omarchy; git clone --filter=blob:none --no-checkout https://github.com/${repo}.git ~/.local/share/omarchy; cd ~/.local/share/omarchy; git fetch origin --no-tags refs/tags/${ref}:refs/tags/${ref}; commit=\$(git rev-list -n 1 ${ref}); [[ -z \"${OMARCHY_RELEASE_COMMIT:-}\" || \$commit == \"${OMARCHY_RELEASE_COMMIT:-}\" ]]; git checkout --detach \$commit'"
     print_success "Repository cloned"
 }
 
