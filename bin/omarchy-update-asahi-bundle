@@ -9,8 +9,8 @@ set -euo pipefail
 
 repo="${OMARCHY_ASAHI_BUNDLE_REPO:-maralcbr/omarchy-pkgs}"
 state_file="${OMARCHY_ASAHI_BUNDLE_STATE:-/var/lib/omarchy/asahi-quattro-release}"
-trusted_key=40DFB630FF42BCFFB047046CF0134EE680CAC571
-trusted_key_file="${OMARCHY_ASAHI_KEY_FILE:-/usr/share/pacman/keyrings/omarchy.gpg}"
+trusted_key=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+trusted_key_file="${OMARCHY_ASAHI_KEY_FILE:-/usr/share/omarchy/default/omarchy-release.gpg}"
 mode=update
 yes=0
 packages=(

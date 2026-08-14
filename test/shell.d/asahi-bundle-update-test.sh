@@ -16,7 +16,7 @@ assets="$test_tmp/assets"
 state="$test_tmp/state"
 source_commit=0123456789abcdef0123456789abcdef01234567
 mkdir -p "$stub_bin" "$assets" "$test_tmp/root/proc/device-tree"
-: >"$test_tmp/omarchy.gpg"
+: >"$test_tmp/omarchy-release.gpg"
 printf 'apple,j314s\0apple,arm-platform\0' >"$test_tmp/root/proc/device-tree/compatible"
 
 write_channel() {
@@ -61,13 +61,13 @@ SH
 cat >"$stub_bin/gpg" <<'SH'
 #!/bin/bash
 if [[ " $* " == *" --show-keys "* ]]; then
-  echo 'fpr:::::::::40DFB630FF42BCFFB047046CF0134EE680CAC571:'
+  echo 'fpr:::::::::5983B1CA32CB778F4D74D24ECFF35022CA5B5959:'
   exit 0
 fi
 if [[ " $* " == *" --import "* ]]; then
   exit 0
 fi
-echo '[GNUPG:] VALIDSIG 40DFB630FF42BCFFB047046CF0134EE680CAC571 2026-01-01 0 4 0 1 10 00 40DFB630FF42BCFFB047046CF0134EE680CAC571'
+echo '[GNUPG:] VALIDSIG 5983B1CA32CB778F4D74D24ECFF35022CA5B5959 2026-01-01 0 4 0 1 10 00 5983B1CA32CB778F4D74D24ECFF35022CA5B5959'
 SH
 cat >"$stub_bin/jq" <<'SH'
 #!/bin/bash
@@ -88,7 +88,7 @@ run_check() {
     OMARCHY_ASAHI_TESTING=1 \
     OMARCHY_ASAHI_ROOT="$test_tmp/root" \
     OMARCHY_ASAHI_BUNDLE_STATE="$state" \
-    OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy.gpg" \
+    OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy-release.gpg" \
     OMARCHY_ASAHI_CHANNEL_URL="https://example.test/asahi-quattro-channel" \
     PATH="$stub_bin:$PATH" \
     "$updater" --check
@@ -168,7 +168,7 @@ rm -f "$state.pending"
 cat >"$stub_bin/gpg" <<'SH'
 #!/bin/bash
 if [[ " $* " == *" --show-keys "* ]]; then
-  echo 'fpr:::::::::40DFB630FF42BCFFB047046CF0134EE680CAC571:'
+  echo 'fpr:::::::::5983B1CA32CB778F4D74D24ECFF35022CA5B5959:'
   exit 0
 fi
 if [[ " $* " == *" --import "* ]]; then
