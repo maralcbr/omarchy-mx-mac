@@ -118,41 +118,22 @@ kill -0 "$inhibitor_pid" 2>/dev/null &&
   fail "update waits for its sleep inhibitor to stop before continuing"
 pass "omarchy-update waits for its sleep inhibitor to stop"
 
-if (( EUID != 0 )); then
-  sudo_log="$test_tmp/sudo.log"
-  pkexec_marker="$test_tmp/pkexec-used"
-  terminal_inhibit_pid_file="$test_tmp/terminal-inhibit-pid"
-  write_stub sudo '
-printf "%s\n" "$*" >>"$SUDO_LOG"
-if [[ $1 == "-v" ]]; then
-  exit 0
-fi
-exec "$@"'
-  write_stub pkexec 'touch "$PKEXEC_MARKER"; exec "$@"'
+privilege_marker="$test_tmp/inhibitor-privilege-used"
+inhibit_marker="$test_tmp/unprivileged-inhibitor-used"
+write_stub sudo 'touch "$PRIVILEGE_MARKER"; exit 1'
+write_stub pkexec 'touch "$PRIVILEGE_MARKER"; exit 1'
+write_stub systemd-inhibit 'touch "$INHIBIT_MARKER"; exec sleep 30'
 
-  # start leaves the inhibitor running on purpose, but script tears the pty down
-  # the moment its command returns, which SIGHUPs that inhibitor before it can
-  # exec. Keep the session open from the inside until the stub has logged.
-  terminal_driver="$test_tmp/terminal-stay-awake"
-  cat >"$terminal_driver" <<'SH'
-#!/bin/bash
-omarchy-update-stay-awake start
-for _ in {1..200}; do
-  grep -q '^systemd-inhibit ' "$SUDO_LOG" && break
-  sleep 0.05
+PRIVILEGE_MARKER="$privilege_marker" INHIBIT_MARKER="$inhibit_marker" \
+  run_with_lock_env "$ROOT/bin/omarchy-update-stay-awake" start
+for _ in {1..100}; do
+  [[ -e $inhibit_marker ]] && break
+  sleep 0.01
 done
-SH
-  chmod +x "$terminal_driver"
-
-  SUDO_LOG="$sudo_log" PKEXEC_MARKER="$pkexec_marker" INHIBIT_PID_FILE="$terminal_inhibit_pid_file" \
-    run_with_lock_env script -qefc "$terminal_driver" /dev/null >/dev/null
-
-  grep -qx -- '-v' "$sudo_log" || fail "terminal sleep inhibition validates sudo in the foreground"
-  grep -q '^systemd-inhibit ' "$sudo_log" || fail "terminal sleep inhibition runs through sudo"
-  [[ ! -e $pkexec_marker ]] || fail "terminal sleep inhibition does not use pkexec"
-  run_with_lock_env "$ROOT/bin/omarchy-update-stay-awake" stop
-  pass "terminal updates use sudo instead of Polkit for sleep inhibition"
-fi
+[[ -e $inhibit_marker ]] || fail "sleep inhibition starts without privilege escalation"
+[[ ! -e $privilege_marker ]] || fail "sleep inhibition does not use sudo or Polkit"
+run_with_lock_env "$ROOT/bin/omarchy-update-stay-awake" stop
+pass "updates manage sleep inhibition as the logged-in user"
 
 # Update-owned Stay Awake state must be cleared before the restart helper can
 # reboot the machine, rather than relying on an EXIT trap during shutdown.
