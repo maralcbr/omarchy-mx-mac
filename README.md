@@ -114,15 +114,10 @@ cd /root/omarchy-mx-mac-install
 release=https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download
 curl -fLO "$release/install-omarchy-mx-mac"
 curl -fLO "$release/install-omarchy-mx-mac.sig"
-key_home=$(mktemp -d)
-chmod 700 "$key_home"
-GNUPGHOME="$key_home" gpg --keyserver hkps://keys.openpgp.org \
-  --recv-keys 40DFB630FF42BCFFB047046CF0134EE680CAC571
-test "$(GNUPGHOME="$key_home" gpg --with-colons --fingerprint \
-  40DFB630FF42BCFFB047046CF0134EE680CAC571 | awk -F: '$1 == "fpr" { print $10; exit }')" = \
-  40DFB630FF42BCFFB047046CF0134EE680CAC571
-GNUPGHOME="$key_home" gpg --verify install-omarchy-mx-mac.sig install-omarchy-mx-mac
-rm -rf "$key_home"
+curl -fLO "$release/omarchy-release.gpg"
+test "$(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }')" = \
+  5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+gpgv --keyring ./omarchy-release.gpg install-omarchy-mx-mac.sig install-omarchy-mx-mac
 bash install-omarchy-mx-mac
 ```
 
@@ -214,7 +209,7 @@ cd ~/Downloads/omarchy-quattro
 release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel
 curl -fLO "$release/install-asahi-quattro"
 curl -fLO "$release/install-asahi-quattro.sig"
-gpgv --keyring /usr/share/pacman/keyrings/omarchy.gpg \
+gpgv --keyring ~/.local/share/omarchy/default/omarchy-release.gpg \
   install-asahi-quattro.sig install-asahi-quattro
 ```
 

@@ -140,11 +140,13 @@ chmod 700 "$key_home"
 trap 'rm -f "$installer" "$signature"; rm -rf "$key_home"; sudo -k 2>/dev/null || true; kill ${SUDO_KEEPALIVE_PID:-} 2>/dev/null' EXIT INT TERM
 curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$installer" "$release_url"
 curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$signature" "$release_url.sig"
-fingerprint=40DFB630FF42BCFFB047046CF0134EE680CAC571
-GNUPGHOME="$key_home" gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$fingerprint"
-actual_fingerprint=$(GNUPGHOME="$key_home" gpg --with-colons --fingerprint "$fingerprint" | awk -F: '$1 == "fpr" { print $10; exit }')
+fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+keyring="$key_home/omarchy-release.gpg"
+key_url="https://raw.githubusercontent.com/${OMARCHY_REPO:-maralcbr/omarchy-mx-mac}/main/default/omarchy-release.gpg"
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$keyring" "$key_url"
+actual_fingerprint=$(gpg --batch --show-keys --with-colons "$keyring" | awk -F: '$1 == "fpr" { print $10; exit }')
 [[ $actual_fingerprint == "$fingerprint" ]] || { echo "Omarchy release key fingerprint mismatch" >&2; exit 1; }
-GNUPGHOME="$key_home" gpg --batch --verify "$signature" "$installer"
+gpgv --keyring "$keyring" "$signature" "$installer"
 
 show_message "The stable release installer will verify the signed release before cloning it."
 ${SUDO:+$SUDO } bash "$installer"

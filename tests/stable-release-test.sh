@@ -35,12 +35,12 @@ EOF
 cat >"$tmp/bin/gpg" <<'EOF'
 #!/bin/bash
 if [[ " $* " == *" --show-keys "* ]]; then
-  echo 'fpr:::::::::40DFB630FF42BCFFB047046CF0134EE680CAC571:'
+  echo 'fpr:::::::::5983B1CA32CB778F4D74D24ECFF35022CA5B5959:'
 elif [[ " $* " == *" --import "* ]]; then
   exit 0
 elif [[ " $* " == *" --verify "* ]]; then
   (( ${GPG_EXIT:-0} == 0 )) || exit "$GPG_EXIT"
-  echo '[GNUPG:] VALIDSIG SIGNINGSUBKEY 2026-01-01 0 4 0 1 10 00 40DFB630FF42BCFFB047046CF0134EE680CAC571'
+  echo '[GNUPG:] VALIDSIG SIGNINGSUBKEY 2026-01-01 0 4 0 1 10 00 5983B1CA32CB778F4D74D24ECFF35022CA5B5959'
 fi
 EOF
 chmod +x "$tmp/bin"/*

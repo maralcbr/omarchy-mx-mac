@@ -4,7 +4,8 @@ set -euo pipefail
 
 repo="${OMARCHY_REPO:-maralcbr/omarchy-mx-mac}"
 release_base_url="${OMARCHY_RELEASE_BASE_URL:-https://github.com/$repo/releases/latest/download}"
-fingerprint=40DFB630FF42BCFFB047046CF0134EE680CAC571
+fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+key_url="${OMARCHY_RELEASE_KEY_URL:-https://raw.githubusercontent.com/$repo/main/default/omarchy-release.gpg}"
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-mx-mac-install.XXXXXXXX")
 trap 'rm -rf "$work_dir"' EXIT
 
@@ -19,14 +20,11 @@ pacman -Syu --noconfirm --needed curl git gnupg
 descriptor="$work_dir/omarchy-mx-mac-release"
 signature="$descriptor.sig"
 keyring="$work_dir/omarchy-release.gpg"
-key_home="$work_dir/gnupg"
-mkdir -m 700 "$key_home"
 curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$descriptor" "$release_base_url/omarchy-mx-mac-release"
 curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$signature" "$release_base_url/omarchy-mx-mac-release.sig"
-GNUPGHOME="$key_home" gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$fingerprint"
-actual_fingerprint=$(GNUPGHOME="$key_home" gpg --with-colons --fingerprint "$fingerprint" | awk -F: '$1 == "fpr" { print $10; exit }')
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$keyring" "$key_url"
+actual_fingerprint=$(gpg --batch --show-keys --with-colons "$keyring" | awk -F: '$1 == "fpr" { print $10; exit }')
 [[ $actual_fingerprint == "$fingerprint" ]] || fail "Omarchy release signing key fingerprint mismatch"
-GNUPGHOME="$key_home" gpg --batch --export "$fingerprint" >"$keyring"
 gpgv --keyring "$keyring" "$signature" "$descriptor" >/dev/null 2>&1 || fail "Stable release signature verification failed"
 
 declare -A release=()

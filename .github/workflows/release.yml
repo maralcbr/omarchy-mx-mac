@@ -59,7 +59,7 @@ jobs:
               /tmp/current-release/omarchy-mx-mac-release.sig \
               /tmp/current-release/omarchy-mx-mac-release 2>/dev/null)
             signer=$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $NF; exit }' <<<"$status")
-            [[ $signer == 40DFB630FF42BCFFB047046CF0134EE680CAC571 ]]
+            [[ $signer == 5983B1CA32CB778F4D74D24ECFF35022CA5B5959 ]]
             current_sequence=$(sed -n 's/^sequence=//p' /tmp/current-release/omarchy-mx-mac-release)
             [[ $current_sequence =~ ^[1-9][0-9]*$ ]]
             (( RELEASE_SEQUENCE > current_sequence ))
@@ -68,7 +68,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           OMARCHY_RELEASE_SEQUENCE: ${{ inputs.sequence }}
-          OMARCHY_RELEASE_SIGNING_KEY: 40DFB630FF42BCFFB047046CF0134EE680CAC571
+          OMARCHY_RELEASE_SIGNING_KEY: 5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+          GPG_PASSPHRASE: ${{ secrets.OMARCHY_RELEASE_KEY_PASSPHRASE }}
         run: scripts/build-stable-release "$RELEASE_TAG"
       - name: Publish immutable release assets
         env:

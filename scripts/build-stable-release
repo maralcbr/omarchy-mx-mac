@@ -23,6 +23,11 @@ source_commit=$commit
 minimum_updater_version=1
 EOF
 cp install-omarchy-mx-mac "$output_dir/"
-gpg --batch --yes --local-user "$OMARCHY_RELEASE_SIGNING_KEY" --detach-sign --output "$output_dir/omarchy-mx-mac-release.sig" "$output_dir/omarchy-mx-mac-release"
-gpg --batch --yes --local-user "$OMARCHY_RELEASE_SIGNING_KEY" --detach-sign --output "$output_dir/install-omarchy-mx-mac.sig" "$output_dir/install-omarchy-mx-mac"
-(cd "$output_dir" && sha256sum omarchy-mx-mac-release omarchy-mx-mac-release.sig install-omarchy-mx-mac install-omarchy-mx-mac.sig >SHA256SUMS)
+cp default/omarchy-release.gpg "$output_dir/"
+sign_args=(--batch --yes --local-user "$OMARCHY_RELEASE_SIGNING_KEY" --detach-sign)
+if [[ -n ${GPG_PASSPHRASE:-} ]]; then
+  sign_args+=(--pinentry-mode loopback --passphrase "$GPG_PASSPHRASE")
+fi
+gpg "${sign_args[@]}" --output "$output_dir/omarchy-mx-mac-release.sig" "$output_dir/omarchy-mx-mac-release"
+gpg "${sign_args[@]}" --output "$output_dir/install-omarchy-mx-mac.sig" "$output_dir/install-omarchy-mx-mac"
+(cd "$output_dir" && sha256sum omarchy-mx-mac-release omarchy-mx-mac-release.sig install-omarchy-mx-mac install-omarchy-mx-mac.sig omarchy-release.gpg >SHA256SUMS)
