@@ -240,6 +240,7 @@ for package in "${packages[@]}"; do
   download "$base/$filename" "$archive"
   download "$base/$filename.sig" "$archive.sig"
   verify_signature "$archive" "$archive.sig"
+  rm -f "$archive.sig"
   [[ $(sha256sum "$archive" | cut -d' ' -f1) == "${manifest_hashes[$package]}" ]] || fail "checksum mismatch for $filename"
   metadata=$(bsdtar -xOf "$archive" .PKGINFO 2>/dev/null) || fail "$filename is not a package archive"
   grep -Fxq "pkgname = $package" <<<"$metadata" || fail "$filename has the wrong package name"
