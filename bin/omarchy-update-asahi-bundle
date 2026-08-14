@@ -275,7 +275,7 @@ backup="/var/lib/omarchy/backups/asahi-bundle-$(date +%Y%m%d%H%M%S)"
 backup_tmp=$(mktemp -d)
 pacman -Q >"$backup_tmp/installed-packages.txt"
 sha256sum "$(root_path /boot/vmlinuz-linux-asahi)" >"$backup_tmp/boot-sha256.txt"
-find "$(root_path /etc/pacman.conf)" "$(root_path /etc/pacman.d)" "$(root_path /etc/NetworkManager)" \
+sudo find "$(root_path /etc/pacman.conf)" "$(root_path /etc/pacman.d)" "$(root_path /etc/NetworkManager)" \
   -type f -exec sha256sum {} + >"$backup_tmp/config-sha256.txt"
 sudo install -d -o root -g root -m 0700 "$backup"
 sudo cp -a "$backup_tmp"/. "$backup/"
