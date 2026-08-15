@@ -1,0 +1,211 @@
+#!/bin/bash
+
+# omarchy:summary=Install Omarchy on a fresh Asahi Arch system
+# omarchy:args=--asahi-packages DIR [--user USER]
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+set -euo pipefail
+
+bundle_dir=""
+target_user=""
+state_dir=/var/lib/omarchy/fresh-install
+
+fail() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+usage() {
+  echo "Usage: omarchy-install-asahi-fresh --asahi-packages DIR [--user USER]" >&2
+}
+
+while (($#)); do
+  case "$1" in
+    --asahi-packages)
+      (($# > 1)) || fail "--asahi-packages requires a directory"
+      bundle_dir="$2"
+      shift 2
+      ;;
+    --user)
+      (($# > 1)) || fail "--user requires a username"
+      target_user="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "Unknown option: $1"
+      ;;
+  esac
+done
+
+(( EUID == 0 )) || fail "Run the fresh installer as root"
+[[ -d $bundle_dir ]] || fail "The verified package directory is unavailable"
+[[ -n ${OMARCHY_ASAHI_PACKAGE_SOURCE:-} ]] || fail "Missing verified package source commit"
+[[ $OMARCHY_ASAHI_PACKAGE_SOURCE =~ ^[0-9a-f]{40}$ ]] || fail "Invalid package source commit"
+[[ $(uname -m) == "aarch64" ]] || fail "Fresh Apple Silicon installation requires aarch64"
+[[ -r /proc/device-tree/compatible ]] || fail "Apple device-tree information is unavailable"
+grep -aq 'apple,' /proc/device-tree/compatible || fail "Apple Silicon device tree not found"
+
+for package in linux-asahi grub; do
+  pacman -Q "$package" >/dev/null 2>&1 || fail "Required Asahi package is not installed: $package"
+done
+[[ -f /boot/vmlinuz-linux-asahi ]] || fail "/boot/vmlinuz-linux-asahi is unavailable"
+[[ -f /boot/grub/grub.cfg ]] || fail "The existing Asahi GRUB configuration is unavailable"
+for repository in asahi-alarm core extra alarm aur; do
+  pacman-conf --repo-list | grep -Fxq "$repository" || fail "Required repository is unavailable: $repository"
+done
+(( $(swapon --show --noheadings | wc -l) == 0 )) || fail "Disable swap before installing Omarchy"
+[[ $(cat /sys/module/zswap/parameters/enabled 2>/dev/null || echo N) == "N" ]] || fail "Disable zswap before installing Omarchy"
+
+expected_packages=(omarchy-keyring omarchy-settings-dev omarchy-dev omarchy-nvim quickshell-git ttf-jetbrains-mono-nerd-basic)
+archives=()
+for package in "${expected_packages[@]}"; do
+  matches=("$bundle_dir/$package"-*.pkg.tar.*)
+  filtered=()
+  for match in "${matches[@]}"; do
+    [[ -f $match && $match != *.sig ]] && filtered+=("$match")
+  done
+  ((${#filtered[@]} == 1)) || fail "Expected exactly one verified archive for $package"
+  archives+=("${filtered[0]}")
+done
+
+if [[ -z $target_user ]]; then
+  tty </dev/tty >/dev/null 2>&1 || fail "--user is required without an interactive terminal"
+  read -rp "Omarchy username: " target_user </dev/tty
+fi
+[[ $target_user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail "Invalid username: $target_user"
+[[ $target_user != "root" ]] || fail "The Omarchy user cannot be root"
+tty </dev/tty >/dev/null 2>&1 || fail "A controlling terminal is required to set the user password"
+if getent passwd "$target_user" >/dev/null; then
+  [[ -f $state_dir/user && $(<"$state_dir/user") == "$target_user" ]] || fail "User already exists: $target_user"
+fi
+
+backup_dir="/var/lib/omarchy/backups/fresh-$(date +%Y%m%d%H%M%S)"
+install -d -m 0700 "$backup_dir"
+cp -a /etc/pacman.conf /etc/pacman.d /etc/NetworkManager "$backup_dir/" 2>/dev/null || true
+cp -a /boot/grub/grub.cfg "$backup_dir/grub.cfg"
+pacman -Q >"$backup_dir/installed-packages.txt"
+
+omarchy_archive=${archives[2]}
+mapfile -t runtime_packages < <(
+  bsdtar -xOf "$omarchy_archive" usr/share/omarchy/install/omarchy-base-asahi.packages |
+    sed 's/#.*//' |
+    awk 'NF == 1 { print $1 }' |
+    grep -vE '^(omarchy-keyring|omarchy-settings-dev|omarchy-dev|omarchy-nvim|quickshell-git|ttf-jetbrains-mono-nerd-basic)$'
+)
+((${#runtime_packages[@]} > 0)) || fail "Could not read the Asahi runtime package manifest"
+
+source_packages=(
+  aether
+  cliamp
+  localsend
+  mise
+  python-terminaltexteffects
+  ttf-ia-writer
+  ufw-docker
+  xdg-terminal-exec
+  yaru-icon-theme
+  yay
+)
+repo_packages=()
+for package in "${runtime_packages[@]}"; do
+  if [[ ! " ${source_packages[*]} " =~ " $package " ]]; then
+    repo_packages+=("$package")
+  fi
+done
+
+echo "Installing the Omarchy 4 Apple Silicon package set"
+pacman -Syu --needed --noconfirm base-devel sudo xdg-user-dirs "${repo_packages[@]}"
+
+echo "Installing the verified six-package Omarchy release"
+pacman -U --needed --noconfirm "${archives[@]}"
+
+install -d -m 0700 "$state_dir"
+printf '%s\n' "$target_user" >"$state_dir/user"
+getent passwd "$target_user" >/dev/null || useradd -m -G wheel -s /bin/bash "$target_user"
+install -Dm440 /dev/stdin /etc/sudoers.d/10-omarchy-wheel <<'EOF'
+%wheel ALL=(ALL:ALL) ALL
+EOF
+
+target_home=$(getent passwd "$target_user" | cut -d: -f6)
+package_checkout="$target_home/.cache/omarchy-fresh-pkgbuilds"
+if [[ ! -d $package_checkout/.git ]]; then
+  rm -rf "$package_checkout"
+  runuser -u "$target_user" -- git clone --filter=blob:none --no-checkout \
+    https://github.com/maralcbr/omarchy-pkgs.git "$package_checkout"
+fi
+runuser -u "$target_user" -- git -C "$package_checkout" fetch origin --no-tags "$OMARCHY_ASAHI_PACKAGE_SOURCE"
+runuser -u "$target_user" -- git -C "$package_checkout" checkout --detach "$OMARCHY_ASAHI_PACKAGE_SOURCE"
+resolved_package_source=$(runuser -u "$target_user" -- git -C "$package_checkout" rev-parse HEAD)
+[[ $resolved_package_source == "$OMARCHY_ASAHI_PACKAGE_SOURCE" ]] || fail "Package source checkout mismatch"
+
+install -Dm440 /dev/stdin /etc/sudoers.d/09-omarchy-fresh-build <<EOF
+$target_user ALL=(root) NOPASSWD: /usr/bin/pacman
+EOF
+cleanup_build_sudoers() {
+  rm -f /etc/sudoers.d/09-omarchy-fresh-build
+}
+trap cleanup_build_sudoers EXIT
+for package in "${source_packages[@]}"; do
+  pacman -Q "$package" >/dev/null 2>&1 && continue
+  echo "Building pinned Apple Silicon package: $package"
+  runuser -u "$target_user" -- env HOME="$target_home" \
+    bash -c 'cd "$1" && makepkg --syncdeps --noconfirm' \
+    bash "$package_checkout/pkgbuilds/$package"
+  package_archives=()
+  for candidate in "$package_checkout/pkgbuilds/$package"/*.pkg.tar.*; do
+    [[ -f $candidate && $candidate != *.sig ]] || continue
+    metadata=$(bsdtar -xOf "$candidate" .PKGINFO 2>/dev/null || true)
+    grep -Fxq "pkgname = $package" <<<"$metadata" && package_archives+=("$candidate")
+  done
+  ((${#package_archives[@]} == 1)) || fail "Expected one built archive for $package"
+  pacman -U --needed --noconfirm "${package_archives[0]}"
+done
+cleanup_build_sudoers
+trap - EXIT
+
+echo "Set the password for $target_user"
+passwd "$target_user" </dev/tty
+
+OMARCHY_PATH=/usr/share/omarchy \
+  OMARCHY_INSTALL=/usr/share/omarchy/install \
+  omarchy-apply-system --install-user "$target_user" --first-install
+
+runuser -u "$target_user" -- env \
+  HOME="$target_home" \
+  USER="$target_user" \
+  LOGNAME="$target_user" \
+  OMARCHY_PATH=/usr/share/omarchy \
+  OMARCHY_INSTALL=/usr/share/omarchy/install \
+  OMARCHY_SETUP_CONTEXT=fresh-install \
+  PATH="/usr/share/omarchy/bin:/usr/local/sbin:/usr/local/bin:/usr/bin" \
+  omarchy-provision-user --force --first-install
+
+ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
+release_sequence=${OMARCHY_ASAHI_RELEASE_SEQUENCE:?Missing release sequence}
+release_tag=${OMARCHY_ASAHI_RELEASE_TAG:?Missing release tag}
+release_source=${OMARCHY_ASAHI_RELEASE_SOURCE:?Missing release source}
+install -d -m 0755 /var/lib/omarchy
+cat >/var/lib/omarchy/asahi-quattro-release <<EOF
+format=1
+sequence=$release_sequence
+tag=$release_tag
+source_commit=$release_source
+package_source_commit=$OMARCHY_ASAHI_PACKAGE_SOURCE
+EOF
+chown root:root /var/lib/omarchy/asahi-quattro-release
+chmod 0644 /var/lib/omarchy/asahi-quattro-release
+rm -rf "$state_dir"
+
+pacman -Q omarchy-dev omarchy-settings-dev linux-asahi networkmanager iwd >/dev/null
+[[ $(cat /usr/share/omarchy/version) == 4.* ]] || fail "Installed Omarchy version is not 4.x"
+NetworkManager --print-config 2>/dev/null | grep -Fxq 'wifi.backend=iwd' || fail "NetworkManager iwd backend was not configured"
+[[ -f /boot/vmlinuz-linux-asahi && -f /boot/grub/grub.cfg ]] || fail "Asahi boot files changed unexpectedly"
+
+echo "Fresh Omarchy 4 installation complete (backup: $backup_dir)"
+echo "Reboot, then sign in as $target_user"

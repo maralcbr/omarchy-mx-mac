@@ -48,7 +48,7 @@ root_path() {
 
 compatible=$(tr '\0' '\n' <"$(root_path /proc/device-tree/compatible)" 2>/dev/null || true)
 [[ $(uname -m) == "aarch64" ]] || fail "only aarch64 is supported"
-grep -Fxq 'apple,j314s' <<<"$compatible" || fail "only the validated apple,j314s device is supported"
+grep -q '^apple,' <<<"$compatible" || fail "Apple Silicon device tree not found"
 
 for command in bsdtar curl gpg sha256sum vercmp; do
   omarchy-cmd-present "$command" || fail "$command is required"

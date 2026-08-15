@@ -34,6 +34,7 @@ jobs:
           bash test/shell.d/asahi-update-test.sh
           bash test/shell.d/migrate-asahi-test.sh
           bash test/shell.d/asahi-bundle-update-test.sh
+          bash test/shell.d/asahi-fresh-install-test.sh
           bash tests/stable-release-test.sh
       - name: Validate release inputs
         env:

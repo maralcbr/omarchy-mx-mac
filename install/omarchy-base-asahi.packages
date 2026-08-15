@@ -61,7 +61,6 @@ gvfs-nfs
 gvfs-smb
 hyprland
 hyprland-guiutils
-hyprland-preview-share-picker
 hyprpicker
 hyprsunset
 imagemagick
@@ -98,7 +97,6 @@ neovim
 omarchy-nvim
 pacman-contrib
 pamixer
-pinta
 plocate
 plymouth
 postgresql-libs
@@ -124,7 +122,6 @@ tmux
 tree-sitter-cli
 ttf-ia-writer
 ttf-jetbrains-mono-nerd-basic
-tzupdate
 udiskie
 ufw
 ufw-docker

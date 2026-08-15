@@ -22,7 +22,7 @@ grep -Fq 'omarchy-update-asahi-bundle --yes' "$update" || fail "normal updates i
 grep -Fq 'asahi-quattro-release.pending' "$update" || fail "normal updates commit bundle state only after migrations and hooks"
 grep -Fq 'bundle_status == 3' "$update" || fail "bundle transport outages do not block platform package updates"
 grep -Fq 'pacman -U --noconfirm -- "${archives[@]}"' "$bundle_update" || fail "Asahi bundle installs in one exact transaction"
-grep -Fq "grep -Fxq 'apple,j314s'" "$bundle_update" || fail "Asahi bundle updater is limited to the validated device"
+grep -Fq "grep -q '^apple,'" "$bundle_update" || fail "Asahi bundle updater requires an Apple Silicon device tree"
 grep -Fq 'refusing signed release rollback' "$bundle_update" || fail "Asahi bundle updater has an anti-rollback gate"
 grep -Fq '$2 == "VALIDSIG" && ($3 == key || $NF == key)' "$bundle_update" || fail "Asahi metadata and packages require the installed Omarchy signing key"
 pass "Apple Silicon updates preserve platform packages and configuration"

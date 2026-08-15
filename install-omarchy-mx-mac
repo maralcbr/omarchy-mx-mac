@@ -11,10 +11,8 @@ trap 'rm -rf "$work_dir"' EXIT
 
 fail() { echo "Error: $*" >&2; exit 1; }
 
-(( EUID != 0 )) || fail "Run this installer as your regular Omarchy user, not root"
 [[ $(uname -m) == "aarch64" ]] || fail "Omarchy MX Mac requires aarch64"
-tr '\0' '\n' </proc/device-tree/compatible 2>/dev/null | grep -Fxq 'apple,j314s' || \
-  fail "This release is limited to the tested apple,j314s MacBook Pro"
+grep -aq 'apple,' /proc/device-tree/compatible 2>/dev/null || fail "Apple Silicon device tree not found"
 
 for command_name in curl gpg; do
   command -v "$command_name" >/dev/null 2>&1 || fail "Required command is unavailable: $command_name"
@@ -34,4 +32,6 @@ gpg --batch --homedir "$gnupg_dir" --import "$keyring" >/dev/null 2>&1 || fail "
 gpg --batch --homedir "$gnupg_dir" --verify "$signature" "$installer" >/dev/null 2>&1 || \
   fail "Apple Silicon bundle installer signature verification failed"
 
-exec bash "$installer" "$@"
+installer_args=("$@")
+(( EUID != 0 )) || installer_args=(--fresh "${installer_args[@]}")
+exec bash "$installer" "${installer_args[@]}"

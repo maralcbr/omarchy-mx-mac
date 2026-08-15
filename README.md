@@ -1,28 +1,68 @@
-# Omarchy
+![Omarchy MX Mac](docs/images/omarchy-mx-mac-hero.png)
 
-Omarchy is a beautiful, modern & opinionated Linux distribution by DHH.
+# Omarchy Mac on Apple Silicon
 
-Read more at [omarchy.org](https://omarchy.org).
+Run Omarchy on Apple Silicon through Arch Linux ARM and Asahi Linux.
 
-## Apple Silicon
+[![License](https://img.shields.io/github/license/maralcbr/omarchy-mx-mac)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/maralcbr/omarchy-mx-mac?style=social)](https://github.com/maralcbr/omarchy-mx-mac/stargazers)
 
-This fork supports final Omarchy Quattro on the tested 14-inch 2021 MacBook Pro
-with M1 Pro (`apple,j314s`). Other Apple Silicon models and fresh Asahi
-installations remain untested.
+Omarchy 4 (Quattro) is the maintained release:
 
-Updates use a signed six-package aarch64 bundle built from the matching stable
-Mac source commit. The platform keeps its native `linux-asahi` kernel, Arch
-Linux ARM and Asahi repositories, GRUB boot path, NetworkManager `iwd` backend,
-Apple GPU integration, and MacBook hardware controls. Package and migration
-validation fails closed when a system change has not been reviewed for Asahi.
+| Version | Status | Installation |
+| --- | --- | --- |
+| Omarchy `4.0.0-mac.2` | Recommended stable version | Direct signed installation on Asahi Arch Minimal |
+| Omarchy `3.8.4-mac.4` | Legacy | Existing installations can update to Omarchy 4 |
 
-Release 3 is legacy. Final Quattro on `main` is the maintained Mac release.
+> [!NOTE]
+> Omarchy Mac has been tested on M1, M2, and M3 Macs. The complete signed
+> release, update, and reboot regression is run on a 14-inch 2021 MacBook Pro
+> with M1 Pro (`apple,j314s`). Apple Silicon support still depends on the
+> upstream Asahi Linux support available for each model.
+
+## Before You Begin
+
+- Back up macOS and important Linux data.
+- Review the [Asahi Linux device support](https://asahilinux.org/fedora/#device-support)
+  for your Mac.
+- Keep at least 50 GB free on the internal SSD; 100 GB is recommended.
+- Use AC power and a reliable Internet connection during installation.
+- Expect model-specific limitations around external displays, speakers,
+  cameras, power management, or other hardware.
+
+This project is not intended for Parallels, virtual machines, or non-Asahi ARM
+systems.
+
+## Fork Features
+
+Omarchy MX Mac keeps Omarchy's desktop experience while adapting installation,
+hardware integration, and updates for Apple Silicon:
+
+- Bootstrap from a fresh Asahi Arch Minimal installation into a complete
+  Omarchy desktop and regular user account.
+- Native Arch Linux ARM and Asahi stack with `linux-asahi`, Asahi firmware,
+  regional ARM mirrors, and the dedicated Asahi package repository.
+- Hardware-accelerated Apple GPU graphics through the Mesa `vulkan-asahi`
+  driver.
+- MacBook keyboard-backlight controls, Apple SMC lid handling, display
+  brightness integration, and low-battery notifications.
+- Widevine support for DRM-protected browser streaming when the package is
+  available from the configured Asahi repositories.
+- Optional Steam installation through the Asahi ARM64/FEX compatibility
+  environment.
+- ARM64-native application paths and the Omarchy Quickshell desktop.
+- Asahi-aware updates that track `linux-asahi` changes and offer a reboot when
+  a new kernel is installed.
+
+Hardware support still depends on Asahi Linux. Omarchy Mac has been tested on
+M1, M2, and M3 systems; external displays, speakers, cameras, suspend, and
+power management can vary by model.
 
 ## Mac Screenshot Shortcuts
 
-These additional shortcuts include `Control` so Quattro's existing
-`Command+Shift+3/4/5` workspace controls are not changed. On Apple keyboards,
-Command is Hyprland's `SUPER` modifier.
+The fork adds familiar number-row screenshot shortcuts with `Control` included
+so Omarchy's existing `Command+Shift+3/4/5` workspace controls remain intact.
+On Apple keyboards, the Command key is Hyprland's `SUPER` modifier.
 
 | Shortcut | Action |
 | --- | --- |
@@ -30,76 +70,173 @@ Command is Hyprland's `SUPER` modifier.
 | `Control+Shift+Command+4` | Select a region or click a window to capture it |
 | `Control+Shift+Command+5` | Open screenshot and screen-recording controls |
 
-## The Omarchy Manual
+The existing Print Screen shortcuts and all Omarchy workspace bindings remain
+available.
 
-The manual lives in [`manual/`](manual/), which is its authoritative source. It's
-mirrored to [learn.omacom.io](https://learn.omacom.io/2/the-omarchy-manual), where
-its screenshots are also hosted.
+## Install Omarchy 4
 
-- [Welcome to Omarchy!](manual/01-welcome-to-omarchy.md)
+The signed installer takes a prepared Asahi Arch Minimal system directly to
+Omarchy 4. It verifies immutable release metadata and never installs moving
+`main` or an intermediate Omarchy 3 release.
 
-**The Basics**
+### 1. Install Asahi Arch Minimal
 
-- [Getting Started](manual/02-getting-started.md)
-- [Coming From Mac or Windows](manual/03-coming-from-mac-or-windows.md)
-- [Navigation](manual/04-navigation.md)
-- [The top bar](manual/05-the-top-bar.md)
-- [Themes](manual/06-themes.md)
-- [Hotkeys](manual/07-hotkeys.md)
-- [Unified Clipboard & History](manual/08-unified-clipboard-history.md)
-- [Reminders](manual/09-reminders.md)
-- [Notices](manual/10-notices.md)
-- [Text Extraction & Dictation](manual/11-text-extraction-dictation.md)
-- [Screenshots & Recording](manual/12-screenshots-recording.md)
-- [Toggles, idle & screensaver](manual/13-toggles-idle-screensaver.md)
-- [Omarchy CLI](manual/14-omarchy-cli.md)
+From macOS Terminal, run the Asahi Alarm installer:
 
-**The Applications**
+```bash
+curl https://asahi-alarm.org/installer-bootstrap.sh | sh
+```
 
-- [Terminal](manual/15-terminal.md)
-- [Neovim](manual/16-neovim.md)
-- [AI](manual/17-ai.md)
-- [Development Tools](manual/18-development-tools.md)
-- [Shell Tools](manual/19-shell-tools.md)
-- [Shell Functions](manual/20-shell-functions.md)
-- [TUIs](manual/21-tuis.md)
-- [GUIs](manual/22-guis.md)
-- [Browsers](manual/23-browsers.md)
-- [Commercial apps/services](manual/24-commercial-apps-services.md)
-- [Web Apps](manual/25-web-apps.md)
-- [Gaming](manual/26-gaming.md)
-- [Filling out PDFs](manual/27-filling-out-pdfs.md)
-- [Windows VM](manual/28-windows-vm.md)
-- [Other Packages](manual/29-other-packages.md)
+Follow the installer prompts and select **Asahi Arch Minimal**. Allocate enough
+space for Linux, finish the installation, and boot into the new Arch system.
 
-**Configuration**
+### 2. Prepare Arch Linux
 
-- [Updates](manual/30-updates.md)
-- [Dotfiles](manual/31-dotfiles.md)
-- [Shell plugins](manual/32-shell-plugins.md)
-- [Monitors](manual/33-monitors.md)
-- [Keyboard, Mouse, Trackpad](manual/34-keyboard-mouse-trackpad.md)
-- [Networking](manual/35-networking.md)
-- [System sleep](manual/36-system-sleep.md)
-- [Hardware authentication](manual/37-hardware-authentication.md)
-- [Fonts](manual/38-fonts.md)
-- [Backgrounds](manual/39-backgrounds.md)
-- [Prompt](manual/40-prompt.md)
-- [Branding](manual/41-branding.md)
-- [Common tweaks](manual/42-common-tweaks.md)
-- [Making your own theme](manual/43-making-your-own-theme.md)
+Sign in as `root` using the credentials provided by the Asahi installer. If
+networking is not active, connect through NetworkManager:
 
-**The Rest**
+```bash
+nmtui
+```
 
-- [Mac support](manual/44-mac-support.md)
-- [Troubleshooting](manual/45-troubleshooting.md)
-- [FAQ](manual/46-faq.md)
-- [System snapshots](manual/47-system-snapshots.md)
-- [Security](manual/48-security.md)
-- [Omarchy on...](manual/49-omarchy-on.md)
-- [Dual Boot Install](manual/50-dual-boot-install.md)
-- [Unattended Installs](manual/51-unattended-installs.md)
+Update the system and install the release verification tools:
+
+```bash
+pacman -Syu --needed curl gnupg networkmanager iwd
+```
+
+### 3. Install The Latest Stable Mac Release
+
+Download and verify the installer from the latest stable release:
+
+```bash
+mkdir -p /root/omarchy-mx-mac-install
+cd /root/omarchy-mx-mac-install
+release=https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download
+curl -fLO "$release/install-omarchy-mx-mac"
+curl -fLO "$release/install-omarchy-mx-mac.sig"
+curl -fLO "$release/omarchy-release.gpg"
+test "$(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }')" = \
+  5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+gpgv --keyring ./omarchy-release.gpg install-omarchy-mx-mac.sig install-omarchy-mx-mac
+bash install-omarchy-mx-mac --verify-only
+bash install-omarchy-mx-mac
+```
+
+The signed installer will:
+
+- Verify the stable channel, release descriptor, exact six-package manifest,
+  checksums, signatures, architecture, and source identity before mutation
+- Install the complete Apple Silicon package set without replacing
+  `linux-asahi`, GRUB, or the Arch Linux ARM and Asahi repositories
+- Install final Omarchy 4 directly, with no intermediate Omarchy 3 release
+- Create the regular Omarchy user and run the Quattro system and user setup
+- Build packages unavailable from Asahi repositories from the package-source
+  commit pinned by the signed release
+- Configure NetworkManager with iwd while preserving the Asahi boot stack
+
+Enter the requested username and passwords carefully. Do not interrupt package
+transactions.
+
+### 4. Reboot Into Omarchy 4
+
+After the installer completes successfully:
+
+```bash
+reboot
+```
+
+Confirm that the display, keyboard, touchpad, Wi-Fi, audio, brightness, and
+power controls work. Future releases are delivered through `omarchy update`.
+
+### Stable Support Boundary
+
+The complete automated release regression runs on:
+
+| Component | Validated configuration |
+| --- | --- |
+| Model | MacBook Pro 14-inch, 2021 |
+| SoC | Apple M1 Pro |
+| Device tree | `apple,j314s` |
+| Architecture | `aarch64` |
+| Kernel | `linux-asahi` |
+| Bootloader | GRUB |
+| Wi-Fi backend | NetworkManager with iwd |
+
+Validation includes a real six-package installation and reboot, package
+integrity and protected-file checks, Wi-Fi, DNS, audio, microphone, camera,
+brightness, power profiles, and desktop screenshots. M1, M2, and M3 Macs have
+also been tested, with model-specific capabilities determined by Asahi Linux.
+
+### Final Verification
+
+```bash
+uname -r
+pacman -Q linux-asahi omarchy-dev omarchy-settings-dev networkmanager iwd
+NetworkManager --print-config | grep 'wifi.backend=iwd'
+nmcli device status
+omarchy-migrate --pending
+cat /usr/share/omarchy/version
+```
+
+## Troubleshooting
+
+### Network Is Unavailable
+
+Inspect NetworkManager without assuming a fixed interface name:
+
+```bash
+nmcli device status
+nmcli device wifi list
+sudo systemctl restart NetworkManager
+sudo journalctl -u NetworkManager -b
+```
+
+### An Installation Or Upgrade Failed
+
+- Do not reboot during or after a failed package transaction.
+- Preserve the complete terminal output.
+- Check `/var/log/pacman.log` and the backup path printed by the installer.
+- Open a verified bug report with hardware and package information.
+
+## Releases And Support
+
+- [Latest stable release](https://github.com/maralcbr/omarchy-mx-mac/releases/latest)
+- [Latest signed Quattro channel](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel)
+- [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
+- [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
+
+When requesting support, include:
+
+```bash
+uname -a
+cat /proc/device-tree/model 2>/dev/null
+tr '\0' '\n' </proc/device-tree/compatible 2>/dev/null
+pacman-conf --repo-list
+```
+
+Never post passwords, Wi-Fi credentials, private keys, or complete connection
+profiles.
+
+## Repository Name
+
+The repository was renamed from `maralcbr/omarchy-mac` to
+`maralcbr/omarchy-mx-mac`. GitHub redirects legacy repository and Git URLs, and
+a compatibility shim preserves the old GitHub Pages `boot.sh` URL.
+
+Legacy installations can update their remote explicitly:
+
+```bash
+git -C ~/.local/share/omarchy remote set-url origin \
+  https://github.com/maralcbr/omarchy-mx-mac.git
+```
+
+## Acknowledgements
+
+Thanks to Asahi Linux and Asahi Alarm for enabling Linux on Apple Silicon, DHH
+and the Omarchy contributors for Omarchy, Malik NA for the original Omarchy Mac
+work, and everyone testing the Apple Silicon path.
 
 ## License
 
-Omarchy is released under the [MIT License](https://opensource.org/licenses/MIT).
+Omarchy is released under the [MIT License](LICENSE).
