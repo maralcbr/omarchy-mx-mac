@@ -2,11 +2,12 @@
 
 # omarchy:summary=Resolve and verify the latest stable Omarchy Mac release
 # omarchy:args=[field]
+# omarchy:hidden=true
 
 set -euo pipefail
 
 release_base_url="${OMARCHY_RELEASE_BASE_URL:-https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download}"
-release_keyring="${OMARCHY_RELEASE_KEYRING:-${OMARCHY_PATH:-$HOME/.local/share/omarchy}/default/omarchy-release.gpg}"
+release_keyring="${OMARCHY_RELEASE_KEYRING:-$OMARCHY_PATH/default/omarchy-release.gpg}"
 expected_fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/releases"
 descriptor_name=omarchy-mx-mac-release
