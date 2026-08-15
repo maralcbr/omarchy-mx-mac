@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# omarchy:summary=Resolve and verify the latest stable Omarchy Mac release
+# omarchy:args=[field]
+
+set -euo pipefail
+
+release_base_url="${OMARCHY_RELEASE_BASE_URL:-https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download}"
+release_keyring="${OMARCHY_RELEASE_KEYRING:-${OMARCHY_PATH:-$HOME/.local/share/omarchy}/default/omarchy-release.gpg}"
+expected_fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/releases"
+descriptor_name=omarchy-mx-mac-release
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-release.XXXXXXXX")
+trap 'rm -rf "$work_dir"' EXIT
+
+fail() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+for command_name in curl gpg; do
+  command -v "$command_name" >/dev/null 2>&1 || fail "Required command is unavailable: $command_name"
+done
+[[ -r $release_keyring ]] || fail "Omarchy release keyring is unavailable: $release_keyring"
+actual_fingerprint=$(gpg --show-keys --with-colons "$release_keyring" 2>/dev/null |
+  awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $actual_fingerprint == "$expected_fingerprint" ]] || fail "Omarchy release key fingerprint mismatch"
+
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+  --output "$work_dir/$descriptor_name" "$release_base_url/$descriptor_name"
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+  --output "$work_dir/$descriptor_name.sig" "$release_base_url/$descriptor_name.sig"
+gnupg_dir="$work_dir/gnupg"
+mkdir -m 0700 "$gnupg_dir"
+gpg --batch --homedir "$gnupg_dir" --import "$release_keyring" >/dev/null 2>&1 || fail "Could not load Omarchy release key"
+signature_status=$(gpg --batch --homedir "$gnupg_dir" --status-fd 1 --verify \
+  "$work_dir/$descriptor_name.sig" "$work_dir/$descriptor_name" 2>/dev/null) || fail "Stable release signature verification failed"
+valid_fingerprint=$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $NF; exit }' <<<"$signature_status")
+[[ $valid_fingerprint == "$expected_fingerprint" ]] || fail "Stable release signer fingerprint mismatch"
+
+declare -A release=()
+while IFS='=' read -r key value; do
+  [[ -n $key && -n $value && -z ${release[$key]:-} ]] || fail "Malformed stable release descriptor"
+  case "$key" in
+    format|track|sequence|version|source_tag|source_commit|minimum_updater_version) release[$key]="$value" ;;
+    *) fail "Unknown stable release field: $key" ;;
+  esac
+done <"$work_dir/$descriptor_name"
+
+[[ ${release[format]:-} == "1" ]] || fail "Unsupported stable release descriptor format"
+[[ ${release[track]:-} == "stable-mac" ]] || fail "Release descriptor is not for stable Omarchy Mac"
+[[ ${release[sequence]:-} =~ ^[1-9][0-9]*$ ]] || fail "Invalid stable release sequence"
+[[ ${release[version]:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$ ]] || fail "Invalid stable release version"
+[[ ${release[source_tag]:-} == "v${release[version]}" ]] || fail "Stable release tag and version do not match"
+[[ ${release[source_commit]:-} =~ ^[0-9a-f]{40}$ ]] || fail "Invalid stable release source commit"
+[[ ${release[minimum_updater_version]:-} =~ ^[1-9][0-9]*$ ]] || fail "Invalid minimum updater version"
+(( release[minimum_updater_version] <= 1 )) || fail "This release requires a newer updater"
+
+if [[ -f $state_dir/stable-mac ]]; then
+  accepted_sequence=$(sed -n 's/^sequence=//p' "$state_dir/stable-mac")
+  [[ $accepted_sequence =~ ^[1-9][0-9]*$ ]] || fail "Installed stable release state is invalid"
+  (( release[sequence] >= accepted_sequence )) || fail "Refusing stable release rollback"
+fi
+
+if (($#)); then
+  [[ -n ${release[$1]:-} ]] || fail "Unknown stable release field: $1"
+  printf '%s\n' "${release[$1]}"
+else
+  cat "$work_dir/$descriptor_name"
+fi

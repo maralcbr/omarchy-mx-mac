@@ -1,0 +1,80 @@
+name: Publish stable Mac release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Immutable vX.Y.Z-mac.N tag
+        required: true
+      sequence:
+        description: Monotonically increasing release sequence
+        required: true
+
+concurrency:
+  group: stable-mac-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04-arm
+    environment: stable-release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Install test and signing tools
+        run: sudo apt-get update && sudo apt-get install -y jq shellcheck gnupg
+      - name: Run source tests
+        run: |
+          bash test/shell.d/asahi-packages-test.sh
+          bash test/shell.d/asahi-update-test.sh
+          bash test/shell.d/migrate-asahi-test.sh
+          bash test/shell.d/asahi-bundle-update-test.sh
+          bash tests/stable-release-test.sh
+      - name: Validate release inputs
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SEQUENCE: ${{ inputs.sequence }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ $RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$ ]]
+          [[ $RELEASE_SEQUENCE =~ ^[1-9][0-9]*$ ]]
+          git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          latest_tag=$(gh release list --limit 100 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$' | sort -V | tail -1)
+          [[ -z $latest_tag || $(printf '%s\n%s\n' "$latest_tag" "$RELEASE_TAG" | sort -V | tail -1) == "$RELEASE_TAG" && $latest_tag != "$RELEASE_TAG" ]]
+      - name: Import release key
+        env:
+          RELEASE_PRIVATE_KEY: ${{ secrets.OMARCHY_RELEASE_PRIVATE_KEY }}
+        run: printf '%s' "$RELEASE_PRIVATE_KEY" | gpg --batch --import
+      - name: Require a forward release sequence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SEQUENCE: ${{ inputs.sequence }}
+        run: |
+          mkdir -p /tmp/current-release
+          if gh release download --pattern 'omarchy-mx-mac-release*' --dir /tmp/current-release 2>/dev/null; then
+            status=$(gpg --batch --status-fd 1 --verify \
+              /tmp/current-release/omarchy-mx-mac-release.sig \
+              /tmp/current-release/omarchy-mx-mac-release 2>/dev/null)
+            signer=$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $NF; exit }' <<<"$status")
+            [[ $signer == 5983B1CA32CB778F4D74D24ECFF35022CA5B5959 ]]
+            current_sequence=$(sed -n 's/^sequence=//p' /tmp/current-release/omarchy-mx-mac-release)
+            [[ $current_sequence =~ ^[1-9][0-9]*$ ]]
+            (( RELEASE_SEQUENCE > current_sequence ))
+          fi
+      - name: Build signed release assets
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          OMARCHY_RELEASE_SEQUENCE: ${{ inputs.sequence }}
+          OMARCHY_RELEASE_SIGNING_KEY: 5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+          GPG_PASSPHRASE: ${{ secrets.OMARCHY_RELEASE_KEY_PASSPHRASE }}
+        run: scripts/build-stable-release "$RELEASE_TAG"
+      - name: Publish immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release create "$RELEASE_TAG" dist/stable-release/* --verify-tag --title "Omarchy MX Mac ${RELEASE_TAG#v}" --generate-notes

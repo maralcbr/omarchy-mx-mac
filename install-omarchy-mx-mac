@@ -1,0 +1,37 @@
+#!/bin/bash
+
+set -euo pipefail
+
+package_repo="${OMARCHY_PACKAGE_REPO:-maralcbr/omarchy-pkgs}"
+release_base_url="${OMARCHY_PACKAGE_RELEASE_BASE_URL:-https://github.com/$package_repo/releases/download/asahi-quattro-channel}"
+fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+key_url="${OMARCHY_RELEASE_KEY_URL:-https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/default/omarchy-release.gpg}"
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-mx-mac-install.XXXXXXXX")
+trap 'rm -rf "$work_dir"' EXIT
+
+fail() { echo "Error: $*" >&2; exit 1; }
+
+(( EUID != 0 )) || fail "Run this installer as your regular Omarchy user, not root"
+[[ $(uname -m) == "aarch64" ]] || fail "Omarchy MX Mac requires aarch64"
+tr '\0' '\n' </proc/device-tree/compatible 2>/dev/null | grep -Fxq 'apple,j314s' || \
+  fail "This release is limited to the tested apple,j314s MacBook Pro"
+
+for command_name in curl gpg; do
+  command -v "$command_name" >/dev/null 2>&1 || fail "Required command is unavailable: $command_name"
+done
+
+installer="$work_dir/install-asahi-quattro"
+signature="$installer.sig"
+keyring="$work_dir/omarchy-release.gpg"
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$installer" "$release_base_url/install-asahi-quattro"
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$signature" "$release_base_url/install-asahi-quattro.sig"
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --output "$keyring" "$key_url"
+actual_fingerprint=$(gpg --batch --show-keys --with-colons "$keyring" | awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $actual_fingerprint == "$fingerprint" ]] || fail "Omarchy release signing key fingerprint mismatch"
+gnupg_dir="$work_dir/gnupg"
+mkdir -m 0700 "$gnupg_dir"
+gpg --batch --homedir "$gnupg_dir" --import "$keyring" >/dev/null 2>&1 || fail "Could not load Omarchy release key"
+gpg --batch --homedir "$gnupg_dir" --verify "$signature" "$installer" >/dev/null 2>&1 || \
+  fail "Apple Silicon bundle installer signature verification failed"
+
+exec bash "$installer" "$@"

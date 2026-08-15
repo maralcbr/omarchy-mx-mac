@@ -1,0 +1,33 @@
+#!/bin/bash
+
+set -euo pipefail
+
+tag="${1:-}"
+output_dir="${2:-dist/stable-release}"
+[[ $tag =~ ^v([0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+)$ ]] || { echo "Usage: scripts/build-stable-release vX.Y.Z-mac.N [OUTPUT_DIR]" >&2; exit 1; }
+version=${BASH_REMATCH[1]}
+[[ -n ${OMARCHY_RELEASE_SEQUENCE:-} && $OMARCHY_RELEASE_SEQUENCE =~ ^[1-9][0-9]*$ ]] || { echo "OMARCHY_RELEASE_SEQUENCE must be a positive integer" >&2; exit 1; }
+[[ -n ${OMARCHY_RELEASE_SIGNING_KEY:-} ]] || { echo "OMARCHY_RELEASE_SIGNING_KEY is required" >&2; exit 1; }
+
+commit=$(git rev-list -n 1 "$tag")
+git merge-base --is-ancestor "$commit" origin/main || { echo "$tag is not reachable from origin/main" >&2; exit 1; }
+[[ $(git show "$tag:version") == "$version" ]] || { echo "$tag does not match its version file" >&2; exit 1; }
+mkdir -p "$output_dir"
+cat >"$output_dir/omarchy-mx-mac-release" <<EOF
+format=1
+track=stable-mac
+sequence=$OMARCHY_RELEASE_SEQUENCE
+version=$version
+source_tag=$tag
+source_commit=$commit
+minimum_updater_version=1
+EOF
+cp install-omarchy-mx-mac "$output_dir/"
+cp default/omarchy-release.gpg "$output_dir/"
+sign_args=(--batch --yes --local-user "$OMARCHY_RELEASE_SIGNING_KEY" --detach-sign)
+if [[ -n ${GPG_PASSPHRASE:-} ]]; then
+  sign_args+=(--pinentry-mode loopback --passphrase "$GPG_PASSPHRASE")
+fi
+gpg "${sign_args[@]}" --output "$output_dir/omarchy-mx-mac-release.sig" "$output_dir/omarchy-mx-mac-release"
+gpg "${sign_args[@]}" --output "$output_dir/install-omarchy-mx-mac.sig" "$output_dir/install-omarchy-mx-mac"
+(cd "$output_dir" && sha256sum omarchy-mx-mac-release omarchy-mx-mac-release.sig install-omarchy-mx-mac install-omarchy-mx-mac.sig omarchy-release.gpg >SHA256SUMS)
