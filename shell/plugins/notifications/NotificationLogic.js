@@ -92,6 +92,28 @@ function snapshotOf(notification, timestamp) {
   }
 }
 
+// Everything the popup card draws, and therefore everything an in-place
+// update has to write through to the row and its file.
+var POPUP_ROLES = ["app", "appIcon", "summary", "body", "image", "glyph", "exec", "urgency", "expireTimeout"]
+
+function popupRoles() {
+  return POPUP_ROLES
+}
+
+// Whether a refresh has anything to write. Each property a client updates
+// emits its own signal, and the catch-up refresh after a row is inserted
+// usually finds the object exactly as it was snapshotted — without this,
+// one update would rewrite the file several times over.
+function popupRowChanged(row, updated) {
+  var current = row || {}
+  var next = updated || {}
+  for (var i = 0; i < POPUP_ROLES.length; i++) {
+    var role = POPUP_ROLES[i]
+    if (current[role] !== next[role]) return true
+  }
+  return false
+}
+
 // A client updating a notification through replaces_id keeps the identity of
 // the popup it took over: the file name is the timestamp and id the popup was
 // first persisted under, and the restore, replace and archive paths all key
@@ -164,8 +186,59 @@ function popupEntry(value, normalUrgency) {
 }
 
 function popupFileName(entry) {
+  return imageStem(entry) + ".json"
+}
+
+// ---------------------------------------------------- persisted images
+//
+// A notification's images only exist while it is live: Chromium-family
+// senders (all Omarchy web apps) delete their scoped /tmp files on close,
+// and image-data hints surface as in-process image:// URLs that die with
+// the server object. Persisted entries therefore reference their own
+// copies, named by the entry's file stem so cleanup can find them from
+// the JSON file name alone.
+
+var PERSISTED_IMAGE_ROLES = ["appIcon", "image"]
+
+function imageStem(entry) {
   var e = entry || {}
-  return String(e.timestamp || 0) + "-" + String(e.originalId || 0) + ".json"
+  return String(e.timestamp || 0) + "-" + String(e.originalId || 0)
+}
+
+// The filesystem path behind a file-backed image value, or "" for anything
+// a copy can't capture: themed icon names, in-process image:// URLs, empty.
+function localImageFile(value) {
+  var s = String(value || "")
+  if (s.indexOf("file://") === 0) {
+    s = s.slice(7)
+    try { s = decodeURIComponent(s) } catch (e) {}
+  }
+  return s.charAt(0) === "/" ? s : ""
+}
+
+// The entry as it should hit the disk, plus the copies that make it true.
+// File-backed images redirect to their copy under imagesDir; dead image://
+// URLs drop to "" (the card falls back to the app icon). Already-redirected
+// values map onto themselves and produce no copy, keeping restores no-ops.
+function persistablePopup(entry, imagesDir) {
+  var e = entry || {}
+  var out = {}
+  for (var key in e) out[key] = e[key]
+  var copies = []
+  for (var i = 0; i < PERSISTED_IMAGE_ROLES.length; i++) {
+    var role = PERSISTED_IMAGE_ROLES[i]
+    var value = String(out[role] || "")
+    if (!value) continue
+    var source = localImageFile(value)
+    if (source) {
+      var copy = String(imagesDir || "") + imageStem(e) + "-" + role
+      if (source !== copy) copies.push({ from: source, to: copy })
+      out[role] = "file://" + copy
+    } else if (value.indexOf("image://") === 0) {
+      out[role] = ""
+    }
+  }
+  return { entry: out, copies: copies }
 }
 
 function serializePopup(entry, normalUrgency) {
@@ -276,12 +349,17 @@ if (typeof module !== "undefined") {
     execFromHints: execFromHints,
     shouldRenderCompactGlyph: shouldRenderCompactGlyph,
     snapshotOf: snapshotOf,
+    popupRoles: popupRoles,
+    popupRowChanged: popupRowChanged,
     replacementSnapshot: replacementSnapshot,
     historyEntry: historyEntry,
     parseSettings: parseSettings,
     historyRows: historyRows,
     popupEntry: popupEntry,
     popupFileName: popupFileName,
+    imageStem: imageStem,
+    localImageFile: localImageFile,
+    persistablePopup: persistablePopup,
     serializePopup: serializePopup,
     parsePopupFiles: parsePopupFiles,
     popupExpired: popupExpired,

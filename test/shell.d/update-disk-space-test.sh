@@ -69,6 +69,7 @@ for command in \
   systemd-inhibit \
   omarchy-update-dev \
   omarchy-hw-apple-silicon \
+  omarchy-update-pkg-prune \
   omarchy-update-keyring \
   omarchy-update-system-pkgs \
   omarchy-migrate \
