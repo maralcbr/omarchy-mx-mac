@@ -1,0 +1,112 @@
+#!/bin/bash
+
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/../../.." && pwd)
+harness="$root/test/vm/asahi-fresh"
+state="${OMARCHY_VM_STATE_DIR:-$harness/test-runs}"
+image=omarchy-asahi-fresh-vm
+container=omarchy-asahi-fresh-vm
+ssh_port=${OMARCHY_VM_SSH_PORT:-22222}
+vnc_port=${OMARCHY_VM_VNC_PORT:-25900}
+keep=0
+rebuild=0
+
+while (($#)); do
+  case "$1" in
+    --keep) keep=1 ;;
+    --rebuild-base) rebuild=1 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+rm -rf "$state/run"
+mkdir -p "$state/cache" "$state/ssh"
+chmod 0700 "$state/ssh"
+if [[ ! -f $state/ssh/id_ed25519 ]]; then
+  ssh-keygen -q -t ed25519 -N '' -f "$state/ssh/id_ed25519"
+fi
+(( rebuild == 0 )) || rm -f "$state/cache/archarm-base.qcow2"
+
+cleanup() {
+  if (( keep == 0 )); then
+    docker rm -f "$container" >/dev/null 2>&1 || true
+  else
+    echo "VM retained in Docker container $container"
+  fi
+}
+trap cleanup EXIT
+
+docker build -t "$image" "$harness"
+docker rm -f "$container" >/dev/null 2>&1 || true
+docker run -d \
+  --name "$container" \
+  --privileged \
+  --device /dev/kvm \
+  -p "127.0.0.1:$ssh_port:22" \
+  -p "127.0.0.1:$vnc_port:5900" \
+  -v "$state:/work" \
+  "$image" sleep infinity >/dev/null
+
+docker exec "$container" /usr/local/lib/omarchy-asahi-vm/build-base
+docker exec "$container" /usr/local/lib/omarchy-asahi-vm/start-vm
+docker exec "$container" chown -R "$(id -u):$(id -g)" /work/run
+
+ssh_args=(
+  -i "$state/ssh/id_ed25519"
+  -p "$ssh_port"
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o ConnectTimeout=5
+)
+scp_args=(
+  -i "$state/ssh/id_ed25519"
+  -P "$ssh_port"
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o ConnectTimeout=5
+)
+
+wait_for_ssh() {
+  local attempts=120
+  while (( attempts-- )); do
+    if ssh "${ssh_args[@]}" root@127.0.0.1 true 2>/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+wait_for_reboot() {
+  local previous_boot_id=$1 attempts=120 current_boot_id
+  while (( attempts-- )); do
+    current_boot_id=$(ssh "${ssh_args[@]}" root@127.0.0.1 cat /proc/sys/kernel/random/boot_id 2>/dev/null || true)
+    if [[ -n $current_boot_id && $current_boot_id != "$previous_boot_id" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+wait_for_ssh || { tail -200 "$state/run/serial.log"; exit 1; }
+scp "${scp_args[@]}" "$root/bin/omarchy-install-asahi-fresh" root@127.0.0.1:/root/omarchy-install-asahi-fresh.candidate
+scp "${scp_args[@]}" "$harness/guest/install" root@127.0.0.1:/root/omarchy-vm-install
+ssh -tt "${ssh_args[@]}" root@127.0.0.1 bash /root/omarchy-vm-install | tee "$state/run/install.log" || exit 1
+
+boot_id=$(ssh "${ssh_args[@]}" root@127.0.0.1 cat /proc/sys/kernel/random/boot_id)
+ssh "${ssh_args[@]}" root@127.0.0.1 systemctl reboot --no-block || true
+wait_for_reboot "$boot_id" || { tail -200 "$state/run/serial.log"; exit 1; }
+scp "${scp_args[@]}" "$harness/guest/verify" root@127.0.0.1:/root/omarchy-vm-verify
+ssh "${ssh_args[@]}" root@127.0.0.1 bash /root/omarchy-vm-verify | tee "$state/run/verify.log"
+scp "${scp_args[@]}" "$harness/guest/rerun" root@127.0.0.1:/root/omarchy-vm-rerun
+ssh -tt "${ssh_args[@]}" root@127.0.0.1 bash /root/omarchy-vm-rerun | tee "$state/run/rerun.log"
+
+printf 'screendump %s\n' /work/run/desktop.ppm | \
+  docker exec -i "$container" socat - UNIX-CONNECT:/work/run/monitor.sock >/dev/null
+docker exec "$container" chown -R "$(id -u):$(id -g)" /work/run
+echo "VM artifacts: $state/run"

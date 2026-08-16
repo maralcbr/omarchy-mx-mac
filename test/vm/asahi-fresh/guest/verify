@@ -1,0 +1,37 @@
+#!/bin/bash
+
+set -euo pipefail
+
+fail() {
+  echo "not ok - $*" >&2
+  exit 1
+}
+
+expected_version=$(sed -n 's/^version=//p' /var/lib/omarchy/vm-expected-stable-release)
+expected_sequence=$(sed -n 's/^sequence=//p' /var/lib/omarchy/vm-expected-release)
+expected_tag=$(sed -n 's/^release_tag=//p' /var/lib/omarchy/vm-expected-release)
+[[ $(< /usr/share/omarchy/version) == "$expected_version" ]] || fail "installed version"
+grep -Fxq "sequence=$expected_sequence" /var/lib/omarchy/asahi-quattro-release || fail "release sequence"
+grep -Fxq "tag=$expected_tag" /var/lib/omarchy/asahi-quattro-release || fail "release tag"
+id omarchy >/dev/null || fail "install user"
+[[ -f /home/omarchy/.local/state/omarchy/done/finalize-user ]] || fail "user finalization marker"
+pacman -Q omarchy-dev omarchy-settings-dev linux-asahi networkmanager iwd >/dev/null || fail "required packages"
+for unit in NetworkManager.service sddm.service systemd-resolved.service; do
+  systemctl is-enabled --quiet "$unit" || fail "$unit enabled"
+done
+NetworkManager --print-config | grep -Fxq 'wifi.backend=iwd' || fail "iwd backend"
+pacman-conf --repo-list | grep -Fxq asahi-alarm || fail "Asahi repository"
+[[ -f /boot/Image && -f /boot/vmlinuz-linux-asahi && -f /boot/grub/grub.cfg ]] || fail "boot payloads"
+(( $(swapon --show --noheadings | wc -l) == 0 )) || fail "swap disabled"
+[[ $(cat /sys/module/zswap/parameters/enabled 2>/dev/null || echo N) == "N" ]] || fail "zswap disabled"
+[[ -s /var/lib/omarchy/vm-adapter.log ]] || fail "VM adapter audit"
+pacman -Qkk omarchy-dev | grep -Fq '0 altered files' || fail "restored Omarchy package files"
+[[ ! -e /etc/sudoers.d/09-omarchy-fresh-build ]] || fail "temporary package build sudo rule removed"
+! getent passwd omarchy-fresh-build >/dev/null || fail "temporary package build account removed"
+ufw status | grep -Eq '^22/tcp +ALLOW' || fail "temporary VM SSH firewall rule"
+if runuser -u omarchy -- env HOME=/home/omarchy omarchy-migrate --pending >/tmp/migrations.pending; then
+  fail "pending migrations"
+fi
+[[ ! -s /tmp/migrations.pending ]] || fail "pending migrations"
+
+echo "ok - direct Omarchy 4 VM installation survived reboot"

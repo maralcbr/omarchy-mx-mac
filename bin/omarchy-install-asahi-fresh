@@ -20,6 +20,21 @@ usage() {
   echo "Usage: omarchy-install-asahi-fresh --asahi-packages DIR [--user USER]" >&2
 }
 
+retry() {
+  local attempt
+
+  for attempt in {1..3}; do
+    "$@" && return 0
+    (( attempt < 3 )) || return 1
+    sleep 5
+  done
+}
+
+record_target_home_owner() {
+  printf '%s\n' "$owner_token" | install -Dm600 /dev/stdin "$target_home/.omarchy-fresh-install-owner.tmp"
+  mv "$target_home/.omarchy-fresh-install-owner.tmp" "$target_home/.omarchy-fresh-install-owner"
+}
+
 while (($#)); do
   case "$1" in
     --asahi-packages)
@@ -50,7 +65,7 @@ done
 [[ -r /proc/device-tree/compatible ]] || fail "Apple device-tree information is unavailable"
 grep -aq 'apple,' /proc/device-tree/compatible || fail "Apple Silicon device tree not found"
 
-for package in linux-asahi grub; do
+for package in linux-asahi linux-asahi-headers m1n1 grub; do
   pacman -Q "$package" >/dev/null 2>&1 || fail "Required Asahi package is not installed: $package"
 done
 [[ -f /boot/vmlinuz-linux-asahi ]] || fail "/boot/vmlinuz-linux-asahi is unavailable"
@@ -79,16 +94,122 @@ if [[ -z $target_user ]]; then
 fi
 [[ $target_user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail "Invalid username: $target_user"
 [[ $target_user != "root" ]] || fail "The Omarchy user cannot be root"
-tty </dev/tty >/dev/null 2>&1 || fail "A controlling terminal is required to set the user password"
-if getent passwd "$target_user" >/dev/null; then
-  [[ -f $state_dir/user && $(<"$state_dir/user") == "$target_user" ]] || fail "User already exists: $target_user"
+release_sequence=${OMARCHY_ASAHI_RELEASE_SEQUENCE:?Missing release sequence}
+release_tag=${OMARCHY_ASAHI_RELEASE_TAG:?Missing release tag}
+release_source=${OMARCHY_ASAHI_RELEASE_SOURCE:?Missing release source}
+expected_state=$(printf '%s\n' \
+  "user=$target_user" \
+  "sequence=$release_sequence" \
+  "tag=$release_tag" \
+  "source_commit=$release_source" \
+  "package_source_commit=$OMARCHY_ASAHI_PACKAGE_SOURCE")
+expected_release=$(printf '%s\n' \
+  "format=1" \
+  "sequence=$release_sequence" \
+  "tag=$release_tag" \
+  "source_commit=$release_source" \
+  "package_source_commit=$OMARCHY_ASAHI_PACKAGE_SOURCE")
+exec {install_lock}>/run/lock/omarchy-asahi-fresh.lock
+flock -n "$install_lock" || fail "Another fresh installation is already running"
+if [[ -e $state_dir ]]; then
+  [[ -d $state_dir && -f $state_dir/release && -f $state_dir/asahi-kernel.sha256 && -f $state_dir/grub.sha256 && -f $state_dir/owner-token ]] ||
+    fail "The incomplete installation checkpoint is invalid"
+  [[ $(<"$state_dir/release") == "$expected_state" ]] || fail "An incomplete installation belongs to a different release or user"
+  owner_token=$(<"$state_dir/owner-token")
+  [[ $owner_token =~ ^[0-9a-f]{64}$ ]] || fail "The incomplete installation owner token is invalid"
+  if [[ -f $state_dir/completing ]]; then
+    [[ -f /var/lib/omarchy/asahi-quattro-release && $(< /var/lib/omarchy/asahi-quattro-release) == "$expected_release" ]] ||
+      fail "The completed installation release marker is invalid"
+    getent passwd "$target_user" >/dev/null || fail "The completed installation target user is unavailable"
+    IFS=: read -r _ _ target_uid _ target_comment target_home target_shell < <(getent passwd "$target_user")
+    target_identity="$target_user:$target_uid:$target_home:$target_shell:$owner_token"
+    [[ -f $state_dir/target-user && $(<"$state_dir/target-user") == "$target_identity" ]] ||
+      fail "The completed installation target user is invalid"
+    [[ $target_comment == "$owner_token" || -z $target_comment ]] || fail "The completed installation target user is invalid"
+    if [[ -e $target_home/.omarchy-fresh-install-owner ]]; then
+      [[ -f $target_home/.omarchy-fresh-install-owner && $(<"$target_home/.omarchy-fresh-install-owner") == "$owner_token" ]] ||
+        fail "The completed installation target home is invalid"
+      rm -f "$target_home/.omarchy-fresh-install-owner"
+    fi
+    [[ -z $target_comment ]] || usermod --comment "" "$target_user"
+    rm -rf "$state_dir"
+    echo "Fresh Omarchy 4 installation completion recovered"
+    exit 0
+  fi
+  if getent passwd "$target_user" >/dev/null; then
+    IFS=: read -r _ _ target_uid _ target_comment target_home target_shell < <(getent passwd "$target_user")
+    target_identity="$target_user:$target_uid:$target_home:$target_shell:$owner_token"
+    [[ -f $state_dir/target-user && $(<"$state_dir/target-user") == "$target_identity" ]] ||
+      fail "The target user is not owned by this installation"
+    [[ $target_comment == "$owner_token" ]] || fail "The target user is not owned by this installation"
+    if [[ -e $target_home/.omarchy-fresh-install-owner ]]; then
+      [[ -f $target_home/.omarchy-fresh-install-owner && $(<"$target_home/.omarchy-fresh-install-owner") == "$owner_token" ]] ||
+        fail "The target home is not owned by this installation"
+    else
+      record_target_home_owner
+    fi
+  elif [[ -e $state_dir/target-user ]]; then
+    IFS=: read -r recorded_user target_uid target_home target_shell recorded_token <"$state_dir/target-user"
+    [[ $recorded_user == "$target_user" && $target_uid =~ ^[0-9]+$ && $target_home == "/home/$target_user" &&
+      $target_shell == "/bin/bash" && $recorded_token == "$owner_token" ]] ||
+      fail "The target user checkpoint is invalid"
+  fi
+elif getent passwd "$target_user" >/dev/null; then
+  fail "User already exists outside this release installation: $target_user"
 fi
+tty </dev/tty >/dev/null 2>&1 || fail "A controlling terminal is required to set the user password"
+build_user=omarchy-fresh-build
+package_checkout=/var/cache/omarchy-fresh-pkgbuilds
+package_repo=$package_checkout/repo
+build_sudoers=/etc/sudoers.d/09-omarchy-fresh-build
 
 backup_dir="/var/lib/omarchy/backups/fresh-$(date +%Y%m%d%H%M%S)"
 install -d -m 0700 "$backup_dir"
 cp -a /etc/pacman.conf /etc/pacman.d /etc/NetworkManager "$backup_dir/" 2>/dev/null || true
 cp -a /boot/grub/grub.cfg "$backup_dir/grub.cfg"
 pacman -Q >"$backup_dir/installed-packages.txt"
+if [[ -d $state_dir ]]; then
+  asahi_kernel_sha256=$(<"$state_dir/asahi-kernel.sha256")
+  grub_sha256=$(<"$state_dir/grub.sha256")
+  sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed after the interrupted installation"
+  sha256sum --check --status <<<"$grub_sha256" || fail "The GRUB configuration changed after the interrupted installation"
+else
+  asahi_kernel_sha256=$(sha256sum /boot/vmlinuz-linux-asahi)
+  grub_sha256=$(sha256sum /boot/grub/grub.cfg)
+  owner_token=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+  install -d -m 0755 /var/lib/omarchy
+  checkpoint_tmp=$(mktemp -d /var/lib/omarchy/.fresh-install.XXXXXX)
+  chmod 0700 "$checkpoint_tmp"
+  printf '%s\n' "$expected_state" >"$checkpoint_tmp/release"
+  printf '%s\n' "$asahi_kernel_sha256" >"$checkpoint_tmp/asahi-kernel.sha256"
+  printf '%s\n' "$grub_sha256" >"$checkpoint_tmp/grub.sha256"
+  printf '%s\n' "$owner_token" >"$checkpoint_tmp/owner-token"
+  mv -T "$checkpoint_tmp" "$state_dir"
+fi
+build_account_owned=0
+if getent passwd "$build_user" >/dev/null; then
+  IFS=: read -r _ _ _ _ build_comment build_home build_shell < <(getent passwd "$build_user")
+  [[ $build_comment == "$owner_token" && $build_home == "$package_checkout" && $build_shell == "/usr/bin/nologin" ]] ||
+    fail "The package build account already exists"
+  build_account_owned=1
+fi
+expected_build_sudo=$(printf '%s\n' \
+  "# owner-token=$owner_token" \
+  "$build_user ALL=(root) NOPASSWD: /usr/bin/pacman")
+build_sudo_owned=0
+if [[ -e $build_sudoers ]]; then
+  [[ -f $build_sudoers && $(<"$build_sudoers") == "$expected_build_sudo" ]] || fail "The package build sudo rule already exists"
+  build_sudo_owned=1
+fi
+package_checkout_owned=0
+if [[ -e $package_checkout ]]; then
+  [[ -f $package_checkout/.omarchy-fresh-install-owner && $(<"$package_checkout/.omarchy-fresh-install-owner") == "$owner_token" ]] ||
+    fail "The package checkout is not owned by this installation"
+  package_checkout_owned=1
+fi
+(( build_sudo_owned == 0 )) || rm -f "$build_sudoers"
+(( build_account_owned == 0 )) || userdel "$build_user"
+(( package_checkout_owned == 0 )) || rm -rf "$package_checkout"
 
 omarchy_archive=${archives[2]}
 mapfile -t runtime_packages < <(
@@ -113,51 +234,93 @@ source_packages=(
 )
 repo_packages=()
 for package in "${runtime_packages[@]}"; do
-  if [[ ! " ${source_packages[*]} " =~ " $package " ]]; then
+  if [[ $package == "linux-asahi" || $package == "linux-asahi-headers" || $package == "m1n1" ]]; then
+    continue
+  elif [[ ! " ${source_packages[*]} " =~ " $package " ]]; then
     repo_packages+=("$package")
   fi
 done
 
 echo "Installing the Omarchy 4 Apple Silicon package set"
-pacman -Syu --needed --noconfirm base-devel sudo xdg-user-dirs "${repo_packages[@]}"
+pacman -Syu --needed --noconfirm --ignore linux-asahi,linux-asahi-headers,m1n1 \
+  base-devel sudo xdg-user-dirs "${repo_packages[@]}"
 
 echo "Installing the verified six-package Omarchy release"
 pacman -U --needed --noconfirm "${archives[@]}"
 
-install -d -m 0700 "$state_dir"
-printf '%s\n' "$target_user" >"$state_dir/user"
-getent passwd "$target_user" >/dev/null || useradd -m -G wheel -s /bin/bash "$target_user"
+if ! getent passwd "$target_user" >/dev/null; then
+  if [[ ! -f $state_dir/target-user ]]; then
+    uid_min=$(awk '$1 == "UID_MIN" { print $2; exit }' /etc/login.defs)
+    uid_max=$(awk '$1 == "UID_MAX" { print $2; exit }' /etc/login.defs)
+    [[ $uid_min =~ ^[0-9]+$ && $uid_max =~ ^[0-9]+$ ]] || fail "Could not read the user ID range"
+    target_uid=$uid_min
+    while getent passwd "$target_uid" >/dev/null; do
+      ((target_uid++))
+      (( target_uid <= uid_max )) || fail "No user ID is available for $target_user"
+    done
+    target_home="/home/$target_user"
+    target_shell=/bin/bash
+    target_identity="$target_user:$target_uid:$target_home:$target_shell:$owner_token"
+    printf '%s\n' "$target_identity" >"$state_dir/.target-user.tmp"
+    mv "$state_dir/.target-user.tmp" "$state_dir/target-user"
+  fi
+  useradd --uid "$target_uid" --home-dir "$target_home" --create-home --groups wheel \
+    --shell "$target_shell" --comment "$owner_token" "$target_user"
+  record_target_home_owner
+fi
 install -Dm440 /dev/stdin /etc/sudoers.d/10-omarchy-wheel <<'EOF'
 %wheel ALL=(ALL:ALL) ALL
 EOF
 
 target_home=$(getent passwd "$target_user" | cut -d: -f6)
-package_checkout="$target_home/.cache/omarchy-fresh-pkgbuilds"
-if [[ ! -d $package_checkout/.git ]]; then
-  rm -rf "$package_checkout"
-  runuser -u "$target_user" -- git clone --filter=blob:none --no-checkout \
-    https://github.com/maralcbr/omarchy-pkgs.git "$package_checkout"
-fi
-runuser -u "$target_user" -- git -C "$package_checkout" fetch origin --no-tags "$OMARCHY_ASAHI_PACKAGE_SOURCE"
-runuser -u "$target_user" -- git -C "$package_checkout" checkout --detach "$OMARCHY_ASAHI_PACKAGE_SOURCE"
-resolved_package_source=$(runuser -u "$target_user" -- git -C "$package_checkout" rev-parse HEAD)
+cleanup_build_user() {
+  if [[ -f $build_sudoers && $(<"$build_sudoers") == "$expected_build_sudo" ]]; then
+    rm -f "$build_sudoers"
+  fi
+  if [[ -f $package_checkout/.omarchy-fresh-install-owner && $(<"$package_checkout/.omarchy-fresh-install-owner") == "$owner_token" ]]; then
+    rm -rf "$package_checkout"
+  fi
+  if (( build_account_created )); then
+    userdel "$build_user" || return 1
+  fi
+}
+build_account_created=0
+trap cleanup_build_user EXIT
+useradd --system --user-group --home-dir "$package_checkout" --shell /usr/bin/nologin --comment "$owner_token" "$build_user"
+build_account_created=1
+install -d -m 0711 "$package_checkout"
+printf '%s\n' "$owner_token" | install -Dm600 /dev/stdin "$package_checkout/.omarchy-fresh-install-owner"
+install -d -m 0700 -o "$build_user" -g "$build_user" "$package_repo"
+cloned=0
+for attempt in {1..3}; do
+  if timeout 5m runuser -u "$build_user" -- git clone --filter=blob:none --no-checkout \
+    https://github.com/maralcbr/omarchy-pkgs.git "$package_repo"; then
+    cloned=1
+    break
+  fi
+  rm -rf "$package_repo"
+  install -d -m 0700 -o "$build_user" -g "$build_user" "$package_repo"
+  sleep 5
+done
+(( cloned == 1 )) || fail "Could not clone the pinned package source"
+retry timeout 5m runuser -u "$build_user" -- git -C "$package_repo" fetch origin --no-tags "$OMARCHY_ASAHI_PACKAGE_SOURCE"
+runuser -u "$build_user" -- git -C "$package_repo" reset --hard "$OMARCHY_ASAHI_PACKAGE_SOURCE"
+runuser -u "$build_user" -- git -C "$package_repo" clean -ffdx
+resolved_package_source=$(runuser -u "$build_user" -- git -C "$package_repo" rev-parse HEAD)
 [[ $resolved_package_source == "$OMARCHY_ASAHI_PACKAGE_SOURCE" ]] || fail "Package source checkout mismatch"
 
-install -Dm440 /dev/stdin /etc/sudoers.d/09-omarchy-fresh-build <<EOF
-$target_user ALL=(root) NOPASSWD: /usr/bin/pacman
+install -Dm440 /dev/stdin "$build_sudoers" <<EOF
+# owner-token=$owner_token
+$build_user ALL=(root) NOPASSWD: /usr/bin/pacman
 EOF
-cleanup_build_sudoers() {
-  rm -f /etc/sudoers.d/09-omarchy-fresh-build
-}
-trap cleanup_build_sudoers EXIT
 for package in "${source_packages[@]}"; do
   pacman -Q "$package" >/dev/null 2>&1 && continue
   echo "Building pinned Apple Silicon package: $package"
-  runuser -u "$target_user" -- env HOME="$target_home" \
+  runuser -u "$build_user" -- env HOME="$package_repo" \
     bash -c 'cd "$1" && makepkg --syncdeps --noconfirm' \
-    bash "$package_checkout/pkgbuilds/$package"
+    bash "$package_repo/pkgbuilds/$package"
   package_archives=()
-  for candidate in "$package_checkout/pkgbuilds/$package"/*.pkg.tar.*; do
+  for candidate in "$package_repo/pkgbuilds/$package"/*.pkg.tar.*; do
     [[ -f $candidate && $candidate != *.sig ]] || continue
     metadata=$(bsdtar -xOf "$candidate" .PKGINFO 2>/dev/null || true)
     grep -Fxq "pkgname = $package" <<<"$metadata" && package_archives+=("$candidate")
@@ -165,7 +328,7 @@ for package in "${source_packages[@]}"; do
   ((${#package_archives[@]} == 1)) || fail "Expected one built archive for $package"
   pacman -U --needed --noconfirm "${package_archives[0]}"
 done
-cleanup_build_sudoers
+cleanup_build_user
 trap - EXIT
 
 echo "Set the password for $target_user"
@@ -187,25 +350,27 @@ runuser -u "$target_user" -- env \
 
 ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
-release_sequence=${OMARCHY_ASAHI_RELEASE_SEQUENCE:?Missing release sequence}
-release_tag=${OMARCHY_ASAHI_RELEASE_TAG:?Missing release tag}
-release_source=${OMARCHY_ASAHI_RELEASE_SOURCE:?Missing release source}
+pacman -Q omarchy-dev omarchy-settings-dev linux-asahi linux-asahi-headers m1n1 networkmanager iwd >/dev/null
+[[ $(cat /usr/share/omarchy/version) == 4.* ]] || fail "Installed Omarchy version is not 4.x"
+NetworkManager --print-config 2>/dev/null | grep -Fxq 'wifi.backend=iwd' || fail "NetworkManager iwd backend was not configured"
+sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed unexpectedly"
+sha256sum --check --status <<<"$grub_sha256" || fail "The GRUB configuration changed unexpectedly"
+
 install -d -m 0755 /var/lib/omarchy
-cat >/var/lib/omarchy/asahi-quattro-release <<EOF
+cat >"$state_dir/asahi-quattro-release.tmp" <<EOF
 format=1
 sequence=$release_sequence
 tag=$release_tag
 source_commit=$release_source
 package_source_commit=$OMARCHY_ASAHI_PACKAGE_SOURCE
 EOF
-chown root:root /var/lib/omarchy/asahi-quattro-release
-chmod 0644 /var/lib/omarchy/asahi-quattro-release
+chown root:root "$state_dir/asahi-quattro-release.tmp"
+chmod 0644 "$state_dir/asahi-quattro-release.tmp"
+mv "$state_dir/asahi-quattro-release.tmp" /var/lib/omarchy/asahi-quattro-release
+touch "$state_dir/completing"
+usermod --comment "" "$target_user"
+rm -f "$target_home/.omarchy-fresh-install-owner"
 rm -rf "$state_dir"
-
-pacman -Q omarchy-dev omarchy-settings-dev linux-asahi networkmanager iwd >/dev/null
-[[ $(cat /usr/share/omarchy/version) == 4.* ]] || fail "Installed Omarchy version is not 4.x"
-NetworkManager --print-config 2>/dev/null | grep -Fxq 'wifi.backend=iwd' || fail "NetworkManager iwd backend was not configured"
-[[ -f /boot/vmlinuz-linux-asahi && -f /boot/grub/grub.cfg ]] || fail "Asahi boot files changed unexpectedly"
 
 echo "Fresh Omarchy 4 installation complete (backup: $backup_dir)"
 echo "Reboot, then sign in as $target_user"

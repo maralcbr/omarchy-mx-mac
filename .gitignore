@@ -2,3 +2,4 @@
 # Python bytecode (orchestrator)
 __pycache__/
 *.pyc
+test/vm/asahi-fresh/test-runs/

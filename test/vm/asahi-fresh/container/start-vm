@@ -1,0 +1,36 @@
+#!/bin/bash
+
+set -euo pipefail
+
+run=/work/run
+base=/work/cache/archarm-base.qcow2
+code=/usr/share/AAVMF/AAVMF_CODE.fd
+vars_template=/usr/share/AAVMF/AAVMF_VARS.fd
+
+rm -rf "$run"
+mkdir -p "$run"
+qemu-img create -f qcow2 -F qcow2 -b "$base" "$run/disk.qcow2"
+cp "$vars_template" "$run/AAVMF_VARS.fd"
+
+qemu-system-aarch64 \
+  -nodefaults \
+  -machine virt,accel=kvm,gic-version=host \
+  -cpu host \
+  -smp 8 \
+  -m 8192 \
+  -drive if=pflash,format=raw,readonly=on,file="$code" \
+  -drive if=pflash,format=raw,file="$run/AAVMF_VARS.fd" \
+  -drive file="$run/disk.qcow2",format=qcow2,if=none,id=drive0,discard=unmap \
+  -device virtio-blk-pci,drive=drive0,bootindex=1,romfile= \
+  -netdev user,id=net0,hostfwd=tcp:0.0.0.0:22-:22 \
+  -device virtio-net-pci,netdev=net0,romfile= \
+  -device virtio-gpu-pci,romfile= \
+  -device qemu-xhci \
+  -device usb-kbd \
+  -device usb-tablet \
+  -vnc 0.0.0.0:0 \
+  -qmp unix:"$run/qmp.sock",server=on,wait=off \
+  -monitor unix:"$run/monitor.sock",server=on,wait=off \
+  -serial file:"$run/serial.log" \
+  -daemonize \
+  -pidfile "$run/qemu.pid"

@@ -1,0 +1,263 @@
+#!/bin/bash
+
+set -euo pipefail
+
+stable=https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download
+channel=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel
+fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+work=/root/omarchy-fresh-vm
+
+rm -rf "$work"
+mkdir -p "$work"
+cd "$work"
+
+curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/install-omarchy-mx-mac"
+curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/install-omarchy-mx-mac.sig"
+curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-release.gpg"
+curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-mx-mac-release"
+curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-mx-mac-release.sig"
+[[ $(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }') == "$fingerprint" ]]
+gpgv --keyring ./omarchy-release.gpg install-omarchy-mx-mac.sig install-omarchy-mx-mac
+gpgv --keyring ./omarchy-release.gpg omarchy-mx-mac-release.sig omarchy-mx-mac-release
+grep -Fxq 'version=4.0.0-mac.3' omarchy-mx-mac-release
+
+curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro "$channel/install-asahi-quattro"
+curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro.sig "$channel/install-asahi-quattro.sig"
+gpgv --keyring ./omarchy-release.gpg install-asahi-quattro.sig install-asahi-quattro
+
+cp install-asahi-quattro install-asahi-quattro.vm
+sed -i \
+  -e '/^\[\[ -r \/proc\/device-tree\/compatible \]\] || fail /c\true # VM-only hardware boundary' \
+  -e "/^grep -aq 'apple,' \/proc\/device-tree\/compatible || fail /c\\true # VM-only hardware boundary" \
+  -e "s#^trap 'rm -rf \"\$work_dir\"' EXIT#trap ':' EXIT#" \
+  install-asahi-quattro.vm
+mkdir verified
+TMPDIR="$work/verified" bash install-asahi-quattro.vm --fresh --user omarchy --verify-only
+verified_dir=$(find "$work/verified" -mindepth 1 -maxdepth 1 -type d -name 'asahi-quattro.*' -print -quit)
+[[ -n $verified_dir ]]
+
+signed_fresh_installer="$verified_dir/omarchy-install-asahi-fresh"
+fresh_installer="$verified_dir/omarchy-install-asahi-fresh.vm"
+cp /root/omarchy-install-asahi-fresh.candidate "$fresh_installer"
+sed -i \
+  -e '/^\[\[ -r \/proc\/device-tree\/compatible \]\] || fail /c\true # VM-only hardware boundary' \
+  -e "/^grep -aq 'apple,' \/proc\/device-tree\/compatible || fail /c\\true # VM-only hardware boundary" \
+  "$fresh_installer"
+release_sequence=$(sed -n 's/^sequence=//p' "$verified_dir/asahi-quattro-release")
+release_tag=$(sed -n 's/^release_tag=//p' "$verified_dir/asahi-quattro-release")
+source_commit=$(sed -n 's/^source_commit=//p' "$verified_dir/asahi-quattro-release")
+package_source_commit=$(sed -n 's/^package_source_commit=//p' "$verified_dir/asahi-quattro-release")
+install -Dm644 "$verified_dir/asahi-quattro-release" /var/lib/omarchy/vm-expected-release
+install -Dm644 omarchy-mx-mac-release /var/lib/omarchy/vm-expected-stable-release
+{
+  sha256sum install-asahi-quattro install-asahi-quattro.vm
+  sha256sum "$signed_fresh_installer" /root/omarchy-install-asahi-fresh.candidate "$fresh_installer"
+} >vm-adapter.log
+
+cp /boot/Image vm-kernel.before
+cp /boot/vmlinuz-linux-asahi asahi-kernel.before
+cp /boot/grub/grub.cfg vm-grub.before
+pacman -Q linux-asahi linux-asahi-headers m1n1 >protected-packages.before
+(
+  flock 9
+  touch /var/tmp/omarchy-vm-install-lock-held
+  sleep 60
+) 9>/run/lock/omarchy-asahi-fresh.lock &
+lock_pid=$!
+while [[ ! -f /var/tmp/omarchy-vm-install-lock-held ]]; do
+  sleep 0.1
+done
+expect <<EOF
+set timeout -1
+log_file $work/lock-collision.log
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+expect eof
+catch wait result
+set status [lindex \$result 3]
+if {\$status == 0} { exit 1 }
+exit 0
+EOF
+grep -Fq 'Another fresh installation is already running' "$work/lock-collision.log"
+[[ ! -e /var/lib/omarchy/fresh-install ]]
+kill "$lock_pid"
+wait "$lock_pid" 2>/dev/null || true
+
+useradd --system --user-group --home-dir /var/empty --shell /usr/bin/nologin omarchy-fresh-build
+install -Dm440 /dev/stdin /etc/sudoers.d/09-omarchy-fresh-build <<'EOF'
+# unrelated collision fixture
+EOF
+expect <<EOF
+set timeout -1
+log_file $work/account-collision.log
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+expect eof
+catch wait result
+exit 0
+EOF
+grep -Fq 'The package build account already exists' "$work/account-collision.log"
+getent passwd omarchy-fresh-build >/dev/null
+grep -Fxq '# unrelated collision fixture' /etc/sudoers.d/09-omarchy-fresh-build
+[[ -f /var/lib/omarchy/fresh-install/owner-token ]]
+userdel omarchy-fresh-build
+expect <<EOF
+set timeout -1
+log_file $work/sudo-collision.log
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+expect eof
+catch wait result
+set status [lindex \$result 3]
+if {\$status == 0} { exit 1 }
+exit 0
+EOF
+grep -Fq 'The package build sudo rule already exists' "$work/sudo-collision.log"
+grep -Fxq '# unrelated collision fixture' /etc/sudoers.d/09-omarchy-fresh-build
+rm /etc/sudoers.d/09-omarchy-fresh-build
+mkdir /var/cache/omarchy-fresh-pkgbuilds
+printf '%s\n' unrelated >/var/cache/omarchy-fresh-pkgbuilds/data
+expect <<EOF
+set timeout -1
+log_file $work/cache-collision.log
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+expect eof
+catch wait result
+set status [lindex \$result 3]
+if {\$status == 0} { exit 1 }
+exit 0
+EOF
+grep -Fq 'The package checkout is not owned by this installation' "$work/cache-collision.log"
+grep -Fxq unrelated /var/cache/omarchy-fresh-pkgbuilds/data
+rm -rf /var/cache/omarchy-fresh-pkgbuilds
+
+cat >/usr/local/bin/makepkg <<'EOF'
+#!/bin/bash
+touch /var/tmp/omarchy-vm-build-active
+while :; do sleep 60; done
+EOF
+chmod +x /usr/local/bin/makepkg
+interrupted=0
+for attempt in {1..3}; do
+  rm -f /var/tmp/omarchy-vm-installer.pid /var/tmp/omarchy-vm-build-active
+  (
+    while [[ ! -f /var/tmp/omarchy-vm-build-active ]]; do
+      if [[ -f /var/tmp/omarchy-vm-installer.pid ]]; then
+        installer_pid=$(</var/tmp/omarchy-vm-installer.pid)
+        kill -0 "$installer_pid" 2>/dev/null || exit 0
+      fi
+      sleep 0.1
+    done
+    installer_pid=$(</var/tmp/omarchy-vm-installer.pid)
+    kill_tree() {
+      local child
+      while read -r child; do
+        kill_tree "$child"
+      done < <(pgrep -P "$1" || true)
+      kill -KILL "$1" 2>/dev/null || true
+    }
+    kill_tree "$installer_pid"
+  ) &
+  killer_pid=$!
+  expect <<EOF
+set timeout -1
+log_file $work/failed-install.log
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+set installer_pid [exp_pid]
+exec sh -c "printf '%s\\n' \$installer_pid > /var/tmp/omarchy-vm-installer.pid"
+expect eof
+catch wait result
+exit 0
+EOF
+  wait "$killer_pid"
+  if [[ -f /var/tmp/omarchy-vm-build-active ]]; then
+    interrupted=1
+    break
+  fi
+  sleep 5
+done
+(( interrupted == 1 ))
+[[ -f /var/lib/omarchy/fresh-install/release ]]
+[[ -f /var/lib/omarchy/fresh-install/asahi-kernel.sha256 ]]
+[[ -f /var/lib/omarchy/fresh-install/grub.sha256 ]]
+[[ -f /var/lib/omarchy/fresh-install/owner-token ]]
+[[ -f /var/lib/omarchy/fresh-install/target-user ]]
+[[ -f /home/omarchy/.omarchy-fresh-install-owner ]]
+[[ -f /etc/sudoers.d/09-omarchy-fresh-build ]]
+[[ -f /var/cache/omarchy-fresh-pkgbuilds/.omarchy-fresh-install-owner ]]
+getent passwd omarchy-fresh-build >/dev/null
+rm -f /usr/local/bin/makepkg
+usermod --home /home/omarchy-replaced omarchy
+expect <<EOF
+set timeout -1
+log_file $work/target-replacement.log
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+expect eof
+catch wait result
+set status [lindex \$result 3]
+if {\$status == 0} { exit 1 }
+exit 0
+EOF
+grep -Fq 'The target user is not owned by this installation' "$work/target-replacement.log"
+usermod --home /home/omarchy omarchy
+
+helper=/usr/share/omarchy/bin/omarchy-hw-apple-silicon
+cp --preserve=all --dereference "$helper" omarchy-hw-apple-silicon.original
+cat >"$helper" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$helper"
+cat >/usr/local/bin/usermod <<'EOF'
+#!/bin/bash
+if [[ $1 == "--comment" && $2 == "" && $3 == "omarchy" && -f /var/lib/omarchy/fresh-install/completing &&
+  ! -e /var/tmp/omarchy-vm-completion-killed ]]; then
+  touch /var/tmp/omarchy-vm-completion-killed
+  kill -KILL "$PPID"
+  exit 0
+fi
+exec /usr/bin/usermod "$@"
+EOF
+chmod +x /usr/local/bin/usermod
+
+installed=0
+for attempt in {1..3}; do
+  if expect <<EOF
+set timeout -1
+log_file $work/resumed-install.log
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+expect {
+  "New password:" {
+    send "omarchy\r"
+    expect "Retype new password:"
+    send "omarchy\r"
+    exp_continue
+  }
+  eof
+}
+catch wait result
+exit [lindex \$result 3]
+EOF
+  then
+    if [[ -e /var/lib/omarchy/fresh-install ]]; then
+      sleep 1
+      continue
+    fi
+    installed=1
+    break
+  fi
+  sleep 5
+done
+(( installed == 1 ))
+[[ -f /var/tmp/omarchy-vm-completion-killed ]]
+rm -f /usr/local/bin/usermod
+[[ ! -e /var/lib/omarchy/fresh-install ]]
+[[ ! -e /home/omarchy/.omarchy-fresh-install-owner ]]
+[[ -z $(getent passwd omarchy | cut -d: -f5) ]]
+
+! grep -Fq 'Install anyway?' "$work/resumed-install.log"
+pacman -Q linux-asahi linux-asahi-headers m1n1 >protected-packages.after
+cmp protected-packages.before protected-packages.after
+cp --preserve=all omarchy-hw-apple-silicon.original /usr/share/omarchy/bin/omarchy-hw-apple-silicon
+cmp vm-kernel.before /boot/Image
+cmp asahi-kernel.before /boot/vmlinuz-linux-asahi
+cmp vm-grub.before /boot/grub/grub.cfg
+install -Dm644 vm-adapter.log /var/lib/omarchy/vm-adapter.log
+ufw allow 22/tcp || ufw show added | grep -Fxq 'ufw allow 22/tcp'
