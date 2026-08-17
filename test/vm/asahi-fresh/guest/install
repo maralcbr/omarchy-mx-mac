@@ -19,7 +19,7 @@ curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all
 [[ $(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }') == "$fingerprint" ]]
 gpgv --keyring ./omarchy-release.gpg install-omarchy-mx-mac.sig install-omarchy-mx-mac
 gpgv --keyring ./omarchy-release.gpg omarchy-mx-mac-release.sig omarchy-mx-mac-release
-grep -Fxq 'version=4.0.0-mac.5' omarchy-mx-mac-release
+grep -Fxq 'version=4.0.0-mac.6' omarchy-mx-mac-release
 
 curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro "$channel/install-asahi-quattro"
 curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro.sig "$channel/install-asahi-quattro.sig"
