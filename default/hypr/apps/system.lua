@@ -25,7 +25,7 @@ o.window({
 -- rule before every later launch.
 o.window("org.omarchy.about", { float = true })
 o.window("org.omarchy.about", { center = true })
-o.window("org.omarchy.about", { size = { 920, 480 } })
+o.window("org.omarchy.about", { size = { 1040, 480 } })
 
 o.window("dev.tensaku.Tensaku", { float = true })
 o.window("dev.tensaku.Tensaku", { center = true })

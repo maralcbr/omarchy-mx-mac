@@ -107,6 +107,7 @@ asahi_migration_disposition() {
     1786482992.sh) printf 'skipped\tLimine boot image repair is not applicable to Asahi\n' ;;
     1786567036.sh) printf 'skipped\tNetworkManager remains on the validated Asahi iwd backend\n' ;;
     1786605598.sh) printf 'skipped\tNVIDIA Limine initramfs repair is not applicable to Asahi\n' ;;
+    1786922691.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     *) return 1 ;;
   esac
 }
