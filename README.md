@@ -1,6 +1,6 @@
 ![Omarchy MX Mac](docs/images/omarchy-mx-mac-hero.png)
 
-# Omarchy Mac on Apple Silicon
+# Omarchy for Apple Silicon Macs
 
 Run Omarchy on Apple Silicon through Arch Linux ARM and Asahi Linux.
 
