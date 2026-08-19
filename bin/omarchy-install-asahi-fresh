@@ -334,6 +334,18 @@ trap - EXIT
 echo "Set the password for $target_user"
 passwd "$target_user" </dev/tty
 
+# Seed SDDM's remembered user so the password-only greeter has a username to
+# authenticate on first boot. state.conf is otherwise empty until a login
+# succeeds, and the omarchy theme then passes an empty user to PAM, which
+# rejects every password as "user unknown".
+install -d -m 0755 -o sddm -g sddm /var/lib/sddm 2>/dev/null || install -d -m 0755 /var/lib/sddm
+cat > /var/lib/sddm/state.conf <<EOF
+[Last]
+Session=omarchy.desktop
+User=$target_user
+EOF
+chown sddm:sddm /var/lib/sddm /var/lib/sddm/state.conf 2>/dev/null || true
+
 OMARCHY_PATH=/usr/share/omarchy \
   OMARCHY_INSTALL=/usr/share/omarchy/install \
   omarchy-apply-system --install-user "$target_user" --first-install

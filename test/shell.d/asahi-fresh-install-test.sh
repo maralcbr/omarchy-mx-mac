@@ -53,6 +53,8 @@ grep -Fq 'omarchy-apply-system --install-user "$target_user" --first-install' "$
 grep -Fq 'omarchy-provision-user --force --first-install' "$installer" || fail "fresh installer runs user finalization"
 grep -Fq 'OMARCHY_SETUP_CONTEXT=fresh-install' "$installer" || fail "fresh installer does not select the ISO payload context"
 grep -Fq 'package_source_commit=$OMARCHY_ASAHI_PACKAGE_SOURCE' "$installer" || fail "fresh installer binds resume state to the package source"
+grep -Fq '/var/lib/sddm/state.conf' "$installer" || fail "fresh installer seeds the SDDM last-user state"
+grep -Fq 'Session=omarchy.desktop' "$installer" || fail "fresh installer records the Omarchy session as last"
 pass "fresh installer runs the Quattro system and user finalizers"
 
 grep -Fq '/boot/vmlinuz-linux-asahi' "$installer" || fail "fresh installer protects the Asahi kernel"

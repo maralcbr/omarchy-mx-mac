@@ -14,6 +14,8 @@ expected_tag=$(sed -n 's/^release_tag=//p' /var/lib/omarchy/vm-expected-release)
 grep -Fxq "sequence=$expected_sequence" /var/lib/omarchy/asahi-quattro-release || fail "release sequence"
 grep -Fxq "tag=$expected_tag" /var/lib/omarchy/asahi-quattro-release || fail "release tag"
 id omarchy >/dev/null || fail "install user"
+grep -Fxq "User=omarchy" /var/lib/sddm/state.conf || fail "SDDM last-user seeded"
+grep -Fxq "Session=omarchy.desktop" /var/lib/sddm/state.conf || fail "SDDM last-session seeded"
 [[ -f /home/omarchy/.local/state/omarchy/done/finalize-user ]] || fail "user finalization marker"
 pacman -Q omarchy-dev omarchy-settings-dev linux-asahi networkmanager iwd >/dev/null || fail "required packages"
 for unit in NetworkManager.service sddm.service systemd-resolved.service; do
