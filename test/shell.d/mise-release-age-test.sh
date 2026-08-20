@@ -32,3 +32,14 @@ pass "mise wrapper uses a valid zero release age"
 grep -Fxq "alias mup='MISE_MINIMUM_RELEASE_AGE=0s mise up'" "$ROOT/default/bash/aliases" ||
   fail "mise update alias uses a valid zero release age"
 pass "mise update alias uses a valid zero release age"
+
+cat >"$tmp/bin/omarchy-refresh-applications" <<'SH'
+#!/bin/bash
+touch "$MISE_REFRESH_LOG"
+SH
+chmod +x "$tmp/bin/omarchy-refresh-applications"
+
+MISE_REFRESH_LOG="$tmp/refresh.log" PATH="$tmp/bin:$PATH" \
+  bash -euo pipefail "$ROOT/migrations/1787231692.sh" >/dev/null
+[[ -f $tmp/refresh.log ]] || fail "mise release-age migration refreshes existing wrappers"
+pass "mise release-age migration refreshes existing wrappers"
