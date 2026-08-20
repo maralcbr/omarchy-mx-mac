@@ -119,7 +119,7 @@ phoenix)
   ;;
 rust)
   echo -e "Installing Rust...\n"
-  bash -c "$(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs)" -- -y
+  RUSTUP_USE_CURL=1 bash -c "$(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs)" -- -y
   ;;
 java)
   echo -e "Installing Java...\n"
