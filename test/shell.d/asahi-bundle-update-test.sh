@@ -15,6 +15,7 @@ stub_bin="$test_tmp/bin"
 assets="$test_tmp/assets"
 state="$test_tmp/state"
 source_commit=0123456789abcdef0123456789abcdef01234567
+package_source_commit=89abcdef0123456789abcdef0123456789abcdef
 mkdir -p "$stub_bin" "$assets" "$test_tmp/root/proc/device-tree"
 : >"$test_tmp/omarchy-release.gpg"
 printf 'apple,j314s\0apple,arm-platform\0' >"$test_tmp/root/proc/device-tree/compatible"
@@ -105,6 +106,7 @@ format=1
 sequence=2
 tag=asahi-quattro-test
 source_commit=$source_commit
+package_source_commit=$package_source_commit
 EOF
 set +e
 run_check >"$test_tmp/current.out"
@@ -115,6 +117,17 @@ if (( status == 0 )); then
 fi
 [[ $status -eq 1 ]] || fail "current Asahi release uses the no-update status"
 pass "current signed Asahi release is not offered again"
+
+sed -i 's/^package_source_commit=.*/package_source_commit=invalid/' "$state"
+set +e
+run_check >"$test_tmp/package-source.out" 2>"$test_tmp/package-source.err"
+status=$?
+set -e
+[[ $status -eq 2 ]] || fail "invalid package source state fails closed" "status $status"
+grep -Fq 'release state is malformed' "$test_tmp/package-source.err" ||
+  fail "invalid package source state explains the refusal" "$(cat "$test_tmp/package-source.err")"
+pass "fresh install package source state is validated"
+sed -i "s/^package_source_commit=.*/package_source_commit=$package_source_commit/" "$state"
 
 write_channel 1 fedcba9876543210fedcba9876543210fedcba98
 set +e
@@ -147,6 +160,7 @@ format=1
 sequence=2
 tag=asahi-quattro-test
 source_commit=$source_commit
+package_source_commit=$package_source_commit
 EOF
 write_channel 2 "$source_commit"
 run_check >"$test_tmp/pending.out"
