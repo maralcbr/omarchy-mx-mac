@@ -95,6 +95,7 @@ wait_for_reboot() {
 
 wait_for_ssh || { tail -200 "$state/run/serial.log"; exit 1; }
 scp "${scp_args[@]}" "$root/bin/omarchy-install-asahi-fresh" root@127.0.0.1:/root/omarchy-install-asahi-fresh.candidate
+scp "${scp_args[@]}" "$root/bin/omarchy-update-asahi-bundle" root@127.0.0.1:/root/omarchy-update-asahi-bundle.candidate
 scp "${scp_args[@]}" "$harness/guest/install" root@127.0.0.1:/root/omarchy-vm-install
 ssh -tt "${ssh_args[@]}" root@127.0.0.1 bash /root/omarchy-vm-install | tee "$state/run/install.log" || exit 1
 
