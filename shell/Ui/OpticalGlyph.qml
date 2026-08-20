@@ -28,6 +28,7 @@ Item {
     // Keep the shared line box and baseline intact. Correcting only the
     // horizontal painted bounds avoids per-glyph vertical drift.
     anchors.centerIn: parent
+    anchors.alignWhenCentered: false
     anchors.horizontalCenterOffset: root.horizontalCorrection
     text: root.text
     color: root.color
