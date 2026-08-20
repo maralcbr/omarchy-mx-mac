@@ -20,7 +20,7 @@ fail() {
 }
 
 for command_name in curl gpg; do
-  command -v "$command_name" >/dev/null 2>&1 || fail "Required command is unavailable: $command_name"
+  omarchy-cmd-present "$command_name" || fail "Required command is unavailable: $command_name"
 done
 [[ -r $release_keyring ]] || fail "Omarchy release keyring is unavailable: $release_keyring"
 actual_fingerprint=$(gpg --show-keys --with-colons "$release_keyring" 2>/dev/null |
