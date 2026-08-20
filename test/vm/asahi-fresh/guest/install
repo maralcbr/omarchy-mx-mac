@@ -183,6 +183,7 @@ done
 [[ -f /etc/sudoers.d/09-omarchy-fresh-build ]]
 [[ -f /var/cache/omarchy-fresh-pkgbuilds/.omarchy-fresh-install-owner ]]
 getent passwd omarchy-fresh-build >/dev/null
+[[ " $(id -nG alarm) " == *" wheel "* ]]
 rm -f /usr/local/bin/makepkg
 usermod --home /home/omarchy-replaced omarchy
 expect <<EOF
@@ -251,6 +252,8 @@ rm -f /usr/local/bin/usermod
 [[ ! -e /var/lib/omarchy/fresh-install ]]
 [[ ! -e /home/omarchy/.omarchy-fresh-install-owner ]]
 [[ -z $(getent passwd omarchy | cut -d: -f5) ]]
+[[ " $(id -nG alarm) " != *" wheel "* ]]
+[[ $(passwd -S alarm | awk '{ print $2 }') == "L" ]]
 
 ! grep -Fq 'Install anyway?' "$work/resumed-install.log"
 pacman -Q linux-asahi linux-asahi-headers m1n1 >protected-packages.after
