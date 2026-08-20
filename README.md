@@ -102,25 +102,17 @@ nmtui
 Update the system and install the release verification tools:
 
 ```bash
-pacman -Syu --needed curl gnupg networkmanager iwd
+pacman -Syu --needed curl gnupg linux-asahi-headers networkmanager iwd
 ```
 
 ### 3. Install The Latest Stable Mac Release
 
-Download and verify the installer from the latest stable release:
+Download and run the installer script. It will automatically download the
+stable release and verify all cryptographic signatures:
 
 ```bash
-mkdir -p /root/omarchy-mx-mac-install
-cd /root/omarchy-mx-mac-install
-release=https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download
-curl -fLO "$release/install-omarchy-mx-mac"
-curl -fLO "$release/install-omarchy-mx-mac.sig"
-curl -fLO "$release/omarchy-release.gpg"
-test "$(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }')" = \
-  5983B1CA32CB778F4D74D24ECFF35022CA5B5959
-gpgv --keyring ./omarchy-release.gpg install-omarchy-mx-mac.sig install-omarchy-mx-mac
-bash install-omarchy-mx-mac --verify-only
-bash install-omarchy-mx-mac
+curl -fLO https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/install-omarchy-mx-mac.sh
+bash install-omarchy-mx-mac.sh
 ```
 
 The signed installer will:
