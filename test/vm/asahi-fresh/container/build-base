@@ -86,6 +86,10 @@ EOF
 
 rm -f "$mount_dir/etc/resolv.conf"
 cp -L /etc/resolv.conf "$mount_dir/etc/resolv.conf"
+cat >"$mount_dir/etc/pacman.d/mirrorlist" <<'EOF'
+Server = https://ca.us.mirror.archlinuxarm.org/$arch/$repo
+Server = https://fl.us.mirror.archlinuxarm.org/$arch/$repo
+EOF
 
 for path in proc sys dev run; do
   mount --rbind "/$path" "$mount_dir/$path"
