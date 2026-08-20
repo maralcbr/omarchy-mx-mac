@@ -11,6 +11,11 @@ rm -rf "$work"
 mkdir -p "$work"
 cd "$work"
 
+sed -i 's/^omarchy-hw-apple-silicon || exit 1$/true # VM-only hardware boundary/' \
+  /root/omarchy-update-asahi-bundle.candidate
+mkdir -p "$work/apple-root/proc/device-tree"
+printf 'apple,j314s\0apple,arm-platform\0' >"$work/apple-root/proc/device-tree/compatible"
+
 curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/install-omarchy-mx-mac"
 curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/install-omarchy-mx-mac.sig"
 curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-release.gpg"
@@ -183,6 +188,7 @@ done
 [[ -f /etc/sudoers.d/09-omarchy-fresh-build ]]
 [[ -f /var/cache/omarchy-fresh-pkgbuilds/.omarchy-fresh-install-owner ]]
 getent passwd omarchy-fresh-build >/dev/null
+[[ " $(id -nG alarm) " == *" wheel "* ]]
 rm -f /usr/local/bin/makepkg
 usermod --home /home/omarchy-replaced omarchy
 expect <<EOF
@@ -251,6 +257,8 @@ rm -f /usr/local/bin/usermod
 [[ ! -e /var/lib/omarchy/fresh-install ]]
 [[ ! -e /home/omarchy/.omarchy-fresh-install-owner ]]
 [[ -z $(getent passwd omarchy | cut -d: -f5) ]]
+[[ " $(id -nG alarm) " != *" wheel "* ]]
+[[ $(passwd -S alarm | awk '{ print $2 }') == "L" ]]
 
 ! grep -Fq 'Install anyway?' "$work/resumed-install.log"
 pacman -Q linux-asahi linux-asahi-headers m1n1 >protected-packages.after

@@ -123,18 +123,20 @@ if [[ -e $state_file ]]; then
     [[ $(stat -c '%u' "$state_file") == 0 ]] || fail "release state is not root-owned"
     (( (8#$permissions & 8#022) == 0 )) || fail "release state is writable by non-root users"
   fi
-  state_format="" state_sequence="" state_source=""
+  state_format="" state_sequence="" state_source="" state_package_source=""
   while IFS= read -r line; do
     case "$line" in
       format=*) state_format=${line#format=} ;;
       sequence=*) state_sequence=${line#sequence=} ;;
       tag=*) ;;
       source_commit=*) state_source=${line#source_commit=} ;;
+      package_source_commit=*) state_package_source=${line#package_source_commit=} ;;
       "") ;;
       *) fail "release state is malformed" ;;
     esac
   done <"$state_file"
   [[ $state_format == "1" && $state_sequence =~ ^[1-9][0-9]*$ && $state_source =~ ^[0-9a-f]{40}$ ]] || fail "release state is malformed"
+  [[ -z $state_package_source || $state_package_source =~ ^[0-9a-f]{40}$ ]] || fail "release state is malformed"
   installed_sequence=$state_sequence
   installed_source=$state_source
 fi
@@ -147,18 +149,20 @@ if [[ -e $pending_file ]]; then
     [[ $(stat -c '%u' "$pending_file") == 0 ]] || fail "pending release state is not root-owned"
     (( (8#$permissions & 8#022) == 0 )) || fail "pending release state is writable by non-root users"
   fi
-  pending_format=""
+  pending_format="" pending_package_source=""
   while IFS= read -r line; do
     case "$line" in
       format=*) pending_format=${line#format=} ;;
       sequence=*) pending_sequence=${line#sequence=} ;;
       tag=*) ;;
       source_commit=*) pending_source=${line#source_commit=} ;;
+      package_source_commit=*) pending_package_source=${line#package_source_commit=} ;;
       "") ;;
       *) fail "pending release state is malformed" ;;
     esac
   done <"$pending_file"
   [[ $pending_format == "1" && $pending_sequence =~ ^[1-9][0-9]*$ && $pending_source =~ ^[0-9a-f]{40}$ ]] || fail "pending release state is malformed"
+  [[ -z $pending_package_source || $pending_package_source =~ ^[0-9a-f]{40}$ ]] || fail "pending release state is malformed"
   (( pending_sequence >= installed_sequence )) || fail "pending release state predates installed state"
   (( channel_sequence == pending_sequence )) || fail "finish pending release sequence $pending_sequence before installing sequence $channel_sequence"
   [[ $channel_source == "$pending_source" ]] || fail "pending release sequence $pending_sequence has a different source"

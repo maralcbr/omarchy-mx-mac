@@ -368,6 +368,13 @@ NetworkManager --print-config 2>/dev/null | grep -Fxq 'wifi.backend=iwd' || fail
 sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed unexpectedly"
 sha256sum --check --status <<<"$grub_sha256" || fail "The GRUB configuration changed unexpectedly"
 
+# The stock Alarm account is also a wheel administrator. Retire it only after
+# the replacement administrator has a password and finalization has succeeded.
+if [[ $target_user != "alarm" ]] && getent passwd alarm >/dev/null 2>&1; then
+  [[ " $(id -nG alarm) " != *" wheel "* ]] || gpasswd -d alarm wheel
+  usermod -L alarm
+fi
+
 install -d -m 0755 /var/lib/omarchy
 cat >"$state_dir/asahi-quattro-release.tmp" <<EOF
 format=1

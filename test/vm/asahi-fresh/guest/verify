@@ -14,6 +14,8 @@ expected_tag=$(sed -n 's/^release_tag=//p' /var/lib/omarchy/vm-expected-release)
 grep -Fxq "sequence=$expected_sequence" /var/lib/omarchy/asahi-quattro-release || fail "release sequence"
 grep -Fxq "tag=$expected_tag" /var/lib/omarchy/asahi-quattro-release || fail "release tag"
 id omarchy >/dev/null || fail "install user"
+[[ " $(id -nG alarm) " != *" wheel "* ]] || fail "stock Alarm administrator still in wheel"
+[[ $(passwd -S alarm | awk '{ print $2 }') == "L" ]] || fail "stock Alarm account is not locked"
 grep -Fxq "User=omarchy" /var/lib/sddm/state.conf || fail "SDDM last-user seeded"
 grep -Fxq "Session=omarchy.desktop" /var/lib/sddm/state.conf || fail "SDDM last-session seeded"
 [[ -f /home/omarchy/.local/state/omarchy/done/finalize-user ]] || fail "user finalization marker"
@@ -35,5 +37,14 @@ if runuser -u omarchy -- env HOME=/home/omarchy omarchy-migrate --pending >/tmp/
   fail "pending migrations"
 fi
 [[ ! -s /tmp/migrations.pending ]] || fail "pending migrations"
+
+set +e
+OMARCHY_ASAHI_TESTING=1 \
+  OMARCHY_ASAHI_ROOT=/root/omarchy-fresh-vm/apple-root \
+  /root/omarchy-update-asahi-bundle.candidate --check \
+  >/tmp/asahi-update-check.out 2>/tmp/asahi-update-check.err
+update_status=$?
+set -e
+(( update_status == 0 || update_status == 1 )) || fail "fresh release state rejected by updater candidate: $(cat /tmp/asahi-update-check.err)"
 
 echo "ok - direct Omarchy 4 VM installation survived reboot"

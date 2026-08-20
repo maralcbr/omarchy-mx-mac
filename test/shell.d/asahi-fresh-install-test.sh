@@ -62,8 +62,10 @@ grep -Fq '/boot/grub/grub.cfg' "$installer" || fail "fresh installer protects GR
 grep -Fq 'sha256sum --check --status <<<"$asahi_kernel_sha256"' "$installer" || fail "fresh installer verifies the Asahi kernel hash"
 grep -Fq 'sha256sum --check --status <<<"$grub_sha256"' "$installer" || fail "fresh installer verifies the GRUB hash"
 validation_line=$(grep -n 'sha256sum --check --status <<<"$grub_sha256"' "$installer" | tail -1 | cut -d: -f1)
+alarm_retirement_line=$(grep -n -m1 'usermod -L alarm' "$installer" | cut -d: -f1)
 completion_line=$(grep -n 'rm -rf "$state_dir"' "$installer" | tail -1 | cut -d: -f1)
 (( validation_line < completion_line )) || fail "fresh installer retains resume state until final validation passes"
+(( validation_line < alarm_retirement_line && alarm_retirement_line < completion_line )) || fail "fresh installer retires the stock administrator only after successful finalization"
 resume_check_line=$(grep -n -m1 'changed after the interrupted installation' "$installer" | cut -d: -f1)
 runtime_line=$(grep -n -m1 'pacman -Syu --needed --noconfirm' "$installer" | cut -d: -f1)
 (( resume_check_line < runtime_line )) || fail "fresh installer validates protected boot files before resuming mutations"
