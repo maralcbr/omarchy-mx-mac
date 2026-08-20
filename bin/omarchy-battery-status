@@ -18,7 +18,7 @@ case "${1:-}" in
     ;;
 esac
 
-battery=$(upower -e 2>/dev/null | grep -E 'battery_(BAT|macsmc)' | head -n 1)
+battery=$(upower -e 2>/dev/null | awk '/\/battery_/ { print; exit }')
 [[ -z $battery ]] && exit 0
 
 battery_info=$(upower -i "$battery")
@@ -66,8 +66,8 @@ state=$(awk '/state/ { print $2; exit }' <<<"$battery_info")
 threshold_start=$(awk '/charge-start-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
 threshold_end=$(awk '/charge-end-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
 
-[[ -z $threshold_end ]] && threshold_end=$(cat "$power_supply_path"/BAT*/charge_control_end_threshold "$power_supply_path"/macsmc-battery*/charge_control_end_threshold 2>/dev/null | head -1)
-[[ -z $threshold_start ]] && threshold_start=$(cat "$power_supply_path"/BAT*/charge_control_start_threshold "$power_supply_path"/macsmc-battery*/charge_control_start_threshold 2>/dev/null | head -1)
+[[ -n $threshold_end || ! -r $battery_path/charge_control_end_threshold ]] || threshold_end=$(<"$battery_path/charge_control_end_threshold")
+[[ -n $threshold_start || ! -r $battery_path/charge_control_start_threshold ]] || threshold_start=$(<"$battery_path/charge_control_start_threshold")
 
 ac_online=false
 for supply in "$power_supply_path"/*; do
@@ -108,7 +108,8 @@ if [[ $shell_output == "true" ]]; then
   printf 'size\t%s\n' "${capacity}Wh"
   printf 'time\t%s\n' "$time_remaining"
 
-  cycles=$(cat "$power_supply_path"/BAT*/cycle_count "$power_supply_path"/macsmc-battery*/cycle_count 2>/dev/null | head -1)
+  cycles=""
+  [[ ! -r $battery_path/cycle_count ]] || cycles=$(<"$battery_path/cycle_count")
 
   [[ -n $cycles ]] && printf 'cycles\t%s\n' "$cycles"
 

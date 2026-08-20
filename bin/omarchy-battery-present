@@ -2,10 +2,13 @@
 
 # omarchy:summary=Returns true if a battery is present on the system.
 
-for bat in /sys/class/power_supply/*; do
+power_supply_path="${OMARCHY_POWER_SUPPLY_PATH:-/sys/class/power_supply}"
+
+for bat in "$power_supply_path"/*; do
   [[ -r $bat/present ]] &&
-  [[ $(cat "$bat/present") == "1" ]] &&
-  [[ $(cat "$bat/type") == "Battery" ]] &&
+  [[ $(<"$bat/present") == "1" ]] &&
+  [[ -r $bat/type ]] &&
+  [[ $(<"$bat/type") == "Battery" ]] &&
   exit 0
 done
 
