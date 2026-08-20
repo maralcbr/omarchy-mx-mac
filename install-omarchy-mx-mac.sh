@@ -5,7 +5,7 @@ set -euo pipefail
 
 fail() { echo "Error: $*" >&2; exit 1; }
 
-for cmd in curl gpg awk; do
+for cmd in curl gpg gpgv awk; do
   command -v "$cmd" >/dev/null 2>&1 || fail "Required command is unavailable: $cmd"
 done
 
@@ -29,7 +29,7 @@ curl -fLO --retry 3 "$release/omarchy-release.gpg"
 
 echo "=> Verifying release key..."
 actual_fingerprint=$(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }')
-if [[ "$actual_fingerprint" != "$fingerprint" ]]; then
+if [[ $actual_fingerprint != $fingerprint ]]; then
   fail "Release signing key fingerprint mismatch."
 fi
 
@@ -41,4 +41,4 @@ echo "=> Pre-verifying package integrity..."
 bash install-omarchy-mx-mac --verify-only
 
 echo "=> Starting installation..."
-exec bash install-omarchy-mx-mac "$@"
+bash install-omarchy-mx-mac "$@"
