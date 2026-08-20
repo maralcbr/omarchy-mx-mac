@@ -46,7 +46,7 @@ EOF
 chmod +x "$tmp/bin"/*
 
 run_resolver() {
-  PATH="$tmp/bin:/usr/bin" XDG_STATE_HOME="$tmp/state" \
+  PATH="$tmp/bin:$ROOT/bin:/usr/bin" XDG_STATE_HOME="$tmp/state" \
     OMARCHY_RELEASE_KEYRING="$tmp/keyring.gpg" \
     OMARCHY_RELEASE_BASE_URL="file://$tmp/release" \
     "$ROOT/bin/omarchy-stable-release" "$@"
