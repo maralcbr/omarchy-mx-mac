@@ -272,6 +272,16 @@ install -Dm440 /dev/stdin /etc/sudoers.d/10-omarchy-wheel <<'EOF'
 %wheel ALL=(ALL:ALL) ALL
 EOF
 
+# The default Asahi Alarm 'alarm' user remains in wheel after a fresh install.
+# polkitd expands unix-group:wheel to all members and the Polkit agent picks the
+# first identity alphabetically — 'alarm' before the real user — causing every
+# Polkit prompt to authenticate against the wrong account. Remove alarm from
+# wheel and lock the account so it cannot interfere.
+if [[ $target_user != "alarm" ]] && getent passwd alarm >/dev/null 2>&1; then
+  gpasswd -d alarm wheel 2>/dev/null || true
+  usermod -L alarm 2>/dev/null || true
+fi
+
 target_home=$(getent passwd "$target_user" | cut -d: -f6)
 cleanup_build_user() {
   if [[ -f $build_sudoers && $(<"$build_sudoers") == "$expected_build_sudo" ]]; then
