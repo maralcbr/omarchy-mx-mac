@@ -231,6 +231,12 @@ git -C ~/.local/share/omarchy remote set-url origin \
   https://github.com/maralcbr/omarchy-mx-mac.git
 ```
 
+## Contributors
+
+| Contributor | Contact |
+| --- | --- |
+| Yann Renard | [yannrenard1025@gmail.com](mailto:yannrenard1025@gmail.com) |
+
 ## Acknowledgements
 
 Thanks to Asahi Linux and Asahi Alarm for enabling Linux on Apple Silicon, DHH
