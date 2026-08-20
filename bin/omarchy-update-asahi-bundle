@@ -130,6 +130,7 @@ if [[ -e $state_file ]]; then
       sequence=*) state_sequence=${line#sequence=} ;;
       tag=*) ;;
       source_commit=*) state_source=${line#source_commit=} ;;
+      package_source_commit=*) ;;
       "") ;;
       *) fail "release state is malformed" ;;
     esac
@@ -154,6 +155,7 @@ if [[ -e $pending_file ]]; then
       sequence=*) pending_sequence=${line#sequence=} ;;
       tag=*) ;;
       source_commit=*) pending_source=${line#source_commit=} ;;
+      package_source_commit=*) ;;
       "") ;;
       *) fail "pending release state is malformed" ;;
     esac
