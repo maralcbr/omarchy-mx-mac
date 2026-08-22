@@ -401,12 +401,16 @@ var GUARD_READERS = [
 // present -- so the set has to carry provides too, or `install.editor.vim`
 // comes back and offers to install what is already there. A version
 // constraint (`bash>=1`) is not a name any set can answer, so it goes to
-// pacman itself; no shipped guard writes one.
+// pacman itself (`-Q` for present, `-Si` for available); no shipped guard
+// writes one.
 //
 // `pacman -Qi` wraps a long list across continuation lines whenever COLUMNS
 // is set in the environment, which a login shell may well have done, so the
 // parser follows the indented lines rather than reading the first one and
 // dropping half of what is installed.
+//
+// Optional install rows ask the sync database. `pacman -Slq` is one fork
+// for the batch.
 function guardHelpers() {
   return 'declare -A __omarchy_pkgs=()\n'
     + 'mapfile -t __omarchy_pkg_names < <({ pacman -Qq; LC_ALL=C pacman -Qi'
@@ -418,9 +422,6 @@ function guardHelpers() {
     + '[[ $1 == *[\\<\\>=]* ]] && { pacman -Q "$1" &>/dev/null; return; }; return 1; }\n'
     + 'omarchy-pkg-present() { local p; for p in "$@"; do __omarchy_pkg_has "$p" || return 1; done; return 0; }\n'
     + 'omarchy-pkg-missing() { local p; for p in "$@"; do __omarchy_pkg_has "$p" || return 0; done; return 1; }\n'
-    // Optional install rows ask the sync database, not the local set.
-    // `pacman -Slq` is one fork for the batch; version constraints go to
-    // `pacman -Si` so the shadow matches omarchy-pkg-available.
     + 'declare -A __omarchy_sync_pkgs=()\n'
     + 'mapfile -t __omarchy_sync_names < <(pacman -Slq 2>/dev/null)\n'
     + 'for __omarchy_pkg in "${__omarchy_sync_names[@]}"; do __omarchy_sync_pkgs[$__omarchy_pkg]=1; done\n'

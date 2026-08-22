@@ -72,4 +72,6 @@ grep -Fqx 'omazed:setup' "$OMARCHY_TEST_LOG" || fail "Zed installer runs omazed 
 if grep -Fq 'omazed is not available' "$test_tmp/setup.out"; then
   fail "Zed installer does not skip omazed when it is published"
 fi
+wait_for_log 'launch:uwsm-app -- gtk-launch dev.zed.Zed' ||
+  fail "Zed installer still launches Zed with omazed"
 pass "Zed installer configures omazed when the package is published"
