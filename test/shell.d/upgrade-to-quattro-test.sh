@@ -113,6 +113,13 @@ grep -Fq 'if (( asahi_mode )) && [[ $pkg == iwd || $pkg == wf-recorder ]]' "$upg
 grep -Fq "NetworkManager --print-config | grep -Fxq 'wifi.backend=iwd'" "$upgrade_to_quattro"
 pass "Omarchy 4 upgrade uses one local package transaction and excludes unsafe Asahi migrations"
 
+seamless_disable_line=$(grep -n 'as_root systemctl disable omarchy-seamless-login.service' "$upgrade_to_quattro" | cut -d: -f1)
+seamless_remove_line=$(grep -n '/etc/systemd/system/omarchy-seamless-login.service' "$upgrade_to_quattro" | tail -1 | cut -d: -f1)
+(( seamless_disable_line < seamless_remove_line )) || fail "Quattro upgrade removes the legacy login unit before disabling it"
+grep -Fq '/graphical.target.wants/omarchy-seamless-login.service' "$upgrade_to_quattro" ||
+  fail "Quattro upgrade can leave the legacy login enablement symlink behind"
+pass "Omarchy 4 upgrade fully disables the legacy seamless login path"
+
 repository_branch=$(awk '
   /^if \(\( asahi_mode \)\); then$/ { capture=1; block=$0 ORS; next }
   capture { block=block $0 ORS }

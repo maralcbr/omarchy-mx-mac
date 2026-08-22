@@ -1686,11 +1686,13 @@ User=$target_user
 EOF
   as_root chown sddm:sddm /var/lib/sddm /var/lib/sddm/state.conf 2>/dev/null || true
 
-  as_root rm -f /etc/systemd/system/getty@tty1.service.d/autologin.conf
-  as_root rm -f /etc/systemd/system/plymouth-quit.service.d/wait-for-graphical.conf
-  as_root rm -f /etc/systemd/system/omarchy-seamless-login.service
-  as_root rm -f /usr/local/bin/seamless-login
   as_root systemctl disable omarchy-seamless-login.service >/dev/null 2>&1 || true
+  as_root rm -f \
+    /etc/systemd/system/graphical.target.wants/omarchy-seamless-login.service \
+    /etc/systemd/system/omarchy-seamless-login.service \
+    /etc/systemd/system/getty@tty1.service.d/autologin.conf \
+    /etc/systemd/system/plymouth-quit.service.d/wait-for-graphical.conf \
+    /usr/local/bin/seamless-login
 
   as_root systemctl disable makima.service >/dev/null 2>&1 || true
   as_root rm -rf /etc/systemd/system/makima.service.d

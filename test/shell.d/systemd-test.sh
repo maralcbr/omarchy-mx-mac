@@ -112,6 +112,16 @@ pass "systemd-oomd acts on sustained memory stall"
 grep -F 'systemctl enable systemd-oomd.service' "$ROOT/install/config/enable-services.sh" >/dev/null ||
   fail "new installs ship the oomd drop-ins with the daemon that reads them disabled"
 
+enable_services="$ROOT/install/config/enable-services.sh"
+legacy_disable_line=$(grep -n 'systemctl disable omarchy-seamless-login.service' "$enable_services" | cut -d: -f1)
+legacy_remove_line=$(grep -n '/etc/systemd/system/omarchy-seamless-login.service' "$enable_services" | tail -1 | cut -d: -f1)
+sddm_enable_line=$(grep -n 'systemctl enable sddm.service' "$enable_services" | cut -d: -f1)
+(( legacy_disable_line < legacy_remove_line && legacy_remove_line < sddm_enable_line )) ||
+  fail "new installs do not retire the tty1 seamless login path before enabling SDDM"
+grep -Fq '/graphical.target.wants/omarchy-seamless-login.service' "$enable_services" ||
+  fail "new installs can leave the legacy seamless login enablement symlink behind"
+pass "new installs retire the legacy tty1 login path before enabling SDDM"
+
 oomd_migration=$(grep -rl 'systemd-oomd.service' "$ROOT/migrations" | head -n 1 || true)
 [[ -n $oomd_migration ]] ||
   fail "existing installs never enable systemd-oomd; enable-services.sh only runs at install time"

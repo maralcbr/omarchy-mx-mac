@@ -13,6 +13,21 @@ systemctl enable NetworkManager.service
 # in install/hardware/network.sh.
 systemctl mask NetworkManager-wait-online.service
 systemctl enable power-profiles-daemon.service
+
+# Older installs claimed tty1 directly. Retire that path before enabling SDDM,
+# including on a fresh install over a system with leftover Omarchy state.
+if [[ -e /etc/systemd/system/omarchy-seamless-login.service ||
+  -L /etc/systemd/system/graphical.target.wants/omarchy-seamless-login.service ||
+  -e /usr/local/bin/seamless-login ]]; then
+  systemctl disable omarchy-seamless-login.service >/dev/null 2>&1 || true
+  rm -f \
+    /etc/systemd/system/graphical.target.wants/omarchy-seamless-login.service \
+    /etc/systemd/system/omarchy-seamless-login.service \
+    /etc/systemd/system/getty@tty1.service.d/autologin.conf \
+    /etc/systemd/system/plymouth-quit.service.d/wait-for-graphical.conf \
+    /usr/local/bin/seamless-login
+  systemctl daemon-reload
+fi
 systemctl enable sddm.service
 if ! omarchy-hw-apple-silicon; then
   # [Install] also enables the socket that reports app.slice candidacy.

@@ -23,6 +23,9 @@ pacman -Q omarchy-dev omarchy-settings-dev linux-asahi networkmanager iwd >/dev/
 for unit in NetworkManager.service sddm.service systemd-resolved.service; do
   systemctl is-enabled --quiet "$unit" || fail "$unit enabled"
 done
+[[ ! -e /etc/systemd/system/omarchy-seamless-login.service ]] || fail "legacy seamless login unit remains"
+[[ ! -L /etc/systemd/system/graphical.target.wants/omarchy-seamless-login.service ]] || fail "legacy seamless login remains enabled"
+[[ ! -e /usr/local/bin/seamless-login ]] || fail "legacy seamless login helper remains"
 NetworkManager --print-config | grep -Fxq 'wifi.backend=iwd' || fail "iwd backend"
 pacman-conf --repo-list | grep -Fxq asahi-alarm || fail "Asahi repository"
 [[ -f /boot/Image && -f /boot/vmlinuz-linux-asahi && -f /boot/grub/grub.cfg ]] || fail "boot payloads"
