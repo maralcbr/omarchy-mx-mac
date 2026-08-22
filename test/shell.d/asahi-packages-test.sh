@@ -37,3 +37,24 @@ if grep -Fxq 'omarchy-pkg-add nordvpn-bin' "$nordvpn_installer"; then
 fi
 grep -Fq '"label":"NordVPN [AUR]"' "$ROOT/default/omarchy/omarchy-menu.jsonc" || fail "Asahi menu identifies NordVPN as an AUR install"
 pass "Asahi NordVPN installation uses the available package source"
+
+zed_installer="$ROOT/bin/omarchy-install-editor-zed"
+if grep -Eq 'omarchy-pkg-add[[:space:]]+zed[[:space:]]+omazed' "$zed_installer"; then
+  fail "Zed installer does not require unpublished omazed"
+fi
+grep -Fxq 'omarchy-pkg-add zed' "$zed_installer" || fail "Zed installer still installs zed"
+grep -Fxq 'if omarchy-pkg-available omazed; then' "$zed_installer" || fail "Zed installer treats omazed as architecture-optional"
+pass "Zed installer does not require unpublished omazed"
+
+run_node_test <<'JS'
+const fs = require('fs')
+const menu = requireFromRoot('shell/plugins/menu/MenuModel.js')
+const items = menu.parseMenuJsonc(fs.readFileSync(path.join(root, 'default/omarchy/omarchy-menu.jsonc'), 'utf8'))
+const unguarded = items.filter(item =>
+  item.id.startsWith('install.') &&
+  /omarchy-pkg-present /.test(item.when) &&
+  !/\[AUR\]/.test(item.label) &&
+  !/omarchy-pkg-available /.test(item.when)
+).map(item => item.id)
+assertDeepEqual(unguarded, [], 'install menu rows hide packages missing from the sync database')
+JS

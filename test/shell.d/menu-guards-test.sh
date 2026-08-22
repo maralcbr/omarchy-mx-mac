@@ -118,6 +118,15 @@ INFO
     case "${want%%[<>=]*}" in bash | gvim | sh | vim | xxd) ;; *) exit 1 ;; esac
   done
   ;;
+-Slq)
+  printf '%s\n' bash
+  ;;
+-Si)
+  shift
+  for want in "$@"; do
+    case "${want%%[<>=]*}" in bash) ;; *) exit 1 ;; esac
+  done
+  ;;
 esac
 exit 0
 STUB
@@ -150,6 +159,13 @@ for helper in omarchy-pkg-present omarchy-pkg-missing; do
   done
 done
 pass "guard prelude resolves packages through provides, wrapping, and constraints as pacman does"
+
+available_cases=("bash" "absent" "bash absent" "bash>=1" "")
+for case in "${available_cases[@]}"; do
+  read -r -a argv <<<"$case"
+  assert_helper_agrees "guard prelude resolves sync packages as pacman does" omarchy-pkg-available "${argv[@]}"
+done
+pass "guard prelude resolves repository availability as omarchy-pkg-available does"
 
 # cd is a shell builtin `command -v` finds and a PATH search does not.
 cmd_cases=("gvim" "cd" "absent" "gvim absent" "gvim cd" "")

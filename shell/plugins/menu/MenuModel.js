@@ -418,6 +418,15 @@ function guardHelpers() {
     + '[[ $1 == *[\\<\\>=]* ]] && { pacman -Q "$1" &>/dev/null; return; }; return 1; }\n'
     + 'omarchy-pkg-present() { local p; for p in "$@"; do __omarchy_pkg_has "$p" || return 1; done; return 0; }\n'
     + 'omarchy-pkg-missing() { local p; for p in "$@"; do __omarchy_pkg_has "$p" || return 0; done; return 1; }\n'
+    // Optional install rows ask the sync database, not the local set.
+    // `pacman -Slq` is one fork for the batch; version constraints go to
+    // `pacman -Si` so the shadow matches omarchy-pkg-available.
+    + 'declare -A __omarchy_sync_pkgs=()\n'
+    + 'mapfile -t __omarchy_sync_names < <(pacman -Slq 2>/dev/null)\n'
+    + 'for __omarchy_pkg in "${__omarchy_sync_names[@]}"; do __omarchy_sync_pkgs[$__omarchy_pkg]=1; done\n'
+    + '__omarchy_sync_has() { [[ -n ${__omarchy_sync_pkgs[$1]-} ]] && return 0; '
+    + '[[ $1 == *[\\<\\>=]* ]] && { pacman -Si "$1" &>/dev/null; return; }; return 1; }\n'
+    + 'omarchy-pkg-available() { local p; for p in "$@"; do __omarchy_sync_has "$p" || return 1; done; return 0; }\n'
     + 'omarchy-cmd-present() { local c; for c in "$@"; do command -v "$c" &>/dev/null || return 1; done; return 0; }\n'
     + 'omarchy-cmd-missing() { local c; for c in "$@"; do command -v "$c" &>/dev/null || return 0; done; return 1; }\n'
 }
