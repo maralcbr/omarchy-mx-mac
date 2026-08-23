@@ -28,3 +28,10 @@ The guest uses 8 vCPUs, 8 GiB RAM, and a 96 GiB sparse disk.
 Use `--rebuild-base` to discard the cached Arch Linux ARM base and `--keep` to
 retain the VM container after a run. State and failure artifacts are written to
 `test/vm/asahi-fresh/test-runs/`, which is ignored by Git.
+
+Use `--optional-packages` to install every transaction in
+`install/optional-packages-aarch64-required` with real `pacman -S` operations
+after the reboot checks. Each transaction gets a separate log under
+`test-runs/run/optional-package-logs/`. This validates package installation and
+post-install hooks in a disposable system, but it does not automate application
+login, GUI interaction, or hardware behavior.
