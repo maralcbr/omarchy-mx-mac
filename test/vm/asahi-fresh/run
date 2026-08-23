@@ -11,10 +11,12 @@ ssh_port=${OMARCHY_VM_SSH_PORT:-22222}
 vnc_port=${OMARCHY_VM_VNC_PORT:-25900}
 keep=0
 rebuild=0
+optional_packages=0
 
 while (($#)); do
   case "$1" in
     --keep) keep=1 ;;
+    --optional-packages) optional_packages=1 ;;
     --rebuild-base) rebuild=1 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
@@ -104,6 +106,25 @@ ssh "${ssh_args[@]}" root@127.0.0.1 systemctl reboot --no-block || true
 wait_for_reboot "$boot_id" || { tail -200 "$state/run/serial.log"; exit 1; }
 scp "${scp_args[@]}" "$harness/guest/verify" root@127.0.0.1:/root/omarchy-vm-verify
 ssh "${ssh_args[@]}" root@127.0.0.1 bash /root/omarchy-vm-verify | tee "$state/run/verify.log"
+
+if (( optional_packages )); then
+  scp "${scp_args[@]}" \
+    "$root/install/optional-packages.tsv" \
+    root@127.0.0.1:/root/optional-packages.tsv
+  scp "${scp_args[@]}" \
+    "$root/install/optional-packages-aarch64-required" \
+    root@127.0.0.1:/root/optional-packages-aarch64-required
+  scp "${scp_args[@]}" \
+    "$harness/guest/optional-packages" \
+    root@127.0.0.1:/root/omarchy-vm-optional-packages
+
+  optional_status=0
+  ssh "${ssh_args[@]}" root@127.0.0.1 bash /root/omarchy-vm-optional-packages |
+    tee "$state/run/optional-packages.log" || optional_status=$?
+  scp -r "${scp_args[@]}" root@127.0.0.1:/root/optional-package-logs "$state/run/"
+  (( optional_status == 0 )) || exit "$optional_status"
+fi
+
 scp "${scp_args[@]}" "$harness/guest/rerun" root@127.0.0.1:/root/omarchy-vm-rerun
 ssh -tt "${ssh_args[@]}" root@127.0.0.1 bash /root/omarchy-vm-rerun | tee "$state/run/rerun.log"
 

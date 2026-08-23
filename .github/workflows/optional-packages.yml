@@ -13,8 +13,10 @@ on:
       - 'shell/plugins/menu/MenuModel.js'
       - 'test/optional-packages-live'
       - 'test/shell.d/optional-packages-test.sh'
+      - 'test/shell.d/optional-packages-vm-test.sh'
       - 'test/shell.d/install-editor-zed-test.sh'
       - 'test/shell.d/menu-guards-test.sh'
+      - 'test/vm/asahi-fresh/**'
   workflow_dispatch:
   schedule:
     - cron: '17 5 * * 1'
@@ -31,6 +33,7 @@ jobs:
         run: |
           ./test/cli
           bash test/shell.d/optional-packages-test.sh
+          bash test/shell.d/optional-packages-vm-test.sh
           bash test/shell.d/install-editor-zed-test.sh
           bash test/shell.d/menu-guards-test.sh
 
