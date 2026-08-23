@@ -1,0 +1,87 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+usage() {
+  echo "Usage: packages-install-transaction MANIFEST..." >&2
+}
+
+(( $# > 0 )) || { usage; exit 2; }
+
+command -v pacman >/dev/null || die "packages-install-transaction requires pacman"
+
+# Packages that never come from this transaction: release-bundle archives and
+# packages makepkg-built from the omarchy-pkgs checkout afterwards. Read both
+# sets from the fresh installer to keep a single source of truth.
+installer="$ROOT/bin/omarchy-install-asahi-fresh"
+[[ -r $installer ]] || die "Fresh installer is unavailable: $installer"
+bundle_line=$(sed -n 's/^expected_packages=(\(.*\))$/\1/p' "$installer")
+[[ -n $bundle_line ]] || die "Could not read the release bundle packages from $installer"
+source_names=$(awk '
+  /^source_packages=\(/ {
+    inside = 1
+    sub(/^source_packages=\(/, "")
+  }
+  inside {
+    if (sub(/\).*/, "")) {
+      done = 1
+    }
+    for (i = 1; i <= NF; i++) print $i
+    if (done) exit
+  }
+' "$installer")
+[[ -n $source_names ]] || die "Could not read the source-built packages from $installer"
+
+declare -A excluded_packages=()
+for package in $bundle_line $source_names; do
+  excluded_packages[$package]=1
+done
+
+# OMARCHY_TRANSACTION_IGNORE lists manifest entries a platform must skip for
+# now, mirroring the fresh installer's --ignore handling. The active list and
+# its reason live beside the invocation in the workflow.
+declare -A ignored_packages=()
+for package in ${OMARCHY_TRANSACTION_IGNORE:-}; do
+  ignored_packages[$package]=1
+done
+
+declare -A seen=()
+packages=()
+ignored=0
+for manifest in "$@"; do
+  [[ -r $manifest ]] || die "Manifest is unreadable: $manifest"
+  malformed=$(awk '{ sub(/#.*/, "") } NF > 1 { print FILENAME ":" FNR ": " $0 }' "$manifest")
+  [[ -z $malformed ]] || die "Manifest lines must hold exactly one package name:"$'\n'"$malformed"
+
+  while IFS= read -r entry; do
+    [[ ${excluded_packages[$entry]:-} ]] && continue
+    [[ ${seen[$entry]:-} ]] && continue
+    seen[$entry]=1
+    if [[ ${ignored_packages[$entry]:-} ]]; then
+      (( ignored += 1 ))
+    else
+      packages+=("$entry")
+    fi
+  done < <(awk '{ sub(/#.*/, ""); if (NF == 1) print $1 }' "$manifest")
+done
+
+(( ${#packages[@]} > 0 )) || die "No repository packages remain to install"
+
+# A bare Arch Linux ARM root filesystem boots its own kernel, which conflicts
+# with the Apple Silicon kernels these manifests describe. Real installations
+# replace it during platform bootstrap; drop it here when present so a
+# container check starts from the same state.
+if pacman -Qi linux-aarch64 >/dev/null 2>&1; then
+  echo "Removing the stock Arch Linux ARM kernel"
+  pacman -Rns --noconfirm linux-aarch64
+fi
+
+echo "Installing ${#packages[@]} packages in a single transaction ($ignored ignored)"
+exec pacman -Syu --needed --noconfirm "${packages[@]}"

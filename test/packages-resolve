@@ -1,0 +1,479 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+usage() {
+  echo "Usage: packages-resolve MANIFEST..." >&2
+  echo "       packages-resolve --recipes" >&2
+}
+
+recipes_mode=0
+if [[ ${1:-} == "--recipes" ]]; then
+  recipes_mode=1
+  shift
+fi
+
+if (( recipes_mode )); then
+  (( $# == 0 )) || { usage; exit 2; }
+else
+  (( $# > 0 )) || { usage; exit 2; }
+fi
+
+for tool in pacman curl jq; do
+  command -v "$tool" >/dev/null || die "packages-resolve requires $tool"
+done
+
+# Some packages never come from pacman repositories: release-bundle archives
+# and packages makepkg-built from the omarchy-pkgs checkout during install.
+# Read both sets from the fresh installer to keep a single source of truth.
+installer="$ROOT/bin/omarchy-install-asahi-fresh"
+[[ -r $installer ]] || die "Fresh installer is unavailable: $installer"
+bundle_line=$(sed -n 's/^expected_packages=(\(.*\))$/\1/p' "$installer")
+[[ -n $bundle_line ]] || die "Could not read the release bundle packages from $installer"
+source_names=$(awk '
+  /^source_packages=\(/ {
+    inside = 1
+    sub(/^source_packages=\(/, "")
+  }
+  inside {
+    if (sub(/\).*/, "")) {
+      done = 1
+    }
+    for (i = 1; i <= NF; i++) print $i
+    if (done) exit
+  }
+' "$installer")
+[[ -n $source_names ]] || die "Could not read the source-built packages from $installer"
+
+declare -A provided_packages=()
+for package in $bundle_line $source_names; do
+  provided_packages[$package]=1
+done
+
+# Packages published through the project's own PKGBUILD collection also count
+# as resolved; one directory listing covers every name.
+PKGS_REPO=${OMARCHY_PKGS_REPO:-maralcbr/omarchy-pkgs}
+pkgs_names() {
+  local listing="" attempt auth_args=()
+
+  [[ -n ${GH_TOKEN:-} ]] && auth_args=(-H "Authorization: Bearer $GH_TOKEN")
+  for attempt in 1 2 3; do
+    if listing=$(curl -fsSL --max-time 60 "${auth_args[@]}" \
+      "https://api.github.com/repos/$PKGS_REPO/contents/pkgbuilds" 2>/dev/null |
+      jq -r '.[].name'); then
+      printf '%s\n' "$listing"
+      return 0
+    fi
+    (( attempt < 3 )) && sleep 5
+  done
+  return 1
+}
+
+pkgs_listing=$(pkgs_names) || die "Could not list the $PKGS_REPO pkgbuilds"
+declare -A project_packages=()
+while IFS= read -r name; do
+  if [[ -n $name ]]; then
+    project_packages[$name]=1
+  fi
+done <<<"$pkgs_listing"
+
+# x86 manifests stay byte-compatible with upstream Omarchy, which publishes a
+# few of their entries through its own infrastructure rather than any public
+# repository or the AUR. They cannot resolve here but must not block this
+# fork's checks, so they only ever fail when reintroduced into an Asahi
+# manifest, which must never carry them.
+declare -A upstream_only_packages=(
+  [nvim]=1
+  [omacalc]=1
+  [ttfx]=1
+  [nvidia-dkms]=1
+  [linux-ptl-headers]=1
+  [yay-debug]=1
+)
+
+# The AUR RPC answers existence queries without cloning anything. Names are
+# batched because large single requests exceed comfortable URL lengths.
+aur_lookup() {
+  local names=("$@")
+  local hits="" start attempt response chunk_args name
+
+  for (( start = 0; start < ${#names[@]}; start += 100 )); do
+    chunk_args=()
+    for name in "${names[@]:$start:100}"; do
+      chunk_args+=(--data-urlencode "arg[]=$name")
+    done
+    response=""
+    for attempt in 1 2 3; do
+      if response=$(curl -fsSL --max-time 60 --get \
+        'https://aur.archlinux.org/rpc/v5/info' "${chunk_args[@]}" 2>/dev/null); then
+        break
+      fi
+      (( attempt < 3 )) && sleep 5
+    done
+    [[ -n $response ]] || return 1
+    [[ $(jq -r '.type' <<<"$response") == "multiinfo" ]] || return 1
+    hits+=$(jq -r '[.results[].Name] | join("\n")' <<<"$response")$'\n'
+  done
+
+  printf '%s' "$hits"
+}
+
+pacman -Sy >/dev/null || die "Could not synchronize package databases"
+
+# Resolve every named candidate against the configured repositories, the
+# project PKGBUILD collection, and the AUR. Fills the R_* outputs for the
+# caller's own reporting. When R_SPLIT_PROJECT is 1, names that only exist
+# as project PKGBUILDs are reported separately instead of counting as
+# resolved: a recipe calling pacman cannot install them until they are
+# published, while manifests can, since install builds them afterwards.
+declare -a R_UNRESOLVED=() R_PROJECT_NAMES=()
+R_REPO_COUNT=0
+R_PROJECT_COUNT=0
+R_AUR_COUNT=0
+R_SPLIT_PROJECT=0
+resolve_batch() {
+  local -a misses=() aur_candidates=()
+  local entry miss name
+  declare -A aur_seen=() project_seen=()
+
+  R_UNRESOLVED=()
+  R_PROJECT_NAMES=()
+  R_REPO_COUNT=$#
+  R_PROJECT_COUNT=0
+  R_AUR_COUNT=0
+
+  for entry in "$@"; do
+    pacman -Si "$entry" >/dev/null 2>&1 || misses+=("$entry")
+  done
+  R_REPO_COUNT=$((R_REPO_COUNT - ${#misses[@]}))
+
+  for miss in "${misses[@]}"; do
+    if [[ ${project_packages[$miss]:-} ]]; then
+      project_seen[$miss]=1
+      R_PROJECT_NAMES+=("$miss")
+    else
+      aur_candidates+=("$miss")
+    fi
+  done
+  R_PROJECT_COUNT=${#R_PROJECT_NAMES[@]}
+
+  if (( ${#aur_candidates[@]} > 0 )); then
+    local reply
+    reply=$(aur_lookup "${aur_candidates[@]}") ||
+      die "The AUR RPC endpoint could not be reached"
+    while IFS= read -r name; do
+      if [[ -n $name ]]; then
+        aur_seen[$name]=1
+      fi
+    done <<<"$reply"
+    R_AUR_COUNT=${#aur_seen[@]}
+  fi
+
+  for miss in "${misses[@]}"; do
+    if [[ -z ${project_seen[$miss]:-} && -z ${aur_seen[$miss]:-} ]]; then
+      R_UNRESOLVED+=("$miss")
+    elif (( R_SPLIT_PROJECT )) && [[ ${project_seen[$miss]:-} ]]; then
+      R_UNRESOLVED+=("$miss")
+    fi
+  done
+}
+
+if (( ! recipes_mode )); then
+  status=0
+  for manifest in "$@"; do
+    [[ -r $manifest ]] || die "Manifest is unreadable: $manifest"
+    malformed=$(awk '{ sub(/#.*/, "") } NF > 1 { print FILENAME ":" FNR ": " $0 }' "$manifest")
+    [[ -z $malformed ]] || die "Manifest lines must hold exactly one package name:"$'\n'"$malformed"
+
+    mapfile -t entries < <(awk '{ sub(/#.*/, ""); if (NF == 1) print $1 }' "$manifest")
+
+    candidates=()
+    provided=0
+    upstream=0
+    pc_manifest=$(basename "$manifest")
+    for entry in "${entries[@]}"; do
+      if [[ ${provided_packages[$entry]:-} ]]; then
+        (( provided += 1 ))
+      elif [[ $pc_manifest != *-asahi.packages && ${upstream_only_packages[$entry]:-} ]]; then
+        (( upstream += 1 ))
+      else
+        candidates+=("$entry")
+      fi
+    done
+
+    resolve_batch "${candidates[@]}"
+
+    printf '%s: %d entries (%d repositories, %d project, %d AUR, %d provided during install, %d upstream-only, %d unresolved)\n' \
+      "$pc_manifest" \
+      "${#entries[@]}" \
+      "$R_REPO_COUNT" \
+      "$R_PROJECT_COUNT" \
+      "$R_AUR_COUNT" \
+      "$provided" \
+      "$upstream" \
+      "${#R_UNRESOLVED[@]}"
+    for unresolved_name in "${R_UNRESOLVED[@]}"; do
+      printf '  missing: %s\n' "$unresolved_name" >&2
+    done
+    (( ${#R_UNRESOLVED[@]} == 0 )) || status=1
+  done
+
+  (( status == 0 )) || echo "Unresolvable packages were found." >&2
+  exit "$status"
+fi
+
+# Recipe audit: collect every literal package name handed to the package
+# helpers by the optional install recipes and the install menu, then resolve
+# them against the Asahi ecosystem. Variables stay out of the results and are
+# reported for manual review instead of being guessed.
+declare -A recipe_origins=()
+declare -a recipe_manual=()
+
+record_recipe_name() {
+  local origin="$1" name="$2"
+
+  [[ ${recipe_origins[$name]+set} ]] || recipe_origins[$name]=""
+  recipe_origins[$name]+="${recipe_origins[$name]:+, }$origin"
+}
+
+scan_recipe_scripts() {
+  local script joined origin name
+  local -a scripts=()
+
+  shopt -s nullglob
+  for script in "$ROOT"/bin/omarchy-install-*; do
+    case "$(basename "$script")" in
+      omarchy-install-asahi-fresh | omarchy-install-and-launch | omarchy-install-app) continue ;;
+    esac
+    scripts+=("$script")
+  done
+  shopt -u nullglob
+
+  for script in "${scripts[@]}"; do
+    origin="bin/$(basename "$script")"
+    # Join backslash continuations so multi-line helper calls parse whole,
+    # then hand each command's arguments to the tokenizer below.
+    joined=$(sed -e ':join' -e '/\\$/{N; s/\\\n//; bjoin' -e '}' "$script")
+    while IFS=$'\t' read -r kind payload; do
+      if [[ $kind == "name" ]]; then
+        record_recipe_name "$origin" "$payload"
+      else
+        recipe_manual+=("$payload")
+      fi
+    done < <(
+      awk -v file="$origin" -v quote="'" '
+        {
+          line = $0
+          sub(/#.*/, "", line)
+          while (match(line, /omarchy-pkg-(aur-)?add[[:space:]]+/)) {
+            rest = substr(line, RSTART + RLENGTH)
+            count = split(rest, token, /[[:space:]]+/)
+            stopped = 0
+            for (i = 1; i <= count; i++) {
+              t = token[i]
+              if (substr(t, 1, 1) == quote) {
+                t = substr(t, 2)
+              }
+              if (substr(t, length(t), 1) == quote) {
+                t = substr(t, 1, length(t) - 1)
+              }
+              if (t == "") {
+                continue
+              }
+              if (t ~ /^[|#;&)<]/) {
+                break
+              }
+              # A shell metacharacter anywhere ends the command: keep the
+              # name prefix when one exists ("omawrite; then") and stop.
+              if (match(t, /[;&|<>]/)) {
+                t = substr(t, 1, RSTART - 1)
+                if (t ~ /\$|[`>(]/) {
+                  printf "manual\t%s: variable argument\n", file
+                } else if (t != "") {
+                  printf "name\t%s\n", t
+                }
+                stopped = 1
+                break
+              }
+              if (t ~ /\$|[`>(]/) {
+                printf "manual\t%s: variable argument\n", file
+                stopped = 1
+                break
+              }
+              printf "name\t%s\n", t
+            }
+            if (!stopped) {
+              line = ""
+            } else {
+              break
+            }
+          }
+        }
+      ' <(printf '%s\n' "$joined")
+    )
+  done
+}
+
+scan_menu_actions() {
+  local menu="$ROOT/default/omarchy/omarchy-menu.jsonc"
+  [[ -r $menu ]] || return 0
+
+  # Split on whitespace outside single quotes; actions never use any other
+  # quoting, and xargs behaves differently across BSD and GNU builds.
+  tokenize_action() {
+    local s="$1" cur="" i char in_quotes=0
+
+    for (( i = 0; i < ${#s}; i += 1 )); do
+      char=${s:i:1}
+      if [[ $char == "'" ]]; then
+        in_quotes=$((1 - in_quotes))
+        continue
+      fi
+      if (( in_quotes == 0 )) && [[ $char == *[[:space:]]* ]]; then
+        if [[ -n $cur ]]; then
+          printf '%s\n' "$cur"
+          cur=""
+        fi
+        continue
+      fi
+      cur+=$char
+    done
+    [[ -n $cur ]] && printf '%s\n' "$cur"
+  }
+
+  local row_id action tail_command kind second token
+  local -a tokens=()
+  while IFS=$'\t' read -r row_id action; do
+    [[ -n $row_id ]] || continue
+    if [[ $action == *"omarchy-install-and-launch"* ]]; then
+      kind="omarchy-install-and-launch"
+    elif [[ $action == *"omarchy-install-app"* ]]; then
+      kind="omarchy-install-app"
+    else
+      continue
+    fi
+    # In both menu commands the packages follow the display label.
+    second=1
+    tail_command="${action#*"$kind"}"
+    # JSONC escapes quotes inside actions ("$var"); drop the escapes and any
+    # leftover escapes so the tokenizer sees the raw shell text.
+    tail_command=${tail_command//\\\"/}
+    tail_command=${tail_command//\\/}
+
+    tokens=()
+    while IFS= read -r token; do
+      tokens+=("$token")
+    done < <(tokenize_action "$tail_command")
+
+    if (( ${#tokens[@]} <= second )) || [[ ${tokens[second]} == *'$'* ]]; then
+      recipe_manual+=("default/omarchy/omarchy-menu.jsonc:$row_id: variable or unreadable package list")
+      continue
+    fi
+    for token in ${tokens[second]}; do
+      record_recipe_name "menu:$row_id" "$token"
+    done
+  done < <(
+    # Line-oriented extraction instead of a JSONC parser: actions hold no
+    # double quotes, while comment text may.
+    awk '
+      /omarchy-install-(and-launch|app)/ {
+        id = ""
+        act = ""
+        if (match($0, /^[[:space:]]*"[^"]+"/)) {
+          id = substr($0, RSTART, RLENGTH)
+          gsub(/[[:space:]]/, "", id)
+          gsub(/^"|"$/, "", id)
+        }
+        if (match($0, /"action":"[^"]*"/)) {
+          act = substr($0, RSTART + 10, RLENGTH - 11)
+        }
+        if (id != "" && act != "") {
+          print id "\t" act
+        }
+      }
+    ' "$menu"
+  )
+}
+
+scan_recipe_scripts
+scan_menu_actions
+
+(( ${#recipe_origins[@]} > 0 )) || die "No recipe package names were extracted"
+
+mapfile -t unique_names < <(printf '%s\n' "${!recipe_origins[@]}" | sort)
+
+declare -A provided_hits=()
+resolved_names=()
+publishable_names=()
+no_source_names=()
+candidates=()
+for name in "${unique_names[@]}"; do
+  if [[ ${provided_packages[$name]:-} ]]; then
+    provided_hits[$name]=1
+  else
+    candidates+=("$name")
+  fi
+done
+
+R_SPLIT_PROJECT=1
+resolve_batch "${candidates[@]}"
+declare -A unresolved_seen=()
+for name in "${R_UNRESOLVED[@]}"; do
+  unresolved_seen[$name]=1
+done
+for name in "${candidates[@]}"; do
+  if [[ ${unresolved_seen[$name]:-} ]]; then
+    if [[ ${project_packages[$name]:-} ]]; then
+      publishable_names+=("$name")
+    else
+      no_source_names+=("$name")
+    fi
+  else
+    resolved_names+=("$name")
+  fi
+done
+
+echo "Recipe audit across ${#unique_names[@]} package names:"
+printf '  %d resolved from repositories or AUR\n' "${#resolved_names[@]}"
+printf '  %d provided during install (release bundle or source-built)' "${#provided_hits[@]}"
+((${#provided_hits[@]} == 0)) && printf ' --'
+printf '\n'
+
+report_category() {
+  local heading="$1"
+  shift
+
+  printf '  %s\n' "$heading"
+  local name
+  for name in "$@"; do
+    printf '    %s <- %s\n' "$name" "${recipe_origins[$name]}"
+  done
+}
+
+if (( ${#publishable_names[@]} > 0 )); then
+  report_category "publishable: a PKGBUILD exists in $PKGS_REPO but no published build" "${publishable_names[@]}"
+else
+  echo "  publishable: none"
+fi
+if (( ${#no_source_names[@]} > 0 )); then
+  report_category "no source anywhere:" "${no_source_names[@]}"
+else
+  echo "  no source anywhere: none"
+fi
+
+if (( ${#recipe_manual[@]} > 0 )); then
+  echo "  manual review:"
+  for manual_entry in "${recipe_manual[@]}"; do
+    printf '    %s\n' "$manual_entry"
+  done
+fi
+
+echo "This audit is informational; unresolved recipe names do not fail the run yet."
+exit 0

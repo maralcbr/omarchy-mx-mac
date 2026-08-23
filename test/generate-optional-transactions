@@ -1,0 +1,356 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+menu="$ROOT/default/omarchy/omarchy-menu.jsonc"
+out_file="${1:-$ROOT/install/optional-packages.tsv}"
+apply_guards=0
+if [[ ${1:-} == "--apply-guards" ]]; then
+  apply_guards=1
+  out_file="$ROOT/install/optional-packages.tsv"
+fi
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+[[ -r $menu ]] || die "Menu is unreadable: $menu"
+
+# Menu ids that must never enter the sync-package manifest: they install
+# through the AUR helper instead and carry an [AUR] label on purpose.
+declare -A aur_only_ids=(
+  [install.service.nordvpn]=1
+)
+
+# Names a recipe mentions but does not require unconditionally: architecture
+# alternates picked at runtime or optional enhancements installed only when
+# already published. Transactions describe what must be available for the
+# menu row to work, so these stay out.
+declare -A excluded_names=(
+  [omazed]=1
+  [linux-headers]=1
+  [linux-asahi-headers]=1
+)
+
+# Variable-argument recipes fall back to an explicit base package rather
+# than being guessed by the extractor. Recipes whose case arms delegate to
+# shell functions cannot be arm-extracted either, so they carry their
+# transaction here; the CI recipe audit still cross-checks every name.
+declare -A override_ids=(
+  [install.ai.ollama]=ollama
+  [install.gaming.geforce-now]=flatpak
+  [install.terminal.alacritty]=alacritty
+  [install.terminal.foot]=foot
+  [install.terminal.ghostty]=ghostty
+  [install.terminal.kitty]=kitty
+  [install.ai.dictation]=voxtype-bin
+  [install.development.rails]="libyaml"
+  [install.development.php.php]="php composer php-sqlite xdebug"
+  [install.development.php.laravel]="php composer php-sqlite xdebug"
+  [install.development.php.symfony]="php composer php-sqlite xdebug symfony-cli"
+)
+
+# Menu rows whose toolchain installs through mise, curl, or archives instead
+# of pacman: there is no package transaction to declare.
+declare -A no_transaction_ids=(
+  [install.service.chromium-account]=1
+  [install.development.docker-dbs]=1
+  [install.gaming.xbox-cloud]=1
+  [install.development.go]=1
+  [install.development.java]=1
+  [install.development.dotnet]=1
+  [install.development.ocaml]=1
+  [install.development.scala]=1
+  [install.development.elixir.elixir]=1
+  [install.development.elixir.phoenix]=1
+  [install.development.javascript.node]=1
+  [install.development.javascript.bun]=1
+  [install.development.javascript.deno]=1
+  [install.development.python]=1
+  [install.development.rust]=1
+  [install.development.zig]=1
+)
+
+tokenize_action() {
+  local s="$1" cur="" i char in_quotes=0
+
+  for (( i = 0; i < ${#s}; i += 1 )); do
+    char=${s:i:1}
+    if [[ $char == "'" ]]; then
+      in_quotes=$((1 - in_quotes))
+      continue
+    fi
+    if (( in_quotes == 0 )) && [[ $char == *[[:space:]]* ]]; then
+      if [[ -n $cur ]]; then
+        printf '%s\n' "$cur"
+        cur=""
+      fi
+      continue
+    fi
+    cur+=$char
+  done
+  [[ -n $cur ]] && printf '%s\n' "$cur"
+}
+
+# Extract literal package names from a recipe script. Backslash continuations
+# are joined first, comments dropped, and shell metacharacters end a command.
+extract_script_names() {
+  local script="$1" selector="${2:-}" joined
+
+  # Join backslash continuations so multi-line helper calls parse whole.
+  joined=$(sed -e ':join' -e '/\\$/{N; s/\\\n//; bjoin' -e '}' "$script")
+
+  awk -v quote="'" -v want="$selector" '
+    function flush_command(line, rest, count, token, i, stopped, t) {
+      count = split(rest, token, /[[:space:]]+/)
+      stopped = 0
+      for (i = 1; i <= count; i++) {
+        t = token[i]
+        if (substr(t, 1, 1) == quote) {
+          t = substr(t, 2)
+        }
+        if (substr(t, length(t), 1) == quote) {
+          t = substr(t, 1, length(t) - 1)
+        }
+        if (t == "") {
+          continue
+        }
+        if (t ~ /^[|#;&)<]/) {
+          break
+        }
+        if (match(t, /[;&|<>]/)) {
+          t = substr(t, 1, RSTART - 1)
+          if (t != "") {
+            print t
+          }
+          stopped = 1
+          break
+        }
+        print t
+      }
+      return stopped
+    }
+    BEGIN {
+      in_arm = 0
+    }
+    {
+      line = $0
+      sub(/#.*/, "", line)
+      if (want != "") {
+        # Case arms key on the selector passed by the menu action.
+        arm_pattern = "^[[:space:]]*" quote "?" want quote "?[[:space:]]*\\)"
+        if (!in_arm && line ~ arm_pattern) {
+          in_arm = 1
+        }
+        if (in_arm) {
+          arm_ends = line ~ /;;/
+          if (arm_ends) {
+            sub(/;;.*/, "", line)
+          }
+        } else {
+          next
+        }
+      }
+
+      while (match(line, /omarchy-pkg-(aur-)?add[[:space:]]+/)) {
+        rest = substr(line, RSTART + RLENGTH)
+        if (flush_command(line, rest)) {
+          line = ""
+        } else {
+          break
+        }
+      }
+
+      if (in_arm && arm_ends) {
+        exit
+      }
+    }
+  ' <<<"$joined"
+}
+
+declare -A transactions=()
+declare -a ordered_ids=()
+
+record() {
+  local id="$1" name="$2"
+
+  # Variable indirections are resolved through explicit overrides instead.
+  [[ $name == *'$'* ]] && return 0
+  [[ ${excluded_names[$name]:-} ]] && return 0
+  if [[ -z ${transactions[$id]:-} ]]; then
+    transactions[$id]="$name"
+    ordered_ids+=("$id")
+  else
+    case "|${transactions[$id]}|" in
+      *"|$name|"*) ;;
+      *) transactions[$id]+=" $name" ;;
+    esac
+  fi
+}
+
+# Rows whose packages sit directly in the menu action. Every command shape
+# carries the packages right after the display label.
+direct_action_row() {
+  local id="$1" action="$2" kind token second
+
+  if [[ $action == *"omarchy-install-and-launch"* ]]; then
+    kind="omarchy-install-and-launch"
+    second=1
+  elif [[ $action == *"omarchy-install-app"* ]]; then
+    kind="omarchy-install-app"
+    second=1
+  elif [[ $action == *"omarchy-install-font "* ]]; then
+    kind="omarchy-install-font"
+    second=1
+  else
+    return 1
+  fi
+
+  local -a tokens=()
+  while IFS= read -r token; do
+    tokens+=("$token")
+  done < <(tokenize_action "${action#*"$kind"}")
+
+  if (( ${#tokens[@]} > second )); then
+    for token in ${tokens[second]}; do
+      record "$id" "$token"
+    done
+    return 0
+  fi
+  return 1
+}
+
+# Rows invoking a recipe script; argument-taking scripts select a case arm.
+script_action_row() {
+  local id="$1" action="$2"
+  local -a tokens=()
+  local token script selector
+
+  local probe="${action#*omarchy-launch-floating-terminal-with-presentation }"
+  probe="${probe#\'}"
+  probe="${probe%\'}"
+  probe="${probe#omarchy-install-and-launch *}"
+  while IFS= read -r token; do
+    tokens+=("$token")
+  done < <(tokenize_action "$probe")
+
+  local command_name="${tokens[0]:-}"
+  [[ $command_name == omarchy-install-* || $command_name == omarchy-voxtype-install ]] || return 1
+
+  selector=""
+  case "$(basename "$command_name")" in
+    omarchy-install-browser | omarchy-install-terminal | omarchy-install-dev-env | omarchy-install-font)
+      selector="${tokens[1]:-}"
+      ;;
+  esac
+
+  script="$ROOT/bin/$command_name"
+  [[ -x $script ]] || return 1
+
+  local found=0
+  while IFS= read -r token; do
+    record "$id" "$token"
+    found=1
+  done < <(extract_script_names "$script" "$selector")
+  (( found )) && return 0
+  return 1
+}
+
+resolve_row() {
+  local id="$1" action="$2"
+
+  [[ ${aur_only_ids[$id]:-} || ${no_transaction_ids[$id]:-} ]] && return 0
+  if [[ ${override_ids[$id]:-} ]]; then
+    local override_name
+    for override_name in ${override_ids[$id]}; do
+      record "$id" "$override_name"
+    done
+    return 0
+  fi
+  if direct_action_row "$id" "$action"; then
+    return 0
+  fi
+  script_action_row "$id" "$action" && return 0
+  die "Could not derive a package transaction for $id"
+}
+
+while IFS=$'\t' read -r id action; do
+  [[ -n $id ]] || continue
+  resolve_row "$id" "$action"
+done < <(
+  # Line-oriented extraction instead of a JSONC parser: comment text may hold
+  # anything, while action values contain no double quotes of their own.
+  awk '
+    /"action":"[^"]*omarchy-install/ {
+      id = ""
+      act = ""
+      if (match($0, /^[[:space:]]*"[^"]+"/)) {
+        id = substr($0, RSTART, RLENGTH)
+        gsub(/[[:space:]]/, "", id)
+        gsub(/^"|"$/, "", id)
+      }
+      if (match($0, /"action":"[^"]*"/)) {
+        act = substr($0, RSTART + 10, RLENGTH - 11)
+      }
+      if (id != "" && act != "") {
+        print id "\t" act
+      }
+    }
+  ' "$menu"
+)
+
+# Overrides for rows the menu matcher cannot see live here so their position
+# stays deterministic regardless of associative-array iteration order.
+while IFS= read -r id; do
+  [[ ${transactions[$id]+set} ]] || resolve_row "$id" ""
+done < <(printf '%s\n' "${!override_ids[@]}" | sort)
+
+(( ${#ordered_ids[@]} > 0 )) || die "No transactions were derived"
+
+{
+  echo "# Menu id|Complete pacman transaction requested by the optional installer"
+  echo "# Generated by test/generate-optional-transactions; regenerate instead of editing."
+  for id in "${ordered_ids[@]}"; do
+    printf '%s|%s\n' "$id" "${transactions[$id]}"
+  done
+} >"$out_file"
+
+echo "Wrote ${#ordered_ids[@]} transactions to $out_file"
+
+if (( apply_guards )); then
+  # Prefix each guarded row's existing condition; rows without one get a
+  # standalone guard. AUR-labelled rows never enter the manifest, so they
+  # keep their plain presence checks.
+  awk -F'|' '
+    FNR == NR {
+      if ($0 !~ /^#/) {
+        id = $0
+        sub(/\|.*/, "", id)
+        guard[id] = 1
+      }
+      next
+    }
+    {
+      id = ""
+      if (match($0, /^[[:space:]]*"[^"]+"/)) {
+        id = substr($0, RSTART, RLENGTH)
+        gsub(/[[:space:]]/, "", id)
+        gsub(/^"|"$/, "", id)
+      }
+      if (id != "" && guard[id] && $0 ~ /"action"/ && $0 !~ /omarchy-install-available/) {
+        # "&" expands to the match inside an awk replacement, so literal
+        # ampersands must be escaped.
+        if ($0 ~ /"when":"/) {
+          sub(/"when":"/, "&omarchy-install-available " id " \\&\\& ")
+        } else {
+          sub(/\{/, "&\"when\":\"omarchy-install-available " id "\",")
+        }
+      }
+      print
+    }
+  ' "$out_file" "$menu" >"$menu.tmp"
+  mv "$menu.tmp" "$menu"
+  echo "Applied guards to $menu"
+fi
