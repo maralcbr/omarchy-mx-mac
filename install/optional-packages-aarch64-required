@@ -8,7 +8,6 @@ install.style.font.iosevka
 install.browser.firefox
 install.service.signal
 install.service.tailscale
-install.editor.zed
 install.editor.helix
 install.editor.vim
 install.terminal.alacritty
