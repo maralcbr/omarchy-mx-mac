@@ -1,0 +1,62 @@
+#!/bin/bash
+
+set -u
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+manifest=${OMARCHY_OPTIONAL_PACKAGES_FILE:-$ROOT/install/optional-packages.tsv}
+required_file=${OMARCHY_OPTIONAL_REQUIRED_FILE:-$ROOT/install/optional-packages-aarch64-required}
+cache_dir=${OMARCHY_OPTIONAL_PACKAGE_CACHE:-${RUNNER_TEMP:-/tmp}/omarchy-optional-packages}
+download=${OMARCHY_OPTIONAL_DOWNLOAD:-0}
+resolved=0
+skipped=0
+failed=0
+
+declare -A required=()
+while read -r id; do
+  [[ $id == install.* ]] && required[$id]=1
+done <"$required_file"
+
+mkdir -p "$cache_dir"
+
+while IFS='|' read -r id packages; do
+  [[ $id == install.* ]] || continue
+  read -ra package_names <<<"$packages"
+  missing=()
+
+  for package in "${package_names[@]}"; do
+    pacman -Si "$package" &>/dev/null || missing+=("$package")
+  done
+
+  if (( ${#missing[@]} > 0 )); then
+    if [[ -n ${required[$id]-} ]]; then
+      printf 'not ok - %s lost required packages: %s\n' "$id" "${missing[*]}" >&2
+      ((failed++))
+    else
+      printf 'skip - %s (not published: %s)\n' "$id" "${missing[*]}"
+      ((skipped++))
+    fi
+    continue
+  fi
+
+  if ! pacman -Sp --needed --print-format '%r/%n %v' "${package_names[@]}" >"$cache_dir/${id//./-}.plan"; then
+    printf 'not ok - %s does not resolve\n' "$id" >&2
+    ((failed++))
+    continue
+  fi
+
+  if [[ $download == 1 ]]; then
+    pacman_cmd=(pacman)
+    (( EUID == 0 )) || pacman_cmd=(sudo pacman)
+    if ! "${pacman_cmd[@]}" -Sw --noconfirm --needed --cachedir "$cache_dir" "${package_names[@]}" >/dev/null; then
+      printf 'not ok - %s does not download\n' "$id" >&2
+      ((failed++))
+      continue
+    fi
+  fi
+
+  printf 'ok - %s\n' "$id"
+  ((resolved++))
+done <"$manifest"
+
+printf '\nOptional package transactions: %d resolved, %d hidden, %d failed\n' "$resolved" "$skipped" "$failed"
+(( failed == 0 ))

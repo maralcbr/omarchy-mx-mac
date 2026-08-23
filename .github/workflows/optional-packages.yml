@@ -1,0 +1,82 @@
+name: Optional package preflight
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/optional-packages.yml'
+      - 'bin/omarchy-install-*'
+      - 'bin/omarchy-pkg-*'
+      - 'default/omarchy/omarchy-menu.jsonc'
+      - 'install/optional-packages.tsv'
+      - 'install/optional-packages-aarch64-required'
+      - 'install/optional-aur-packages.tsv'
+      - 'shell/plugins/menu/MenuModel.js'
+      - 'test/optional-packages-live'
+      - 'test/shell.d/optional-packages-test.sh'
+      - 'test/shell.d/install-editor-zed-test.sh'
+      - 'test/shell.d/menu-guards-test.sh'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  source-tests:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test optional install contracts
+        run: |
+          ./test/cli
+          bash test/shell.d/optional-packages-test.sh
+          bash test/shell.d/install-editor-zed-test.sh
+          bash test/shell.d/menu-guards-test.sh
+
+  asahi-packages:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04-arm
+    container: menci/archlinuxarm@sha256:c2e185c3930e214e417214757e0f44dd32c33737b7458289b854aa5b2126e008
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure Arch Linux ARM repositories
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
+          pacman -Syu --noconfirm curl
+          pacman-key --init
+          pacman-key --populate archlinuxarm
+          curl --fail --location --retry 3 \
+            --output /tmp/asahi-alarm-keyring.pkg.tar.xz \
+            https://github.com/asahi-alarm/asahi-alarm/releases/download/aarch64/asahi-alarm-keyring-20241216-1-any.pkg.tar.xz
+          echo '798f4b283ad2819aee950d042f26566ae1a68f87c12247301ce449bea3b2d81e  /tmp/asahi-alarm-keyring.pkg.tar.xz' | sha256sum --check
+          cat >/tmp/pacman-bootstrap.conf <<'EOF'
+          [options]
+          Architecture = auto
+          SigLevel = Never
+          LocalFileSigLevel = Never
+          EOF
+          pacman -U --noconfirm --config /tmp/pacman-bootstrap.conf /tmp/asahi-alarm-keyring.pkg.tar.xz
+          sed -i '/^# REPOSITORIES/i [asahi-alarm]\nServer = https://github.com/asahi-alarm/asahi-alarm/releases/download/$arch\n' /etc/pacman.conf
+          pacman -Sy --noconfirm
+      - name: Resolve and download optional package transactions
+        shell: bash
+        env:
+          OMARCHY_OPTIONAL_DOWNLOAD: 1
+          OMARCHY_OPTIONAL_PACKAGE_CACHE: /tmp/omarchy-optional-packages
+        run: test/optional-packages-live
+      - name: Build optional AUR transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -S --noconfirm --needed base-devel git
+          useradd --create-home --shell /bin/bash aur-builder
+          install -d -o aur-builder -g aur-builder /tmp/omarchy-aur-build
+          while IFS='|' read -r id package; do
+            [[ $id == install.* ]] || continue
+            runuser -u aur-builder -- git clone --depth 1 "https://aur.archlinux.org/$package.git" "/tmp/omarchy-aur-build/$package"
+            runuser -u aur-builder -- bash -c "cd '/tmp/omarchy-aur-build/$package' && makepkg --noconfirm --cleanbuild --force"
+            echo "ok - $id"
+          done <install/optional-aur-packages.tsv
