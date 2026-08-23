@@ -78,6 +78,7 @@ done
 # with the Apple Silicon kernels these manifests describe. Real installations
 # replace it during platform bootstrap; drop it here when present so a
 # container check starts from the same state.
+pacman -Sy >/dev/null
 if pacman -Qi linux-aarch64 >/dev/null 2>&1; then
   echo "Removing the stock Arch Linux ARM kernel"
   pacman -Rns --noconfirm linux-aarch64
