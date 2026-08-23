@@ -4,12 +4,22 @@ set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 menu="$ROOT/default/omarchy/omarchy-menu.jsonc"
-out_file="${1:-$ROOT/install/optional-packages.tsv}"
+out_file=""
+check_file=""
 apply_guards=0
-if [[ ${1:-} == "--apply-guards" ]]; then
-  apply_guards=1
-  out_file="$ROOT/install/optional-packages.tsv"
-fi
+case "${1:-}" in
+  "") out_file="$ROOT/install/optional-packages.tsv" ;;
+  --apply-guards)
+    apply_guards=1
+    out_file="$ROOT/install/optional-packages.tsv"
+    ;;
+  --check)
+    shift
+    (( $# == 1 )) || { echo "Usage: generate-optional-transactions --check TSV" >&2; exit 2; }
+    check_file="$1"
+    ;;
+  *) out_file="$1" ;;
+esac
 
 die() {
   echo "Error: $*" >&2
@@ -308,6 +318,27 @@ while IFS= read -r id; do
 done < <(printf '%s\n' "${!override_ids[@]}" | sort)
 
 (( ${#ordered_ids[@]} > 0 )) || die "No transactions were derived"
+
+if [[ -n $check_file ]]; then
+  # Compare derived transactions with the committed manifest as sets: the
+  # manifest owns row order and comments, the recipes own the contents. Any
+  # drift means an installer changed without its transaction following.
+  status=0
+  derived=$(mktemp)
+  committed=$(mktemp)
+  trap 'rm -f "$derived" "$committed"' EXIT
+  for id in "${ordered_ids[@]}"; do
+    printf '%s|%s\n' "$id" "${transactions[$id]}"
+  done | sort >"$derived"
+  grep -v '^#' "$check_file" | grep '^[a-z]' | sort >"$committed"
+  if ! diff -u "$committed" "$derived"; then
+    echo "Drift detected between install recipes and $check_file." >&2
+    echo "Update the manifest to match what the installers really request," >&2
+    echo "or run test/generate-optional-transactions to see the full derivation." >&2
+    status=1
+  fi
+  exit "$status"
+fi
 
 {
   echo "# Menu id|Complete pacman transaction requested by the optional installer"
