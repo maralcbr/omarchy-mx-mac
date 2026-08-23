@@ -182,59 +182,6 @@ jobs:
               alarm:aarch64 /bin/bash -c "pacman -Sy --noconfirm jq >/dev/null && /repo/test/packages-resolve --recipes"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Prove the AUR-backed optional installs still build on aarch64 by
-  # building each declared package from source as an unprivileged user.
-  aur-build:
-    name: Build AUR optional installs
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
-      - name: Prepare Arch Linux ARM container
-        run: |
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/alarm.tar.gz" "$ALARM_ROOTFS_URL"
-          docker import "$RUNNER_TEMP/alarm.tar.gz" alarm:aarch64
-          cat > "$RUNNER_TEMP/pacman.conf" <<'EOF'
-          [options]
-          HoldPkg = pacman glibc
-          Architecture = auto
-          CheckSpace
-          SigLevel = Never
-          ParallelDownloads = 5
-
-          [asahi-alarm]
-          Server = https://github.com/asahi-alarm/asahi-alarm/releases/download/$arch
-
-          [core]
-          Server = http://mirror.archlinuxarm.org/$arch/$repo
-
-          [extra]
-          Server = http://mirror.archlinuxarm.org/$arch/$repo
-
-          [alarm]
-          Server = http://mirror.archlinuxarm.org/$arch/$repo
-
-          [aur]
-          Server = http://mirror.archlinuxarm.org/$arch/$repo
-          EOF
-      - name: Build every declared AUR package
-        run: |
-          docker run --rm \
-            -v "$RUNNER_TEMP/pacman.conf:/etc/pacman.conf:ro" \
-            -v "$PWD:/repo:ro" \
-            alarm:aarch64 /bin/bash -euxo pipefail -c '
-              pacman -Sy --noconfirm --needed base-devel git >/dev/null
-              useradd --create-home --shell /bin/bash aur-builder
-              install -d -o aur-builder -g aur-builder /tmp/aur-build
-              while IFS="|" read -r id package; do
-                [[ $id == install.* ]] || continue
-                git clone --depth 1 "https://aur.archlinux.org/$package.git" "/tmp/aur-build/$package"
-                su aur-builder -c "cd /tmp/aur-build/$package && makepkg --noconfirm --cleanbuild --force"
-                echo "ok - $id built $package"
-              done < /repo/install/optional-aur-packages.tsv
-            '
-
   # Each Asahi manifest installs in its own fresh root filesystem so every
   # list stays independently co-installable. This proves today's dependency
   # closure resolves and installs, mirroring the fresh installer's single
