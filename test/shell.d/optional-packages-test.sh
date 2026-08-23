@@ -20,9 +20,20 @@ const aurLines = fs.readFileSync(path.join(root, 'install/optional-aur-packages.
   .split('\n')
   .filter(line => line.startsWith('install.'))
 const aurTransactions = new Map(aurLines.map(line => line.split('|')))
+const requiredLines = fs.readFileSync(path.join(root, 'install/optional-packages-aarch64-required'), 'utf8')
+  .split('\n')
+  .filter(line => line.startsWith('install.'))
+const required = new Set(requiredLines)
 
 assertEqual(transactions.size, lines.length, 'optional package transaction ids are unique')
 assertEqual(aurTransactions.size, aurLines.length, 'optional AUR transaction ids are unique')
+assertEqual(required.size, requiredLines.length, 'required aarch64 transaction ids are unique')
+assertEqual(required.size, 21, 'aarch64 support baseline covers every currently supported transaction')
+assertDeepEqual(
+  [...required].filter(id => !transactions.has(id)),
+  [],
+  'required aarch64 transactions exist in the package manifest'
+)
 
 for (const [id, packages] of transactions) {
   const item = byId.get(id)
@@ -103,7 +114,7 @@ operation=$1
 shift
 case $operation in
   -Si)
-    [[ $1 != missing ]]
+    [[ $1 != missing* ]]
     ;;
   -Sp)
     [[ " $* " != *' broken '* ]]
@@ -115,16 +126,21 @@ chmod +x "$test_tmp/bin/pacman"
 cat >"$test_tmp/live.tsv" <<'EOF'
 install.good|primary secondary
 install.hidden|missing
+install.required-missing|missing-required
 install.broken|broken
 EOF
+printf '%s\n' install.good install.required-missing install.broken >"$test_tmp/required"
 
 set +e
 live_output=$(OMARCHY_OPTIONAL_PACKAGES_FILE="$test_tmp/live.tsv" \
+  OMARCHY_OPTIONAL_REQUIRED_FILE="$test_tmp/required" \
   OMARCHY_OPTIONAL_PACKAGE_CACHE="$test_tmp/cache" \
   PATH="$test_tmp/bin:$PATH" "$ROOT/test/optional-packages-live" 2>&1)
 live_status=$?
 set -e
 (( live_status != 0 )) || fail 'live optional package preflight fails unresolved transactions'
-[[ $live_output == *'1 resolved, 1 hidden, 1 failed'* ]] ||
+[[ $live_output == *'1 resolved, 1 hidden, 2 failed'* ]] ||
   fail 'live optional package preflight reports every transaction' "$live_output"
+[[ $live_output == *'install.required-missing lost required packages: missing-required'* ]] ||
+  fail 'live optional package preflight fails a support regression' "$live_output"
 pass 'live optional package preflight reports hidden and unresolved transactions'

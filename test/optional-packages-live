@@ -4,11 +4,17 @@ set -u
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 manifest=${OMARCHY_OPTIONAL_PACKAGES_FILE:-$ROOT/install/optional-packages.tsv}
+required_file=${OMARCHY_OPTIONAL_REQUIRED_FILE:-$ROOT/install/optional-packages-aarch64-required}
 cache_dir=${OMARCHY_OPTIONAL_PACKAGE_CACHE:-${RUNNER_TEMP:-/tmp}/omarchy-optional-packages}
 download=${OMARCHY_OPTIONAL_DOWNLOAD:-0}
 resolved=0
 skipped=0
 failed=0
+
+declare -A required=()
+while read -r id; do
+  [[ $id == install.* ]] && required[$id]=1
+done <"$required_file"
 
 mkdir -p "$cache_dir"
 
@@ -22,8 +28,13 @@ while IFS='|' read -r id packages; do
   done
 
   if (( ${#missing[@]} > 0 )); then
-    printf 'skip - %s (not published: %s)\n' "$id" "${missing[*]}"
-    ((skipped++))
+    if [[ -n ${required[$id]-} ]]; then
+      printf 'not ok - %s lost required packages: %s\n' "$id" "${missing[*]}" >&2
+      ((failed++))
+    else
+      printf 'skip - %s (not published: %s)\n' "$id" "${missing[*]}"
+      ((skipped++))
+    fi
     continue
   fi
 

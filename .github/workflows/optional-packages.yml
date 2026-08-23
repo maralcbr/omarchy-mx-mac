@@ -8,6 +8,7 @@ on:
       - 'bin/omarchy-pkg-*'
       - 'default/omarchy/omarchy-menu.jsonc'
       - 'install/optional-packages.tsv'
+      - 'install/optional-packages-aarch64-required'
       - 'install/optional-aur-packages.tsv'
       - 'shell/plugins/menu/MenuModel.js'
       - 'test/optional-packages-live'
