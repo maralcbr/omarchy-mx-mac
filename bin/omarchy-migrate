@@ -108,6 +108,7 @@ asahi_migration_disposition() {
     1786567036.sh) printf 'skipped\tNetworkManager remains on the validated Asahi iwd backend\n' ;;
     1786605598.sh) printf 'skipped\tNVIDIA Limine initramfs repair is not applicable to Asahi\n' ;;
     1786922691.sh|1787231692.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1787497040.sh) printf 'run\tApple HID early-load gates itself to Apple Silicon hardware\n' ;;
     *) return 1 ;;
   esac
 }
