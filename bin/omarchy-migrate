@@ -109,6 +109,7 @@ asahi_migration_disposition() {
     1786605598.sh) printf 'skipped\tNVIDIA Limine initramfs repair is not applicable to Asahi\n' ;;
     1786922691.sh|1787231692.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     1787491150.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1787497040.sh) printf 'run\tApple HID early-load gates itself to Apple Silicon hardware\n' ;;
     1787552067.sh) printf 'run\treviewed Apple Silicon audio package repair\n' ;;
     1787552167.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     1787560726.sh) printf 'run\treviewed Apple Silicon package repository setup\n' ;;

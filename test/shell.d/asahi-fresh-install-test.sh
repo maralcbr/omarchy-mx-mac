@@ -54,6 +54,11 @@ pass "fresh user receives package-populated skel defaults"
 
 grep -Fq 'omarchy-apply-system --install-user "$target_user" --first-install' "$installer" || fail "fresh installer runs root finalization"
 grep -Fq 'omarchy-provision-user --force --first-install' "$installer" || fail "fresh installer runs user finalization"
+apply_system_line=$(grep -n -m1 'omarchy-apply-system --install-user' "$installer" | cut -d: -f1)
+hid_rebuild_line=$(grep -n -m1 '^mkinitcpio -P$' "$installer" | cut -d: -f1)
+provision_user_line=$(grep -n -m1 'omarchy-provision-user --force --first-install' "$installer" | cut -d: -f1)
+(( apply_system_line < hid_rebuild_line && hid_rebuild_line < provision_user_line )) || fail "fresh installer rebuilds the initramfs after Apple HID setup"
+grep -Fq '/var/lib/omarchy/apple-hid-initramfs-ready' "$installer" || fail "fresh installer records the successful Apple HID rebuild"
 grep -Fq 'OMARCHY_SETUP_CONTEXT=fresh-install' "$installer" || fail "fresh installer does not select the ISO payload context"
 grep -Fq 'package_source_commit=$OMARCHY_ASAHI_PACKAGE_SOURCE' "$installer" || fail "fresh installer binds resume state to the package source"
 grep -Fq '/var/lib/sddm/state.conf' "$installer" || fail "fresh installer seeds the SDDM last-user state"
