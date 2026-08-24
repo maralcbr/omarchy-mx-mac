@@ -7,6 +7,8 @@ channel=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro
 fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
 work=/root/omarchy-fresh-vm
 
+[[ ${OMARCHY_VM_STABLE_VERSION:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$ ]]
+
 rm -rf "$work"
 mkdir -p "$work"
 cd "$work"
@@ -24,7 +26,7 @@ curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all
 [[ $(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }') == "$fingerprint" ]]
 gpgv --keyring ./omarchy-release.gpg install-omarchy-mx-mac.sig install-omarchy-mx-mac
 gpgv --keyring ./omarchy-release.gpg omarchy-mx-mac-release.sig omarchy-mx-mac-release
-grep -Fxq 'version=4.0.0-mac.13' omarchy-mx-mac-release
+grep -Fxq "version=$OMARCHY_VM_STABLE_VERSION" omarchy-mx-mac-release
 
 curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro "$channel/install-asahi-quattro"
 curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro.sig "$channel/install-asahi-quattro.sig"
