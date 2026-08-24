@@ -76,6 +76,7 @@ grep -Fq $'skipped\therdr is unavailable' "$state_dir/1786273938.sh.skipped" || 
 grep -Fq $'skipped\tttfx is unavailable' "$state_dir/1786355450.sh.skipped" || fail "ttfx migration records its repository reason"
 grep -Fq $'skipped\tIntel Mac Broadcom firmware quirk' "$state_dir/1786391100.sh.skipped" || fail "Broadcom migration records its Apple Silicon reason"
 grep -Fq $'skipped\tLimine boot image repair' "$state_dir/1786482992.sh.skipped" || fail "Limine repair migration records its Asahi reason"
+[[ -f $state_dir/1787560726.sh ]] || fail "package repository migration is reviewed to run on Apple Silicon"
 pass "Asahi migration policy blocks unvalidated platform changes"
 
 cat >"$test_root/migrations/9999999999.sh" <<'SH'

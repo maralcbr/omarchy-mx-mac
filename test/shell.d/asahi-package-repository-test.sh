@@ -13,6 +13,7 @@ key_file="$test_tmp/omarchy-release.gpg"
 calls="$test_tmp/calls"
 key_state="$test_tmp/key-added"
 leaf="$ROOT/install/hardware/pacman.sh"
+migration="$ROOT/migrations/1787560726.sh"
 mkdir -p "$mock_bin"
 : >"$key_file"
 
@@ -37,6 +38,11 @@ SH
 cat >"$mock_bin/pacman" <<'SH'
 #!/bin/bash
 printf 'pacman:%s\n' "$*" >>"$OMARCHY_TEST_CALLS"
+SH
+cat >"$mock_bin/sudo" <<'SH'
+#!/bin/bash
+printf 'sudo:%s\n' "$*" >>"$OMARCHY_TEST_CALLS"
+"$@"
 SH
 cat >"$mock_bin/lspci" <<'SH'
 #!/bin/bash
@@ -96,3 +102,32 @@ OMARCHY_PACMAN_CONF="$non_apple_conf" OMARCHY_TEST_APPLE=1 PATH="$mock_bin:$PATH
   bash -euo pipefail -c 'source "$1"' _ "$leaf"
 [[ $(sha256sum "$non_apple_conf") == "$non_apple_hash" ]] || fail "package setup leaves non-Apple systems unchanged"
 pass "Apple package repository remains hardware-scoped"
+
+cat >"$pacman_conf" <<'CONF'
+[options]
+Architecture = aarch64
+
+[omarchy]
+SigLevel = Never
+Server = https://pkgs.omarchy.org/edge/$arch
+CONF
+rm -f "$key_state"
+: >"$calls"
+OMARCHY_PATH="$ROOT" \
+  OMARCHY_PACMAN_CONF="$pacman_conf" \
+  OMARCHY_ASAHI_PACKAGE_KEY_FILE="$key_file" \
+  OMARCHY_TEST_CALLS="$calls" \
+  OMARCHY_TEST_KEY_STATE="$key_state" \
+  OMARCHY_TEST_APPLE=0 \
+  PATH="$mock_bin:$PATH" \
+  bash -euo pipefail "$migration" >/dev/null
+grep -Fq 'sudo:env OMARCHY_PATH=' "$calls" || fail "Apple package migration delegates privileged setup through sudo"
+grep -Fxq 'SigLevel = Required DatabaseOptional' "$pacman_conf" || fail "Apple package migration configures the signed repository"
+grep -Fxq "pacman-key:--add $key_file" "$calls" || fail "Apple package migration imports the release key"
+pass "existing Apple Silicon installs receive the signed package repository"
+
+config_hash=$(sha256sum "$pacman_conf")
+OMARCHY_PATH="$ROOT" OMARCHY_TEST_APPLE=1 PATH="$mock_bin:$PATH" \
+  bash -euo pipefail "$migration" >/dev/null
+[[ $(sha256sum "$pacman_conf") == "$config_hash" ]] || fail "Apple package migration leaves non-Apple systems unchanged"
+pass "Apple package migration remains hardware-scoped"
