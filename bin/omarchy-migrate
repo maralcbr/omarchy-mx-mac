@@ -107,8 +107,10 @@ asahi_migration_disposition() {
     1786482992.sh) printf 'skipped\tLimine boot image repair is not applicable to Asahi\n' ;;
     1786567036.sh) printf 'skipped\tNetworkManager remains on the validated Asahi iwd backend\n' ;;
     1786605598.sh) printf 'skipped\tNVIDIA Limine initramfs repair is not applicable to Asahi\n' ;;
-    1786922691.sh|1787231692.sh|1787491150.sh|1787552167.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1786922691.sh|1787231692.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1787491150.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     1787552067.sh) printf 'run\treviewed Apple Silicon audio package repair\n' ;;
+    1787552167.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     *) return 1 ;;
   esac
 }
