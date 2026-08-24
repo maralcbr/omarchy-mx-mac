@@ -27,6 +27,7 @@ done
 [[ ! -L /etc/systemd/system/graphical.target.wants/omarchy-seamless-login.service ]] || fail "legacy seamless login remains enabled"
 [[ ! -e /usr/local/bin/seamless-login ]] || fail "legacy seamless login helper remains"
 NetworkManager --print-config | grep -Fxq 'wifi.backend=iwd' || fail "iwd backend"
+grep -Eqi '^[[:space:]]*LANG[[:space:]]*=[[:space:]]*"?[^"[:space:]#]*\.utf-?8(@[^"[:space:]#]+)?"?([[:space:]]*(#.*)?)?$' /etc/locale.conf || fail "system locale is not UTF-8"
 pacman-conf --repo-list | grep -Fxq asahi-alarm || fail "Asahi repository"
 [[ -f /boot/Image && -f /boot/vmlinuz-linux-asahi && -f /boot/grub/grub.cfg ]] || fail "boot payloads"
 (( $(swapon --show --noheadings | wc -l) == 0 )) || fail "swap disabled"
