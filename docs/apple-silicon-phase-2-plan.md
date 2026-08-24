@@ -243,6 +243,34 @@ release validation, but it must not create GitHub Secrets, publish a release,
 delete an old candidate, or promote a stable snapshot. Those are explicit
 operator actions after review.
 
+## Implementation status
+
+The safe, non-publishing implementation slice is now present on the Phase 2
+branches:
+
+- `maralcbr/omarchy-pkgs` builds all 12 reviewed sources as a native ARM
+  matrix, assembles the complete 21-package repository, and exercises signed
+  clean-install and previous-snapshot upgrade transactions in disposable
+  containers;
+- production publication validates that the imported credential is a dedicated
+  secret signing subkey, rejects the personal release fingerprint, and forces
+  the exact subkey selector;
+- this fork can verify a downloaded candidate offline against its exact tag,
+  descriptor digest, public signing-subkey fingerprint, signatures, checksums,
+  package count, and closed asset inventory without changing pacman state;
+- promotion and retention are implemented as dry-run-first operator tools;
+  promotion requires a matching acceptance record and verifies byte identity,
+  while retention preserves stable releases and defaults to keeping uncertain
+  candidates; and
+- the local host now has QEMU aarch64 support and usable KVM acceleration. The
+  fresh-system VM defaults to 6 GiB, but the full VM and hardware gates remain
+  intentionally pending until an immutable candidate exists.
+
+No candidate or stable release has been published, no GitHub signing secret has
+been created, and the installer continues to use the existing stable snapshot.
+Those boundaries keep this work isolated from both the active Omarchy session
+and current online installers.
+
 ## Research basis
 
 - [Six-phase integration roadmap](apple-silicon-integration-roadmap.md)
