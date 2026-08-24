@@ -3,6 +3,14 @@
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+version=$(<"$ROOT/version")
+notes="$ROOT/docs/releases/v$version.md"
+[[ -s $notes ]]
+grep -Fxq "# Omarchy MX Mac $version" "$notes"
+grep -Fxq '## Validation' "$notes"
+grep -Fq '**Full Changelog**:' "$notes"
+grep -Fq "## [$version]" "$ROOT/CHANGELOG.md"
+
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin" "$tmp/state/omarchy/releases" "$tmp/release"
