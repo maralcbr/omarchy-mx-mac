@@ -98,7 +98,7 @@ jobs:
   # The official archlinux image is x86_64-only, so Apple Silicon checks import
   # the signed Arch Linux ARM root filesystem and point it at the five platform
   # repositories the fresh installer requires. ALARM package signatures stay
-  # required; the HTTPS-hosted Asahi repository permits its unsigned packages.
+  # required; only the HTTPS-hosted Asahi repository disables package signatures.
   resolve-asahi:
     name: Resolve ${{ matrix.manifest }} (Asahi)
     strategy:

@@ -158,10 +158,11 @@ R_REPO_COUNT=0
 R_PROJECT_COUNT=0
 R_AUR_COUNT=0
 R_SPLIT_PROJECT=0
+R_ALLOW_AUR=0
 resolve_batch() {
-  local -a misses=()
-  local entry miss
-  declare -A project_seen=()
+  local -a misses=() aur_candidates=()
+  local entry miss name snapshot_path reply
+  declare -A project_seen=() aur_seen=()
 
   R_UNRESOLVED=()
   R_PROJECT_NAMES=()
@@ -178,12 +179,22 @@ resolve_batch() {
     if [[ ${project_packages[$miss]:-} ]]; then
       project_seen[$miss]=1
       R_PROJECT_NAMES+=("$miss")
+    elif (( R_ALLOW_AUR )); then
+      aur_candidates+=("$miss")
     fi
   done
   R_PROJECT_COUNT=${#R_PROJECT_NAMES[@]}
 
+  if (( ${#aur_candidates[@]} > 0 )); then
+    reply=$(aur_lookup "${aur_candidates[@]}") || die "The AUR RPC endpoint could not be reached"
+    while IFS=$'\t' read -r name snapshot_path; do
+      [[ -n $name ]] && aur_seen[$name]=1
+    done <<<"$reply"
+    R_AUR_COUNT=${#aur_seen[@]}
+  fi
+
   for miss in "${misses[@]}"; do
-    if [[ -z ${project_seen[$miss]:-} ]]; then
+    if [[ -z ${project_seen[$miss]:-} && -z ${aur_seen[$miss]:-} ]]; then
       R_UNRESOLVED+=("$miss")
     elif (( R_SPLIT_PROJECT )) && [[ ${project_seen[$miss]:-} ]]; then
       R_UNRESOLVED+=("$miss")
@@ -214,6 +225,11 @@ if (( ! recipes_mode )); then
       fi
     done
 
+    if [[ $pc_manifest == *-asahi.packages ]]; then
+      R_ALLOW_AUR=0
+    else
+      R_ALLOW_AUR=1
+    fi
     resolve_batch "${candidates[@]}"
 
     printf '%s: %d entries (%d repositories, %d project, %d AUR, %d provided during install, %d upstream-only, %d unresolved)\n' \
@@ -440,6 +456,7 @@ for name in "${unique_names[@]}"; do
 done
 
 R_SPLIT_PROJECT=1
+R_ALLOW_AUR=0
 resolve_batch "${sync_candidates[@]}"
 declare -A unresolved_seen=()
 for name in "${R_UNRESOLVED[@]}"; do

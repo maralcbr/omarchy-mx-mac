@@ -26,6 +26,10 @@ mkdir -m 0700 "$GNUPGHOME"
 gpg --batch --import "$RUNNER_TEMP/alarm-builder.asc" >/dev/null
 gpg --batch --verify "$RUNNER_TEMP/alarm.tar.gz.sig" "$RUNNER_TEMP/alarm.tar.gz"
 docker import "$RUNNER_TEMP/alarm.tar.gz" alarm:aarch64
+docker run --name alarm-keyring alarm:aarch64 /bin/bash -c \
+  'pacman-key --init && pacman-key --populate archlinuxarm'
+docker commit alarm-keyring alarm:aarch64 >/dev/null
+docker rm alarm-keyring >/dev/null
 
 cat >"$RUNNER_TEMP/pacman.conf" <<'EOF'
 [options]
@@ -36,7 +40,7 @@ SigLevel = Required DatabaseOptional
 ParallelDownloads = 5
 
 [asahi-alarm]
-SigLevel = Optional DatabaseOptional
+SigLevel = Never
 Server = https://github.com/asahi-alarm/asahi-alarm/releases/download/$arch
 
 [core]
