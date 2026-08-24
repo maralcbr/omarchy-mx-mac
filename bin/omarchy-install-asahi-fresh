@@ -350,6 +350,10 @@ OMARCHY_PATH=/usr/share/omarchy \
   OMARCHY_INSTALL=/usr/share/omarchy/install \
   omarchy-apply-system --install-user "$target_user" --first-install
 
+echo "Rebuilding the initramfs with the Apple HID drivers"
+mkinitcpio -P
+install -Dm644 /dev/null /var/lib/omarchy/apple-hid-initramfs-ready
+
 runuser -u "$target_user" -- env \
   HOME="$target_home" \
   USER="$target_user" \

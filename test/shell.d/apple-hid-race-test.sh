@@ -18,6 +18,7 @@ trap 'rm -rf "$test_tmp"' EXIT
 stub_bin="$test_tmp/bin"
 calls="$test_tmp/calls.log"
 conf="$test_tmp/etc/mkinitcpio.conf.d/apple_hid_modules.conf"
+ready="$test_tmp/var/lib/omarchy/apple-hid-initramfs-ready"
 mkdir -p "$stub_bin"
 
 # Every command whose effect matters outside the tree gets a stub, so each case
@@ -143,6 +144,7 @@ run_migration() {
   APPLE_SILICON="$apple_silicon" TEST_LOG="$calls" PATH="$stub_bin:$PATH" \
     MKINITCPIO_STATUS="$mkinitcpio_status" \
     OMARCHY_PATH="$test_tmp/omarchy" OMARCHY_APPLE_HID_CONF="$conf" \
+    OMARCHY_APPLE_HID_READY="$ready" \
     bash -euo pipefail "$migration"
 }
 
@@ -159,6 +161,8 @@ grep -Fq $'mkinitcpio\t-P' "$calls" ||
   fail "the migration rebuilds the initramfs that carries MODULES" "$(cat "$calls")"
 grep -Fq $'omarchy-state\tset\treboot-required' "$calls" ||
   fail "the migration asks for the reboot that applies it" "$(cat "$calls")"
+[[ -f $ready ]] ||
+  fail "the migration records a successful initramfs rebuild" "$(cat "$calls")"
 pass "the migration fixes an install that never ran the leaf"
 
 run_migration >/dev/null
@@ -169,15 +173,26 @@ pass "the migration is idempotent"
 # A failed rebuild leaves the running initramfs as it was, so there is nothing
 # for a reboot to apply.
 rm -rf "$test_tmp/etc"
-run_migration 1 1 >/dev/null 2>&1
+rm -f "$ready"
+if run_migration 1 1 >/dev/null 2>&1; then
+  fail "a failed rebuild leaves the migration pending"
+fi
 grep -Fq $'mkinitcpio\t-P' "$calls" ||
   fail "a failed rebuild is still attempted" "$(cat "$calls")"
 if grep -Fq 'omarchy-state' "$calls"; then
   fail "a failed rebuild does not ask for a reboot" "$(cat "$calls")"
 fi
-pass "a failed rebuild does not ask for a reboot"
+[[ ! -e $ready ]] ||
+  fail "a failed rebuild does not record success" "$(cat "$calls")"
+run_migration >/dev/null
+grep -Fq $'mkinitcpio\t-P' "$calls" ||
+  fail "a failed rebuild is retried" "$(cat "$calls")"
+[[ -f $ready ]] ||
+  fail "a successful retry records the rebuilt initramfs" "$(cat "$calls")"
+pass "a failed rebuild remains pending and retries"
 
 rm -rf "$test_tmp/etc"
+rm -f "$ready"
 run_migration 0 >/dev/null
 [[ ! -e $conf ]] ||
   fail "the migration skips hardware without the race" "$(cat "$conf")"
