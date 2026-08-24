@@ -6,6 +6,7 @@ run=/work/run
 base=/work/cache/archarm-base.qcow2
 code=/usr/share/AAVMF/AAVMF_CODE.fd
 vars_template=/usr/share/AAVMF/AAVMF_VARS.fd
+memory_mb=${OMARCHY_VM_MEMORY_MB:-8192}
 
 rm -rf "$run"
 mkdir -p "$run"
@@ -17,7 +18,7 @@ qemu-system-aarch64 \
   -machine virt,accel=kvm,gic-version=host \
   -cpu host \
   -smp 8 \
-  -m 8192 \
+  -m "$memory_mb" \
   -drive if=pflash,format=raw,readonly=on,file="$code" \
   -drive if=pflash,format=raw,file="$run/AAVMF_VARS.fd" \
   -drive file="$run/disk.qcow2",format=qcow2,if=none,id=drive0,discard=unmap \
