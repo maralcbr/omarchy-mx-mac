@@ -6,8 +6,11 @@ source "$(dirname "$0")/base-test.sh"
 
 installer="$ROOT/bin/omarchy-install-asahi-fresh"
 wrapper="$ROOT/install-omarchy-mx-mac"
+vm_runner="$ROOT/test/vm/asahi-fresh/run"
+vm_installer="$ROOT/test/vm/asahi-fresh/guest/install"
+vm_launcher="$ROOT/test/vm/asahi-fresh/container/start-vm"
 
-bash -n "$installer" "$wrapper"
+bash -n "$installer" "$wrapper" "$vm_runner" "$vm_installer" "$vm_launcher"
 "$installer" --help 2>&1 | grep -Fq -- '--asahi-packages DIR'
 pass "fresh Asahi installer exposes the verified bundle entrypoint"
 
@@ -79,3 +82,14 @@ if grep -Fq 'v3.8.4' "$installer" "$wrapper"; then
   fail "final fresh installer depends on legacy Omarchy"
 fi
 pass "stable installer enters Quattro directly without Omarchy 3"
+
+grep -Fq 'stable_version=$(<"$root/version")' "$vm_runner" || fail "VM runner reads the candidate stable version"
+grep -Fq 'env OMARCHY_VM_STABLE_VERSION="$stable_version"' "$vm_runner" || fail "VM runner passes the candidate stable version"
+grep -Fq 'grep -Fxq "version=$OMARCHY_VM_STABLE_VERSION"' "$vm_installer" || fail "VM validates the published stable version without a stale hardcode"
+pass "fresh-install VM tracks the candidate stable version"
+
+grep -Fq 'vm_memory_mb=${OMARCHY_VM_MEMORY_MB:-8192}' "$vm_runner" || fail "VM runner keeps the 8 GiB default"
+grep -Fq 'docker exec -e OMARCHY_VM_MEMORY_MB="$vm_memory_mb"' "$vm_runner" || fail "VM runner passes the memory override"
+grep -Fq 'memory_mb=${OMARCHY_VM_MEMORY_MB:-8192}' "$vm_launcher" || fail "VM launcher accepts the memory override"
+grep -Fq -- '-m "$memory_mb"' "$vm_launcher" || fail "QEMU uses the configured guest memory"
+pass "fresh-install VM supports constrained hosts"

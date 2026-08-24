@@ -7,11 +7,13 @@ Run Omarchy on Apple Silicon through Arch Linux ARM and Asahi Linux.
 [![License](https://img.shields.io/github/license/maralcbr/omarchy-mx-mac)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/maralcbr/omarchy-mx-mac?style=social)](https://github.com/maralcbr/omarchy-mx-mac/stargazers)
 
+See the [changelog](CHANGELOG.md) for release history and validation notes.
+
 Omarchy 4 (Quattro) is the maintained release:
 
 | Version | Status | Installation |
 | --- | --- | --- |
-| Omarchy `4.0.0-mac.11` | Recommended stable version | Direct signed installation on Asahi Arch Minimal |
+| Omarchy `4.0.0-mac.15` | Recommended stable version | Direct signed installation on Asahi Arch Minimal |
 | Omarchy `3.8.4-mac.4` | Legacy | Existing installations can update to Omarchy 4 |
 
 > [!NOTE]

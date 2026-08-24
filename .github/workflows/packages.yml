@@ -1,0 +1,178 @@
+name: Package manifests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - install/*.packages
+      - install/optional-packages.tsv
+      - install/optional-packages-aarch64-required
+      - install/optional-aur-packages.tsv
+      - bin/omarchy-install-*
+      - default/omarchy/omarchy-menu.jsonc
+      - test/generate-optional-transactions
+      - test/packages-*
+      - test/prepare-alarm-container
+      - test/shell.d/optional-transactions-drift-test.sh
+      - test/shell.d/package-manifests-test.sh
+      - .github/workflows/packages.yml
+  pull_request:
+    paths:
+      - install/*.packages
+      - install/optional-packages.tsv
+      - install/optional-packages-aarch64-required
+      - install/optional-aur-packages.tsv
+      - bin/omarchy-install-*
+      - default/omarchy/omarchy-menu.jsonc
+      - test/generate-optional-transactions
+      - test/packages-*
+      - test/prepare-alarm-container
+      - test/shell.d/optional-transactions-drift-test.sh
+      - test/shell.d/package-manifests-test.sh
+      - .github/workflows/packages.yml
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: package-manifests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  source-tests:
+    name: Package source tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify package tooling
+        run: |
+          bash -n test/generate-optional-transactions test/packages-resolve test/packages-install-transaction test/prepare-alarm-container
+          bash test/shell.d/optional-transactions-drift-test.sh
+          bash test/shell.d/package-manifests-test.sh
+
+  # The x86 manifests hold mutually exclusive hardware alternatives, so they
+  # are verified for resolvability only; end-to-end installation remains the
+  # job of the disposable VM acceptance harness.
+  resolve-pc:
+    name: Resolve ${{ matrix.manifest }}
+    strategy:
+      fail-fast: false
+      matrix:
+        manifest:
+          - omarchy-base.packages
+          - omarchy-other.packages
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:base-devel
+    timeout-minutes: 15
+    steps:
+      - name: Install job dependencies
+        run: |
+          pacman-key --init
+          pacman -Syu --noconfirm git jq
+      - uses: actions/checkout@v7
+      - name: Add third-party repositories
+        run: |
+          grep -q '^\[multilib\]' /etc/pacman.conf || cat >> /etc/pacman.conf <<'EOF'
+
+          [multilib]
+          Include = /etc/pacman.d/mirrorlist
+          EOF
+          cat >> /etc/pacman.conf <<'EOF'
+
+          [arch-mact2]
+          SigLevel = Never
+          Server = https://github.com/NoaHimesaka1873/arch-mact2-mirror/releases/download/release
+
+          [g14]
+          SigLevel = Never
+          Server = https://arch.asus-linux.org
+          EOF
+      - name: Resolve manifest packages
+        run: test/packages-resolve "install/${{ matrix.manifest }}"
+
+  # The official archlinux image is x86_64-only, so Apple Silicon checks import
+  # the signed Arch Linux ARM root filesystem and point it at the five platform
+  # repositories the fresh installer requires. ALARM package signatures stay
+  # required; only the HTTPS-hosted Asahi repository disables package signatures.
+  resolve-asahi:
+    name: Resolve ${{ matrix.manifest }} (Asahi)
+    strategy:
+      fail-fast: false
+      matrix:
+        manifest:
+          - omarchy-base-asahi.packages
+          - omarchy-other-asahi.packages
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare Arch Linux ARM container
+        run: test/prepare-alarm-container
+      - name: Resolve manifest packages
+        run: |
+          docker run --rm \
+            -v "$RUNNER_TEMP/pacman.conf:/etc/pacman.conf:ro" \
+            -v "$PWD:/repo:ro" \
+            alarm:aarch64 /bin/bash -c "pacman -Sy --noconfirm jq >/dev/null && /repo/test/packages-resolve /repo/install/${{ matrix.manifest }}"
+
+  # Optional install recipes reference package names that may never have been
+  # published for aarch64, which is exactly how Install menu entries end in
+  # "target not found". This audit is informational for now: it lists the
+  # names to publish or guard instead of failing the run. Flip it to
+  # enforcement once the current findings are triaged.
+  audit-recipes:
+    name: Audit optional install recipes
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare Arch Linux ARM container
+        run: test/prepare-alarm-container
+      - name: Audit recipe package names
+        run: |
+          {
+            echo "### Optional install recipe audit"
+            echo
+            docker run --rm \
+              -v "$RUNNER_TEMP/pacman.conf:/etc/pacman.conf:ro" \
+              -v "$PWD:/repo:ro" \
+              alarm:aarch64 /bin/bash -c "pacman -Sy --noconfirm jq >/dev/null && /repo/test/packages-resolve --recipes"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Each Asahi manifest installs in its own fresh root filesystem so every
+  # list stays independently co-installable. This proves today's dependency
+  # closure resolves and installs, mirroring the fresh installer's single
+  # pacman transaction.
+  install-asahi:
+    name: Install ${{ matrix.manifest }} transaction
+    strategy:
+      fail-fast: false
+      matrix:
+        manifest:
+          - omarchy-base-asahi.packages
+          - omarchy-other-asahi.packages
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare Arch Linux ARM container
+        run: test/prepare-alarm-container
+      - name: Install every manifest package
+        run: |
+          # ALARM split the Mesa Vulkan drivers into standalone packages while
+          # asahi-alarm's mesa still bundles Turnip, so installing the split
+          # vulkan-asahi next to it fails on shared files. Runtime code already
+          # guards on this (omarchy-upgrade-to-quattro installs vulkan-asahi
+          # only when /usr/lib/libvulkan_asahi.so is absent). Skip the entry
+          # until asahi-alarm rebases; its dependency
+          # vulkan-mesa-implicit-layers then leaves the closure with it.
+          docker run --rm \
+            -e OMARCHY_TRANSACTION_IGNORE=vulkan-asahi \
+            -v "$RUNNER_TEMP/pacman.conf:/etc/pacman.conf:ro" \
+            -v "$PWD:/repo:ro" \
+            alarm:aarch64 /bin/bash /repo/test/packages-install-transaction "/repo/install/${{ matrix.manifest }}"
