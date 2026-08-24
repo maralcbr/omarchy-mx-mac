@@ -4,6 +4,17 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
+## [4.0.0-mac.15] - 2026-08-24
+
+- Published and configured an immutable signed Apple Silicon package repository,
+  restoring native package availability for supported Omarchy applications.
+- Added continuous aarch64 package resolution and installation audits across
+  every package manifest and optional transaction.
+- Repaired UTF-8 locale generation, PipeWire realtime scheduling, and GNOME
+  Keyring unlock for fresh and existing Apple Silicon installations.
+
+[Release notes](docs/releases/v4.0.0-mac.15.md) | [Full diff](https://github.com/maralcbr/omarchy-mx-mac/compare/v4.0.0-mac.14...v4.0.0-mac.15)
+
 ## [4.0.0-mac.14] - 2026-08-24
 
 - Added version-controlled release notes and a maintained Apple Silicon
@@ -59,5 +70,6 @@ verbatim.
 
 [4.0.0-mac.13]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.13
 [4.0.0-mac.14]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.14
+[4.0.0-mac.15]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.15
 [4.0.0-mac.12]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.12
 [4.0.0-mac.11]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.11
