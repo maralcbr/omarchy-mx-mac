@@ -4,6 +4,15 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
+## [4.0.0-mac.16] - 2026-08-24
+
+- Early-loads the Apple keyboard and multi-touch HID drivers to prevent an
+  intermittent boot race that could leave the internal trackpad unavailable.
+- Detects Apple MTP multi-touch trackpads in Omarchy hardware and menu guards.
+- Uses macOS-style natural scrolling and physical-click touchpad defaults.
+
+[Release notes](docs/releases/v4.0.0-mac.16.md) | [Full diff](https://github.com/maralcbr/omarchy-mx-mac/compare/v4.0.0-mac.15...v4.0.0-mac.16)
+
 ## [4.0.0-mac.15] - 2026-08-24
 
 - Published and configured an immutable signed Apple Silicon package repository,
@@ -71,5 +80,6 @@ verbatim.
 [4.0.0-mac.13]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.13
 [4.0.0-mac.14]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.14
 [4.0.0-mac.15]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.15
+[4.0.0-mac.16]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.16
 [4.0.0-mac.12]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.12
 [4.0.0-mac.11]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.11
