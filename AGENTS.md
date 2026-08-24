@@ -61,7 +61,7 @@ guidance does not drift from the router.
 
 # Git
 
-- Do not use `codex` or `Codex` in branch names or source-code comments.
+- Do not use `codex` or `Codex` in branch names or comments of any kind.
 - Commits should be atomic: include only one coherent change or fix, and do not mix unrelated work.
 - Commit messages should be succinct and describe the change being made.
 
