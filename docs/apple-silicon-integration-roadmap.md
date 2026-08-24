@@ -215,9 +215,10 @@ but they do not carry implied approval, schedule, or support promises.
 ## Research basis
 
 - [Detailed Phase 1 plan](apple-silicon-phase-1-plan.md)
+- [Detailed Phase 2 plan](apple-silicon-phase-2-plan.md)
 - [`omarchy-iso` generic aarch64 plan](https://github.com/omacom-io/omarchy-iso/blob/quattro/plans/aarch64-support.md)
 - [Asahi distribution guidelines](https://asahilinux.org/docs/alt/policy/)
 - [Asahi boot process](https://asahilinux.org/docs/alt/boot-process-guide/)
 - [Asahi feature support](https://asahilinux.org/docs/platform/feature-support/overview/)
 
-Research snapshot: 2026-08-23.
+Research snapshot: 2026-08-24.
