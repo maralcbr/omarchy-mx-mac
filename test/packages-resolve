@@ -29,6 +29,9 @@ fi
 for tool in pacman curl jq; do
   command -v "$tool" >/dev/null || die "packages-resolve requires $tool"
 done
+if (( recipes_mode )); then
+  command -v bsdtar >/dev/null || die "packages-resolve --recipes requires bsdtar"
+fi
 
 # Some packages never come from pacman repositories: release-bundle archives
 # and packages makepkg-built from the omarchy-pkgs checkout during install.
@@ -98,8 +101,10 @@ declare -A upstream_only_packages=(
   [yay-debug]=1
 )
 
-# The AUR RPC answers existence queries without cloning anything. Names are
-# batched because large single requests exceed comfortable URL lengths.
+# The AUR RPC answers existence queries without executing package sources.
+# Names are batched because large single requests exceed comfortable URL
+# lengths. Each result includes its snapshot path so architecture declarations
+# can be inspected separately.
 aur_lookup() {
   local names=("$@")
   local hits="" start attempt response chunk_args name
@@ -119,16 +124,31 @@ aur_lookup() {
     done
     [[ -n $response ]] || return 1
     [[ $(jq -r '.type' <<<"$response") == "multiinfo" ]] || return 1
-    hits+=$(jq -r '[.results[].Name] | join("\n")' <<<"$response")$'\n'
+    hits+=$(jq -r '.results[] | [.Name, .URLPath] | @tsv' <<<"$response")$'\n'
   done
 
   printf '%s' "$hits"
 }
 
+aur_supports_aarch64() {
+  local snapshot_path="$1" arch_line arch
+
+  arch_line=$(curl -fsSL --max-time 60 "https://aur.archlinux.org$snapshot_path" |
+    bsdtar -xOf - '*/PKGBUILD' 2>/dev/null |
+    sed -nE 's/^[[:space:]]*arch[[:space:]]*=[[:space:]]*\((.*)\).*/\1/p' |
+    head -n 1) || return 1
+  arch_line=${arch_line//\'/}
+  arch_line=${arch_line//\"/}
+  for arch in $arch_line; do
+    [[ $arch == "any" || $arch == "aarch64" ]] && return 0
+  done
+  return 1
+}
+
 pacman -Sy >/dev/null || die "Could not synchronize package databases"
 
-# Resolve every named candidate against the configured repositories, the
-# project PKGBUILD collection, and the AUR. Fills the R_* outputs for the
+# Resolve every named candidate against the configured repositories and the
+# project PKGBUILD collection. Fills the R_* outputs for the
 # caller's own reporting. When R_SPLIT_PROJECT is 1, names that only exist
 # as project PKGBUILDs are reported separately instead of counting as
 # resolved: a recipe calling pacman cannot install them until they are
@@ -139,9 +159,9 @@ R_PROJECT_COUNT=0
 R_AUR_COUNT=0
 R_SPLIT_PROJECT=0
 resolve_batch() {
-  local -a misses=() aur_candidates=()
-  local entry miss name
-  declare -A aur_seen=() project_seen=()
+  local -a misses=()
+  local entry miss
+  declare -A project_seen=()
 
   R_UNRESOLVED=()
   R_PROJECT_NAMES=()
@@ -158,26 +178,12 @@ resolve_batch() {
     if [[ ${project_packages[$miss]:-} ]]; then
       project_seen[$miss]=1
       R_PROJECT_NAMES+=("$miss")
-    else
-      aur_candidates+=("$miss")
     fi
   done
   R_PROJECT_COUNT=${#R_PROJECT_NAMES[@]}
 
-  if (( ${#aur_candidates[@]} > 0 )); then
-    local reply
-    reply=$(aur_lookup "${aur_candidates[@]}") ||
-      die "The AUR RPC endpoint could not be reached"
-    while IFS= read -r name; do
-      if [[ -n $name ]]; then
-        aur_seen[$name]=1
-      fi
-    done <<<"$reply"
-    R_AUR_COUNT=${#aur_seen[@]}
-  fi
-
   for miss in "${misses[@]}"; do
-    if [[ -z ${project_seen[$miss]:-} && -z ${aur_seen[$miss]:-} ]]; then
+    if [[ -z ${project_seen[$miss]:-} ]]; then
       R_UNRESOLVED+=("$miss")
     elif (( R_SPLIT_PROJECT )) && [[ ${project_seen[$miss]:-} ]]; then
       R_UNRESOLVED+=("$miss")
@@ -233,14 +239,19 @@ fi
 # helpers by the optional install recipes and the install menu, then resolve
 # them against the Asahi ecosystem. Variables stay out of the results and are
 # reported for manual review instead of being guessed.
-declare -A recipe_origins=()
+declare -A recipe_origins=() recipe_helpers=()
 declare -a recipe_manual=()
 
 record_recipe_name() {
-  local origin="$1" name="$2"
+  local origin="$1" name="$2" helper="$3"
 
   [[ ${recipe_origins[$name]+set} ]] || recipe_origins[$name]=""
   recipe_origins[$name]+="${recipe_origins[$name]:+, }$origin"
+  [[ ${recipe_helpers[$name]+set} ]] || recipe_helpers[$name]=""
+  case ",${recipe_helpers[$name]}," in
+    *",$helper,"*) ;;
+    *) recipe_helpers[$name]+="${recipe_helpers[$name]:+,}$helper" ;;
+  esac
 }
 
 scan_recipe_scripts() {
@@ -261,11 +272,11 @@ scan_recipe_scripts() {
     # Join backslash continuations so multi-line helper calls parse whole,
     # then hand each command's arguments to the tokenizer below.
     joined=$(sed -e ':join' -e '/\\$/{N; s/\\\n//; bjoin' -e '}' "$script")
-    while IFS=$'\t' read -r kind payload; do
+    while IFS=$'\t' read -r kind helper payload; do
       if [[ $kind == "name" ]]; then
-        record_recipe_name "$origin" "$payload"
+        record_recipe_name "$origin" "$payload" "$helper"
       else
-        recipe_manual+=("$payload")
+        recipe_manual+=("$helper")
       fi
     done < <(
       awk -v file="$origin" -v quote="'" '
@@ -273,6 +284,8 @@ scan_recipe_scripts() {
           line = $0
           sub(/#.*/, "", line)
           while (match(line, /omarchy-pkg-(aur-)?add[[:space:]]+/)) {
+            command = substr(line, RSTART, RLENGTH)
+            helper = command ~ /aur-add/ ? "aur" : "sync"
             rest = substr(line, RSTART + RLENGTH)
             count = split(rest, token, /[[:space:]]+/)
             stopped = 0
@@ -297,7 +310,7 @@ scan_recipe_scripts() {
                 if (t ~ /\$|[`>(]/) {
                   printf "manual\t%s: variable argument\n", file
                 } else if (t != "") {
-                  printf "name\t%s\n", t
+                  printf "name\t%s\t%s\n", helper, t
                 }
                 stopped = 1
                 break
@@ -307,7 +320,7 @@ scan_recipe_scripts() {
                 stopped = 1
                 break
               }
-              printf "name\t%s\n", t
+              printf "name\t%s\t%s\n", helper, t
             }
             if (!stopped) {
               line = ""
@@ -377,7 +390,7 @@ scan_menu_actions() {
       continue
     fi
     for token in ${tokens[second]}; do
-      record_recipe_name "menu:$row_id" "$token"
+      record_recipe_name "menu:$row_id" "$token" sync
     done
   done < <(
     # Line-oriented extraction instead of a JSONC parser: actions hold no
@@ -413,22 +426,26 @@ declare -A provided_hits=()
 resolved_names=()
 publishable_names=()
 no_source_names=()
-candidates=()
+incompatible_names=()
+sync_candidates=()
+aur_candidates=()
 for name in "${unique_names[@]}"; do
   if [[ ${provided_packages[$name]:-} ]]; then
     provided_hits[$name]=1
+  elif [[ ,${recipe_helpers[$name]}, == *,sync,* ]]; then
+    sync_candidates+=("$name")
   else
-    candidates+=("$name")
+    aur_candidates+=("$name")
   fi
 done
 
 R_SPLIT_PROJECT=1
-resolve_batch "${candidates[@]}"
+resolve_batch "${sync_candidates[@]}"
 declare -A unresolved_seen=()
 for name in "${R_UNRESOLVED[@]}"; do
   unresolved_seen[$name]=1
 done
-for name in "${candidates[@]}"; do
+for name in "${sync_candidates[@]}"; do
   if [[ ${unresolved_seen[$name]:-} ]]; then
     if [[ ${project_packages[$name]:-} ]]; then
       publishable_names+=("$name")
@@ -440,8 +457,25 @@ for name in "${candidates[@]}"; do
   fi
 done
 
+if (( ${#aur_candidates[@]} > 0 )); then
+  aur_reply=$(aur_lookup "${aur_candidates[@]}") || die "The AUR RPC endpoint could not be reached"
+  declare -A aur_snapshots=()
+  while IFS=$'\t' read -r name snapshot_path; do
+    [[ -n $name && -n $snapshot_path ]] && aur_snapshots[$name]="$snapshot_path"
+  done <<<"$aur_reply"
+  for name in "${aur_candidates[@]}"; do
+    if [[ -z ${aur_snapshots[$name]:-} ]]; then
+      no_source_names+=("$name")
+    elif aur_supports_aarch64 "${aur_snapshots[$name]}"; then
+      resolved_names+=("$name")
+    else
+      incompatible_names+=("$name")
+    fi
+  done
+fi
+
 echo "Recipe audit across ${#unique_names[@]} package names:"
-printf '  %d resolved from repositories or AUR\n' "${#resolved_names[@]}"
+printf '  %d resolved from repositories or architecture-compatible AUR recipes\n' "${#resolved_names[@]}"
 printf '  %d provided during install (release bundle or source-built)' "${#provided_hits[@]}"
 ((${#provided_hits[@]} == 0)) && printf ' --'
 printf '\n'
@@ -466,6 +500,11 @@ if (( ${#no_source_names[@]} > 0 )); then
   report_category "no source anywhere:" "${no_source_names[@]}"
 else
   echo "  no source anywhere: none"
+fi
+if (( ${#incompatible_names[@]} > 0 )); then
+  report_category "AUR recipe does not declare aarch64 support:" "${incompatible_names[@]}"
+else
+  echo "  AUR architecture mismatches: none"
 fi
 
 if (( ${#recipe_manual[@]} > 0 )); then
