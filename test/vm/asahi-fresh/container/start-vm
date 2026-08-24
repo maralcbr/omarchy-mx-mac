@@ -6,7 +6,7 @@ run=/work/run
 base=/work/cache/archarm-base.qcow2
 code=/usr/share/AAVMF/AAVMF_CODE.fd
 vars_template=/usr/share/AAVMF/AAVMF_VARS.fd
-memory_mb=${OMARCHY_VM_MEMORY_MB:-8192}
+memory_mb=${OMARCHY_VM_MEMORY_MB:-6144}
 
 rm -rf "$run"
 mkdir -p "$run"
