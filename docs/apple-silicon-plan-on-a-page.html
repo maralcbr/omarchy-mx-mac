@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Executive plan for integrating proven Apple Silicon behavior into official Omarchy through a gated six-phase roadmap.">
+  <title>One Omarchy — Apple Silicon Integration Plan</title>
+  <style>
+    :root {
+      --bg: #edf0f4;
+      --surface: #ffffff;
+      --surface-muted: #f3f5f8;
+      --ink: #17191d;
+      --muted: #626873;
+      --line: #d8dde5;
+      --accent: #2b55ed;
+      --accent-soft: #e8edff;
+      --success: #16794b;
+      --success-soft: #e7f6ee;
+      --warning: #8a5a00;
+      --warning-soft: #fff3d2;
+      --future: #6847c7;
+      --future-soft: #f0ebff;
+      --shadow: 0 20px 55px rgb(18 25 38 / 11%);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1116;
+        --surface: #181b21;
+        --surface-muted: #20242c;
+        --ink: #f2f4f7;
+        --muted: #aab1bb;
+        --line: #343a45;
+        --accent: #8ca7ff;
+        --accent-soft: #202c51;
+        --success: #66d19c;
+        --success-soft: #15372a;
+        --warning: #f0c15d;
+        --warning-soft: #3e3014;
+        --future: #b39cff;
+        --future-soft: #2d2450;
+        --shadow: 0 20px 55px rgb(0 0 0 / 35%);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+    }
+
+    a {
+      color: inherit;
+      text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+      text-underline-offset: 0.16em;
+    }
+
+    .slide {
+      width: min(100vw, calc(100vh * 16 / 9));
+      height: min(100vh, calc(100vw * 9 / 16));
+      min-height: 640px;
+      overflow: hidden;
+      padding: clamp(24px, 2vw, 42px) clamp(26px, 2.4vw, 50px) clamp(20px, 1.6vw, 34px);
+      background:
+        radial-gradient(circle at 88% 1%, color-mix(in srgb, var(--future-soft) 65%, transparent) 0 16%, transparent 40%),
+        var(--surface);
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: clamp(14px, 1.25vw, 24px);
+    }
+
+    .masthead {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .eyebrow,
+    .tag,
+    .panel-kicker,
+    .lane-label,
+    .phase-step small,
+    .source-line {
+      font-size: clamp(9px, 0.63vw, 12px);
+      font-weight: 750;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--accent);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 1060px;
+      margin-bottom: 7px;
+      font-size: clamp(30px, 3.25vw, 64px);
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+    }
+
+    .subhead {
+      max-width: 990px;
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: clamp(12px, 0.92vw, 18px);
+      line-height: 1.42;
+    }
+
+    .tag-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 7px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 25px;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      white-space: nowrap;
+    }
+
+    .tag.primary {
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+      gap: clamp(14px, 1.2vw, 24px);
+      min-height: 0;
+    }
+
+    .architecture {
+      min-width: 0;
+      min-height: 0;
+      padding: clamp(14px, 1.15vw, 23px);
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: color-mix(in srgb, var(--surface) 94%, transparent);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .architecture.future {
+      border-color: color-mix(in srgb, var(--future) 40%, var(--line));
+      box-shadow: inset 0 3px 0 var(--future);
+    }
+
+    .panel-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: baseline;
+      margin-bottom: clamp(10px, 0.9vw, 17px);
+    }
+
+    .panel-heading h2 {
+      margin-bottom: 0;
+      font-size: clamp(18px, 1.45vw, 29px);
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+    }
+
+    .panel-kicker {
+      margin-bottom: 4px;
+      color: var(--muted);
+    }
+
+    .state-label {
+      color: var(--warning);
+      font-size: clamp(10px, 0.72vw, 14px);
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .future .state-label {
+      color: var(--future);
+    }
+
+    .diagram {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: clamp(10px, 0.85vw, 17px);
+    }
+
+    .lane {
+      padding: clamp(10px, 0.78vw, 15px);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--surface-muted);
+    }
+
+    .lane.official {
+      background: var(--accent-soft);
+    }
+
+    .lane.apple {
+      background: var(--warning-soft);
+    }
+
+    .lane-label {
+      margin-bottom: clamp(7px, 0.55vw, 11px);
+      color: var(--muted);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: clamp(12px, 1.25vw, 24px);
+      align-items: stretch;
+    }
+
+    .flow.four {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .node {
+      position: relative;
+      min-width: 0;
+      min-height: clamp(49px, 4vw, 76px);
+      padding: clamp(9px, 0.67vw, 13px);
+      border: 1px solid color-mix(in srgb, var(--line) 75%, var(--ink));
+      border-radius: 8px;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .node:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      left: calc(100% + 2px);
+      width: clamp(10px, 1.15vw, 22px);
+      transform: translateY(-52%);
+      color: var(--muted);
+      font-size: clamp(14px, 1.25vw, 24px);
+      font-weight: 700;
+      pointer-events: none;
+    }
+
+    .node strong {
+      overflow-wrap: anywhere;
+      font-size: clamp(10px, 0.78vw, 15px);
+      line-height: 1.18;
+    }
+
+    .node span {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: clamp(8px, 0.58vw, 11px);
+      line-height: 1.2;
+    }
+
+    .seam-note,
+    .ownership-note {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: auto;
+      padding-top: clamp(9px, 0.72vw, 14px);
+      color: var(--muted);
+      font-size: clamp(9px, 0.67vw, 13px);
+      line-height: 1.3;
+    }
+
+    .seam-note::before,
+    .ownership-note::before {
+      content: "";
+      flex: 0 0 auto;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--warning);
+    }
+
+    .ownership-note::before {
+      background: var(--success);
+    }
+
+    .future-stack {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      gap: clamp(8px, 0.65vw, 13px);
+      min-height: 0;
+    }
+
+    .shared-core,
+    .resolver,
+    .release-channel {
+      padding: clamp(9px, 0.7vw, 14px) clamp(11px, 0.9vw, 18px);
+      border: 1px solid color-mix(in srgb, var(--future) 50%, var(--line));
+      border-radius: 10px;
+      background: var(--future-soft);
+      text-align: center;
+    }
+
+    .shared-core strong,
+    .resolver strong,
+    .release-channel strong {
+      display: block;
+      font-size: clamp(11px, 0.88vw, 17px);
+      line-height: 1.15;
+    }
+
+    .shared-core span,
+    .resolver span,
+    .release-channel span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: clamp(8px, 0.58vw, 11px);
+      line-height: 1.22;
+    }
+
+    .target-axes {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .axis {
+      padding: 4px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface);
+      font: 650 clamp(8px, 0.55vw, 11px)/1.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: nowrap;
+    }
+
+    .branches {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: clamp(7px, 0.65vw, 13px);
+      min-height: 0;
+    }
+
+    .branch {
+      padding: clamp(8px, 0.67vw, 13px);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--surface-muted);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      text-align: center;
+    }
+
+    .branch.apple-platform {
+      border-color: color-mix(in srgb, var(--success) 45%, var(--line));
+      background: var(--success-soft);
+    }
+
+    .branch strong {
+      font-size: clamp(9px, 0.72vw, 14px);
+      line-height: 1.15;
+    }
+
+    .branch span {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: clamp(8px, 0.54vw, 10px);
+      line-height: 1.22;
+    }
+
+    .decision {
+      display: grid;
+      grid-template-columns: minmax(205px, 0.76fr) minmax(0, 2.5fr) minmax(175px, 0.72fr);
+      gap: clamp(12px, 1.2vw, 24px);
+      align-items: center;
+      padding: clamp(12px, 0.92vw, 18px) clamp(14px, 1.15vw, 23px);
+      border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--line));
+      border-radius: 13px;
+      background: linear-gradient(105deg, var(--accent-soft), color-mix(in srgb, var(--surface) 94%, var(--accent-soft)) 62%);
+    }
+
+    .decision-copy h2 {
+      margin-bottom: 3px;
+      color: var(--accent);
+      font-size: clamp(15px, 1.15vw, 23px);
+      line-height: 1.1;
+      letter-spacing: -0.025em;
+    }
+
+    .decision-copy p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: clamp(8px, 0.58vw, 11px);
+      line-height: 1.25;
+    }
+
+    .phase-steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--line);
+    }
+
+    .phase-step {
+      position: relative;
+      min-width: 0;
+      padding: clamp(8px, 0.62vw, 12px);
+      background: var(--surface);
+    }
+
+    .phase-step small {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--accent);
+    }
+
+    .phase-step strong {
+      display: block;
+      overflow-wrap: anywhere;
+      font-size: clamp(8px, 0.65vw, 12px);
+      line-height: 1.16;
+    }
+
+    .boundary {
+      text-align: right;
+    }
+
+    .boundary strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--warning);
+      font-size: clamp(10px, 0.74vw, 14px);
+    }
+
+    .boundary span {
+      display: block;
+      color: var(--muted);
+      font-size: clamp(8px, 0.58vw, 11px);
+      line-height: 1.25;
+    }
+
+    .source-line {
+      margin: -3px 2px 0;
+      color: var(--muted);
+      letter-spacing: 0.055em;
+      text-align: right;
+      text-transform: none;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 900px), (max-aspect-ratio: 4 / 3) {
+      body {
+        display: block;
+      }
+
+      .slide {
+        width: 100%;
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+      }
+
+      .masthead,
+      .comparison,
+      .decision {
+        grid-template-columns: 1fr;
+      }
+
+      .tag-stack {
+        align-items: flex-start;
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+
+      .boundary,
+      .source-line {
+        text-align: left;
+      }
+
+      .node strong,
+      .branch strong,
+      .phase-step strong {
+        font-size: 12px;
+      }
+
+      .node span,
+      .branch span,
+      .phase-step small,
+      .source-line {
+        font-size: 10px;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .flow,
+      .flow.four,
+      .branches,
+      .phase-steps {
+        grid-template-columns: 1fr;
+      }
+
+      .node:not(:last-child)::after {
+        content: "↓";
+        top: calc(100% + 1px);
+        left: 50%;
+        width: auto;
+        transform: translateX(-50%);
+      }
+    }
+
+    @page {
+      size: 13.333in 7.5in;
+      margin: 0;
+    }
+
+    @media print {
+      :root {
+        --bg: #ffffff;
+        --surface: #ffffff;
+        --surface-muted: #f3f5f8;
+        --ink: #17191d;
+        --muted: #626873;
+        --line: #d8dde5;
+        --accent: #2b55ed;
+        --accent-soft: #e8edff;
+        --success: #16794b;
+        --success-soft: #e7f6ee;
+        --warning: #8a5a00;
+        --warning-soft: #fff3d2;
+        --future: #6847c7;
+        --future-soft: #f0ebff;
+        --shadow: none;
+      }
+
+      html,
+      body {
+        width: 13.333in;
+        height: 7.5in;
+        background: #ffffff;
+      }
+
+      body {
+        display: block;
+      }
+
+      .slide {
+        width: 13.333in;
+        height: 7.5in;
+        min-height: 0;
+        box-shadow: none;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+
+      .masthead {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+
+      .comparison {
+        grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+      }
+
+      .decision {
+        grid-template-columns: minmax(205px, 0.76fr) minmax(0, 2.5fr) minmax(175px, 0.72fr);
+      }
+
+      .tag-stack {
+        align-items: flex-end;
+        flex-direction: column;
+        flex-wrap: nowrap;
+      }
+
+      .boundary,
+      .source-line {
+        text-align: right;
+      }
+
+      .flow {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .flow.four {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .branches {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .phase-steps {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .node:not(:last-child)::after {
+        content: "→";
+        top: 50%;
+        left: calc(100% + 2px);
+        width: clamp(10px, 1.15vw, 22px);
+        transform: translateY(-52%);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="slide">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Apple Silicon integration · decision brief</p>
+        <h1>One Omarchy, architecture-aware by design.</h1>
+        <p class="subhead">
+          Upstream the proven safety boundary first. Keep package publication, media,
+          Apple boot integration, and support promises behind evidence-based gates.
+        </p>
+      </div>
+      <div class="tag-stack" aria-label="Brief metadata">
+        <span class="tag primary">Decision: approve Phase 1</span>
+        <span class="tag">Research snapshot · 23 Aug 2026</span>
+      </div>
+    </header>
+
+    <section class="comparison" aria-label="Current and future architecture comparison">
+      <article class="architecture current">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">Current state</p>
+            <h2>Two delivery systems</h2>
+          </div>
+          <span class="state-label">Working, but split</span>
+        </div>
+
+        <div class="diagram" role="img" aria-labelledby="current-summary">
+          <p id="current-summary" class="visually-hidden">
+            Official Omarchy serves x86-64 through its shared runtime, packages, media,
+            and release. Apple Silicon follows a separate path from macOS through Asahi
+            and Arch Linux ARM Minimal into the Omarchy MX Mac installer and signed Mac channel.
+          </p>
+
+          <div class="lane official">
+            <div class="lane-label">Official Omarchy · x86-64</div>
+            <div class="flow">
+              <div class="node"><strong>basecamp/omarchy</strong><span>shared runtime</span></div>
+              <div class="node"><strong>Official packages + ISO</strong><span>x86-oriented delivery</span></div>
+              <div class="node"><strong>Standard release</strong><span>official channel</span></div>
+            </div>
+          </div>
+
+          <div class="lane apple">
+            <div class="lane-label">Apple Silicon · downstream today</div>
+            <div class="flow four">
+              <div class="node"><strong>macOS</strong><span>starting point</span></div>
+              <div class="node"><strong>Asahi / ALARM</strong><span>boot + hardware base</span></div>
+              <div class="node"><strong>Omarchy MX Mac</strong><span>installer + fork</span></div>
+              <div class="node"><strong>Signed Mac channel</strong><span>separate release</span></div>
+            </div>
+          </div>
+
+          <div class="seam-note">
+            MX proves the behavior, while also carrying duplicate manifests, signing,
+            release handling, and ARM validation.
+          </div>
+        </div>
+      </article>
+
+      <article class="architecture future">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">Future state</p>
+            <h2>One shared product, gated delivery</h2>
+          </div>
+          <span class="state-label">North Star</span>
+        </div>
+
+        <div class="diagram" role="img" aria-labelledby="future-summary">
+          <p id="future-summary" class="visually-hidden">
+            Basecamp Omarchy becomes an architecture-aware shared runtime. Architecture and
+            platform are resolved independently, then official package and installer systems
+            produce PC, generic ARM, and Apple Silicon delivery paths. Asahi continues to own
+            the Apple boot and hardware foundation, while supported systems converge on the
+            standard Omarchy release channel.
+          </p>
+
+          <div class="future-stack">
+            <div class="shared-core">
+              <strong>basecamp/omarchy · one shared runtime</strong>
+              <span>Detection, safe platform behavior, and resolved package inputs</span>
+            </div>
+
+            <div class="target-axes" aria-label="Independent target dimensions">
+              <span class="axis">architecture: x86_64 | aarch64</span>
+              <span class="axis">platform: generic | apple-silicon</span>
+            </div>
+
+            <div class="branches">
+              <div class="branch">
+                <strong>PC / x86-64</strong>
+                <span>Official packages and media continue unchanged</span>
+              </div>
+              <div class="branch">
+                <strong>Generic ARM64</strong>
+                <span>Official packages and generic UEFI media first</span>
+              </div>
+              <div class="branch apple-platform">
+                <strong>Apple Silicon</strong>
+                <span>Installer-owned backend + bridge on Asahi’s foundation</span>
+              </div>
+            </div>
+
+            <div class="release-channel">
+              <strong>Standard Omarchy release channel</strong>
+              <span>Only after installation, updates, recovery, and named-device support are proven</span>
+            </div>
+          </div>
+
+          <div class="ownership-note">
+            Asahi remains the owner of Apple boot policy, m1n1/U-Boot, firmware,
+            kernel, device trees, and platform repositories.
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <footer>
+      <section class="decision" aria-labelledby="decision-title">
+        <div class="decision-copy">
+          <h2 id="decision-title">Approve Phase 1 now</h2>
+          <p>Extract reviewable behavior onto current upstream Quattro.</p>
+        </div>
+
+        <div class="phase-steps" aria-label="Phase 1 work sequence">
+          <div class="phase-step"><small>01</small><strong>Recognize Apple Silicon</strong></div>
+          <div class="phase-step"><small>02</small><strong>Protect Asahi-owned state</strong></div>
+          <div class="phase-step"><small>03</small><strong>Upstream neutral fixes</strong></div>
+          <div class="phase-step"><small>04</small><strong>Freeze package inputs</strong></div>
+        </div>
+
+        <div class="boundary">
+          <strong>Recognized ≠ supported</strong>
+          <span>No Apple installer, release, or hardware-support claim in Phase 1.</span>
+        </div>
+      </section>
+      <p class="source-line">
+        Companion assets: <a href="apple-silicon-integration-roadmap.md">six-phase roadmap</a> ·
+        <a href="apple-silicon-phase-1-plan.md">detailed Phase 1 plan</a>
+      </p>
+    </footer>
+  </main>
+</body>
+</html>
