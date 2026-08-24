@@ -18,6 +18,8 @@ id omarchy >/dev/null || fail "install user"
 [[ $(passwd -S alarm | awk '{ print $2 }') == "L" ]] || fail "stock Alarm account is not locked"
 grep -Fxq "User=omarchy" /var/lib/sddm/state.conf || fail "SDDM last-user seeded"
 grep -Fxq "Session=omarchy.desktop" /var/lib/sddm/state.conf || fail "SDDM last-session seeded"
+grep -Eq '^[[:space:]]*-?auth[[:space:]]+.*pam_gnome_keyring\.so([[:space:]]|$)' /etc/pam.d/sddm || fail "SDDM GNOME Keyring auth hook"
+grep -Eq '^[[:space:]]*-?session[[:space:]]+.*pam_gnome_keyring\.so.*auto_start' /etc/pam.d/sddm || fail "SDDM GNOME Keyring session hook"
 [[ -f /home/omarchy/.local/state/omarchy/done/finalize-user ]] || fail "user finalization marker"
 pacman -Q omarchy-dev omarchy-settings-dev linux-asahi networkmanager iwd rtkit >/dev/null || fail "required packages"
 for unit in NetworkManager.service sddm.service systemd-resolved.service; do
