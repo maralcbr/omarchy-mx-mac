@@ -4,6 +4,17 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
+## [4.0.0-mac.14] - 2026-08-24
+
+- Added version-controlled release notes and a maintained Apple Silicon
+  changelog.
+- Validated parallel native-ARM package preparation, signed immutable package
+  reuse, and GitHub Actions builder caching.
+- Restricted package signing and release writes to the final protected publish
+  job after exact six-package fan-in verification.
+
+[Release notes](docs/releases/v4.0.0-mac.14.md) | [Full diff](https://github.com/maralcbr/omarchy-mx-mac/compare/v4.0.0-mac.13...v4.0.0-mac.14)
+
 ## [4.0.0-mac.13] - 2026-08-24
 
 - Rebuilt `quickshell-git` against Qt 6.11.2 and raised its package release to
@@ -47,5 +58,6 @@ verbatim.
 - [4.0.0-mac.1](https://github.com/maralcbr/omarchy-mx-mac/compare/v3.8.4-mac.4...v4.0.0-mac.1) - 2026-08-15
 
 [4.0.0-mac.13]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.13
+[4.0.0-mac.14]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.14
 [4.0.0-mac.12]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.12
 [4.0.0-mac.11]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.11
