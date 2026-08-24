@@ -46,6 +46,11 @@ jobs:
           [[ $RELEASE_TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$ ]]
           [[ $RELEASE_SEQUENCE =~ ^[1-9][0-9]*$ ]]
           git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          notes_file="docs/releases/$RELEASE_TAG.md"
+          git show "$RELEASE_TAG:$notes_file" > /tmp/release-notes.md
+          grep -Fxq "# Omarchy MX Mac ${RELEASE_TAG#v}" /tmp/release-notes.md
+          grep -Fxq '## Validation' /tmp/release-notes.md
+          grep -Fq '**Full Changelog**:' /tmp/release-notes.md
           latest_tag=$(gh release list --limit 100 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$' | sort -V | tail -1)
           [[ -z $latest_tag || $(printf '%s\n%s\n' "$latest_tag" "$RELEASE_TAG" | sort -V | tail -1) == "$RELEASE_TAG" && $latest_tag != "$RELEASE_TAG" ]]
       - name: Import release key
@@ -79,4 +84,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: gh release create "$RELEASE_TAG" dist/stable-release/* --verify-tag --title "Omarchy MX Mac ${RELEASE_TAG#v}" --generate-notes
+        run: gh release create "$RELEASE_TAG" dist/stable-release/* --verify-tag --title "Omarchy MX Mac ${RELEASE_TAG#v}" --notes-file /tmp/release-notes.md
