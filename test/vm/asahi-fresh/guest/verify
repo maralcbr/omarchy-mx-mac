@@ -19,7 +19,7 @@ id omarchy >/dev/null || fail "install user"
 grep -Fxq "User=omarchy" /var/lib/sddm/state.conf || fail "SDDM last-user seeded"
 grep -Fxq "Session=omarchy.desktop" /var/lib/sddm/state.conf || fail "SDDM last-session seeded"
 [[ -f /home/omarchy/.local/state/omarchy/done/finalize-user ]] || fail "user finalization marker"
-pacman -Q omarchy-dev omarchy-settings-dev linux-asahi networkmanager iwd >/dev/null || fail "required packages"
+pacman -Q omarchy-dev omarchy-settings-dev linux-asahi networkmanager iwd rtkit >/dev/null || fail "required packages"
 for unit in NetworkManager.service sddm.service systemd-resolved.service; do
   systemctl is-enabled --quiet "$unit" || fail "$unit enabled"
 done
