@@ -365,7 +365,7 @@ ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 pacman -Q omarchy-dev omarchy-settings-dev linux-asahi linux-asahi-headers m1n1 networkmanager iwd >/dev/null
 [[ $(cat /usr/share/omarchy/version) == 4.* ]] || fail "Installed Omarchy version is not 4.x"
 NetworkManager --print-config 2>/dev/null | grep -Fxq 'wifi.backend=iwd' || fail "NetworkManager iwd backend was not configured"
-grep -Eqi '^LANG=.*\.(UTF-8|utf8)$' /etc/locale.conf || fail "The system locale is not UTF-8"
+grep -Eqi '^[[:space:]]*LANG[[:space:]]*=[[:space:]]*"?[^"[:space:]#]*\.utf-?8(@[^"[:space:]#]+)?"?([[:space:]]*(#.*)?)?$' /etc/locale.conf || fail "The system locale is not UTF-8"
 sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed unexpectedly"
 sha256sum --check --status <<<"$grub_sha256" || fail "The GRUB configuration changed unexpectedly"
 

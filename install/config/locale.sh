@@ -1,12 +1,13 @@
-# The Asahi Arch Minimal base ships /etc/locale.conf with LANG=C, and only the
-# built-in C/C.utf8/POSIX locales are generated. System services then run in a
-# non-UTF-8 locale (SDDM/Qt warn and substitute C.UTF-8 on their own), so seed
-# the neutral UTF-8 default when no regional UTF-8 locale is configured.
-#
-# Direct write rather than localectl: this runs in install contexts (ISO
-# chroot, fresh-install finalization) with no dbus/systemd-localed available.
-if [[ -r /etc/locale.conf ]] && grep -Eqi '^LANG=.*\.(UTF-8|utf8)$' /etc/locale.conf; then
+locale_conf="${OMARCHY_LOCALE_CONF:-/etc/locale.conf}"
+lang=$(sed -nE 's/^[[:space:]]*LANG[[:space:]]*=[[:space:]]*"?([^"[:space:]#]+)"?([[:space:]]*(#.*)?)?$/\1/p' "$locale_conf" 2>/dev/null | tail -n 1)
+
+if [[ ${lang,,} =~ \.utf-?8(@[^[:space:]]+)?$ ]]; then
   return 0
 fi
 
-printf 'LANG=C.UTF-8\n' >/etc/locale.conf
+# This runs in chroots without systemd-localed. Replace only LANG so regional
+# LC_* choices and administrator comments remain intact.
+if [[ -e $locale_conf ]]; then
+  sed -i '/^[[:space:]]*LANG[[:space:]]*=/d' "$locale_conf"
+fi
+printf 'LANG=C.UTF-8\n' >>"$locale_conf"

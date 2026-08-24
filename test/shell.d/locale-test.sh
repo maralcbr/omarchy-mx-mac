@@ -14,14 +14,32 @@ vm_verify="$ROOT/test/vm/asahi-fresh/guest/verify"
 bash -n "$locale_leaf" "$fresh_installer" "$migration" "$migrate"
 
 ! head -1 "$locale_leaf" | grep -q '^#!' || fail "locale setup leaf stays shebang-free like its sourced siblings"
-grep -Fq "printf 'LANG=C.UTF-8\\n' >/etc/locale.conf" "$locale_leaf" ||
+grep -Fq "printf 'LANG=C.UTF-8\\n' >>\"\$locale_conf\"" "$locale_leaf" ||
   fail "locale setup leaf seeds the neutral C.UTF-8 default"
-grep -Fq "grep -Eqi '^LANG=.*\\.(UTF-8|utf8)\$' /etc/locale.conf" "$locale_leaf" ||
-  fail "locale setup leaf keeps an already configured UTF-8 locale"
 if grep -Eq '^[[:space:]]*localectl' "$locale_leaf"; then
   fail "locale setup leaf avoids localectl so it works from the ISO chroot"
 fi
 pass "install-time locale setup seeds C.UTF-8 without disturbing regional choices"
+
+apply_locale_leaf() {
+  OMARCHY_LOCALE_CONF="$1" bash -euo pipefail -c 'source "$1"' _ "$locale_leaf"
+}
+
+locale_conf=$(mktemp)
+trap 'rm -f "$locale_conf"' EXIT
+printf 'LANG=C\nLC_TIME=de_DE.UTF-8\n# local choice\n' >"$locale_conf"
+apply_locale_leaf "$locale_conf"
+grep -Fxq 'LANG=C.UTF-8' "$locale_conf" || fail "locale setup replaces a non-UTF-8 LANG"
+grep -Fxq 'LC_TIME=de_DE.UTF-8' "$locale_conf" || fail "locale setup preserves LC category choices"
+grep -Fxq '# local choice' "$locale_conf" || fail "locale setup preserves comments"
+
+for configured_lang in 'C.UTF-8' 'C.utf8' '"en_US.UTF-8"' '"sr_RS.UTF-8@latin"'; do
+  printf 'LANG=%s\nLC_MESSAGES=C\n' "$configured_lang" >"$locale_conf"
+  before=$(<"$locale_conf")
+  apply_locale_leaf "$locale_conf"
+  [[ $(<"$locale_conf") == "$before" ]] || fail "locale setup preserves UTF-8 LANG=$configured_lang"
+done
+pass "locale setup behavior preserves valid locale.conf syntax and independent settings"
 
 grep -Fq 'run_logged "$OMARCHY_INSTALL/config/locale.sh"' "$config_all" ||
   fail "system config wires the locale setup into every install path"
@@ -38,7 +56,7 @@ alarm_line=$(grep -n -m1 'usermod -L alarm' "$fresh_installer" | cut -d: -f1)
 pass "fresh Asahi install refuses to complete with a non-UTF-8 system locale"
 
 [[ -f $migration ]] || fail "existing installs receive the UTF-8 locale repair migration"
-grep -Fq "grep -Eqi '^LANG=.*\\.(UTF-8|utf8)\$' /etc/locale.conf" "$migration" ||
+grep -Fq 'if [[ ${lang,,} =~ \.utf-?8(@[^[:space:]]+)?$ ]]' "$migration" ||
   fail "UTF-8 locale repair migration keeps an already configured UTF-8 locale"
 grep -Fq 'sudo localectl set-locale LANG=C.UTF-8' "$migration" ||
   fail "UTF-8 locale repair migration goes through localectl"
