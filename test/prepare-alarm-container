@@ -1,0 +1,57 @@
+#!/bin/bash
+
+set -euo pipefail
+
+[[ -n ${RUNNER_TEMP:-} ]] || { echo "RUNNER_TEMP is required" >&2; exit 1; }
+
+rootfs_url=http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+key_commit=91e6b11698f8df66042d56aaa56fbe9c9263847d
+key_fingerprint=68B3537F39A313B3E574D06777193F152BDBE6A6
+key_url="https://raw.githubusercontent.com/archlinuxarm/archlinuxarm-keyring/$key_commit/packager/builder.asc"
+
+curl -fsSL --retry 3 -o "$RUNNER_TEMP/alarm.tar.gz" "$rootfs_url"
+curl -fsSL --retry 3 -o "$RUNNER_TEMP/alarm.tar.gz.sig" "$rootfs_url.sig"
+curl -fsSL --retry 3 -o "$RUNNER_TEMP/alarm-builder.asc" "$key_url"
+
+actual_fingerprint=$(gpg --show-keys --with-colons "$RUNNER_TEMP/alarm-builder.asc" |
+  awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $actual_fingerprint == "$key_fingerprint" ]] || {
+  echo "Unexpected Arch Linux ARM signing key: $actual_fingerprint" >&2
+  exit 1
+}
+
+GNUPGHOME="$RUNNER_TEMP/alarm-gnupg"
+export GNUPGHOME
+mkdir -m 0700 "$GNUPGHOME"
+gpg --batch --import "$RUNNER_TEMP/alarm-builder.asc" >/dev/null
+gpg --batch --verify "$RUNNER_TEMP/alarm.tar.gz.sig" "$RUNNER_TEMP/alarm.tar.gz"
+docker import "$RUNNER_TEMP/alarm.tar.gz" alarm:aarch64
+docker run --name alarm-keyring alarm:aarch64 /bin/bash -c \
+  'pacman-key --init && pacman-key --populate archlinuxarm'
+docker commit alarm-keyring alarm:aarch64 >/dev/null
+docker rm alarm-keyring >/dev/null
+
+cat >"$RUNNER_TEMP/pacman.conf" <<'EOF'
+[options]
+HoldPkg = pacman glibc
+Architecture = auto
+CheckSpace
+SigLevel = Required DatabaseOptional
+ParallelDownloads = 5
+
+[asahi-alarm]
+SigLevel = Never
+Server = https://github.com/asahi-alarm/asahi-alarm/releases/download/$arch
+
+[core]
+Server = http://mirror.archlinuxarm.org/$arch/$repo
+
+[extra]
+Server = http://mirror.archlinuxarm.org/$arch/$repo
+
+[alarm]
+Server = http://mirror.archlinuxarm.org/$arch/$repo
+
+[aur]
+Server = http://mirror.archlinuxarm.org/$arch/$repo
+EOF
