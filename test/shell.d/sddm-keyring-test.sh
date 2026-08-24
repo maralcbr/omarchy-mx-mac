@@ -53,3 +53,34 @@ pass "SDDM setup accepts the packaged hook variants"
 
 grep -Fq 'SDDM GNOME Keyring auth hook' "$ROOT/test/vm/asahi-fresh/guest/verify" || fail "fresh-install VM verifies keyring authentication"
 pass "fresh-install VM requires both GNOME Keyring PAM phases"
+
+mock_bin="$test_tmp/bin"
+mkdir -p "$mock_bin"
+cat >"$mock_bin/omarchy-pkg-present" <<'SH'
+#!/bin/bash
+exit "${OMARCHY_TEST_PACKAGE_MISSING:-0}"
+SH
+cat >"$mock_bin/sudo" <<'SH'
+#!/bin/bash
+exec "$@"
+SH
+chmod +x "$mock_bin"/*
+
+cat >"$pam_file" <<'PAM'
+#%PAM-1.0
+auth include system-login
+account include system-login
+-session optional pam_gnome_keyring.so auto_start
+PAM
+OMARCHY_PATH="$ROOT" OMARCHY_SDDM_PAM_FILE="$pam_file" PATH="$mock_bin:$PATH" \
+  bash -euo pipefail "$ROOT/migrations/1787552167.sh"
+grep -Eq '^-auth[[:space:]]+optional[[:space:]]+pam_gnome_keyring\.so$' "$pam_file" || fail "migration repairs a previously stripped SDDM stack"
+pass "existing password-login installations regain keyring unlock"
+
+sed -i '/pam_gnome_keyring\.so/d' "$pam_file"
+before_missing=$(sha256sum "$pam_file")
+OMARCHY_TEST_PACKAGE_MISSING=1 OMARCHY_PATH="$ROOT" OMARCHY_SDDM_PAM_FILE="$pam_file" PATH="$mock_bin:$PATH" \
+  bash -euo pipefail "$ROOT/migrations/1787552167.sh"
+[[ $(sha256sum "$pam_file") == "$before_missing" ]] || fail "migration skips systems without GNOME Keyring"
+grep -Fq '1787552167.sh)' "$ROOT/bin/omarchy-migrate" || fail "keyring migration is reviewed for Asahi"
+pass "keyring migration is package-aware and reviewed"
