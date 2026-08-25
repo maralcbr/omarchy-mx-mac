@@ -4,6 +4,18 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
+## [4.0.1-mac.1] - 2026-08-25
+
+- Integrated upstream Omarchy 4.0.1 while preserving the Apple Silicon install,
+  update, boot, and package safety gates.
+- Added upstream hardening for theme and plugin sources, FIDO2 credentials,
+  notifications, DNS changes, and Windows VM configuration.
+- Reviewed every new migration explicitly for Apple Silicon, running the
+  architecture-neutral repairs and holding package swaps outside the validated
+  Apple package bundle.
+
+[Release notes](docs/releases/v4.0.1-mac.1.md) | [Full diff](https://github.com/maralcbr/omarchy-mx-mac/compare/v4.0.0-mac.16...v4.0.1-mac.1)
+
 ## [4.0.0-mac.16] - 2026-08-24
 
 - Early-loads the Apple keyboard and multi-touch HID drivers to prevent an
@@ -81,5 +93,6 @@ verbatim.
 [4.0.0-mac.14]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.14
 [4.0.0-mac.15]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.15
 [4.0.0-mac.16]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.16
+[4.0.1-mac.1]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.1-mac.1
 [4.0.0-mac.12]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.12
 [4.0.0-mac.11]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.11
