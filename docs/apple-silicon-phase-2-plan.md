@@ -21,7 +21,7 @@ auditable path:
 3. publish an immutable public candidate prerelease;
 4. make this fork consume that exact release tag and descriptor digest;
 5. prove dependency resolution and clean installation and upgrade transactions;
-6. run fresh-system VM and physical Apple Silicon acceptance locally; and
+6. run fresh-system native-aarch64 VM acceptance locally; and
 7. promote the exact accepted release assets without rebuilding.
 
 The current x86-64 path and the externally owned Asahi kernel, firmware, device
@@ -70,8 +70,8 @@ The implementation begins with working evidence rather than a blank pipeline:
   completeness; generate and sign repository metadata; publish the immutable
   candidate; read it back; and run repository, dependency, clean-install, and
   upgrade transaction checks.
-- **Local responsibility:** fresh-system VM validation and physical Apple
-  Silicon hardware acceptance.
+- **Local responsibility:** fresh-system native-aarch64 VM validation. Physical
+  Apple Silicon hardware acceptance is deferred and is not a Phase 2 gate.
 - **Signing:** store only a dedicated ARM repository signing subkey and its
   passphrase in GitHub Actions Secrets. Keep the personal master key out of
   Actions. Pin the public fingerprint as protected repository/environment
@@ -170,7 +170,7 @@ readback. No candidate is published while implementing or reviewing the PR.
 **Gate:** CI proves install and upgrade from the exact public candidate and the
 fork records the tag, descriptor digest, and signer as reviewable inputs.
 
-### P2-PR4 — Local fresh-system and hardware acceptance
+### P2-PR4 — Local fresh-system VM acceptance
 
 **Execution host:** the local Apple Silicon machine.
 
@@ -181,14 +181,15 @@ fork records the tag, descriptor digest, and signer as reviewable inputs.
   before running it.
 - Install a fresh system from the exact candidate tag/digest, reboot, update
   from the previous accepted snapshot, and capture package/signature evidence.
-- On physical hardware, exercise boot, display/GPU, input, networking, audio,
-  suspend/resume, shutdown, and recovery expectations already defined by the
-  Apple Silicon roadmap.
-- Store a signed acceptance record containing candidate identity, machine
-  identity, test versions, results, known defects, and evidence locations.
+- Store a signed acceptance record containing candidate identity, execution-host and
+  guest identity, test versions, results, known defects, and evidence locations.
+- Record physical boot, display/GPU, input, networking, audio, suspend/resume,
+  and shutdown behavior as deferred and untested. Do not present VM acceptance
+  as evidence for those hardware-specific capabilities.
 
-**Gate:** both VM and hardware acceptance pass with no unresolved release-
-blocking defect. Container checks alone cannot satisfy this gate.
+**Gate:** the native-aarch64 VM acceptance passes with no unresolved release-
+blocking defect. Physical hardware acceptance is optional follow-up evidence,
+not a Phase 2 promotion gate.
 
 ### P2-PR5 — Byte-identical promotion and retention
 
@@ -224,7 +225,8 @@ Phase 2 is complete only when:
 - this fork consumes the exact candidate tag and descriptor digest;
 - clean dependency, install, and upgrade transactions pass against downloaded
   public assets;
-- fresh-system VM and physical Apple Silicon acceptance pass locally;
+- fresh-system native-aarch64 VM acceptance passes locally, with physical
+  hardware behavior explicitly recorded as deferred and untested;
 - promotion copies the accepted bytes without rebuilding and stable readback
   proves byte identity;
 - the retention policy is automated, conservative on uncertainty, and covered
@@ -262,14 +264,21 @@ branches:
   promotion requires a matching acceptance record and verifies byte identity,
   while retention preserves stable releases and defaults to keeping uncertain
   candidates; and
-- the local host now has QEMU aarch64 support and usable KVM acceleration. The
-  fresh-system VM defaults to 6 GiB, but the full VM and hardware gates remain
-  intentionally pending until an immutable candidate exists.
+- an immutable public candidate was published for source commit
+  `afd72814b7b29dddef2e07c7ed125101de34d4f4`, independently read back, and
+  consumed by the fork using its exact tag, descriptor digest, and dedicated
+  signing subkey;
+- the local host has QEMU aarch64 support and usable KVM acceleration, and the
+  full 6 GiB native-aarch64 fresh-system lifecycle passed candidate install,
+  all 21 exact package-version checks, interruption recovery, reboot, and safe
+  completed-installer rerun rejection; and
+- physical Apple Silicon behavior is intentionally deferred and is not a
+  promotion gate. GPU, Wi-Fi, audio, input, suspend/resume, and shutdown remain
+  unqualified by this Phase 2 acceptance record.
 
-No candidate or stable release has been published, no GitHub signing secret has
-been created, and the installer continues to use the existing stable snapshot.
-Those boundaries keep this work isolated from both the active Omarchy session
-and current online installers.
+No stable release has been promoted yet, and the installer continues to use the
+existing stable snapshot. The candidate and its dedicated Actions signing
+credential do not change the active Omarchy session or current online installs.
 
 ## Research basis
 
