@@ -16,6 +16,15 @@ verify_core_packages() {
 
   while IFS= read -r package; do
     [[ -z $package || $package == \#* ]] && continue
+
+    if [[ $(uname -m) == "aarch64" ]]; then
+      case "$package" in
+        asahi-desktop-meta|asahi-fwextract|widevine) continue ;;
+        linux-asahi) package=linux-aarch64 ;;
+        linux-asahi-headers) package=linux-aarch64-headers ;;
+      esac
+    fi
+
     pacman -Q "$package" >/dev/null 2>&1 || missing+=("$package")
   done <"$manifest"
 
