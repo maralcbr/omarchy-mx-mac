@@ -107,12 +107,21 @@ asahi_migration_disposition() {
     1786482992.sh) printf 'skipped\tLimine boot image repair is not applicable to Asahi\n' ;;
     1786567036.sh) printf 'skipped\tNetworkManager remains on the validated Asahi iwd backend\n' ;;
     1786605598.sh) printf 'skipped\tNVIDIA Limine initramfs repair is not applicable to Asahi\n' ;;
-    1786922691.sh|1787231692.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1786782461.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1786922691.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1786952219.sh) printf 'skipped\tmise-bin is unavailable in the Apple Silicon package repositories\n' ;;
+    1787133200.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1787231692.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1787399318.sh) printf 'skipped\tvalidated quickshell-git remains in the Apple Silicon bundle\n' ;;
+    1787481315.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     1787491150.sh) printf 'run\treviewed as architecture-neutral\n' ;;
+    1787494718.sh) printf 'run\treviewed FIDO2 authfile ownership repair\n' ;;
     1787497040.sh) printf 'run\tApple HID early-load gates itself to Apple Silicon hardware\n' ;;
     1787552067.sh) printf 'run\treviewed Apple Silicon audio package repair\n' ;;
     1787552167.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     1787560726.sh) printf 'run\treviewed Apple Silicon package repository setup\n' ;;
+    1787580187.sh) printf 'run\treviewed architecture-neutral Docker group hardening\n' ;;
+    1787618700.sh) printf 'run\treviewed safe Hyprland input-device state migration\n' ;;
     *) return 1 ;;
   esac
 }
