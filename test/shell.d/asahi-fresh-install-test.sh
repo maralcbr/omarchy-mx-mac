@@ -8,9 +8,11 @@ installer="$ROOT/bin/omarchy-install-asahi-fresh"
 wrapper="$ROOT/install-omarchy-mx-mac"
 vm_runner="$ROOT/test/vm/asahi-fresh/run"
 vm_installer="$ROOT/test/vm/asahi-fresh/guest/install"
+vm_candidate="$ROOT/test/vm/asahi-fresh/guest/candidate-repository"
+vm_verify="$ROOT/test/vm/asahi-fresh/guest/verify"
 vm_launcher="$ROOT/test/vm/asahi-fresh/container/start-vm"
 
-bash -n "$installer" "$wrapper" "$vm_runner" "$vm_installer" "$vm_launcher"
+bash -n "$installer" "$wrapper" "$vm_runner" "$vm_installer" "$vm_candidate" "$vm_verify" "$vm_launcher"
 "$installer" --help 2>&1 | grep -Fq -- '--asahi-packages DIR'
 pass "fresh Asahi installer exposes the verified bundle entrypoint"
 
@@ -98,3 +100,12 @@ grep -Fq 'docker exec -e OMARCHY_VM_MEMORY_MB="$vm_memory_mb"' "$vm_runner" || f
 grep -Fq 'memory_mb=${OMARCHY_VM_MEMORY_MB:-6144}' "$vm_launcher" || fail "VM launcher accepts the memory override"
 grep -Fq -- '-m "$memory_mb"' "$vm_launcher" || fail "QEMU uses the configured guest memory"
 pass "fresh-install VM supports constrained hosts"
+
+grep -Fq 'candidate_tag=${OMARCHY_VM_CANDIDATE_TAG:-}' "$vm_runner" || fail "VM runner accepts an exact package candidate tag"
+grep -Fq 'candidate_sha256=${OMARCHY_VM_CANDIDATE_SHA256:-}' "$vm_runner" || fail "VM runner accepts an exact candidate descriptor checksum"
+grep -Fq 'candidate_fingerprint=${OMARCHY_VM_CANDIDATE_FINGERPRINT:-}' "$vm_runner" || fail "VM runner accepts an exact candidate signing fingerprint"
+grep -Fq 'release_tag=$tag' "$vm_candidate" || fail "VM candidate gate binds the descriptor release tag"
+grep -Fq 'valid_fingerprint == "${signing_fingerprint^^}"' "$vm_candidate" || fail "VM candidate gate binds the descriptor signature"
+grep -Fq 'pacman -Syu --needed --noconfirm "${packages[@]}"' "$vm_candidate" || fail "VM candidate gate installs all descriptor packages"
+grep -Fq 'candidate package version: $package' "$vm_verify" || fail "VM verifies candidate versions after reboot"
+pass "fresh-install VM can consume an exact signed package candidate"
