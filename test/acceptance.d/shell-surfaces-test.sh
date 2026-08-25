@@ -96,8 +96,15 @@ wait_until "notification popup closes" 15 layer_absent "omarchy-notifications"
 
 # The menu's Apps submenu does the full launcher loop: open, search by
 # typing, launch the top hit.
-if window_present "(?i)omawrite" >/dev/null 2>&1; then
-  fail "app launch test starts with no Omawrite window" "an Omawrite window is already open"
+app_name="omawrite"
+app_class="(?i)omawrite"
+if ! command -v omawrite >/dev/null 2>&1; then
+  app_name="chromium"
+  app_class="(?i)chromium"
+fi
+
+if window_present "$app_class" >/dev/null 2>&1; then
+  fail "app launch test starts with no matching window" "a window matching $app_class is already open"
 fi
 
 omarchy-menu summon apps >/dev/null
@@ -105,13 +112,13 @@ wait_until "apps menu opens" 15 layer_present "omarchy-menu"
 sleep 1
 screenshot "success-apps-menu-open"
 
-wtype "omawrite"
+wtype "$app_name"
 sleep 1
 screenshot "success-apps-menu-search"
 wtype -k Return
 
-wait_until "apps menu launches the top search hit" 60 window_present "(?i)omawrite"
+wait_until "apps menu launches the top search hit" 60 window_present "$app_class"
 wait_until "apps menu closes after launching" 15 layer_absent "omarchy-menu"
 
-close_windows "(?i)omawrite"
-wait_until "Omawrite window closes" 30 window_absent "(?i)omawrite"
+close_windows "$app_class"
+wait_until "apps menu window closes" 30 window_absent "$app_class"

@@ -7,13 +7,17 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 status=0
 
 verify_core_packages() {
-  local package
+  local package manifest="$OMARCHY_PATH/install/omarchy-base.packages"
   local -a missing=()
+
+  if [[ $(uname -m) == "aarch64" && -f $OMARCHY_PATH/install/omarchy-base-asahi.packages ]]; then
+    manifest="$OMARCHY_PATH/install/omarchy-base-asahi.packages"
+  fi
 
   while IFS= read -r package; do
     [[ -z $package || $package == \#* ]] && continue
     pacman -Q "$package" >/dev/null 2>&1 || missing+=("$package")
-  done <"$OMARCHY_PATH/install/omarchy-base.packages"
+  done <"$manifest"
 
   (( ${#missing[@]} == 0 )) || fail "all Omarchy core packages are installed" "missing packages: ${missing[*]}"
   pass "all Omarchy core packages are installed (${#missing[@]} missing)"
