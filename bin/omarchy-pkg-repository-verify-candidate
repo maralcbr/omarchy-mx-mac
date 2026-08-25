@@ -1,0 +1,169 @@
+#!/bin/bash
+
+# omarchy:summary=Verify an offline Apple Silicon package candidate
+# omarchy:args=DIRECTORY RELEASE_TAG DESCRIPTOR_SHA256 SIGNING_FINGERPRINT KEY_FILE
+# omarchy:hidden=true
+
+set -euo pipefail
+
+usage() {
+  echo "Usage: omarchy-pkg-repository-verify-candidate DIRECTORY RELEASE_TAG DESCRIPTOR_SHA256 SIGNING_FINGERPRINT KEY_FILE" >&2
+  exit 64
+}
+
+(( $# == 5 )) || usage
+
+repository=$1
+expected_tag=$2
+expected_descriptor_sha256=${3,,}
+expected_signing_fingerprint=${4^^}
+key_file=$5
+
+fail() {
+  echo "Apple Silicon package candidate: $*" >&2
+  exit 2
+}
+
+[[ -d $repository ]] || fail "repository directory does not exist"
+[[ $expected_tag =~ ^asahi-packages-candidate-[0-9a-f]{40}$ ]] || fail "invalid release tag"
+[[ $expected_descriptor_sha256 =~ ^[0-9a-f]{64}$ ]] || fail "invalid descriptor checksum"
+[[ $expected_signing_fingerprint =~ ^[A-F0-9]{40}$ ]] || fail "invalid signing fingerprint"
+[[ -r $key_file ]] || fail "signing certificate is not readable"
+
+workdir=$(mktemp -d)
+trap 'rm -rf "$workdir"' EXIT
+gnupg_dir=$workdir/gnupg
+mkdir -m 0700 "$gnupg_dir"
+gpg --batch --homedir "$gnupg_dir" --import "$key_file" >/dev/null 2>&1 ||
+  fail "could not import the signing certificate"
+
+key_kind=$(gpg --batch --homedir "$gnupg_dir" --with-colons --list-keys |
+  awk -F: -v wanted="$expected_signing_fingerprint" '
+    $1 == "pub" || $1 == "sub" { kind=$1; next }
+    $1 == "fpr" && $10 == wanted { print kind; exit }
+  ')
+[[ $key_kind == "sub" ]] || fail "configured signing fingerprint is not a public subkey"
+
+verify_signature() {
+  local file=$1 signature=$2 status
+  [[ -s $file && -s $signature ]] || fail "missing signed asset ${file##*/}"
+  status=$(gpg --batch --homedir "$gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
+    fail "signature verification failed for ${file##*/}"
+  awk -v expected="$expected_signing_fingerprint" '
+    $2 == "VALIDSIG" && $3 == expected { valid=1 }
+    END { exit !valid }
+  ' <<<"$status" || fail "${file##*/} was not signed by the configured subkey"
+}
+
+descriptor=$repository/CANDIDATE
+descriptor_signature=$repository/CANDIDATE.sig
+[[ -s $descriptor ]] || fail "candidate descriptor is missing"
+[[ $(sha256sum "$descriptor" | cut -d' ' -f1) == $expected_descriptor_sha256 ]] ||
+  fail "candidate descriptor checksum does not match"
+verify_signature "$descriptor" "$descriptor_signature"
+
+format="" channel="" release_tag="" source_commit="" workflow_run="" runner_arch=""
+signing_fingerprint="" package_count=""
+declare -A package_names=() package_files=() described_files=() described_assets=()
+declare -A seen_headers=()
+package_records=0
+asset_records=0
+
+set_header() {
+  local name=$1 value=$2
+  [[ -z ${seen_headers[$name]:-} ]] || fail "duplicate candidate descriptor header: $name"
+  printf -v "$name" '%s' "$value"
+  seen_headers[$name]=1
+}
+
+while IFS= read -r line; do
+  case "$line" in
+    format=*) set_header format "${line#format=}" ;;
+    channel=*) set_header channel "${line#channel=}" ;;
+    release_tag=*) set_header release_tag "${line#release_tag=}" ;;
+    source_commit=*) set_header source_commit "${line#source_commit=}" ;;
+    workflow_run=*) set_header workflow_run "${line#workflow_run=}" ;;
+    runner_arch=*) set_header runner_arch "${line#runner_arch=}" ;;
+    signing_fingerprint=*) set_header signing_fingerprint "${line#signing_fingerprint=}" ;;
+    package_count=*) set_header package_count "${line#package_count=}" ;;
+    package=*)
+      record=${line#package=}
+      IFS='|' read -r index package version architecture filename archive_sha signature_filename signature_sha extra <<<"$record"
+      [[ -z $extra && $index =~ ^[1-9][0-9]*$ ]] || fail "invalid package record index"
+      (( index == package_records + 1 )) || fail "invalid package record index"
+      [[ $package =~ ^[a-z0-9@._+-]+$ && -n $version ]] || fail "invalid package record"
+      [[ $architecture == "aarch64" || $architecture == "any" ]] || fail "invalid package architecture"
+      [[ $filename =~ ^[A-Za-z0-9._+@-]+\.pkg\.tar\.[A-Za-z0-9.]+$ ]] || fail "unsafe package filename"
+      [[ $signature_filename == $filename.sig ]] || fail "invalid package signature filename"
+      [[ $archive_sha =~ ^[0-9a-f]{64}$ && $signature_sha =~ ^[0-9a-f]{64}$ ]] || fail "invalid package checksum"
+      [[ -z ${package_names[$package]:-} && -z ${package_files[$filename]:-} ]] || fail "duplicate package record"
+      package_names[$package]=1
+      package_files[$filename]=1
+      described_files[$filename]=1
+      described_files[$signature_filename]=1
+      archive=$repository/$filename
+      signature=$repository/$signature_filename
+      [[ $(sha256sum "$archive" | cut -d' ' -f1) == $archive_sha ]] || fail "package checksum mismatch: $filename"
+      [[ $(sha256sum "$signature" | cut -d' ' -f1) == $signature_sha ]] || fail "package signature checksum mismatch: $filename"
+      verify_signature "$archive" "$signature"
+      metadata=$(bsdtar -xOf "$archive" .PKGINFO) || fail "could not read package metadata: $filename"
+      [[ $(sed -n 's/^pkgname = //p' <<<"$metadata") == $package ]] || fail "package name mismatch: $filename"
+      [[ $(sed -n 's/^pkgver = //p' <<<"$metadata") == $version ]] || fail "package version mismatch: $filename"
+      [[ $(sed -n 's/^arch = //p' <<<"$metadata") == $architecture ]] || fail "package architecture mismatch: $filename"
+      ((package_records += 1))
+      ;;
+    asset=*)
+      record=${line#asset=}
+      IFS='|' read -r filename asset_sha extra <<<"$record"
+      [[ -z $extra && $filename =~ ^[A-Za-z0-9._-]+$ && $asset_sha =~ ^[0-9a-f]{64}$ ]] || fail "invalid asset record"
+      [[ -z ${described_assets[$filename]:-} ]] || fail "duplicate asset record"
+      described_assets[$filename]=1
+      described_files[$filename]=1
+      [[ -s $repository/$filename ]] || fail "missing repository asset: $filename"
+      [[ $(sha256sum "$repository/$filename" | cut -d' ' -f1) == $asset_sha ]] || fail "asset checksum mismatch: $filename"
+      ((asset_records += 1))
+      ;;
+    "") ;;
+    *) fail "unknown candidate descriptor entry"
+  esac
+done <"$descriptor"
+
+[[ $format == "1" && $channel == "candidate" ]] || fail "unsupported candidate descriptor"
+[[ $release_tag == $expected_tag ]] || fail "release tag does not match the candidate descriptor"
+[[ $source_commit == ${expected_tag#asahi-packages-candidate-} ]] || fail "source commit does not match the release tag"
+[[ $workflow_run =~ ^[1-9][0-9]*$ && $runner_arch == "aarch64" ]] || fail "invalid build identity"
+[[ $signing_fingerprint == $expected_signing_fingerprint ]] || fail "signing fingerprint does not match the descriptor"
+[[ $package_count == "21" && $package_records == 21 ]] || fail "candidate does not contain exactly 21 packages"
+
+required_assets=(
+  omarchy.db
+  omarchy.db.sig
+  omarchy.files
+  omarchy.files.sig
+  transaction-clean.log
+  transaction-upgrade.log
+  transaction-repositories.sha256
+)
+(( asset_records == ${#required_assets[@]} )) || fail "candidate repository asset count is incorrect"
+for asset in "${required_assets[@]}"; do
+  [[ -n ${described_assets[$asset]:-} ]] || fail "candidate descriptor is missing $asset"
+done
+verify_signature "$repository/omarchy.db" "$repository/omarchy.db.sig"
+verify_signature "$repository/omarchy.files" "$repository/omarchy.files.sig"
+
+described_files[CANDIDATE]=1
+described_files[CANDIDATE.sig]=1
+described_files[SHA256SUMS]=1
+while IFS= read -r -d '' file; do
+  filename=${file##*/}
+  [[ -n ${described_files[$filename]:-} ]] || fail "unexpected release asset: $filename"
+done < <(find "$repository" -maxdepth 1 -type f -print0)
+(( $(find "$repository" -maxdepth 1 -type f | wc -l) == ${#described_files[@]} )) ||
+  fail "release asset inventory is incomplete"
+
+(
+  cd "$repository"
+  sha256sum --check --strict SHA256SUMS >/dev/null
+) || fail "SHA256SUMS verification failed"
+
+echo "Verified Apple Silicon package candidate $expected_tag ($expected_descriptor_sha256)"

@@ -23,7 +23,9 @@ Run:
 test/vm/asahi-fresh/run
 ```
 
-The guest uses 8 vCPUs, 8 GiB RAM, and a 96 GiB sparse disk.
+The guest uses 8 vCPUs, 6 GiB RAM, and a 96 GiB sparse disk. Set
+`OMARCHY_VM_MEMORY_MB` explicitly when a different disposable-guest limit is
+required.
 
 Use `--rebuild-base` to discard the cached Arch Linux ARM base and `--keep` to
 retain the VM container after a run. State and failure artifacts are written to

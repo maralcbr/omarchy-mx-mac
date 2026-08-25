@@ -12,7 +12,7 @@ vnc_port=${OMARCHY_VM_VNC_PORT:-25900}
 keep=0
 rebuild=0
 optional_packages=0
-vm_memory_mb=${OMARCHY_VM_MEMORY_MB:-8192}
+vm_memory_mb=${OMARCHY_VM_MEMORY_MB:-6144}
 
 [[ $vm_memory_mb =~ ^[1-9][0-9]*$ ]] || {
   echo "OMARCHY_VM_MEMORY_MB must be a positive integer" >&2

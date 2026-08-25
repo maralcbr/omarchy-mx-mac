@@ -93,8 +93,8 @@ grep -Fq 'env OMARCHY_VM_STABLE_VERSION="$stable_version"' "$vm_runner" || fail 
 grep -Fq 'grep -Fxq "version=$OMARCHY_VM_STABLE_VERSION"' "$vm_installer" || fail "VM validates the published stable version without a stale hardcode"
 pass "fresh-install VM tracks the candidate stable version"
 
-grep -Fq 'vm_memory_mb=${OMARCHY_VM_MEMORY_MB:-8192}' "$vm_runner" || fail "VM runner keeps the 8 GiB default"
+grep -Fq 'vm_memory_mb=${OMARCHY_VM_MEMORY_MB:-6144}' "$vm_runner" || fail "VM runner keeps the 6 GiB default"
 grep -Fq 'docker exec -e OMARCHY_VM_MEMORY_MB="$vm_memory_mb"' "$vm_runner" || fail "VM runner passes the memory override"
-grep -Fq 'memory_mb=${OMARCHY_VM_MEMORY_MB:-8192}' "$vm_launcher" || fail "VM launcher accepts the memory override"
+grep -Fq 'memory_mb=${OMARCHY_VM_MEMORY_MB:-6144}' "$vm_launcher" || fail "VM launcher accepts the memory override"
 grep -Fq -- '-m "$memory_mb"' "$vm_launcher" || fail "QEMU uses the configured guest memory"
 pass "fresh-install VM supports constrained hosts"
