@@ -15,7 +15,8 @@ hardware.
 Phase 2 replaces the current one-off 21-package snapshot with a repeatable,
 auditable path:
 
-1. build all 21 repository packages on native GitHub-hosted ARM runners;
+1. build the complete reviewed repository closure on native GitHub-hosted ARM
+   runners (expanded from 21 to 33 packages during dependency closure work);
 2. sign every package and the repository metadata with a dedicated ARM
    repository signing subkey;
 3. publish an immutable public candidate prerelease;
@@ -65,7 +66,7 @@ The implementation begins with working evidence rather than a blank pipeline:
   `maralcbr/omarchy-pkgs`.
 - **Candidate visibility:** use public GitHub prereleases.
 - **Build topology:** one native ARM matrix job per package source, followed by
-  an assembly/check job for the complete 21-package repository.
+  an assembly/check job for the complete 33-package repository.
 - **CI responsibility:** build packages; validate artifact architecture and
   completeness; generate and sign repository metadata; publish the immutable
   candidate; read it back; and run repository, dependency, clean-install, and
@@ -78,8 +79,9 @@ The implementation begins with working evidence rather than a blank pipeline:
   configuration and force GnuPG to use that exact subkey.
 - **Promotion:** download and verify the accepted candidate, then upload those
   exact bytes to the stable snapshot. Never invoke a build during promotion.
-- **Coverage:** the gate is the complete current set of 21 packages. A partial
-  repository cannot be published or promoted.
+- **Coverage:** the gate is the complete current set of 33 repository packages
+  plus six runtime packages. A partial repository or runtime bundle cannot be
+  published or promoted.
 - **Retention:** retain promoted stable snapshots indefinitely; retain at least
   the newest two unpromoted candidates and every unpromoted candidate younger
   than 14 days; retain failed candidates for 7 days unless linked to an
@@ -91,7 +93,8 @@ Every candidate is identified by both an immutable Git tag and the SHA-256 of a
 small signed release descriptor. The descriptor records at least:
 
 - schema version, candidate tag, and source commit;
-- package source revisions and the expected package count (`21`);
+- package source revisions and the expected repository package count (`33`),
+  plus the separately checksummed six-package runtime bundle;
 - each package filename, architecture, version, SHA-256, and signature filename;
 - the repository database/files filenames and SHA-256 values;
 - the exact signing subkey fingerprint;
@@ -122,15 +125,17 @@ promote a release.
 - Build one source per native ARM job and upload only its package archives as a
   one-day temporary artifact.
 - Fan the artifacts into a clean assembly job and require exactly the checked-in
-  list of 21 package names, with no duplicates or unexpected archives.
+  list of 33 repository package names, with no duplicates or unexpected
+  archives.
 - Reject non-`aarch64`/`any` artifacts and preserve `.PKGINFO`, `.BUILDINFO`,
   source revision, build log, and checksums as evidence.
 - Generate an unsigned repository only for pre-publication dependency and
   transaction checks; signing happens in the protected publication job.
 
-**Gate:** all 21 packages build independently and the assembled repository
-passes completeness, architecture, dependency-resolution, and clean-transaction
-tests. Existing package-reuse and manifest tests remain green.
+**Gate:** all 33 repository packages build independently and the assembled
+repository passes completeness, architecture, dependency-resolution, and
+clean-transaction tests. Existing package-reuse and manifest tests remain
+green.
 
 ### P2-PR2 — Dedicated signing and immutable candidate prerelease
 
@@ -140,7 +145,8 @@ tests. Existing package-reuse and manifest tests remain green.
   signing-subkey secret and passphrase.
 - Require the configured fingerprint, verify that the imported secret material
   can sign as that exact subkey, and use the `fingerprint!` GnuPG selector.
-- Sign all 21 packages plus `omarchy.db` and `omarchy.files` metadata.
+- Sign all 33 repository packages, the six runtime packages, and `omarchy.db`
+  and `omarchy.files` metadata.
 - Produce and sign the candidate descriptor and `SHA256SUMS`.
 - Publish `asahi-packages-candidate-<source-commit>` as an immutable public
   GitHub prerelease, then verify the public readback independently.
@@ -218,8 +224,8 @@ upgrade read only stable release assets.
 
 Phase 2 is complete only when:
 
-- all 21 package outputs are built and checked in isolated native ARM matrix
-  jobs;
+- all 33 repository package outputs and six runtime package outputs are built
+  and checked in isolated native ARM jobs;
 - the dedicated ARM signing subkey is the only private signing material
   available to Actions and its public fingerprint is pinned;
 - an immutable public candidate passes independent public readback;
@@ -251,10 +257,10 @@ operator actions after review.
 The safe, non-publishing implementation slice is now present on the Phase 2
 branches:
 
-- `maralcbr/omarchy-pkgs` builds all 12 reviewed sources as a native ARM
-  matrix, assembles the complete 21-package repository, and exercises signed
-  clean-install and previous-snapshot upgrade transactions in disposable
-  containers;
+- `maralcbr/omarchy-pkgs` builds all 24 reviewed sources as a native ARM
+  matrix, assembles the complete 33-package repository and six-package runtime
+  bundle, and exercises signed clean-install and previous-snapshot upgrade
+  transactions in disposable containers;
 - production publication validates that the imported credential is a dedicated
   secret signing subkey, rejects the personal release fingerprint, and forces
   the exact subkey selector;
@@ -266,23 +272,23 @@ branches:
   while retention preserves stable releases and defaults to keeping uncertain
   candidates; and
 - an immutable public candidate was published for source commit
-  `afd72814b7b29dddef2e07c7ed125101de34d4f4`, independently read back, and
+  `a9bf4e5da273af2d4b432b3e0b123f74f3c5b933`, independently read back, and
   consumed by the fork using its exact tag, descriptor digest, and dedicated
   signing subkey;
-- the local host has QEMU aarch64 support and usable KVM acceleration, and the
-  full 6 GiB native-aarch64 fresh-system lifecycle passed candidate install,
-  all 21 exact package-version checks, interruption recovery, reboot, and safe
-  completed-installer rerun rejection; and
+- an Apple M4 Pro host ran the 10-vCPU, 12 GiB native-aarch64 VM gate. The
+  fresh encrypted ISO install, reboot and disk unlock, compositor shortcut
+  checks, graphical acceptance suite, services, runtime tools, and exact ARM
+  VM package profile all passed; and
 - physical Apple Silicon behavior is intentionally deferred and is not a
   promotion gate. GPU, Wi-Fi, audio, input, suspend/resume, and shutdown remain
   unqualified by this Phase 2 acceptance record.
 
 The accepted candidate was promoted without rebuilding to the immutable stable
 snapshot
-`asahi-packages-stable-afd72814b7b29dddef2e07c7ed125101de34d4f4`.
-Independent public readback found the same 52 asset names and SHA-256 digests as
-the candidate. The installer continues to use the previous stable snapshot, so
-publication did not change the active Omarchy session or current online
+`asahi-packages-stable-a9bf4e5da273af2d4b432b3e0b123f74f3c5b933`.
+Independent public readback found the same 91 asset names and SHA-256 digests as
+the candidate. The existing channel and installer endpoint were not changed,
+so publication did not change the active Omarchy session or current online
 installs. Under the VM-only acceptance policy recorded above, the Phase 2
 publication system is complete; physical hardware qualification remains
 optional follow-up work.
