@@ -181,8 +181,9 @@ fork records the tag, descriptor digest, and signer as reviewable inputs.
   before running it.
 - Install a fresh system from the exact candidate tag/digest, reboot, update
   from the previous accepted snapshot, and capture package/signature evidence.
-- Store a signed acceptance record containing candidate identity, execution-host and
-  guest identity, test versions, results, known defects, and evidence locations.
+- Store a reviewed, checksum-pinned acceptance record containing candidate
+  identity, execution-host and guest identity, test versions, results, known
+  defects, and evidence locations.
 - Record physical boot, display/GPU, input, networking, audio, suspend/resume,
   and shutdown behavior as deferred and untested. Do not present VM acceptance
   as evidence for those hardware-specific capabilities.
@@ -276,9 +277,15 @@ branches:
   promotion gate. GPU, Wi-Fi, audio, input, suspend/resume, and shutdown remain
   unqualified by this Phase 2 acceptance record.
 
-No stable release has been promoted yet, and the installer continues to use the
-existing stable snapshot. The candidate and its dedicated Actions signing
-credential do not change the active Omarchy session or current online installs.
+The accepted candidate was promoted without rebuilding to the immutable stable
+snapshot
+`asahi-packages-stable-afd72814b7b29dddef2e07c7ed125101de34d4f4`.
+Independent public readback found the same 52 asset names and SHA-256 digests as
+the candidate. The installer continues to use the previous stable snapshot, so
+publication did not change the active Omarchy session or current online
+installs. Under the VM-only acceptance policy recorded above, the Phase 2
+publication system is complete; physical hardware qualification remains
+optional follow-up work.
 
 ## Research basis
 
