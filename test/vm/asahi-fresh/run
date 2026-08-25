@@ -13,11 +13,34 @@ keep=0
 rebuild=0
 optional_packages=0
 vm_memory_mb=${OMARCHY_VM_MEMORY_MB:-6144}
+candidate_tag=${OMARCHY_VM_CANDIDATE_TAG:-}
+candidate_sha256=${OMARCHY_VM_CANDIDATE_SHA256:-}
+candidate_fingerprint=${OMARCHY_VM_CANDIDATE_FINGERPRINT:-}
+candidate_key=${OMARCHY_VM_CANDIDATE_KEY_FILE:-$root/default/omarchy-arm-repository.asc}
 
 [[ $vm_memory_mb =~ ^[1-9][0-9]*$ ]] || {
   echo "OMARCHY_VM_MEMORY_MB must be a positive integer" >&2
   exit 1
 }
+
+if [[ -n $candidate_tag || -n $candidate_sha256 || -n $candidate_fingerprint ]]; then
+  [[ $candidate_tag =~ ^asahi-packages-candidate-[0-9a-f]{40}$ ]] || {
+    echo "OMARCHY_VM_CANDIDATE_TAG must identify an exact candidate commit" >&2
+    exit 1
+  }
+  [[ $candidate_sha256 =~ ^[0-9a-fA-F]{64}$ ]] || {
+    echo "OMARCHY_VM_CANDIDATE_SHA256 must be an exact descriptor checksum" >&2
+    exit 1
+  }
+  [[ $candidate_fingerprint =~ ^[0-9a-fA-F]{40}$ ]] || {
+    echo "OMARCHY_VM_CANDIDATE_FINGERPRINT must be an exact signing fingerprint" >&2
+    exit 1
+  }
+  [[ -r $candidate_key ]] || {
+    echo "OMARCHY_VM_CANDIDATE_KEY_FILE is not readable" >&2
+    exit 1
+  }
+fi
 
 while (($#)); do
   case "$1" in
@@ -103,6 +126,16 @@ wait_for_reboot() {
 }
 
 wait_for_ssh || { tail -200 "$state/run/serial.log"; exit 1; }
+if [[ -n $candidate_tag ]]; then
+  scp "${scp_args[@]}" "$candidate_key" root@127.0.0.1:/root/omarchy-arm-repository.asc
+  scp "${scp_args[@]}" "$harness/guest/candidate-repository" root@127.0.0.1:/root/omarchy-vm-candidate-repository
+  ssh "${ssh_args[@]}" root@127.0.0.1 env \
+    OMARCHY_VM_CANDIDATE_TAG="$candidate_tag" \
+    OMARCHY_VM_CANDIDATE_SHA256="$candidate_sha256" \
+    OMARCHY_VM_CANDIDATE_FINGERPRINT="$candidate_fingerprint" \
+    bash /root/omarchy-vm-candidate-repository |
+    tee "$state/run/candidate-repository.log"
+fi
 scp "${scp_args[@]}" "$root/bin/omarchy-install-asahi-fresh" root@127.0.0.1:/root/omarchy-install-asahi-fresh.candidate
 scp "${scp_args[@]}" "$root/bin/omarchy-update-asahi-bundle" root@127.0.0.1:/root/omarchy-update-asahi-bundle.candidate
 scp "${scp_args[@]}" "$harness/guest/install" root@127.0.0.1:/root/omarchy-vm-install

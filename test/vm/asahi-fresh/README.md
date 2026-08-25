@@ -37,3 +37,18 @@ after the reboot checks. Each transaction gets a separate log under
 `test-runs/run/optional-package-logs/`. This validates package installation and
 post-install hooks in a disposable system, but it does not automate application
 login, GUI interaction, or hardware behavior.
+
+To run the full lifecycle after installing an exact immutable package candidate,
+provide its trusted identity explicitly:
+
+```bash
+OMARCHY_VM_CANDIDATE_TAG=asahi-packages-candidate-<40-hex-commit> \
+OMARCHY_VM_CANDIDATE_SHA256=<64-hex-descriptor-checksum> \
+OMARCHY_VM_CANDIDATE_FINGERPRINT=<40-hex-signing-subkey> \
+test/vm/asahi-fresh/run
+```
+
+This opt-in path verifies the signed descriptor inside the guest, installs all
+21 candidate packages through the exact release repository, and checks their
+versions again after the full install and reboot. It does not alter the stable
+repository pin used by the production installer or the default VM path.
