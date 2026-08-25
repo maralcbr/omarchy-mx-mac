@@ -93,6 +93,33 @@ if "$ROOT/bin/omarchy-pkg-repository-verify-candidate" \
 fi
 pass "candidate signer must be the exact signing subkey"
 
+mkdir "$test_tmp/fake-bin"
+cat >"$test_tmp/fake-bin/gh" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+if [[ $1 == "api" ]]; then
+  printf '{"prerelease":true,"immutable":true}\n'
+elif [[ $1 == "release" && $2 == "download" ]]; then
+  while (($#)); do
+    if [[ $1 == "--dir" ]]; then
+      cp -a "$FAKE_RELEASE_DIR/." "$2/"
+      exit 0
+    fi
+    shift
+  done
+  exit 1
+else
+  exit 1
+fi
+EOF
+chmod +x "$test_tmp/fake-bin/gh"
+downloaded=$test_tmp/downloaded
+PATH="$test_tmp/fake-bin:$PATH" FAKE_RELEASE_DIR="$repository" OMARCHY_PATH="$ROOT" \
+  "$ROOT/bin/omarchy-pkg-repository-download-candidate" \
+  "$downloaded" "$tag" "$descriptor_sha256" "$signing_fingerprint" "$test_tmp/candidate.gpg" >/dev/null
+[[ -f $downloaded/CANDIDATE && -f $downloaded/SHA256SUMS ]]
+pass "exact immutable candidate is downloaded and verified atomically"
+
 printf 'unexpected\n' >"$repository/unexpected"
 if "$ROOT/bin/omarchy-pkg-repository-verify-candidate" \
   "$repository" "$tag" "$descriptor_sha256" "$signing_fingerprint" "$test_tmp/candidate.gpg" >/dev/null 2>&1; then

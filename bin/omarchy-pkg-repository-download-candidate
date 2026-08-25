@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# omarchy:summary=Download and verify an exact Apple Silicon package candidate
+# omarchy:args=DIRECTORY RELEASE_TAG DESCRIPTOR_SHA256 SIGNING_FINGERPRINT KEY_FILE
+# omarchy:hidden=true
+
+set -euo pipefail
+
+usage() {
+  echo "Usage: omarchy-pkg-repository-download-candidate DIRECTORY RELEASE_TAG DESCRIPTOR_SHA256 SIGNING_FINGERPRINT KEY_FILE" >&2
+  exit 64
+}
+
+(( $# == 5 )) || usage
+
+destination=$1
+release_tag=$2
+descriptor_sha256=$3
+signing_fingerprint=$4
+key_file=$5
+repository=maralcbr/omarchy-pkgs
+
+fail() {
+  echo "Apple Silicon package candidate download: $*" >&2
+  exit 2
+}
+
+[[ $release_tag =~ ^asahi-packages-candidate-[0-9a-f]{40}$ ]] || fail "invalid release tag"
+[[ $descriptor_sha256 =~ ^[0-9a-fA-F]{64}$ ]] || fail "invalid descriptor checksum"
+[[ $signing_fingerprint =~ ^[0-9a-fA-F]{40}$ ]] || fail "invalid signing fingerprint"
+[[ -r $key_file ]] || fail "signing certificate is not readable"
+[[ ! -e $destination ]] || fail "destination already exists"
+
+parent=$(dirname -- "$destination")
+[[ -d $parent ]] || fail "destination parent does not exist"
+omarchy-cmd-present gh || fail "GitHub CLI is required"
+
+release_json=$(gh api "repos/$repository/releases/tags/$release_tag") ||
+  fail "candidate release is unavailable"
+[[ $(jq -r .prerelease <<<"$release_json") == "true" ]] || fail "release is not a prerelease"
+[[ $(jq -r .immutable <<<"$release_json") == "true" ]] || fail "release is not immutable"
+
+workdir=$(mktemp -d "$parent/.omarchy-candidate.XXXXXX")
+trap 'rm -rf "$workdir"' EXIT
+gh release download "$release_tag" --repo "$repository" --dir "$workdir" ||
+  fail "candidate assets could not be downloaded"
+
+"$OMARCHY_PATH/bin/omarchy-pkg-repository-verify-candidate" \
+  "$workdir" "$release_tag" "$descriptor_sha256" "$signing_fingerprint" "$key_file"
+
+mv "$workdir" "$destination"
+trap - EXIT
+echo "Downloaded verified Apple Silicon package candidate to $destination"
