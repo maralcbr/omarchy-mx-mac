@@ -295,7 +295,7 @@ validate_asahi_packages() {
   version=$(bsdtar -xOf "${asahi_package_archives[2]}" usr/share/omarchy/version 2>/dev/null || \
     bsdtar -xOf "${asahi_package_archives[2]}" ./usr/share/omarchy/version 2>/dev/null) || \
     fail "omarchy-dev does not package /usr/share/omarchy/version. No changes were made."
-  grep -Fq -- '-mac.dev' <<<"$version" || fail "omarchy-dev is not an Omarchy Mac dev build. No changes were made."
+  [[ $version =~ -mac\.(dev|[0-9]+)$ ]] || fail "omarchy-dev is not an Omarchy Mac release build. No changes were made."
 }
 
 if (( asahi_mode )); then
