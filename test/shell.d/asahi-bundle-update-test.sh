@@ -64,7 +64,11 @@ while (($#)); do
   esac
 done
 [[ -z ${TEST_CURL_LOG:-} ]] || printf '%s\n' "$url" >>"$TEST_CURL_LOG"
-cp "$TEST_ASSETS/${url##*/}" "$output"
+if [[ $url == */releases\?per_page=100 ]]; then
+  cp "$TEST_ASSETS/releases.json" "$output"
+else
+  cp "$TEST_ASSETS/${url##*/}" "$output"
+fi
 SH
 cat >"$stub_bin/gpg" <<'SH'
 #!/bin/bash
@@ -79,7 +83,7 @@ echo '[GNUPG:] VALIDSIG 5983B1CA32CB778F4D74D24ECFF35022CA5B5959 2026-01-01 0 4 
 SH
 cat >"$stub_bin/jq" <<'SH'
 #!/bin/bash
-exit 1
+echo asahi-quattro-channel-22
 SH
 cat >"$stub_bin/bsdtar" <<'SH'
 #!/bin/bash
@@ -101,6 +105,29 @@ run_check() {
     PATH="$stub_bin:$PATH" \
     "$updater" --check
 }
+
+run_discovery_check() {
+  TEST_ASSETS="$assets" \
+    TEST_CURL_LOG="$test_tmp/discovery-curl.log" \
+    OMARCHY_ASAHI_TESTING=1 \
+    OMARCHY_ASAHI_ROOT="$test_tmp/root" \
+    OMARCHY_ASAHI_BUNDLE_STATE="$state" \
+    OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy-release.gpg" \
+    OMARCHY_ASAHI_RELEASES_API_URL="https://api.github.test/repos/example/releases?per_page=100" \
+    PATH="$stub_bin:$PATH" \
+    "$updater" --check
+}
+
+printf '%s\n' \
+  '[{"draft":false,"prerelease":false,"tag_name":"asahi-quattro-channel-22"}]' \
+  >"$assets/releases.json"
+write_channel 2 "$source_commit"
+run_discovery_check >"$test_tmp/discovery.out"
+grep -Fxq 'https://api.github.test/repos/example/releases?per_page=100' "$test_tmp/discovery-curl.log" ||
+  fail "versioned channel discovery reads the GitHub releases API"
+grep -Fxq 'https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-22/asahi-quattro-channel' "$test_tmp/discovery-curl.log" ||
+  fail "versioned channel discovery downloads the selected signed pointer"
+pass "immutable versioned Asahi channels are discovered dynamically"
 
 write_channel 2 "$source_commit"
 run_check >"$test_tmp/available.out"
