@@ -50,7 +50,7 @@ compatible=$(tr '\0' '\n' <"$(root_path /proc/device-tree/compatible)" 2>/dev/nu
 [[ $(uname -m) == "aarch64" ]] || fail "only aarch64 is supported"
 grep -q '^apple,' <<<"$compatible" || fail "Apple Silicon device tree not found"
 
-for command in bsdtar curl gpg sha256sum vercmp; do
+for command in bsdtar curl gpg jq sha256sum vercmp; do
   omarchy-cmd-present "$command" || fail "$command is required"
 done
 
@@ -83,7 +83,17 @@ if [[ -n ${OMARCHY_ASAHI_CHANNEL_URL:-} ]]; then
   channel_url=$OMARCHY_ASAHI_CHANNEL_URL
   channel_signature_url="${OMARCHY_ASAHI_CHANNEL_SIGNATURE_URL:-$channel_url.sig}"
 else
-  tag=asahi-quattro-channel
+  releases_api_url="${OMARCHY_ASAHI_RELEASES_API_URL:-https://api.github.com/repos/$repo/releases?per_page=100}"
+  download "$releases_api_url" "$workdir/releases.json"
+  tag=$(jq -er '
+    [
+      .[]
+      | select(.draft == false and .prerelease == false)
+      | select(.tag_name | test("^asahi-quattro-channel-[1-9][0-9]*$"))
+      | { tag: .tag_name, sequence: (.tag_name | sub("^asahi-quattro-channel-"; "") | tonumber) }
+    ]
+    | max_by(.sequence).tag
+  ' "$workdir/releases.json") || fail "could not discover the signed Apple Silicon release channel"
   base="https://github.com/$repo/releases/download/$tag"
   channel_url="$base/asahi-quattro-channel"
   channel_signature_url="$channel_url.sig"
