@@ -5,9 +5,20 @@ set -euo pipefail
 source "$(dirname "$0")/base-test.sh"
 
 updater="$ROOT/bin/omarchy-update-asahi-bundle"
+package_certificate="$ROOT/default/asahi-repository-signing.asc"
+[[ -s $package_certificate ]] || fail "Asahi package signing certificate is installed with the runtime"
+gpg --batch --show-keys --with-colons "$package_certificate" |
+  grep -Fxq 'fpr:::::::::C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC:' ||
+  fail "Asahi package signing certificate has the pinned primary fingerprint"
 grep -Fq 'manifest_format == "2"' "$updater" || fail "Asahi updater consumes manifest format 2"
 grep -Fq 'package=*)' "$updater" || fail "Asahi updater consumes canonical package records"
 grep -Fq 'channel=*) channel_name=' "$updater" || fail "Asahi updater validates the signed channel name"
+grep -Fq 'verify_release_signature "$workdir/channel"' "$updater" ||
+  fail "Asahi updater verifies the channel with the release key"
+grep -Fq 'verify_package_signature "$workdir/$manifest_name"' "$updater" ||
+  fail "Asahi updater verifies the runtime manifest with the package key"
+grep -Fq 'verify_package_signature "$archive" "$archive.sig"' "$updater" ||
+  fail "Asahi updater verifies package archives with the package key"
 if grep -Eq '/proc/swaps|/sys/module/zswap' "$updater"; then
   fail "Asahi bundle updates do not reject Omarchy's active zram configuration"
 fi
@@ -24,6 +35,7 @@ source_commit=0123456789abcdef0123456789abcdef01234567
 package_source_commit=89abcdef0123456789abcdef0123456789abcdef
 mkdir -p "$stub_bin" "$assets" "$test_tmp/root/proc/device-tree"
 : >"$test_tmp/omarchy-release.gpg"
+: >"$test_tmp/asahi-repository-signing.asc"
 printf 'apple,j314s\0apple,arm-platform\0' >"$test_tmp/root/proc/device-tree/compatible"
 
 write_channel() {
@@ -73,7 +85,11 @@ SH
 cat >"$stub_bin/gpg" <<'SH'
 #!/bin/bash
 if [[ " $* " == *" --show-keys "* ]]; then
-  echo 'fpr:::::::::5983B1CA32CB778F4D74D24ECFF35022CA5B5959:'
+  if [[ $* == *asahi-repository-signing.asc* ]]; then
+    echo 'fpr:::::::::C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC:'
+  else
+    echo 'fpr:::::::::5983B1CA32CB778F4D74D24ECFF35022CA5B5959:'
+  fi
   exit 0
 fi
 if [[ " $* " == *" --import "* ]]; then
@@ -101,6 +117,7 @@ run_check() {
     OMARCHY_ASAHI_ROOT="$test_tmp/root" \
     OMARCHY_ASAHI_BUNDLE_STATE="$state" \
     OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy-release.gpg" \
+    OMARCHY_ASAHI_PACKAGE_KEY_FILE="$test_tmp/asahi-repository-signing.asc" \
     OMARCHY_ASAHI_CHANNEL_URL="https://example.test/asahi-quattro-channel" \
     PATH="$stub_bin:$PATH" \
     "$updater" --check
@@ -113,6 +130,7 @@ run_discovery_check() {
     OMARCHY_ASAHI_ROOT="$test_tmp/root" \
     OMARCHY_ASAHI_BUNDLE_STATE="$state" \
     OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy-release.gpg" \
+    OMARCHY_ASAHI_PACKAGE_KEY_FILE="$test_tmp/asahi-repository-signing.asc" \
     OMARCHY_ASAHI_RELEASES_API_URL="https://api.github.test/repos/example/releases?per_page=100" \
     PATH="$stub_bin:$PATH" \
     "$updater" --check
@@ -241,6 +259,7 @@ run_update_to_manifest() {
     OMARCHY_ASAHI_ROOT="$test_tmp/root" \
     OMARCHY_ASAHI_BUNDLE_STATE="$state" \
     OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy-release.gpg" \
+    OMARCHY_ASAHI_PACKAGE_KEY_FILE="$test_tmp/asahi-repository-signing.asc" \
     OMARCHY_ASAHI_CHANNEL_URL="https://example.test/asahi-quattro-channel" \
     OMARCHY_ASAHI_RELEASE_BASE_URL="https://example.test/asahi-quattro-test" \
     PATH="$stub_bin:$PATH" \
@@ -280,7 +299,11 @@ pass "bundle update permits active zswap"
 cat >"$stub_bin/gpg" <<'SH'
 #!/bin/bash
 if [[ " $* " == *" --show-keys "* ]]; then
-  echo 'fpr:::::::::5983B1CA32CB778F4D74D24ECFF35022CA5B5959:'
+  if [[ $* == *asahi-repository-signing.asc* ]]; then
+    echo 'fpr:::::::::C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC:'
+  else
+    echo 'fpr:::::::::5983B1CA32CB778F4D74D24ECFF35022CA5B5959:'
+  fi
   exit 0
 fi
 if [[ " $* " == *" --import "* ]]; then

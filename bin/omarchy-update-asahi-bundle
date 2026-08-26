@@ -9,8 +9,10 @@ set -euo pipefail
 
 repo="${OMARCHY_ASAHI_BUNDLE_REPO:-maralcbr/omarchy-pkgs}"
 state_file="${OMARCHY_ASAHI_BUNDLE_STATE:-/var/lib/omarchy/asahi-quattro-release}"
-trusted_key=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
-trusted_key_file="${OMARCHY_ASAHI_KEY_FILE:-/usr/share/omarchy/default/omarchy-release.gpg}"
+release_trusted_key=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+release_trusted_key_file="${OMARCHY_ASAHI_KEY_FILE:-/usr/share/omarchy/default/omarchy-release.gpg}"
+package_trusted_key=C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC
+package_trusted_key_file="${OMARCHY_ASAHI_PACKAGE_KEY_FILE:-/usr/share/omarchy/default/asahi-repository-signing.asc}"
 mode=update
 yes=0
 packages=(
@@ -56,13 +58,19 @@ done
 
 workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
-gnupg_dir="$workdir/gnupg"
-mkdir -m 0700 "$gnupg_dir"
-[[ -r $trusted_key_file ]] || fail "trusted Omarchy signing key is not installed"
-actual_fingerprint=$(gpg --batch --show-keys --with-colons "$trusted_key_file" 2>/dev/null |
+release_gnupg_dir="$workdir/release-gnupg"
+package_gnupg_dir="$workdir/package-gnupg"
+mkdir -m 0700 "$release_gnupg_dir" "$package_gnupg_dir"
+[[ -r $release_trusted_key_file ]] || fail "trusted Omarchy release signing key is not installed"
+actual_fingerprint=$(gpg --batch --show-keys --with-colons "$release_trusted_key_file" 2>/dev/null |
   awk -F: '$1 == "fpr" { print $10; exit }')
-[[ $actual_fingerprint == "$trusted_key" ]] || fail "trusted Omarchy signing key fingerprint does not match"
-gpg --batch --homedir "$gnupg_dir" --import "$trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy signing key"
+[[ $actual_fingerprint == "$release_trusted_key" ]] || fail "trusted Omarchy release signing key fingerprint does not match"
+gpg --batch --homedir "$release_gnupg_dir" --import "$release_trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy release signing key"
+[[ -r $package_trusted_key_file ]] || fail "trusted Omarchy package signing key is not installed"
+actual_fingerprint=$(gpg --batch --show-keys --with-colons "$package_trusted_key_file" 2>/dev/null |
+  awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $actual_fingerprint == "$package_trusted_key" ]] || fail "trusted Omarchy package signing key fingerprint does not match"
+gpg --batch --homedir "$package_gnupg_dir" --import "$package_trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy package signing key"
 
 download() {
   curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" --output "$2" || {
@@ -71,12 +79,20 @@ download() {
   }
 }
 
-verify_signature() {
+verify_release_signature() {
   local file="$1" signature="$2" status
-  status=$(gpg --homedir "$gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
+  status=$(gpg --homedir "$release_gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
     fail "signature verification failed for $(basename "$file")"
-  awk -v key="$trusted_key" '$2 == "VALIDSIG" && ($3 == key || $NF == key) { valid=1 } END { exit !valid }' <<<"$status" ||
-    fail "$(basename "$file") was not signed by the trusted Omarchy key"
+  awk -v key="$release_trusted_key" '$2 == "VALIDSIG" && ($3 == key || $NF == key) { valid=1 } END { exit !valid }' <<<"$status" ||
+    fail "$(basename "$file") was not signed by the trusted Omarchy release key"
+}
+
+verify_package_signature() {
+  local file="$1" signature="$2" status
+  status=$(gpg --homedir "$package_gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
+    fail "signature verification failed for $(basename "$file")"
+  awk -v key="$package_trusted_key" '$2 == "VALIDSIG" && ($3 == key || $NF == key) { valid=1 } END { exit !valid }' <<<"$status" ||
+    fail "$(basename "$file") was not signed by the trusted Omarchy package key"
 }
 
 if [[ -n ${OMARCHY_ASAHI_CHANNEL_URL:-} ]]; then
@@ -101,7 +117,7 @@ fi
 
 download "$channel_url" "$workdir/channel"
 download "$channel_signature_url" "$workdir/channel.sig"
-verify_signature "$workdir/channel" "$workdir/channel.sig"
+verify_release_signature "$workdir/channel" "$workdir/channel.sig"
 
 channel_format="" channel_name="" channel_sequence="" channel_tag="" channel_source="" manifest_name="" manifest_hash=""
 while IFS= read -r line; do
@@ -214,7 +230,7 @@ base="${OMARCHY_ASAHI_RELEASE_BASE_URL:-https://github.com/$repo/releases/downlo
 base=${base%/}
 download "$base/$manifest_name" "$workdir/$manifest_name"
 download "$base/$manifest_name.sig" "$workdir/$manifest_name.sig"
-verify_signature "$workdir/$manifest_name" "$workdir/$manifest_name.sig"
+verify_package_signature "$workdir/$manifest_name" "$workdir/$manifest_name.sig"
 [[ $(sha256sum "$workdir/$manifest_name" | cut -d' ' -f1) == "$manifest_hash" ]] || fail "manifest checksum does not match the signed channel"
 
 manifest_format="" manifest_bundle="" manifest_source="" manifest_package_count="" checksum_count=0
@@ -251,7 +267,7 @@ for package in "${packages[@]}"; do
   archive="$workdir/$filename"
   download "$base/$filename" "$archive"
   download "$base/$filename.sig" "$archive.sig"
-  verify_signature "$archive" "$archive.sig"
+  verify_package_signature "$archive" "$archive.sig"
   rm -f "$archive.sig"
   [[ $(sha256sum "$archive" | cut -d' ' -f1) == "${manifest_hashes[$package]}" ]] || fail "checksum mismatch for $filename"
   metadata=$(bsdtar -xOf "$archive" .PKGINFO 2>/dev/null) || fail "$filename is not a package archive"
