@@ -32,18 +32,31 @@ chmod +x "$stub_bin/pacman"
 version() {
   OMARCHY_TEST_PACKAGES="$1" \
     OMARCHY_PATH="${2:-/usr/share/omarchy}" \
+    OMARCHY_VERSION_FILE="${3:-$test_tmp/missing-version}" \
     PATH="$stub_bin:$PATH" \
     "$ROOT/bin/omarchy-version"
 }
 
+product_version="$test_tmp/version"
+printf '%s\n' '4.0.1-mac.2' >"$product_version"
+
+[[ $(version omarchy /usr/share/omarchy "$product_version") == "4.0.1-mac.2" ]] ||
+  fail "version reports the installed product release"
+pass "version reports the installed product release"
+
 [[ $(version omarchy) == "4.0.0-1" ]] || fail "version reports the stable package"
-pass "version reports the stable package"
+pass "version falls back to the stable package"
 
 [[ $(version omarchy-dev) == "4.0.0-1" ]] || fail "version reports the edge package"
-pass "version reports the edge package"
+pass "version falls back to the edge package"
+
+printf '%s\n' '4.0.1-mac.2' unexpected >"$product_version"
+[[ $(version omarchy /usr/share/omarchy "$product_version") == "4.0.0-1" ]] ||
+  fail "version rejects a malformed product release file"
+pass "version rejects a malformed product release file"
 
 # A checkout reports its hash instead, so packages are irrelevant there.
-[[ $(version "" "$test_tmp/checkout") == "dev" ]] || fail "version reports a dev checkout"
+[[ $(version "" "$test_tmp/checkout" "$product_version") == "dev" ]] || fail "version reports a dev checkout"
 pass "version reports a dev checkout"
 
 if version "" >/dev/null 2>&1; then

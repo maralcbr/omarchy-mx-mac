@@ -17,6 +17,20 @@ if [[ $omarchy_path != "/usr/share/omarchy" ]]; then
   exit 0
 fi
 
+# Product-facing surfaces such as About should report the release carried by
+# the installed payload, not the package manager's build identifier. Keep the
+# package query below as a compatibility fallback for older packages that did
+# not ship a usable version file.
+version_file=${OMARCHY_VERSION_FILE:-$omarchy_path/version}
+if [[ -r $version_file ]]; then
+  mapfile -t product_versions <"$version_file"
+  if (( ${#product_versions[@]} == 1 )) &&
+    [[ ${product_versions[0]} =~ ^[0-9A-Za-z][0-9A-Za-z.+-]*$ ]]; then
+    echo "${product_versions[0]}"
+    exit 0
+  fi
+fi
+
 # The edge channel installs omarchy-dev instead of omarchy, so check both.
 for package in omarchy-dev omarchy; do
   version=$(pacman -Q "$package" 2>/dev/null | awk '{ print $2 }')
