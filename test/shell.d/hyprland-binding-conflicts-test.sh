@@ -141,7 +141,8 @@ home="$tmpdir/home"
 stub_bin="$tmpdir/bin"
 mkdir -p "$home" "$stub_bin"
 touch "$stub_bin/voxtype"
-chmod +x "$stub_bin/voxtype"
+touch "$stub_bin/chatgpt"
+chmod +x "$stub_bin/voxtype" "$stub_bin/chatgpt"
 
 bindings=$(PATH="$stub_bin:$PATH" list_bindings "$home")
 [[ -n $bindings ]] || fail "default bindings load for the conflict check"

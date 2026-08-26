@@ -25,7 +25,8 @@ hl = {
   bind = function(keys, dispatcher, opts)
     opts = opts or {}
     if opts.description then
-      print(keys .. "\t" .. opts.description)
+      local command = type(dispatcher) == "table" and dispatcher.arg or tostring(dispatcher)
+      print(keys .. "\t" .. opts.description .. "\t" .. command)
     end
   end,
 }
@@ -99,11 +100,26 @@ tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
 fresh_home="$tmpdir/fresh-home"
-mkdir -p "$fresh_home"
-fresh_output=$(run_application_bindings "$fresh_home")
+chatgpt_bin="$tmpdir/chatgpt-bin"
+mkdir -p "$fresh_home" "$chatgpt_bin"
+touch "$chatgpt_bin/chatgpt"
+fresh_output=$(PATH="$chatgpt_bin:$PATH" run_application_bindings "$fresh_home")
 grep -Fq $'SUPER + RETURN	Terminal' <<<"$fresh_output" || fail "default application bindings include essentials"
-grep -Fq $'SUPER + SHIFT + A	ChatGPT' <<<"$fresh_output" || fail "default application bindings include preinstalled web apps"
+grep -Fxq $'SUPER + SHIFT + A	ChatGPT	uwsm-app -- chatgpt' <<<"$fresh_output" ||
+  fail "installed ChatGPT desktop app receives the default shortcut"
+if grep -Fq 'chatgpt.com' <<<"$fresh_output"; then
+  fail "default application bindings do not launch the legacy ChatGPT web app"
+fi
 pass "default application bindings load from package defaults"
+
+missing_chatgpt_bin="$tmpdir/missing-chatgpt-bin"
+mkdir -p "$missing_chatgpt_bin"
+ln -s "$(command -v lua)" "$missing_chatgpt_bin/lua"
+missing_chatgpt_output=$(PATH="$missing_chatgpt_bin" run_application_bindings "$fresh_home")
+if grep -Fq $'SUPER + SHIFT + A	ChatGPT' <<<"$missing_chatgpt_output"; then
+  fail "missing ChatGPT desktop app skips its shortcut"
+fi
+pass "missing ChatGPT desktop app skips its shortcut"
 
 default_output=$(run_omarchy_bindings "$fresh_home")
 grep -Fq $'SUPER + CTRL + SHIFT + code:12\tScreenshot display' <<<"$default_output" ||
@@ -154,7 +170,7 @@ pass "universal clipboard shortcuts share the terminal tag contract"
 removed_home="$tmpdir/removed-home"
 mkdir -p "$removed_home/.local/state/omarchy"
 touch "$removed_home/.local/state/omarchy/preinstalls-removed"
-removed_output=$(run_application_bindings "$removed_home")
+removed_output=$(PATH="$chatgpt_bin:$PATH" run_application_bindings "$removed_home")
 grep -Fq $'SUPER + RETURN	Terminal' <<<"$removed_output" || fail "preinstall removal keeps essential bindings"
 if grep -Fq $'SUPER + SHIFT + A	ChatGPT' <<<"$removed_output"; then
   fail "preinstall removal skips preinstalled web app bindings"
@@ -163,7 +179,7 @@ pass "preinstall removal flag skips optional application bindings"
 
 variable_home="$tmpdir/variable-home"
 mkdir -p "$variable_home"
-variable_output=$(run_application_bindings "$variable_home" 'omarchy_preinstalled_bindings = false')
+variable_output=$(PATH="$chatgpt_bin:$PATH" run_application_bindings "$variable_home" 'omarchy_preinstalled_bindings = false')
 grep -Fq $'SUPER + RETURN	Terminal' <<<"$variable_output" || fail "preinstalled binding variable keeps essential bindings"
 if grep -Fq $'SUPER + SHIFT + A	ChatGPT' <<<"$variable_output"; then
   fail "preinstalled binding variable skips optional application bindings"
