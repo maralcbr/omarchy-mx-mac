@@ -109,12 +109,19 @@ pacman -Syu --needed curl gnupg linux-asahi-headers networkmanager iwd
 
 ### 3. Install The Latest Stable Mac Release
 
-Download and run the installer script. It will automatically download the
-stable release and verify all cryptographic signatures:
+Download the stable-channel installer, verify its signing key and detached
+signature, then run it. No downloaded code runs before these checks pass:
 
 ```bash
-curl -fLO https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/install-omarchy-mx-mac.sh
-bash install-omarchy-mx-mac.sh
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel
+curl -fLO "$release/install-asahi-quattro"
+curl -fLO "$release/install-asahi-quattro.sig"
+curl -fLO https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/default/omarchy-release.gpg
+test "$(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == \"fpr\" { print $10; exit }')" = \
+  5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+gpgv --keyring ./omarchy-release.gpg install-asahi-quattro.sig install-asahi-quattro
+bash install-asahi-quattro --verify-only
+bash install-asahi-quattro --fresh
 ```
 
 The signed installer will:

@@ -63,6 +63,7 @@ while (($#)); do
     *) shift ;;
   esac
 done
+[[ -z ${TEST_CURL_LOG:-} ]] || printf '%s\n' "$url" >>"$TEST_CURL_LOG"
 cp "$TEST_ASSETS/${url##*/}" "$output"
 SH
 cat >"$stub_bin/gpg" <<'SH'
@@ -184,6 +185,70 @@ grep -Fq 'finish pending release sequence 2 before installing sequence 3' "$test
   fail "pending migration refusal explains the blocker" "$(cat "$test_tmp/pending-newer.err")"
 pass "new signed release cannot leapfrog pending migrations"
 rm -f "$state.pending"
+
+mkdir -p \
+  "$test_tmp/root/boot/grub" \
+  "$test_tmp/root/etc/NetworkManager/conf.d" \
+  "$test_tmp/root/sys/module/zswap/parameters"
+: >"$test_tmp/root/boot/vmlinuz-linux-asahi"
+: >"$test_tmp/root/boot/grub/grub.cfg"
+cat >"$test_tmp/root/etc/pacman.conf" <<'EOF'
+[asahi-alarm]
+[core]
+[extra]
+[alarm]
+[aur]
+EOF
+printf '%s\n' 'wifi.backend=iwd' >"$test_tmp/root/etc/NetworkManager/conf.d/wifi_backend.conf"
+cat >"$stub_bin/pacman" <<'SH'
+#!/bin/bash
+[[ $1 == "-Qq" && $2 == "linux-asahi" ]]
+SH
+chmod +x "$stub_bin/pacman"
+
+run_update_to_manifest() {
+  local curl_log="$1"
+  TEST_ASSETS="$assets" \
+    TEST_CURL_LOG="$curl_log" \
+    OMARCHY_ASAHI_TESTING=1 \
+    OMARCHY_ASAHI_ROOT="$test_tmp/root" \
+    OMARCHY_ASAHI_BUNDLE_STATE="$state" \
+    OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy-release.gpg" \
+    OMARCHY_ASAHI_CHANNEL_URL="https://example.test/asahi-quattro-channel" \
+    OMARCHY_ASAHI_RELEASE_BASE_URL="https://example.test/asahi-quattro-test" \
+    PATH="$stub_bin:$PATH" \
+    "$updater" --yes
+}
+
+cat >"$state" <<EOF
+format=1
+sequence=1
+tag=asahi-quattro-old
+source_commit=fedcba9876543210fedcba9876543210fedcba98
+EOF
+write_channel 2 "$source_commit"
+
+printf '%s\n' 'Filename Type Size Used Priority' '/dev/zram0 partition 1048572 0 100' >"$test_tmp/root/proc/swaps"
+printf '%s\n' N >"$test_tmp/root/sys/module/zswap/parameters/enabled"
+set +e
+run_update_to_manifest "$test_tmp/zram-curl.log" >"$test_tmp/zram.out" 2>"$test_tmp/zram.err"
+status=$?
+set -e
+[[ $status -eq 3 ]] || fail "active zram reaches the immutable manifest download" "status $status: $(cat "$test_tmp/zram.err")"
+grep -Fxq 'https://example.test/asahi-quattro-test/asahi-quattro-bundle.manifest' "$test_tmp/zram-curl.log" ||
+  fail "active zram is not rejected before the immutable manifest download"
+pass "bundle update permits active zram"
+
+printf '%s\n' 'Filename Type Size Used Priority' >"$test_tmp/root/proc/swaps"
+printf '%s\n' Y >"$test_tmp/root/sys/module/zswap/parameters/enabled"
+set +e
+run_update_to_manifest "$test_tmp/zswap-curl.log" >"$test_tmp/zswap.out" 2>"$test_tmp/zswap.err"
+status=$?
+set -e
+[[ $status -eq 3 ]] || fail "active zswap reaches the immutable manifest download" "status $status: $(cat "$test_tmp/zswap.err")"
+grep -Fxq 'https://example.test/asahi-quattro-test/asahi-quattro-bundle.manifest' "$test_tmp/zswap-curl.log" ||
+  fail "active zswap is not rejected before the immutable manifest download"
+pass "bundle update permits active zswap"
 
 cat >"$stub_bin/gpg" <<'SH'
 #!/bin/bash
