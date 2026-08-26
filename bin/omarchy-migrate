@@ -120,6 +120,7 @@ asahi_migration_disposition() {
     1787552067.sh) printf 'run\treviewed Apple Silicon audio package repair\n' ;;
     1787552167.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     1787560726.sh) printf 'run\treviewed Apple Silicon package repository setup\n' ;;
+    1787568759.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     1787580187.sh) printf 'run\treviewed architecture-neutral Docker group hardening\n' ;;
     1787618700.sh) printf 'run\treviewed safe Hyprland input-device state migration\n' ;;
     *) return 1 ;;
