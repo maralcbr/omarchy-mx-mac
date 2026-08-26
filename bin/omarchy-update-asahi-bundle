@@ -196,11 +196,9 @@ for repository in asahi-alarm core extra alarm aur; do
 done
 grep -RqsE '^[[:space:]]*wifi\.backend[[:space:]]*=[[:space:]]*iwd[[:space:]]*$' "$(root_path /etc/NetworkManager)" ||
   fail "NetworkManager is not configured with the iwd backend"
-if [[ -r $(root_path /proc/swaps) ]] && awk 'NR > 1 { found=1 } END { exit !found }' "$(root_path /proc/swaps)"; then
-  fail "swap or zram is active"
-fi
-[[ ! -r $(root_path /sys/module/zswap/parameters/enabled) ]] ||
-  grep -Eq '^(N|0)$' "$(root_path /sys/module/zswap/parameters/enabled)" || fail "zswap is enabled"
+# Active swap and zram are safe here because bundle updates do not repartition
+# storage, and the archive path audit below rejects zram configuration changes.
+# The fresh installer keeps the stricter swap and zswap storage-boundary gates.
 
 base="${OMARCHY_ASAHI_RELEASE_BASE_URL:-https://github.com/$repo/releases/download/$channel_tag}"
 base=${base%/}

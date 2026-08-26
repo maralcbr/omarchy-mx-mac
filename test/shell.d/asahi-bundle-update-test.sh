@@ -8,6 +8,12 @@ updater="$ROOT/bin/omarchy-update-asahi-bundle"
 grep -Fq 'manifest_format == "2"' "$updater" || fail "Asahi updater consumes manifest format 2"
 grep -Fq 'package=*)' "$updater" || fail "Asahi updater consumes canonical package records"
 grep -Fq 'channel=*) channel_name=' "$updater" || fail "Asahi updater validates the signed channel name"
+if grep -Eq '/proc/swaps|/sys/module/zswap' "$updater"; then
+  fail "Asahi bundle updates do not reject Omarchy's active zram configuration"
+fi
+grep -Fq '/sys/module/zswap/parameters/enabled' "$ROOT/bin/omarchy-install-asahi-fresh" ||
+  fail "fresh Asahi installs retain the zswap safety gate"
+pass "runtime zram is allowed only outside the fresh-install storage boundary"
 
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
