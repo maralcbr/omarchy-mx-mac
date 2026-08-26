@@ -26,8 +26,8 @@
 --     accel_profile = "flat",
 --
 --     touchpad = {
---       -- Use traditional (non-inverse) scrolling.
---       natural_scroll = false,
+--       -- Use natural (inverse) scrolling.
+--       natural_scroll = true,
 --
 --       -- Re-enable tap-to-click (one-finger tap = left, two-finger = right).
 --       tap_to_click = true,
