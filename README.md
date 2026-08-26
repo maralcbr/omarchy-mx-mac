@@ -113,16 +113,37 @@ Download the stable-channel installer, verify its signing key and detached
 signature, then run it. No downloaded code runs before these checks pass:
 
 ```bash
-release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-25
 curl -fLO "$release/install-asahi-quattro"
 curl -fLO "$release/install-asahi-quattro.sig"
 curl -fLO https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/default/omarchy-release.gpg
-test "$(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == \"fpr\" { print $10; exit }')" = \
+test "$(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }')" = \
   5983B1CA32CB778F4D74D24ECFF35022CA5B5959
 gpgv --keyring ./omarchy-release.gpg install-asahi-quattro.sig install-asahi-quattro
 bash install-asahi-quattro --verify-only
 bash install-asahi-quattro --fresh
 ```
+
+The former `asahi-quattro-channel` release is an immutable sequence-21
+bootstrap and cannot be repointed. Existing sequence-21 installations must use
+the same verified sequence-25 installer once before returning to normal
+updates:
+
+```bash
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-25
+curl -fLO "$release/install-asahi-quattro"
+curl -fLO "$release/install-asahi-quattro.sig"
+curl -fLO https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/default/omarchy-release.gpg
+test "$(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }')" = \
+  5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+gpgv --keyring ./omarchy-release.gpg install-asahi-quattro.sig install-asahi-quattro
+bash install-asahi-quattro --verify-only --release-tag asahi-quattro-fe8d2bf8
+bash install-asahi-quattro --yes --release-tag asahi-quattro-fe8d2bf8
+omarchy update
+```
+
+The installer verifies and installs the exact immutable sequence-25 release;
+the final `omarchy update` then uses numbered-channel discovery normally.
 
 The signed installer will:
 
@@ -203,7 +224,7 @@ sudo journalctl -u NetworkManager -b
 ## Releases And Support
 
 - [Latest stable release](https://github.com/maralcbr/omarchy-mx-mac/releases/latest)
-- [Latest signed Quattro channel](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel)
+- [Current signed Quattro channel](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-25)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
 
