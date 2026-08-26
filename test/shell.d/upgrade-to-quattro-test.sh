@@ -76,8 +76,9 @@ grep -Fq 'packages were built from different source bundles' "$upgrade_to_quattr
 grep -Fq 'omarchy-usb-autosuspend\.conf' "$upgrade_to_quattro"
 grep -Fq 'systemd/oomd\.conf\.d' "$upgrade_to_quattro"
 grep -Fq 'systemd/zram-generator\.conf\.d' "$upgrade_to_quattro"
-grep -Fq "grep -Fq -- '-mac.dev'" "$upgrade_to_quattro"
-pass "Omarchy 4 upgrade preflights local package identity, architecture, contents, dependencies, and Mac version"
+grep -Fq '[[ $version =~ -mac\.(dev|[0-9]+)$ ]]' "$upgrade_to_quattro"
+grep -Fq 'is not an Omarchy Mac release build' "$upgrade_to_quattro"
+pass "Omarchy 4 upgrade accepts signed development and numbered Mac release builds"
 
 grep -Fq 'create_asahi_system_backup' "$upgrade_to_quattro"
 grep -Fq '/var/lib/omarchy/backups/quattro-$backup_suffix' "$upgrade_to_quattro"
