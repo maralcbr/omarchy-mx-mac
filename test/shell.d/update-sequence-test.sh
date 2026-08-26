@@ -36,7 +36,10 @@ for step in "${steps[@]}"; do
   cat >"$stub_bin/$step" <<'STUB'
 #!/bin/bash
 printf '%s unattended=%s\n' "${0##*/}" "${OMARCHY_UPDATE_UNATTENDED:-}" >>"$STEP_LOG"
-[[ ${FAILING_STEP:-} != "${0##*/}" ]] || exit 1
+if [[ ${CLEANUP_FAIL:-0} == "1" && ${0##*/} == "omarchy-update-stay-awake" && ${1:-} == "stop" ]]; then
+  exit 7
+fi
+[[ ${FAILING_STEP:-} != "${0##*/}" ]] || exit 42
 STUB
   chmod +x "$stub_bin/$step"
 done
@@ -53,6 +56,7 @@ run_update() {
   : >"$test_tmp/steps"
   STEP_LOG="$test_tmp/steps" \
     FAILING_STEP="${FAILING_STEP:-}" \
+    CLEANUP_FAIL="${CLEANUP_FAIL:-0}" \
     OMARCHY_UPDATE_LOGGED=1 \
     PATH="$stub_bin:$PATH" \
     bash "$ROOT/bin/omarchy-update" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
@@ -112,3 +116,11 @@ for step in omarchy-migrate omarchy-hook omarchy-update-aur-pkgs omarchy-update-
   fi
 done
 pass "a blocked package upgrade stops the update before it migrates"
+
+set +e
+FAILING_STEP=omarchy-update-system-pkgs CLEANUP_FAIL=1 run_update -y
+update_status=$?
+set -e
+[[ $update_status -eq 42 ]] ||
+  fail "cleanup failure replaces the original update status" "expected 42, got $update_status"
+pass "cleanup failure preserves the original update status"

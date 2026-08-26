@@ -70,8 +70,21 @@ stop() {
       current_start_time=$(process_start_time "$inhibit_pid" 2>/dev/null || true)
       if [[ $current_start_time == "$recorded_start_time" ]] &&
         [[ $(process_state "$inhibit_pid" 2>/dev/null || true) != "Z" ]]; then
-        echo "Failed to stop the Omarchy update sleep inhibitor." >&2
-        return 1
+        kill -KILL "$inhibit_pid" >/dev/null 2>&1 || true
+
+        for (( attempt = 0; attempt < 50; attempt++ )); do
+          current_start_time=$(process_start_time "$inhibit_pid" 2>/dev/null || true)
+          [[ $current_start_time == "$recorded_start_time" ]] || break
+          [[ $(process_state "$inhibit_pid" 2>/dev/null || true) != "Z" ]] || break
+          sleep 0.02
+        done
+
+        current_start_time=$(process_start_time "$inhibit_pid" 2>/dev/null || true)
+        if [[ $current_start_time == "$recorded_start_time" ]] &&
+          [[ $(process_state "$inhibit_pid" 2>/dev/null || true) != "Z" ]]; then
+          echo "Failed to stop the Omarchy update sleep inhibitor." >&2
+          return 1
+        fi
       fi
     fi
     rm -f "$inhibit_pid_file"

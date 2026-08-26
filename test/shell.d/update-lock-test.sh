@@ -195,3 +195,20 @@ kill -0 "$unrelated_pid" 2>/dev/null ||
 kill "$unrelated_pid"
 wait "$unrelated_pid" 2>/dev/null || true
 pass "stale inhibitor state does not terminate a reused PID"
+
+# An update-owned inhibitor that ignores TERM is forcibly reaped after the
+# bounded graceful shutdown period. This must not leave stale cleanup state.
+write_stub systemd-inhibit 'exec bash -c '\''trap "" TERM; while :; do :; done'\'''
+run_with_lock_env "$ROOT/bin/omarchy-update-stay-awake" start
+inhibit_pid_file="$stay_awake_helper_state/inhibit-pid"
+for _ in {1..100}; do
+  [[ -s $inhibit_pid_file ]] && break
+  sleep 0.01
+done
+[[ -s $inhibit_pid_file ]] || fail "TERM-resistant inhibitor records its ownership"
+read -r stubborn_pid _ <"$inhibit_pid_file"
+
+run_with_lock_env "$ROOT/bin/omarchy-update-stay-awake" stop
+kill -0 "$stubborn_pid" 2>/dev/null && fail "TERM-resistant update inhibitor is stopped"
+[[ ! -e $inhibit_pid_file ]] || fail "stopped inhibitor does not leave stale cleanup state"
+pass "TERM-resistant update inhibitor is forcibly cleaned up"
