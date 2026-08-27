@@ -26,6 +26,75 @@
       XCTAssertEqual(downloadCount, 3)
     }
 
+    func testReleaseCoordinatorFetchesSignedCatalogThenStagesExactAssets()
+      async throws
+    {
+      let fixture = try makeFixture(schemaVersion: 2)
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let coordinator = InstallerReleaseAssetCoordinator(
+        catalogFetcher: InstallerReleaseCatalogFetcher(
+          downloader: fixture.releaseDownloader
+        ),
+        assetPreparer: fixture.preparer
+      )
+
+      let result = try await coordinator.prepare(
+        InstallerReleasePreparationRequest(
+          host: fixture.host,
+          configuration: fixture.releaseConfiguration,
+          validationTime: now,
+          stagingDirectory: directory
+        )
+      )
+
+      XCTAssertEqual(result.catalogIdentity.sequence, 30)
+      XCTAssertEqual(try Data(contentsOf: result.engine.fileURL), fixture.engine)
+      XCTAssertEqual(try Data(contentsOf: result.payload.fileURL), fixture.payload)
+      let releaseDownloadCount = await fixture.releaseDownloader.downloadCount
+      let artifactDownloadCount = await fixture.downloader.downloadCount
+      XCTAssertEqual(releaseDownloadCount, 2)
+      XCTAssertEqual(artifactDownloadCount, 3)
+    }
+
+    func testReleaseCoordinatorBlocksM4BeforeCatalogNetwork() async throws {
+      let fixture = try makeFixture(
+        schemaVersion: 2,
+        host: host(
+          deviceIdentifier: "apple,j614s",
+          eligibility: .blocked(reason: "M4 is not enabled")
+        )
+      )
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let coordinator = InstallerReleaseAssetCoordinator(
+        catalogFetcher: InstallerReleaseCatalogFetcher(
+          downloader: fixture.releaseDownloader
+        ),
+        assetPreparer: fixture.preparer
+      )
+
+      await assertAssetPreparationThrows(
+        try await coordinator.prepare(
+          InstallerReleasePreparationRequest(
+            host: fixture.host,
+            configuration: fixture.releaseConfiguration,
+            validationTime: now,
+            stagingDirectory: directory
+          )
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? InstallerAssetPreparationError,
+          .hostBlocked("M4 is not enabled")
+        )
+      }
+      let releaseDownloadCount = await fixture.releaseDownloader.downloadCount
+      let artifactDownloadCount = await fixture.downloader.downloadCount
+      XCTAssertEqual(releaseDownloadCount, 0)
+      XCTAssertEqual(artifactDownloadCount, 0)
+    }
+
     func testSchemaOneCatalogCannotDriveDownloads() async throws {
       let fixture = try makeFixture(schemaVersion: 1)
       let directory = temporaryDirectory()
@@ -86,10 +155,35 @@
       XCTAssertEqual(downloadCount, 0)
     }
 
+    func testSchemaTwoCatalogRequiresSignedEngineVersionBeforeDownload()
+      async throws
+    {
+      let fixture = try makeFixture(
+        schemaVersion: 2,
+        omitEngineVersion: true
+      )
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+
+      await assertAssetPreparationThrows(
+        try await fixture.preparer.prepare(
+          fixture.request(stagingDirectory: directory)
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? SupportCatalogError,
+          .invalidField("models[0].engineVersion")
+        )
+      }
+      let downloadCount = await fixture.downloader.downloadCount
+      XCTAssertEqual(downloadCount, 0)
+    }
+
     private func makeFixture(
       schemaVersion: Int,
       host: AppleSiliconHostInspection? = nil,
-      invalidateSignature: Bool = false
+      invalidateSignature: Bool = false,
+      omitEngineVersion: Bool = false
     ) throws -> AssetPreparationFixture {
       let engine = Data("engine archive".utf8)
       let metadata = Data("installer metadata".utf8)
@@ -105,7 +199,8 @@
         schemaVersion: schemaVersion,
         engine: engine,
         metadata: metadata,
-        payload: payload
+        payload: payload,
+        omitEngineVersion: omitEngineVersion
       )
       let signature = try privateKey.signature(for: payloadData)
       let deliveredSignature = invalidateSignature
@@ -115,6 +210,24 @@
       let trustRoot = try AppOwnedTrustRoot(
         rawRepresentation: publicKey,
         expectedFingerprint: digest(publicKey)
+      )
+      let catalogURL = URL(
+        string: "https://releases.example.com/apple/catalog.json"
+      )!
+      let signatureURL = URL(
+        string: "https://releases.example.com/apple/catalog.json.sig"
+      )!
+      let releaseDownloader = ReleaseCatalogFixtureDownloader(values: [
+        catalogURL: payloadData,
+        signatureURL: deliveredSignature,
+      ])
+      let releaseConfiguration = InstallerReleaseConfiguration(
+        catalogURL: catalogURL,
+        catalogSignatureURL: signatureURL,
+        trustRoot: trustRoot,
+        helperMachServiceName: "com.omarchy.apple-installer.helper",
+        helperCodeSigningRequirement:
+          #"identifier "com.omarchy.apple-installer.helper""#
       )
 
       return AssetPreparationFixture(
@@ -129,6 +242,8 @@
         catalogPayload: payloadData,
         catalogSignature: deliveredSignature,
         trustRoot: trustRoot,
+        releaseConfiguration: releaseConfiguration,
+        releaseDownloader: releaseDownloader,
         validationTime: now,
         engine: engine,
         metadata: metadata,
@@ -140,7 +255,8 @@
       schemaVersion: Int,
       engine: Data,
       metadata: Data,
-      payload: Data
+      payload: Data,
+      omitEngineVersion: Bool
     ) -> Data {
       let issued = ISO8601DateFormatter().string(
         from: now.addingTimeInterval(-3_600)
@@ -148,9 +264,12 @@
       let expires = ISO8601DateFormatter().string(
         from: now.addingTimeInterval(86_400)
       )
+      let engineVersion = omitEngineVersion
+        ? ""
+        : ",\"engineVersion\":\"v0.9.0-omarchy.2\""
       let delivery = schemaVersion == 2
         ? """
-        ,"engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":\(engine.count)},"metadataArtifact":{"sourceURL":"https://downloads.example.com/installer-data.json","fileName":"installer-data.json","sizeBytes":\(metadata.count)},"payloadArtifact":{"sourceURL":"https://downloads.example.com/omarchy.img.zst","fileName":"omarchy.img.zst","sizeBytes":\(payload.count)}
+        \(engineVersion),"engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":\(engine.count)},"metadataArtifact":{"sourceURL":"https://downloads.example.com/installer-data.json","fileName":"installer-data.json","sizeBytes":\(metadata.count)},"payloadArtifact":{"sourceURL":"https://downloads.example.com/omarchy.img.zst","fileName":"omarchy.img.zst","sizeBytes":\(payload.count)}
         """
         : ""
       return Data(
@@ -220,6 +339,32 @@
     }
   }
 
+  private actor ReleaseCatalogFixtureDownloader:
+    ReleaseDocumentDownloading
+  {
+    let values: [URL: Data]
+    private(set) var downloadCount = 0
+
+    init(values: [URL: Data]) {
+      self.values = values
+    }
+
+    func download(
+      from url: URL,
+      maximumBytes: Int,
+      role: String
+    ) async throws -> Data {
+      guard let data = values[url],
+        !data.isEmpty,
+        data.count <= maximumBytes
+      else {
+        throw InstallerReleaseConfigurationError.oversizedDocument(role)
+      }
+      downloadCount += 1
+      return data
+    }
+  }
+
   private struct AssetPreparationFixture {
     let preparer: InstallerAssetPreparer
     let downloader: CatalogFixtureDownloader
@@ -227,6 +372,8 @@
     let catalogPayload: Data
     let catalogSignature: Data
     let trustRoot: AppOwnedTrustRoot
+    let releaseConfiguration: InstallerReleaseConfiguration
+    let releaseDownloader: ReleaseCatalogFixtureDownloader
     let validationTime: Date
     let engine: Data
     let metadata: Data

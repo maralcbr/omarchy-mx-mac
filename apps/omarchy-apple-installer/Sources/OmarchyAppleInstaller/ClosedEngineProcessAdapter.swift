@@ -143,6 +143,8 @@ public struct ClosedEngineProcessAdapter: Sendable {
       throw ClosedEngineProcessError.planUnavailable
     }
     guard plan.deviceIdentifier == transcript.deviceIdentifier,
+      (pinnedInstaller.engineVersion == nil
+        || plan.engineVersion == pinnedInstaller.engineVersion),
       plan.engineDigest == pinnedInstaller.engineDigest,
       plan.metadataDigest == pinnedInstaller.metadataDigest,
       plan.payloadDigest == pinnedInstaller.payloadDigest

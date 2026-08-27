@@ -1,0 +1,63 @@
+#if os(macOS)
+  import Foundation
+
+  public struct InstallerReleasePreparationRequest: Sendable {
+    public let host: AppleSiliconHostInspection
+    public let configuration: InstallerReleaseConfiguration
+    public let validationTime: Date
+    public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
+    public let stagingDirectory: URL
+
+    public init(
+      host: AppleSiliconHostInspection,
+      configuration: InstallerReleaseConfiguration,
+      validationTime: Date,
+      previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil,
+      stagingDirectory: URL
+    ) {
+      self.host = host
+      self.configuration = configuration
+      self.validationTime = validationTime
+      self.previouslyAcceptedCatalog = previouslyAcceptedCatalog
+      self.stagingDirectory = stagingDirectory
+    }
+  }
+
+  public struct InstallerReleaseAssetCoordinator: Sendable {
+    private let catalogFetcher: InstallerReleaseCatalogFetcher
+    private let assetPreparer: InstallerAssetPreparer
+
+    public init() {
+      catalogFetcher = InstallerReleaseCatalogFetcher()
+      assetPreparer = InstallerAssetPreparer()
+    }
+
+    init(
+      catalogFetcher: InstallerReleaseCatalogFetcher,
+      assetPreparer: InstallerAssetPreparer
+    ) {
+      self.catalogFetcher = catalogFetcher
+      self.assetPreparer = assetPreparer
+    }
+
+    public func prepare(
+      _ request: InstallerReleasePreparationRequest
+    ) async throws -> PreparedInstallerAssets {
+      _ = try assetPreparer.validateHost(request.host)
+      let catalog = try await catalogFetcher.fetch(
+        configuration: request.configuration
+      )
+      return try await assetPreparer.prepare(
+        InstallerAssetPreparationRequest(
+          host: request.host,
+          catalogPayload: catalog.payload,
+          catalogSignature: catalog.signature,
+          trustRoot: request.configuration.trustRoot,
+          validationTime: request.validationTime,
+          previouslyAcceptedCatalog: request.previouslyAcceptedCatalog,
+          stagingDirectory: request.stagingDirectory
+        )
+      )
+    }
+  }
+#endif

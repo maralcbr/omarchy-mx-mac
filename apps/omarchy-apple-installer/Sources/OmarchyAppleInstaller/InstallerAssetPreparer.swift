@@ -62,13 +62,7 @@
     public func prepare(
       _ request: InstallerAssetPreparationRequest
     ) async throws -> PreparedInstallerAssets {
-      if case .blocked(let reason) = request.host.eligibility {
-        throw InstallerAssetPreparationError.hostBlocked(reason)
-      }
-      let deviceIdentifier = request.host.identity.deviceIdentifier
-      guard !Self.explicitlyUnsupportedDevices.contains(deviceIdentifier) else {
-        throw InstallerAssetPreparationError.unsupportedDevice(deviceIdentifier)
-      }
+      let deviceIdentifier = try validateHost(request.host)
 
       let catalog = try trustCore.validateSupportCatalog(
         payload: request.catalogPayload,
@@ -106,6 +100,19 @@
         metadata: metadata,
         payload: payload
       )
+    }
+
+    func validateHost(
+      _ host: AppleSiliconHostInspection
+    ) throws -> String {
+      if case .blocked(let reason) = host.eligibility {
+        throw InstallerAssetPreparationError.hostBlocked(reason)
+      }
+      let deviceIdentifier = host.identity.deviceIdentifier
+      guard !Self.explicitlyUnsupportedDevices.contains(deviceIdentifier) else {
+        throw InstallerAssetPreparationError.unsupportedDevice(deviceIdentifier)
+      }
+      return deviceIdentifier
     }
   }
 #endif

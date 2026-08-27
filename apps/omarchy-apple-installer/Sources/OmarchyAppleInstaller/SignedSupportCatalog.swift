@@ -7,6 +7,7 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
   public let asahiInstallerRevision: String
   public let asahiInstallerDataRevision: String
   public let downstreamRevision: String
+  public let engineVersion: String?
   public let engineDigest: String
   public let metadataDigest: String
   public let payloadDigest: String
@@ -149,6 +150,20 @@ struct SignedSupportCatalogVerifier: Sendable {
         )
       }
 
+      let engineVersion: String?
+      if manifest.schemaVersion == 2 {
+        guard let candidate = model.engineVersion,
+          isEngineVersion(candidate)
+        else {
+          throw SupportCatalogError.invalidField(
+            "models[\(index)].engineVersion"
+          )
+        }
+        engineVersion = candidate
+      } else {
+        engineVersion = nil
+      }
+
       guard model.status == .enabled else {
         continue
       }
@@ -165,6 +180,7 @@ struct SignedSupportCatalogVerifier: Sendable {
         asahiInstallerRevision: model.asahiInstallerRevision,
         asahiInstallerDataRevision: model.asahiInstallerDataRevision,
         downstreamRevision: model.downstreamRevision,
+        engineVersion: engineVersion,
         engineDigest: model.engineDigest,
         metadataDigest: model.metadataDigest,
         payloadDigest: model.payloadDigest,
@@ -265,6 +281,20 @@ struct SignedSupportCatalogVerifier: Sendable {
       }
   }
 
+  private func isEngineVersion(_ value: String) -> Bool {
+    value.hasPrefix("v")
+      && (2...128).contains(value.utf8.count)
+      && value.utf8.allSatisfy { byte in
+        (byte >= 48 && byte <= 57)
+          || (byte >= 65 && byte <= 90)
+          || (byte >= 97 && byte <= 122)
+          || byte == 43
+          || byte == 45
+          || byte == 46
+          || byte == 95
+      }
+  }
+
   private func isLowercaseHex(_ value: String, count: Int) -> Bool {
     value.count == count
       && value.allSatisfy { character in
@@ -288,6 +318,7 @@ private struct ModelRecord: Decodable {
   let asahiInstallerRevision: String
   let asahiInstallerDataRevision: String
   let downstreamRevision: String
+  let engineVersion: String?
   let engineDigest: String
   let metadataDigest: String
   let payloadDigest: String

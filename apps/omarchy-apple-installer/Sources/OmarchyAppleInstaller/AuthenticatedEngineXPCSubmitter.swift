@@ -120,7 +120,7 @@
       }
     }
 
-    private static func isMachServiceName(_ value: String) -> Bool {
+    static func isMachServiceName(_ value: String) -> Bool {
       guard (3...255).contains(value.utf8.count),
         value.contains("."),
         value.first != ".",

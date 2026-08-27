@@ -194,6 +194,7 @@
         asahiInstallerRevision: String(repeating: "a", count: 40),
         asahiInstallerDataRevision: String(repeating: "b", count: 40),
         downstreamRevision: String(repeating: "c", count: 40),
+        engineVersion: "v0.9.0-omarchy.2",
         engineDigest: engineArtifact.expectedDigest,
         metadataDigest: metadataArtifact.expectedDigest,
         payloadDigest: payloadArtifact.expectedDigest,
@@ -296,10 +297,18 @@
       let expires = ISO8601DateFormatter().string(
         from: now.addingTimeInterval(86_400)
       )
-      return Data(
+      let catalog = Data(
         """
         {"schemaVersion":2,"sequence":40,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(record.deviceIdentifier)","status":"enabled","asahiInstallerTag":"\(record.asahiInstallerTag)","asahiInstallerRevision":"\(record.asahiInstallerRevision)","asahiInstallerDataRevision":"\(record.asahiInstallerDataRevision)","downstreamRevision":"\(record.downstreamRevision)","engineDigest":"\(record.engineDigest)","metadataDigest":"\(record.metadataDigest)","payloadDigest":"\(record.payloadDigest)","evidenceRevision":"\(record.evidenceRevision)","engineArtifact":{"sourceURL":"\(engine.sourceURL.absoluteString)","fileName":"\(engine.fileName)","sizeBytes":\(engine.expectedSizeBytes)},"metadataArtifact":{"sourceURL":"\(metadata.sourceURL.absoluteString)","fileName":"\(metadata.fileName)","sizeBytes":\(metadata.expectedSizeBytes)},"payloadArtifact":{"sourceURL":"\(payload.sourceURL.absoluteString)","fileName":"\(payload.fileName)","sizeBytes":\(payload.expectedSizeBytes)}}]}
         """.utf8
+      )
+      let text = String(decoding: catalog, as: UTF8.self)
+      let marker = ",\"engineDigest\":"
+      let engineVersion = record.engineVersion ?? ""
+      let replacement =
+        ",\"engineVersion\":\"\(engineVersion)\",\"engineDigest\":"
+      return Data(
+        text.replacingOccurrences(of: marker, with: replacement).utf8
       )
     }
 

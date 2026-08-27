@@ -80,6 +80,20 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     XCTAssertEqual(executions, 0)
   }
 
+  func testSchemaTwoEngineVersionMismatchStopsBeforeAuthorization() throws {
+    let request = try makeRequest(
+      catalogSchemaVersion: 2,
+      catalogEngineVersion: "v0.9.0-omarchy.2"
+    )
+
+    XCTAssertThrowsError(try adapter.candidateIdentity(for: request)) {
+      XCTAssertEqual(
+        $0 as? ClosedEngineProcessError,
+        .catalogPlanMismatch
+      )
+    }
+  }
+
   func testMalformedProcessTranscriptIsRejected() async throws {
     let fixture = try makeFixture()
     let malformed = fixture.transcript + Data("not-json\n".utf8)
@@ -326,7 +340,9 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     lengthBytes: UInt64 = 107_374_182_400,
     catalogSequence: UInt64 = 20,
     privateKey: Curve25519.Signing.PrivateKey = .init(),
-    mutateCatalogAfterSigning: Bool = false
+    mutateCatalogAfterSigning: Bool = false,
+    catalogSchemaVersion: Int = 1,
+    catalogEngineVersion: String? = nil
   ) throws -> ClosedEngineCandidateRequest {
     let transcript = makeTranscript(
       deviceIdentifier: deviceIdentifier,
@@ -334,7 +350,9 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     )
     let catalog = makeCatalog(
       deviceIdentifier: deviceIdentifier,
-      sequence: catalogSequence
+      sequence: catalogSequence,
+      schemaVersion: catalogSchemaVersion,
+      engineVersion: catalogEngineVersion
     )
     let signature = try privateKey.signature(for: catalog)
     let deliveredCatalog = mutateCatalogAfterSigning
@@ -356,7 +374,9 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
 
   private func makeCatalog(
     deviceIdentifier: String,
-    sequence: UInt64
+    sequence: UInt64,
+    schemaVersion: Int,
+    engineVersion: String?
   ) -> Data {
     let issued = ISO8601DateFormatter().string(
       from: now.addingTimeInterval(-3_600)
@@ -364,9 +384,14 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let expires = ISO8601DateFormatter().string(
       from: now.addingTimeInterval(86_400)
     )
+    let delivery = schemaVersion == 2
+      ? """
+      ,"engineVersion":"\(engineVersion ?? "")","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1},"metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.img.zst","fileName":"payload.img.zst","sizeBytes":1}
+      """
+      : ""
     return Data(
       """
-      {"schemaVersion":1,"sequence":\(sequence),"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(deviceIdentifier)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineDigest":"sha256:\(String(repeating: "d", count: 64))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s3"}]}
+      {"schemaVersion":\(schemaVersion),"sequence":\(sequence),"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(deviceIdentifier)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineDigest":"sha256:\(String(repeating: "d", count: 64))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s3"\(delivery)}]}
       """.utf8
     )
   }
