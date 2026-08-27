@@ -42,7 +42,7 @@ install_theme() {
 
   HOME="$test_tmp/home" PATH="${2-$mock_bin:$ROOT/bin:$PATH}" \
     OMARCHY_TEST_GIT_CALLS="$git_calls" OMARCHY_TEST_THEME_CALLS="$theme_calls" \
-    bash "$ROOT/bin/omarchy-theme-install" "$1" >"$test_tmp/out" 2>&1 || return $?
+    /bin/bash "$ROOT/bin/omarchy-theme-install" "$1" >"$test_tmp/out" 2>&1 || return $?
 }
 
 mkdir -p "$test_tmp/home/.config/omarchy/themes"
@@ -72,7 +72,7 @@ pass "a URL naming a transport git does not implement never reaches git"
 
 # The checker is a separate command, so its absence has to refuse the URL rather
 # than wave it through to git.
-if install_theme "https://github.com/example/omarchy-cool-theme.git" "$mock_bin:$PATH"; then
+if install_theme "https://github.com/example/omarchy-cool-theme.git" "$mock_bin"; then
   fail "omarchy-theme-install refuses a URL it cannot check"
 fi
 
