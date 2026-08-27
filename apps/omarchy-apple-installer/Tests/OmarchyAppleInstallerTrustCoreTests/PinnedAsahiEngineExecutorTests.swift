@@ -1,10 +1,74 @@
 #if os(macOS)
+  import CryptoKit
   import Foundation
   import XCTest
 
   @testable import OmarchyAppleInstallerTrustCore
 
   final class PinnedAsahiEngineExecutorTests: XCTestCase {
+    func testVerifiedReadOnlyInspectionRunsWithoutRootAndCleansExecutionRoot()
+      async throws
+    {
+      let transcript = Data(
+        """
+        {"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j614s","support":"unsupported"}}
+
+        """.utf8
+      )
+      let fixture = try makeFixture(transcript: transcript)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let scratch = fixture.root.appendingPathComponent(
+        "inspection-scratch",
+        isDirectory: true
+      )
+      try FileManager.default.createDirectory(
+        at: scratch,
+        withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700]
+      )
+      let archive = try PinnedAsahiEngineArchive(
+        fileURL: fixture.package.engineURL,
+        expectedDigest: try digest(of: fixture.package.engineURL),
+        expectedSizeBytes: try size(of: fixture.package.engineURL)
+      )
+      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 501 })
+
+      let result = try await executor.inspect(archive, in: scratch)
+
+      XCTAssertEqual(result, transcript)
+      XCTAssertTrue(try executionEntries(in: scratch).isEmpty)
+    }
+
+    func testReadOnlyInspectionRejectsChangedArchiveDigest() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let scratch = fixture.root.appendingPathComponent(
+        "inspection-scratch",
+        isDirectory: true
+      )
+      try FileManager.default.createDirectory(
+        at: scratch,
+        withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700]
+      )
+      let archive = try PinnedAsahiEngineArchive(
+        fileURL: fixture.package.engineURL,
+        expectedDigest: "sha256:" + String(repeating: "0", count: 64),
+        expectedSizeBytes: try size(of: fixture.package.engineURL)
+      )
+      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 501 })
+
+      await XCTAssertThrowsErrorAsync(
+        try await executor.inspect(archive, in: scratch)
+      ) {
+        XCTAssertEqual(
+          $0 as? PinnedAsahiEngineExecutionError,
+          .archiveDigestMismatch
+        )
+      }
+      XCTAssertTrue(try executionEntries(in: scratch).isEmpty)
+    }
+
     func testNonRootExecutionIsRejectedBeforeArchiveAccess() async throws {
       let package = importedPackage(
         at: URL(fileURLWithPath: "/does-not-exist")
@@ -163,13 +227,18 @@
       )
       let script = """
       #!/bin/sh
-      [ "$OMARCHY_ENGINE_MODE" = "install" ] || exit 70
-      [ "$OMARCHY_ENGINE_PLAN_DIGEST" = "\(String(repeating: "a", count: 64))" ] || exit 71
-      [ "$OMARCHY_ENGINE_BINDING_DIGEST" = "sha256:\(String(repeating: "b", count: 64))" ] || exit 72
-      [ -r "$OMARCHY_ENGINE_REQUEST" ] || exit 73
-      [ -r "$OMARCHY_ENGINE_IDENTITY" ] || exit 74
-      [ -r "$OMARCHY_ENGINE_METADATA" ] || exit 75
-      [ -r "$OMARCHY_ENGINE_PAYLOAD" ] || exit 76
+      case "$OMARCHY_ENGINE_MODE" in
+        inspect) ;;
+        install)
+          [ "$OMARCHY_ENGINE_PLAN_DIGEST" = "\(String(repeating: "a", count: 64))" ] || exit 71
+          [ "$OMARCHY_ENGINE_BINDING_DIGEST" = "sha256:\(String(repeating: "b", count: 64))" ] || exit 72
+          [ -r "$OMARCHY_ENGINE_REQUEST" ] || exit 73
+          [ -r "$OMARCHY_ENGINE_IDENTITY" ] || exit 74
+          [ -r "$OMARCHY_ENGINE_METADATA" ] || exit 75
+          [ -r "$OMARCHY_ENGINE_PAYLOAD" ] || exit 76
+          ;;
+        *) exit 70 ;;
+      esac
       /bin/cp "$PWD/transcript.jsonl" "$OMARCHY_ENGINE_JOURNAL"
       exit \(exitCode)
       """
@@ -256,6 +325,20 @@
         at: root,
         includingPropertiesForKeys: nil
       ).filter { $0.lastPathComponent.hasPrefix("engine-execution-") }
+    }
+
+    private func digest(of url: URL) throws -> String {
+      let data = try Data(contentsOf: url)
+      return "sha256:" + SHA256.hash(data: data)
+        .map { String(format: "%02x", $0) }
+        .joined()
+    }
+
+    private func size(of url: URL) throws -> UInt64 {
+      let attributes = try FileManager.default.attributesOfItem(
+        atPath: url.path
+      )
+      return (attributes[.size] as? NSNumber)?.uint64Value ?? 0
     }
 
     private func journalEntries(in root: URL) throws -> [URL] {

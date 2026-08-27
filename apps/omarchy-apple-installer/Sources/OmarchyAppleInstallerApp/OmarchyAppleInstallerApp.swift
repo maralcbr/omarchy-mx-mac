@@ -17,7 +17,9 @@ private struct InstallerRootView: View {
   @State private var selectedStepID = "inspect"
   @State private var planPrepared = false
   @State private var hostInspection: AppleSiliconHostInspection?
+  @State private var engineInspection: ValidatedEngineTranscript?
   @State private var inspectionError: String?
+  @State private var engineInspectionError: String?
   @State private var isInspecting = true
 
   private var snapshot: InstallerWorkflowSnapshot {
@@ -194,6 +196,7 @@ private struct InstallerRootView: View {
           summaryRow("Power", hostInspection?.powerSource.rawValue ?? "Pending")
           summaryRow("FileVault", fileVaultStatus)
           summaryRow("APFS free", freeSpaceStatus)
+          summaryRow("Engine", engineStatus)
           summaryRow("Downloads", downloadStatus)
         }
         .padding(8)
@@ -228,6 +231,24 @@ private struct InstallerRootView: View {
         .foregroundStyle(.secondary)
       }
 
+      if let engineInspection {
+        statusMessage(
+          engineInspection.support == .supported
+            ? "The pinned Asahi engine independently confirmed this model and completed read-only disk inventory."
+            : "The pinned Asahi engine independently rejected this model before disk inventory or mutation.",
+          systemImage: engineInspection.support == .supported
+            ? "checkmark.shield.fill"
+            : "lock.shield.fill",
+          color: engineInspection.support == .supported ? .green : .orange
+        )
+      } else if let engineInspectionError {
+        statusMessage(
+          engineInspectionError,
+          systemImage: "exclamationmark.shield.fill",
+          color: .red
+        )
+      }
+
       Spacer()
 
       HStack {
@@ -243,7 +264,12 @@ private struct InstallerRootView: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
-        .disabled(isInspecting || hostInspection == nil)
+        .disabled(
+          isInspecting
+            || hostInspection == nil
+            || engineInspection?.support != .supported
+            || installationBlocked
+        )
 
         Button("Start installation") {}
           .buttonStyle(.bordered)
@@ -252,7 +278,7 @@ private struct InstallerRootView: View {
 
         Spacer()
 
-        Text("Live engine disconnected")
+        Text(engineConnectionLabel)
           .font(.caption.monospaced())
           .foregroundStyle(.secondary)
       }
@@ -282,6 +308,28 @@ private struct InstallerRootView: View {
       return "Blocked for this model"
     }
     return "Awaiting signed catalog"
+  }
+
+  private var engineStatus: String {
+    if isInspecting {
+      return "Inspecting pinned artifact"
+    }
+    if let engineInspection {
+      return engineInspection.support == .supported
+        ? "Verified • supported"
+        : "Verified • unsupported"
+    }
+    return engineInspectionError == nil ? "Pending" : "Unavailable • locked"
+  }
+
+  private var engineConnectionLabel: String {
+    if isInspecting {
+      return "Pinned engine inspecting"
+    }
+    if engineInspection != nil {
+      return "Pinned engine read-only"
+    }
+    return "Pinned engine unavailable"
   }
 
   private func summaryRow(_ label: String, _ value: String) -> some View {
@@ -325,16 +373,62 @@ private struct InstallerRootView: View {
   private func inspectThisMac() async {
     isInspecting = true
     planPrepared = false
+    engineInspection = nil
+    engineInspectionError = nil
     do {
       let result = try await Task.detached(priority: .userInitiated) {
         try AppleSiliconHostInspector().inspect()
       }.value
       hostInspection = result
       inspectionError = nil
+
+      do {
+        let transcript = try await EngineInspectionRunner().inspect()
+        guard transcript.deviceIdentifier == result.identity.deviceIdentifier else {
+          engineInspectionError =
+            "Pinned engine identity did not match this Mac. Installation remains locked."
+          isInspecting = false
+          return
+        }
+        engineInspection = transcript
+      } catch ValidationEngineArtifactError.unavailable {
+        engineInspectionError =
+          "Pinned validation engine is not available in this build. Installation remains locked."
+      } catch {
+        engineInspectionError =
+          "Pinned engine inspection failed validation. Installation remains locked."
+      }
     } catch {
       hostInspection = nil
       inspectionError = "Read-only inspection failed. Installation remains locked."
     }
     isInspecting = false
+  }
+}
+
+private struct EngineInspectionRunner: Sendable {
+  func inspect() async throws -> ValidatedEngineTranscript {
+    let scratch = try scratchDirectory()
+    let archive = try ValidationEngineArtifactLocator().locate()
+    let transcript = try await PinnedAsahiEngineExecutor().inspect(
+      archive,
+      in: scratch
+    )
+    return try AppleInstallerTrustCore().validateEngineTranscript(transcript)
+  }
+
+  private func scratchDirectory() throws -> URL {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "com.omarchy.mx.installer-engine",
+      isDirectory: true
+    )
+    if !FileManager.default.fileExists(atPath: directory.path) {
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700]
+      )
+    }
+    return directory
   }
 }

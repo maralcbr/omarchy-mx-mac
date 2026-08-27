@@ -1,4 +1,5 @@
 #if os(macOS)
+  import CryptoKit
   import Darwin
   import Foundation
 
@@ -6,13 +7,45 @@
     Error, Equatable, Sendable
   {
     case privilegeRequired
+    case invalidArchiveIdentity
     case unsafeArchive
+    case archiveSizeMismatch
+    case archiveDigestMismatch
     case unsafeArchiveEntry
     case extractionFailed(Int32)
     case invalidBundle
     case launchFailed
     case engineExited(Int32)
     case unsafeTranscript
+  }
+
+  public struct PinnedAsahiEngineArchive: Equatable, Sendable {
+    public let fileURL: URL
+    public let expectedDigest: String
+    public let expectedSizeBytes: UInt64
+
+    public init(
+      fileURL: URL,
+      expectedDigest: String,
+      expectedSizeBytes: UInt64
+    ) throws {
+      let hexadecimal = expectedDigest.hasPrefix("sha256:")
+        ? String(expectedDigest.dropFirst(7))
+        : ""
+      guard fileURL.isFileURL,
+        hexadecimal.count == 64,
+        hexadecimal.allSatisfy({
+          $0.isNumber || ("a"..."f").contains($0)
+        }),
+        expectedSizeBytes > 0,
+        expectedSizeBytes <= UInt64(PinnedAsahiEngineExecutor.maximumArchiveBytes)
+      else {
+        throw PinnedAsahiEngineExecutionError.invalidArchiveIdentity
+      }
+      self.fileURL = fileURL
+      self.expectedDigest = expectedDigest
+      self.expectedSizeBytes = expectedSizeBytes
+    }
   }
 
   public struct PinnedAsahiEngineExecutor:
@@ -43,10 +76,45 @@
       guard effectiveUserID() == 0 else {
         throw PinnedAsahiEngineExecutionError.privilegeRequired
       }
-      try validateArchive(package.engineURL)
+      let journal = try preparePersistentJournal(for: package)
+      return try run(
+        archive: package.engineURL,
+        executionParent: package.packageURL.deletingLastPathComponent(),
+        journal: journal,
+        additionalEnvironment: installEnvironment(package: package)
+      )
+    }
 
-      let executionRoot = package.packageURL
-        .deletingLastPathComponent()
+    public func inspect(
+      _ archive: PinnedAsahiEngineArchive,
+      in scratchDirectory: URL
+    ) async throws -> Data {
+      try validateJournalDirectory(scratchDirectory)
+      return try run(
+        archive: archive.fileURL,
+        expectedDigest: archive.expectedDigest,
+        expectedSizeBytes: archive.expectedSizeBytes,
+        executionParent: scratchDirectory,
+        journal: nil,
+        additionalEnvironment: ["OMARCHY_ENGINE_MODE": "inspect"]
+      )
+    }
+
+    private func run(
+      archive: URL,
+      expectedDigest: String? = nil,
+      expectedSizeBytes: UInt64? = nil,
+      executionParent: URL,
+      journal: URL?,
+      additionalEnvironment: [String: String]
+    ) throws -> Data {
+      try validateArchive(
+        archive,
+        expectedDigest: expectedDigest,
+        expectedSizeBytes: expectedSizeBytes
+      )
+
+      let executionRoot = executionParent
         .appendingPathComponent(
           "engine-execution-\(UUID().uuidString.lowercased())",
           isDirectory: true
@@ -67,19 +135,22 @@
         withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700]
       )
-      try validateArchiveEntries(package.engineURL)
-      try extract(package.engineURL, into: bundle)
+      try validateArchiveEntries(archive)
+      try extract(archive, into: bundle)
       try validateExtractedBundle(bundle)
 
-      let journal = try preparePersistentJournal(for: package)
+      let transcriptURL = journal ?? executionRoot.appendingPathComponent(
+        "transcript.jsonl",
+        isDirectory: false
+      )
       let process = Process()
       process.executableURL = Self.pythonURL(in: bundle)
       process.arguments = [bundle.appendingPathComponent("main.py").path]
       process.environment = environment(
         bundle: bundle,
         executionRoot: executionRoot,
-        journal: journal,
-        package: package
+        journal: transcriptURL,
+        additional: additionalEnvironment
       )
       process.currentDirectoryURL = bundle
       process.standardInput = FileHandle.nullDevice
@@ -98,16 +169,30 @@
           process.terminationStatus
         )
       }
-      return try readTranscript(journal)
+      return try readTranscript(transcriptURL)
+    }
+
+    private func installEnvironment(
+      package: ImportedEngineHandoffPackage
+    ) -> [String: String] {
+      [
+        "OMARCHY_ENGINE_MODE": "install",
+        "OMARCHY_ENGINE_REQUEST": package.requestURL.path,
+        "OMARCHY_ENGINE_IDENTITY": package.identityURL.path,
+        "OMARCHY_ENGINE_METADATA": package.metadataURL.path,
+        "OMARCHY_ENGINE_PAYLOAD": package.payloadURL.path,
+        "OMARCHY_ENGINE_BINDING_DIGEST": package.bindingDigest,
+        "OMARCHY_ENGINE_PLAN_DIGEST": package.planDigest,
+      ]
     }
 
     private func environment(
       bundle: URL,
       executionRoot: URL,
       journal: URL,
-      package: ImportedEngineHandoffPackage
+      additional: [String: String]
     ) -> [String: String] {
-      [
+      var values = [
         "HOME": executionRoot.path,
         "TMPDIR": executionRoot.path,
         "PATH": [
@@ -128,18 +213,17 @@
         "SSL_CERT_FILE": bundle.appendingPathComponent(
           "Frameworks/Python.framework/Versions/Current/etc/openssl/cert.pem"
         ).path,
-        "OMARCHY_ENGINE_MODE": "install",
         "OMARCHY_ENGINE_JOURNAL": journal.path,
-        "OMARCHY_ENGINE_REQUEST": package.requestURL.path,
-        "OMARCHY_ENGINE_IDENTITY": package.identityURL.path,
-        "OMARCHY_ENGINE_METADATA": package.metadataURL.path,
-        "OMARCHY_ENGINE_PAYLOAD": package.payloadURL.path,
-        "OMARCHY_ENGINE_BINDING_DIGEST": package.bindingDigest,
-        "OMARCHY_ENGINE_PLAN_DIGEST": package.planDigest,
       ]
+      values.merge(additional) { _, new in new }
+      return values
     }
 
-    private func validateArchive(_ archive: URL) throws {
+    private func validateArchive(
+      _ archive: URL,
+      expectedDigest: String?,
+      expectedSizeBytes: UInt64?
+    ) throws {
       let descriptor = Darwin.open(
         archive.path,
         O_RDONLY | O_CLOEXEC | O_NOFOLLOW
@@ -157,6 +241,35 @@
         status.st_size <= Self.maximumArchiveBytes
       else {
         throw PinnedAsahiEngineExecutionError.unsafeArchive
+      }
+
+      if let expectedSizeBytes {
+        guard UInt64(status.st_size) == expectedSizeBytes else {
+          throw PinnedAsahiEngineExecutionError.archiveSizeMismatch
+        }
+      }
+      if let expectedDigest {
+        let handle = FileHandle(
+          fileDescriptor: descriptor,
+          closeOnDealloc: false
+        )
+        var hasher = SHA256()
+        var bytesRead: UInt64 = 0
+        while let chunk = try handle.read(upToCount: 1_048_576),
+          !chunk.isEmpty
+        {
+          hasher.update(data: chunk)
+          bytesRead += UInt64(chunk.count)
+        }
+        guard bytesRead == UInt64(status.st_size) else {
+          throw PinnedAsahiEngineExecutionError.unsafeArchive
+        }
+        let digest = "sha256:" + hasher.finalize()
+          .map { String(format: "%02x", $0) }
+          .joined()
+        guard digest == expectedDigest else {
+          throw PinnedAsahiEngineExecutionError.archiveDigestMismatch
+        }
       }
     }
 
