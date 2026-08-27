@@ -52,7 +52,7 @@
 
     func testTranscriptForSubstitutedPlanIsRejected() async throws {
       let fixture = try makeFixture(
-        requestPlanDigest: String(repeating: "b", count: 64)
+        transcriptPlanMismatch: true
       )
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let source = try openDirectory(fixture.source)
@@ -98,7 +98,7 @@
 
     private func makeFixture(
       deviceIdentifier: String = "apple,j314s",
-      requestPlanDigest: String? = nil,
+      transcriptPlanMismatch: Bool = false,
       includeCompletion: Bool = true
     ) throws -> HelperServerFixture {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -151,18 +151,35 @@
         "enterOneTrueRecovery",
         "authenticateMachineOwner",
       ]
-      let transcriptPlanDigest = lengthPrefixedDigest(
+      let engineVersion = "v0.9.0-omarchy.1"
+      let requestPlanDigest = lengthPrefixedDigest(
         [
-          "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
-          "447750000000", "107374182400", "v0.9.0-omarchy.1",
-          "sha256:" + String(repeating: "d", count: 64),
-          "sha256:" + String(repeating: "e", count: 64),
-          "sha256:" + String(repeating: "f", count: 64),
+          deviceIdentifier, "disk0", layoutDigest, "free", "disk0s3",
+          "447750000000", "107374182400", engineVersion,
+          engineDigest, metadataDigest, payloadDigest,
           requiredHumanSteps.joined(separator: ","),
         ],
         prefix: ""
       )
-      let boundPlanDigest = requestPlanDigest ?? transcriptPlanDigest
+      let transcriptEngineDigest = transcriptPlanMismatch
+        ? "sha256:" + String(repeating: "d", count: 64)
+        : engineDigest
+      let transcriptMetadataDigest = transcriptPlanMismatch
+        ? "sha256:" + String(repeating: "e", count: 64)
+        : metadataDigest
+      let transcriptPayloadDigest = transcriptPlanMismatch
+        ? "sha256:" + String(repeating: "f", count: 64)
+        : payloadDigest
+      let transcriptPlanDigest = lengthPrefixedDigest(
+        [
+          "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
+          "447750000000", "107374182400", engineVersion,
+          transcriptEngineDigest, transcriptMetadataDigest,
+          transcriptPayloadDigest,
+          requiredHumanSteps.joined(separator: ","),
+        ],
+        prefix: ""
+      )
       let bindingDigest = digest(Data("binding".utf8))
       let manifest = Data(
         """
@@ -171,12 +188,12 @@
       )
       let request = Data(
         """
-        {"format":1,"operation":"install","plan_digest":"\(boundPlanDigest)","device_identifier":"\(deviceIdentifier)","store_identifier":"disk0","layout_digest":"\(digest(Data("layout".utf8)))","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}
+        {"format":1,"operation":"install","plan_digest":"\(requestPlanDigest)","device_identifier":"\(deviceIdentifier)","store_identifier":"disk0","layout_digest":"\(layoutDigest)","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":107374182400,"engine_version":"\(engineVersion)","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}
         """.utf8
       )
       let identity = Data(
         """
-        {"format":1,"binding_digest":"\(bindingDigest)","trust_root_fingerprint":"\(digest(Data("root".utf8)))","catalog_sequence":40,"catalog_payload_digest":"\(digest(Data("catalog".utf8)))","plan_digest":"\(boundPlanDigest)","engine_digest":"\(engineDigest)","metadata_digest":"\(metadataDigest)","payload_digest":"\(payloadDigest)"}
+        {"format":1,"binding_digest":"\(bindingDigest)","trust_root_fingerprint":"\(digest(Data("root".utf8)))","catalog_sequence":40,"catalog_payload_digest":"\(digest(Data("catalog".utf8)))","plan_digest":"\(requestPlanDigest)","engine_digest":"\(engineDigest)","metadata_digest":"\(metadataDigest)","payload_digest":"\(payloadDigest)"}
         """.utf8
       )
       try writePrivate(
@@ -195,7 +212,7 @@
       var lines = [
         #"{"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j314s","support":"supported"}}"#,
         #"{"schema_version":1,"sequence":2,"type":"inventory","payload":{"layout_digest":"\#(layoutDigest)","system_store_identifier":"disk0","candidates":[{"kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":107374182400,"minimum_install_bytes":67501226240,"minimum_container_bytes":0}]}}"#,
-        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(transcriptPlanDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":107374182400,"engine_version":"v0.9.0-omarchy.1","engine_digest":"sha256:\#(String(repeating: "d", count: 64))","metadata_digest":"sha256:\#(String(repeating: "e", count: 64))","payload_digest":"sha256:\#(String(repeating: "f", count: 64))","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}}"#,
+        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(transcriptPlanDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\#(layoutDigest)","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":447750000000,"length_bytes":107374182400,"engine_version":"\#(engineVersion)","engine_digest":"\#(transcriptEngineDigest)","metadata_digest":"\#(transcriptMetadataDigest)","payload_digest":"\#(transcriptPayloadDigest)","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}}"#,
       ]
       if includeCompletion {
         lines.append(

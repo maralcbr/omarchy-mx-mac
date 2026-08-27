@@ -96,6 +96,36 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
+    func testChangedRequestExtentIsRejectedBeforeImport() throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let original = try String(
+        contentsOf: fixture.requestURL,
+        encoding: .utf8
+      )
+      let changed = original.replacingOccurrences(
+        of: #""offset_bytes":2000"#,
+        with: #""offset_bytes":3000"#
+      )
+      try FileManager.default.removeItem(at: fixture.requestURL)
+      try writePrivate(Data(changed.utf8), to: fixture.requestURL)
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+
+      XCTAssertThrowsError(
+        try EngineHandoffPackageImporter().prepare(
+          from: source,
+          in: fixture.destination
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? EngineHandoffImportError,
+          .bindingMismatch
+        )
+      }
+      XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+    }
+
     func testSymlinkedEngineIsRejectedAndPartialImportIsRemoved() throws {
       let fixture = try makeFixture(symlinkEngine: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -165,10 +195,17 @@
       )
 
       let bindingDigest = digest(Data("binding".utf8))
-      let planDigest = String(repeating: "a", count: 64)
       let engineDigest = digest(engine)
       let metadataDigest = digest(metadata)
       let payloadDigest = digest(payload)
+      let layoutDigest = digest(Data("layout".utf8))
+      let engineVersion = "v0.9.0-omarchy.2"
+      let planDigest = lengthPrefixedDigest([
+        "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
+        "2000", "1000", engineVersion, engineDigest, metadataDigest,
+        payloadDigest,
+        "enterOneTrueRecovery,authenticateMachineOwner",
+      ])
       let extraField = extraManifestField ? #","unexpected":true"# : ""
       let engineFileName = nulEngineFileName
         ? #"engine\u0000ignored.tar.gz"#
@@ -180,7 +217,7 @@
       )
       let request = Data(
         """
-        {"format":1,"operation":"install","plan_digest":"\(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\(digest(Data("layout".utf8)))","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}
+        {"format":1,"operation":"install","plan_digest":"\(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\(layoutDigest)","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"\(engineVersion)","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}
         """.utf8
       )
       let identity = Data(
@@ -206,6 +243,7 @@
         source: source,
         destination: destination,
         engineURL: engineURL,
+        requestURL: source.appendingPathComponent("request.json"),
         engine: engine,
         metadata: metadata,
         payload: payload
@@ -251,6 +289,15 @@
         .map { String(format: "%02x", $0) }
         .joined()
     }
+
+    private func lengthPrefixedDigest(_ fields: [String]) -> String {
+      let canonical = fields
+        .map { "\($0.utf8.count):\($0)" }
+        .joined(separator: "|")
+      return SHA256.hash(data: Data(canonical.utf8))
+        .map { String(format: "%02x", $0) }
+        .joined()
+    }
   }
 
   private struct ImportFixture {
@@ -258,6 +305,7 @@
     let source: URL
     let destination: URL
     let engineURL: URL
+    let requestURL: URL
     let engine: Data
     let metadata: Data
     let payload: Data

@@ -280,6 +280,7 @@
     let sourceIdentifier: String
     let offsetBytes: UInt64
     let lengthBytes: UInt64
+    let engineVersion: String
     let requiredHumanSteps: [String]
 
     init(invocation: ClosedEngineInvocation) {
@@ -292,6 +293,7 @@
       sourceIdentifier = plan.sourceIdentifier
       offsetBytes = plan.offsetBytes
       lengthBytes = plan.lengthBytes
+      engineVersion = plan.engineVersion
       requiredHumanSteps = plan.requiredHumanSteps
     }
 
@@ -306,6 +308,7 @@
       case sourceIdentifier = "source_identifier"
       case offsetBytes = "offset_bytes"
       case lengthBytes = "length_bytes"
+      case engineVersion = "engine_version"
       case requiredHumanSteps = "required_human_steps"
     }
   }

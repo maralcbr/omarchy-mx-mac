@@ -323,7 +323,7 @@
             "format", "operation", "plan_digest", "device_identifier",
             "store_identifier", "layout_digest", "candidate_kind",
             "source_identifier", "offset_bytes", "length_bytes",
-            "required_human_steps",
+            "engine_version", "required_human_steps",
           ],
           error: .invalidRequest
         )
@@ -346,6 +346,8 @@
             options: .regularExpression
           ) != nil,
           request.lengthBytes > 0,
+          !request.engineVersion.isEmpty,
+          request.engineVersion.utf8.count <= 128,
           !request.offsetBytes.addingReportingOverflow(
             request.lengthBytes
           ).overflow,
@@ -406,6 +408,20 @@
     ) throws {
       guard manifest.bindingDigest == identity.bindingDigest,
         request.planDigest == identity.planDigest,
+        request.planDigest == lengthPrefixedDigest([
+          request.deviceIdentifier,
+          request.storeIdentifier,
+          request.layoutDigest,
+          request.candidateKind,
+          request.sourceIdentifier,
+          String(request.offsetBytes),
+          String(request.lengthBytes),
+          request.engineVersion,
+          identity.engineDigest,
+          identity.metadataDigest,
+          identity.payloadDigest,
+          request.requiredHumanSteps.joined(separator: ","),
+        ]),
         manifest.engine.digest == identity.engineDigest,
         manifest.metadata.digest == identity.metadataDigest,
         manifest.payload.digest == identity.payloadDigest
@@ -456,6 +472,15 @@
           $0.isNumber || ("a"..."f").contains($0)
         }
     }
+
+    private func lengthPrefixedDigest(_ fields: [String]) -> String {
+      let canonical = fields
+        .map { "\($0.utf8.count):\($0)" }
+        .joined(separator: "|")
+      return SHA256.hash(data: Data(canonical.utf8))
+        .map { String(format: "%02x", $0) }
+        .joined()
+    }
   }
 
   private struct ImportedManifest: Decodable {
@@ -501,6 +526,7 @@
     let sourceIdentifier: String
     let offsetBytes: UInt64
     let lengthBytes: UInt64
+    let engineVersion: String
     let requiredHumanSteps: [String]
 
     enum CodingKeys: String, CodingKey {
@@ -514,6 +540,7 @@
       case sourceIdentifier = "source_identifier"
       case offsetBytes = "offset_bytes"
       case lengthBytes = "length_bytes"
+      case engineVersion = "engine_version"
       case requiredHumanSteps = "required_human_steps"
     }
   }
