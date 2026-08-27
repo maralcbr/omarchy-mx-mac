@@ -1,6 +1,6 @@
 # Apple Silicon M4 selective integration matrix
 
-Status: S1 implemented locally; no user integration
+Status: S2 implemented locally; no user integration
 Created: 2026-08-27
 Destination branch: `feature/m4-handoff-integration`
 Destination base: `origin/main` at `c2252509fa48e430c7142543e9da4d442343328d`
@@ -101,8 +101,14 @@ repository standards.
 - S1 adds a library-only trust core with no executable target, process adapter,
   persistence adapter, authorization provider, signing key, installer
   registration, or release wiring.
-- The 12 trust-core interface tests pass in both debug and release
-  configurations through XcodeBuildMCP 2.7.0.
+- S2 adds one closed execution harness with injected authorization and process
+  seams. It contains no concrete process launcher, live authorization provider,
+  filesystem persistence, installer registration, or release wiring.
+- The 18 trust-core and closed-adapter interface tests pass in both debug and
+  release configurations through XcodeBuildMCP 2.7.0. They prove cancellation
+  before execution, plan-substitution rejection, signature failure before
+  authorization, transcript validation, and hard rejection of `apple,j614s`
+  even when a test-signed catalog enables it.
 
 ## Proposed source-only sequence
 
@@ -114,10 +120,10 @@ This sequence is a proposal, not authorization to execute later gates.
    journal, support-catalog validation, and pure tests needed for a closed
    Phase 4 trust boundary. The Python overlay, process adapters, and UI were not
    extracted, so their standards findings remain outside the S1 module.
-3. **S2 — closed process adapter:** add one shared harness whose tests prove
-   authorization cancellation, plan substitution rejection, signature
-   failure, transcript validation, and `apple,j614s` rejection. Do not add a
-   live authorization provider or mutation-capable engine.
+3. **S2 — closed process adapter (completed locally):** one shared injected
+   harness proves authorization cancellation, plan substitution rejection,
+   signature failure, transcript validation, and `apple,j614s` rejection. No
+   live authorization provider or mutation-capable engine was added.
 4. **S3 — production identity design:** specify the app-owned trust-root and
    candidate-bound plan interfaces without installing keys, signing artifacts,
    publishing catalogs, or enabling mutation.
@@ -131,8 +137,7 @@ This sequence is a proposal, not authorization to execute later gates.
 
 ## Next decision
 
-The next safe action, if separately approved, is S2 only: a local closed
-process adapter with cancellation, substitution, signature-failure, transcript,
-and M4-rejection tests. It must not include a live authorization provider,
-installer registration, release wiring, privileged execution, or any path that
-changes an existing user's machine.
+The next safe action, if separately approved, is S3 only: design the app-owned
+trust-root and candidate-bound plan interfaces without installing keys, signing
+artifacts, publishing catalogs, enabling a live authorization provider, or
+adding any path that changes an existing user's machine.
