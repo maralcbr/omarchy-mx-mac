@@ -1,0 +1,33 @@
+{
+  "os_list": [
+    {
+      "name": "Omarchy Apple Silicon installer environment",
+      "default_os_name": "Omarchy",
+      "omarchy_target": "apple-silicon-uefi",
+      "boot_object": "m1n1.bin",
+      "next_object": "m1n1/boot.bin",
+      "package": "uefi-only-20260810-asahi-7.1.6-1.zip",
+      "supported_fw": [
+        "13.5",
+        "14.8.3"
+      ],
+      "partitions": [
+        {
+          "name": "EFI",
+          "type": "EFI",
+          "size": "500MB",
+          "format": "fat",
+          "copy_firmware": true,
+          "copy_installer_data": true,
+          "source": "esp"
+        },
+        {
+          "name": "Omarchy target",
+          "type": "Linux",
+          "size": "32GB",
+          "expand": true
+        }
+      ]
+    }
+  ]
+}
