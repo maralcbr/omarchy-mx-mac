@@ -6,7 +6,7 @@
   @objc public protocol ClosedEngineXPCService {
     func submit(
       packageDirectory: FileHandle,
-      reply: @escaping (Data?, NSError?) -> Void
+      reply: @escaping @Sendable (Data?, NSError?) -> Void
     )
   }
 
@@ -32,7 +32,9 @@
       guard Self.isMachServiceName(machServiceName) else {
         throw EngineXPCSubmissionError.invalidMachServiceName
       }
-      guard Self.isValidRequirement(helperCodeSigningRequirement) else {
+      guard EngineCodeSigningRequirement.isValid(
+        helperCodeSigningRequirement
+      ) else {
         throw EngineXPCSubmissionError.invalidCodeSigningRequirement
       }
       self.machServiceName = machServiceName
@@ -65,6 +67,7 @@
         machServiceName: machServiceName,
         options: .privileged
       )
+      let connectionHandle = SendableXPCConnection(connection)
       connection.remoteObjectInterface = NSXPCInterface(
         with: ClosedEngineXPCService.self
       )
@@ -88,17 +91,17 @@
           gate.resume(
             throwing: EngineXPCSubmissionError.connectionFailed
           )
-          connection.invalidate()
+          connectionHandle.invalidate()
         }) as? ClosedEngineXPCService else {
           gate.resume(
             throwing: EngineXPCSubmissionError.connectionFailed
           )
-          connection.invalidate()
+          connectionHandle.invalidate()
           return
         }
 
         proxy.submit(packageDirectory: directoryHandle) { response, error in
-          defer { connection.invalidate() }
+          defer { connectionHandle.invalidate() }
           if let error {
             gate.resume(
               throwing: EngineXPCSubmissionError.helperRejected(
@@ -133,8 +136,10 @@
           || byte == 46
       }
     }
+  }
 
-    private static func isValidRequirement(_ value: String) -> Bool {
+  enum EngineCodeSigningRequirement {
+    static func isValid(_ value: String) -> Bool {
       guard !value.isEmpty, value.utf8.count <= 4_096 else {
         return false
       }
@@ -145,6 +150,18 @@
         &requirement
       )
       return status == errSecSuccess && requirement != nil
+    }
+  }
+
+  private final class SendableXPCConnection: @unchecked Sendable {
+    private let connection: NSXPCConnection
+
+    init(_ connection: NSXPCConnection) {
+      self.connection = connection
+    }
+
+    func invalidate() {
+      connection.invalidate()
     }
   }
 

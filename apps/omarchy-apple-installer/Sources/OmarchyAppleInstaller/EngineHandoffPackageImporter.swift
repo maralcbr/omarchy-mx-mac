@@ -11,6 +11,9 @@
     public let engineURL: URL
     public let metadataURL: URL
     public let payloadURL: URL
+    public let bindingDigest: String
+    public let planDigest: String
+    public let deviceIdentifier: String
   }
 
   public enum EngineHandoffImportError: Error, Equatable, Sendable {
@@ -115,7 +118,10 @@
         identityURL: identityURL,
         engineURL: engineURL,
         metadataURL: metadataURL,
-        payloadURL: payloadURL
+        payloadURL: payloadURL,
+        bindingDigest: identity.bindingDigest,
+        planDigest: request.planDigest,
+        deviceIdentifier: request.deviceIdentifier
       )
     }
 
