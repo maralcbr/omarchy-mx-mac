@@ -23,6 +23,11 @@
     }
   }
 
+  public struct PreparedInstallerRelease: Sendable {
+    public let assets: PreparedInstallerAssets
+    public let catalogDocuments: InstallerReleaseCatalogDocuments
+  }
+
   public struct InstallerReleaseAssetCoordinator: Sendable {
     private let catalogFetcher: InstallerReleaseCatalogFetcher
     private let assetPreparer: InstallerAssetPreparer
@@ -43,11 +48,17 @@
     public func prepare(
       _ request: InstallerReleasePreparationRequest
     ) async throws -> PreparedInstallerAssets {
+      try await prepareRelease(request).assets
+    }
+
+    public func prepareRelease(
+      _ request: InstallerReleasePreparationRequest
+    ) async throws -> PreparedInstallerRelease {
       _ = try assetPreparer.validateHost(request.host)
       let catalog = try await catalogFetcher.fetch(
         configuration: request.configuration
       )
-      return try await assetPreparer.prepare(
+      let assets = try await assetPreparer.prepare(
         InstallerAssetPreparationRequest(
           host: request.host,
           catalogPayload: catalog.payload,
@@ -57,6 +68,10 @@
           previouslyAcceptedCatalog: request.previouslyAcceptedCatalog,
           stagingDirectory: request.stagingDirectory
         )
+      )
+      return PreparedInstallerRelease(
+        assets: assets,
+        catalogDocuments: catalog
       )
     }
   }

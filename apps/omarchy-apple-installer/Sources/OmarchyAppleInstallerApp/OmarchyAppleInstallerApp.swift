@@ -15,12 +15,17 @@ struct OmarchyAppleInstallerApp: App {
 private struct InstallerRootView: View {
   private let workflow = InstallerWorkflow()
   @State private var selectedStepID = "inspect"
-  @State private var planPrepared = false
   @State private var hostInspection: AppleSiliconHostInspection?
   @State private var engineInspection: ValidatedEngineTranscript?
+  @State private var engineInspectionTranscript: Data?
+  @State private var planReview: InstallerPlanReview?
+  @State private var planApproval: CandidateBoundPlanApproval?
+  @State private var ownerAcknowledged = false
   @State private var inspectionError: String?
   @State private var engineInspectionError: String?
+  @State private var planPreparationError: String?
   @State private var isInspecting = true
+  @State private var isPreparingPlan = false
 
   private var snapshot: InstallerWorkflowSnapshot {
     if let hostInspection {
@@ -217,11 +222,23 @@ private struct InstallerRootView: View {
           systemImage: "exclamationmark.triangle.fill",
           color: .red
         )
-      } else if planPrepared {
+      } else if planApproval != nil {
         statusMessage(
-          "Safe preview prepared. No authorization was requested and no disk, boot policy, or user setting was changed.",
+          "The exact candidate-bound plan is approved in memory. Privileged execution remains locked until the signed helper is installed.",
           systemImage: "checkmark.circle.fill",
           color: .green
+        )
+      } else if planReview != nil {
+        statusMessage(
+          "The signed plan is ready for exact owner review. No authorization was requested and no disk or boot policy changed.",
+          systemImage: "checkmark.shield.fill",
+          color: .green
+        )
+      } else if let planPreparationError {
+        statusMessage(
+          planPreparationError,
+          systemImage: "exclamationmark.triangle.fill",
+          color: .red
         )
       } else {
         Label(
@@ -249,7 +266,19 @@ private struct InstallerRootView: View {
         )
       }
 
+      if selectedStepID == "plan", let planReview {
+        planReviewBox(planReview)
+      }
+
       Spacer()
+
+      if planReview != nil, planApproval == nil {
+        Toggle(
+          "I reviewed the exact disk extent and required Recovery steps",
+          isOn: $ownerAcknowledged
+        )
+        .toggleStyle(.checkbox)
+      }
 
       HStack {
         Button(isInspecting ? "Inspecting…" : "Inspect this Mac") {
@@ -259,17 +288,27 @@ private struct InstallerRootView: View {
         .controlSize(.large)
         .disabled(isInspecting)
 
-        Button("Prepare safe preview") {
-          planPrepared = true
+        Button(isPreparingPlan ? "Preparing…" : "Prepare signed plan") {
+          Task { await prepareSignedPlan() }
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
         .disabled(
           isInspecting
+            || isPreparingPlan
             || hostInspection == nil
             || engineInspection?.support != .supported
             || installationBlocked
         )
+
+        if let planReview, planApproval == nil {
+          Button("Approve exact plan") {
+            approve(planReview)
+          }
+          .buttonStyle(.bordered)
+          .controlSize(.large)
+          .disabled(!ownerAcknowledged)
+        }
 
         Button("Start installation") {}
           .buttonStyle(.bordered)
@@ -307,6 +346,12 @@ private struct InstallerRootView: View {
     if installationBlocked {
       return "Blocked for this model"
     }
+    if let planReview {
+      return "Verified • catalog \(planReview.assets.catalogIdentity.sequence)"
+    }
+    if isPreparingPlan {
+      return "Fetching and verifying"
+    }
     return "Awaiting signed catalog"
   }
 
@@ -323,6 +368,9 @@ private struct InstallerRootView: View {
   }
 
   private var engineConnectionLabel: String {
+    if isPreparingPlan {
+      return "Signed engine planning"
+    }
     if isInspecting {
       return "Pinned engine inspecting"
     }
@@ -330,6 +378,41 @@ private struct InstallerRootView: View {
       return "Pinned engine read-only"
     }
     return "Pinned engine unavailable"
+  }
+
+  private func planReviewBox(
+    _ review: InstallerPlanReview
+  ) -> some View {
+    GroupBox {
+      VStack(alignment: .leading, spacing: 9) {
+        summaryRow("Device", review.plan.deviceIdentifier)
+        summaryRow("Store", review.plan.storeIdentifier)
+        summaryRow("Source", review.plan.sourceIdentifier)
+        summaryRow("Offset", formatBytes(review.plan.offsetBytes))
+        summaryRow("Install", formatBytes(review.plan.lengthBytes))
+        summaryRow("Engine", review.plan.engineVersion)
+        summaryRow("Plan", shortDigest(review.plan.planDigest))
+        summaryRow("Binding", shortDigest(review.identity.bindingDigest))
+      }
+      .padding(8)
+    } label: {
+      Label("Exact candidate-bound plan", systemImage: "lock.shield")
+        .font(.headline)
+    }
+  }
+
+  private func formatBytes(_ value: UInt64) -> String {
+    ByteCountFormatter.string(
+      fromByteCount: Int64(clamping: value),
+      countStyle: .file
+    )
+  }
+
+  private func shortDigest(_ value: String) -> String {
+    guard value.count > 22 else {
+      return value
+    }
+    return String(value.prefix(18)) + "…" + String(value.suffix(8))
   }
 
   private func summaryRow(_ label: String, _ value: String) -> some View {
@@ -370,10 +453,153 @@ private struct InstallerRootView: View {
   }
 
   @MainActor
+  private func prepareSignedPlan() async {
+    guard let hostInspection,
+      engineInspectionTranscript != nil
+    else {
+      planPreparationError =
+        "Read-only host and engine inspection must complete first."
+      return
+    }
+
+    isPreparingPlan = true
+    planPreparationError = nil
+    planReview = nil
+    planApproval = nil
+    ownerAcknowledged = false
+    defer { isPreparingPlan = false }
+
+    do {
+      let configuration = try InstallerReleaseConfigurationLocator()
+        .loadFromMainBundle()
+      let workspace = try installerWorkspace()
+      let catalogStore = AcceptedCatalogIdentityStore(
+        directory: workspace.state
+      )
+      let previouslyAcceptedCatalog = try catalogStore.load()
+      let validationTime = Date()
+      let release = try await InstallerReleaseAssetCoordinator()
+        .prepareRelease(
+          InstallerReleasePreparationRequest(
+            host: hostInspection,
+            configuration: configuration,
+            validationTime: validationTime,
+            previouslyAcceptedCatalog: previouslyAcceptedCatalog,
+            stagingDirectory: workspace.staging
+          )
+        )
+      try catalogStore.store(release.assets.catalogIdentity)
+      let stagedEngine = release.assets.engine
+      let archive = try PinnedAsahiEngineArchive(
+        fileURL: stagedEngine.fileURL,
+        expectedDigest: stagedEngine.artifact.expectedDigest,
+        expectedSizeBytes: stagedEngine.artifact.expectedSizeBytes
+      )
+      let signedInspection = try await EngineInspectionRunner().inspect(
+        archive
+      )
+      guard signedInspection.validated.deviceIdentifier
+        == hostInspection.identity.deviceIdentifier,
+        signedInspection.validated.support == .supported,
+        let inventory = signedInspection.validated.inventory
+      else {
+        throw InstallerPlanPreparationError.unsupportedDevice(
+          hostInspection.identity.deviceIdentifier
+        )
+      }
+      let recommendation = try InstallerAllocationRecommendation(
+        inventory: inventory
+      )
+      let review = try await InstallerPlanPreparationCoordinator()
+        .prepare(
+          InstallerPlanPreparationRequest(
+            host: hostInspection,
+            release: release,
+            configuration: configuration,
+            inspectionTranscript: signedInspection.transcript,
+            candidate: recommendation.candidate,
+            requestedLengthBytes: recommendation.requestedLengthBytes,
+            validationTime: validationTime,
+            previouslyAcceptedCatalog: release.assets.catalogIdentity,
+            scratchDirectory: workspace.scratch
+          )
+        )
+      planReview = review
+      selectedStepID = "plan"
+    } catch InstallerReleaseConfigurationError.releaseResourcesUnavailable {
+      planPreparationError =
+        "This build has no sealed production release identity. Installation remains locked."
+    } catch {
+      planPreparationError =
+        "Signed plan preparation failed (\(String(describing: error))). No authorization was requested."
+    }
+  }
+
+  @MainActor
+  private func approve(_ review: InstallerPlanReview) {
+    let confirmation = InstallerOwnerPlanConfirmation(
+      bindingDigest: review.identity.bindingDigest,
+      planDigest: review.plan.planDigest,
+      deviceIdentifier: review.plan.deviceIdentifier,
+      storeIdentifier: review.plan.storeIdentifier,
+      sourceIdentifier: review.plan.sourceIdentifier,
+      offsetBytes: review.plan.offsetBytes,
+      lengthBytes: review.plan.lengthBytes,
+      requiredHumanSteps: review.plan.requiredHumanSteps
+    )
+    do {
+      planApproval = try review.approve(confirming: confirmation)
+      ownerAcknowledged = false
+    } catch {
+      planApproval = nil
+      planPreparationError =
+        "The plan changed before approval. Prepare and review it again."
+    }
+  }
+
+  private func installerWorkspace() throws
+    -> (staging: URL, scratch: URL, state: URL)
+  {
+    guard let applicationSupport = FileManager.default.urls(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask
+    ).first else {
+      throw InstallerAppError.workspaceUnavailable
+    }
+    let base = applicationSupport.appendingPathComponent(
+      "com.omarchy.mx.installer",
+      isDirectory: true
+    )
+    let staging = base.appendingPathComponent("staging", isDirectory: true)
+    let scratch = base.appendingPathComponent("scratch", isDirectory: true)
+    let state = base.appendingPathComponent("state", isDirectory: true)
+    try createPrivateDirectoryIfMissing(base)
+    try createPrivateDirectoryIfMissing(staging)
+    try createPrivateDirectoryIfMissing(scratch)
+    try createPrivateDirectoryIfMissing(state)
+    return (staging, scratch, state)
+  }
+
+  private func createPrivateDirectoryIfMissing(_ directory: URL) throws {
+    guard !FileManager.default.fileExists(atPath: directory.path) else {
+      return
+    }
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: false,
+      attributes: [.posixPermissions: 0o700]
+    )
+  }
+
+  @MainActor
   private func inspectThisMac() async {
     isInspecting = true
-    planPrepared = false
+    planReview = nil
+    planApproval = nil
+    planPreparationError = nil
+    ownerAcknowledged = false
     engineInspection = nil
+    engineInspectionTranscript = nil
     engineInspectionError = nil
     do {
       let result = try await Task.detached(priority: .userInitiated) {
@@ -383,14 +609,17 @@ private struct InstallerRootView: View {
       inspectionError = nil
 
       do {
-        let transcript = try await EngineInspectionRunner().inspect()
-        guard transcript.deviceIdentifier == result.identity.deviceIdentifier else {
+        let inspection = try await EngineInspectionRunner().inspect()
+        guard inspection.validated.deviceIdentifier
+          == result.identity.deviceIdentifier
+        else {
           engineInspectionError =
             "Pinned engine identity did not match this Mac. Installation remains locked."
           isInspecting = false
           return
         }
-        engineInspection = transcript
+        engineInspection = inspection.validated
+        engineInspectionTranscript = inspection.transcript
       } catch ValidationEngineArtifactError.unavailable {
         engineInspectionError =
           "Pinned validation engine is not available in this build. Installation remains locked."
@@ -407,14 +636,31 @@ private struct InstallerRootView: View {
 }
 
 private struct EngineInspectionRunner: Sendable {
-  func inspect() async throws -> ValidatedEngineTranscript {
+  func inspect() async throws -> EngineInspectionResult {
     let scratch = try scratchDirectory()
     let archive = try ValidationEngineArtifactLocator().locate()
+    return try await inspect(archive, in: scratch)
+  }
+
+  func inspect(
+    _ archive: PinnedAsahiEngineArchive
+  ) async throws -> EngineInspectionResult {
+    try await inspect(archive, in: scratchDirectory())
+  }
+
+  private func inspect(
+    _ archive: PinnedAsahiEngineArchive,
+    in scratch: URL
+  ) async throws -> EngineInspectionResult {
     let transcript = try await PinnedAsahiEngineExecutor().inspect(
       archive,
       in: scratch
     )
-    return try AppleInstallerTrustCore().validateEngineTranscript(transcript)
+    return EngineInspectionResult(
+      transcript: transcript,
+      validated: try AppleInstallerTrustCore()
+        .validateEngineTranscript(transcript)
+    )
   }
 
   private func scratchDirectory() throws -> URL {
@@ -431,4 +677,13 @@ private struct EngineInspectionRunner: Sendable {
     }
     return directory
   }
+}
+
+private struct EngineInspectionResult: Sendable {
+  let transcript: Data
+  let validated: ValidatedEngineTranscript
+}
+
+private enum InstallerAppError: Error {
+  case workspaceUnavailable
 }
