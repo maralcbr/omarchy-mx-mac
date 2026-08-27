@@ -10,6 +10,7 @@ grep -Fxq "# Omarchy MX Mac $version" "$notes"
 grep -Fxq '## Validation' "$notes"
 grep -Fq '**Full Changelog**:' "$notes"
 grep -Fq "## [$version]" "$ROOT/CHANGELOG.md"
+grep -Fq "| Omarchy `$version` | Recommended stable version |" "$ROOT/README.md"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -52,6 +53,54 @@ elif [[ " $* " == *" --verify "* ]]; then
 fi
 EOF
 chmod +x "$tmp/bin"/*
+
+
+cat >"$tmp/bin/gh" <<'EOF'
+#!/bin/bash
+[[ $1 == "api" ]] || exit 2
+case "${GH_RELEASE_SCENARIO:-assetless-latest}" in
+  assetless-latest)
+    printf '%s\n' '[{"tag_name":"v4.0.1-mac.2","assets":[]},{"tag_name":"v4.0.1-mac.1","assets":[{"name":"omarchy-mx-mac-release"},{"name":"omarchy-mx-mac-release.sig"}]}]'
+    ;;
+  paginated)
+    printf '%s\n' '[{"tag_name":"v4.0.1-mac.2","assets":[]}]'
+    printf '%s\n' '[{"tag_name":"v4.0.1-mac.1","assets":[{"name":"omarchy-mx-mac-release"}]}]'
+    ;;
+  no-descriptor)
+    printf '%s\n' '[{"tag_name":"v4.0.1-mac.2","assets":[]}]'
+    ;;
+  api-failure)
+    exit 1
+    ;;
+esac
+EOF
+chmod +x "$tmp/bin/gh"
+
+previous_tag=$(PATH="$tmp/bin:$PATH" GH_RELEASE_SCENARIO=assetless-latest \
+  "$ROOT/scripts/find-previous-stable-release" maralcbr/omarchy-mx-mac)
+[[ $previous_tag == "v4.0.1-mac.1" ]] || {
+  echo "not ok - assetless latest release did not fall back to signed descriptor" >&2
+  exit 1
+}
+
+previous_tag=$(PATH="$tmp/bin:$PATH" GH_RELEASE_SCENARIO=paginated \
+  "$ROOT/scripts/find-previous-stable-release" maralcbr/omarchy-mx-mac)
+[[ $previous_tag == "v4.0.1-mac.1" ]] || {
+  echo "not ok - paginated release lookup missed signed descriptor" >&2
+  exit 1
+}
+
+if PATH="$tmp/bin:$PATH" GH_RELEASE_SCENARIO=no-descriptor \
+  "$ROOT/scripts/find-previous-stable-release" maralcbr/omarchy-mx-mac >/dev/null 2>&1; then
+  echo "not ok - missing signed descriptor was accepted" >&2
+  exit 1
+fi
+
+if PATH="$tmp/bin:$PATH" GH_RELEASE_SCENARIO=api-failure \
+  "$ROOT/scripts/find-previous-stable-release" maralcbr/omarchy-mx-mac >/dev/null 2>&1; then
+  echo "not ok - GitHub API failure was accepted" >&2
+  exit 1
+fi
 
 run_resolver() {
   PATH="$tmp/bin:$ROOT/bin:/usr/bin" XDG_STATE_HOME="$tmp/state" \

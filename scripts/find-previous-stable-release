@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -euo pipefail
+
+repository="${1:-${GITHUB_REPOSITORY:-}}"
+if [[ ! $repository =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  echo "Usage: scripts/find-previous-stable-release OWNER/REPOSITORY" >&2
+  exit 1
+fi
+
+releases=$(mktemp)
+trap 'rm -f "$releases"' EXIT
+
+gh api --paginate "/repos/$repository/releases?per_page=100" >"$releases"
+
+previous_tag=$(jq -r -s '
+  map(.[]) |
+  map(select(any(.assets[]?; .name == "omarchy-mx-mac-release"))) |
+  first |
+  .tag_name // empty
+' "$releases")
+
+if [[ ! $previous_tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$ ]]; then
+  echo "No previous signed stable Mac release descriptor found" >&2
+  exit 1
+fi
+
+printf '%s\n' "$previous_tag"

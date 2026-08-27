@@ -4,6 +4,18 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
+## [4.0.1-mac.2] - 2026-08-26
+
+- Corrected numbered Mac release handling in the signed Quattro upgrade path.
+- Published immutable Apple Silicon channel sequence 25 from source commit
+  `fe8d2bf8aa64f33b5cff285445900e5d1a2eb4b2`.
+- Separated release and package signing trust, restored ARM Node selection, and
+  repaired updates with active zram.
+- Accepted the release in the generic ARM64 QEMU/HVF VM; physical Apple-hardware
+  qualification is not claimed for this release.
+
+[Release notes](docs/releases/v4.0.1-mac.2.md) | [Full diff](https://github.com/maralcbr/omarchy-mx-mac/compare/v4.0.1-mac.1...v4.0.1-mac.2)
+
 ## [4.0.1-mac.1] - 2026-08-25
 
 - Integrated upstream Omarchy 4.0.1 while preserving the Apple Silicon install,
@@ -96,3 +108,5 @@ verbatim.
 [4.0.1-mac.1]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.1-mac.1
 [4.0.0-mac.12]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.12
 [4.0.0-mac.11]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.0-mac.11
+
+[4.0.1-mac.2]: https://github.com/maralcbr/omarchy-mx-mac/releases/tag/v4.0.1-mac.2

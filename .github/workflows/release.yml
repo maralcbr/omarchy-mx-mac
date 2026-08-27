@@ -63,16 +63,18 @@ jobs:
           RELEASE_SEQUENCE: ${{ inputs.sequence }}
         run: |
           mkdir -p /tmp/current-release
-          if gh release download --pattern 'omarchy-mx-mac-release*' --dir /tmp/current-release 2>/dev/null; then
-            status=$(gpg --batch --status-fd 1 --verify \
-              /tmp/current-release/omarchy-mx-mac-release.sig \
-              /tmp/current-release/omarchy-mx-mac-release 2>/dev/null)
-            signer=$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $NF; exit }' <<<"$status")
-            [[ $signer == 5983B1CA32CB778F4D74D24ECFF35022CA5B5959 ]]
-            current_sequence=$(sed -n 's/^sequence=//p' /tmp/current-release/omarchy-mx-mac-release)
-            [[ $current_sequence =~ ^[1-9][0-9]*$ ]]
-            (( RELEASE_SEQUENCE > current_sequence ))
-          fi
+          previous_tag=$(scripts/find-previous-stable-release "$GITHUB_REPOSITORY")
+          gh release download "$previous_tag" \
+            --pattern 'omarchy-mx-mac-release*' \
+            --dir /tmp/current-release
+          status=$(gpg --batch --status-fd 1 --verify \
+            /tmp/current-release/omarchy-mx-mac-release.sig \
+            /tmp/current-release/omarchy-mx-mac-release 2>/dev/null)
+          signer=$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $NF; exit }' <<<"$status")
+          [[ $signer == 5983B1CA32CB778F4D74D24ECFF35022CA5B5959 ]]
+          current_sequence=$(sed -n 's/^sequence=//p' /tmp/current-release/omarchy-mx-mac-release)
+          [[ $current_sequence =~ ^[1-9][0-9]*$ ]]
+          (( RELEASE_SEQUENCE > current_sequence ))
       - name: Build signed release assets
         env:
           RELEASE_TAG: ${{ inputs.tag }}
