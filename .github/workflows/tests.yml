@@ -1,0 +1,31 @@
+name: Source tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: source-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  source-tests:
+    name: Source test suites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq lua5.4 shellcheck
+      - name: Run CLI and shell suites
+        run: ./test/all
+      - name: Verify stable release contract
+        run: bash tests/stable-release-test.sh
