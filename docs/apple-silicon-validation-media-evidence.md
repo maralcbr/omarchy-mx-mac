@@ -1,14 +1,15 @@
 # Apple Silicon validation-media evidence plan
 
-Status: planning only; no build or boot authorization
+Status: first static candidate validated locally; boot and release remain unverified
 Official-source check: 2026-08-27
 
 ## Scope and non-goals
 
 This plan defines the evidence required to call an `omarchy-mx-mac` AArch64
 candidate **build-valid** and, later, **boot-valid** through an Asahi-prepared
-Apple Silicon boot chain. It does not claim that any current local repository,
-package, ISO, Mac, or release already satisfies the plan.
+Apple Silicon boot chain. The 2026-08-27 candidate below passes the recorded
+static layout checks only; it does not yet satisfy the complete build-valid or
+boot-valid gates.
 
 Repository roles must remain distinct:
 
@@ -49,6 +50,57 @@ that official installer status remains `no`.
 This status is time-sensitive. Recheck both official pages on the day of any
 future canary proposal and retain the page URLs, retrieval time, and relevant
 status excerpt in the evidence bundle.
+
+## Static candidate checkpoint - 2026-08-27
+
+Candidate `2026-08-27-9885cf7d` was built from source `cb26f81` and then
+verified with the format-aware verifier at source `50d9771` in the dedicated
+`phase3-arm-build` AArch64 Lima VM. No media was written or booted, and no
+package, release, channel, remote branch, installed application, user
+configuration, internal disk, LocalPolicy, or existing-user path was changed.
+
+Exact identities:
+
+- ISO repository: `maralcbr/omarchy-iso`, local branch
+  `feature/apple-validation-media-rebase`;
+- accepted ARM64 base:
+  `b5d562f` (`release/v4.0.1-arm64-iso`, tag `v4.0.1.m.1`);
+- ISO build source:
+  `cb26f81dbe66b4bf9b31f564f334ba0287a3a164`;
+- static-layout verifier source:
+  `50d97710347d82e61b420658d23173c210c46d60`;
+- ArchISO submodule:
+  `424e78130db2af6c1ceb55b442d7914b1109ff2b`;
+- build image:
+  `menci/archlinuxarm@sha256:1245992a2b371b5aeeede7dae44937ab29dc446e9e77abe263b99b02e5c1813d`;
+- embedded `SOURCE_DATE_EPOCH`: `1787832096` (`2026-08-27T12:01:36Z`);
+- command:
+  `./bin/omarchy-iso-make --target aarch64/apple-silicon --apple-media-validation-build --keep-pkg-cache --no-cache --no-boot-offer`;
+- artifact: `omarchy-2026.08.27-aarch64.iso`, 3,414,587,392 bytes,
+  SHA-256
+  `9885cf7df10b251e51b74ac4621a131d966bb1ac7c69bb062b16dedf5042ebda`;
+- canonical static evidence SHA-256:
+  `ededd9f28735dbaf642f718ab35bf95c727ff2515ce7fcb7398841e96da98799`.
+
+The repository-safe evidence is retained at
+[`evidence/apple-silicon/2026-08-27-9885cf7d/static-media-evidence.json`](../evidence/apple-silicon/2026-08-27-9885cf7d/static-media-evidence.json).
+It proves that the ISO9660 and appended-ESP `BOOTAA64.EFI` bytes match, the EFI
+image is AArch64 PE/COFF, the live kernel is `linux-asahi`, the concatenated
+mkinitcpio image contains the Asahi runtime hook and firmware helpers, the
+generic ARM kernel and Limine artifacts are absent, and the shipped snapshot is
+the exact pinned signed package snapshot. The Asahi keyring package, its
+detached signature, signing fingerprint
+`12CE6799A94A3F1B5DDFFE88F576553597FB8FEB`, and owner-trust 4 were verified
+before pacman accepted the platform packages.
+
+This is **static-structure-valid**, not yet B/build-valid: a second clean build
+comparison and complete exported build log/tool manifest are still required.
+It is not C/boot-valid because no physical Apple boot occurred; the evidence
+correctly records `boot.verified=false` and
+`disposable-asahi-boot-evidence-absent`. The package-time `update-m1n1` hook
+also found no mounted Apple ESP in the disposable live-root build. That is
+expected for this ISO-only stage and reinforces that device-tree and
+machine-firmware handoff remain physical-boot blockers.
 
 ## Prerequisites
 
@@ -268,11 +320,10 @@ Each gate requires a new, immediately preceding approval naming exact targets:
 
 ## Unknowns to resolve before execution
 
-- Exact `omarchy-iso` and `omarchy-pkgs` source revisions and candidate recipe.
-- Whether the planned image is an ISO, disk image, or hybrid media and whether
-  its current recipe produces the required removable AArch64 UEFI layout.
 - Whether two clean builds are byte-reproducible.
-- The exact contents and enforced read-only behavior of the validation shell.
+- A complete exported build log, tool-version manifest, recursive media
+  manifest, and clean-build comparison for B/build-valid.
+- The exact enforced read-only behavior of the validation shell on hardware.
 - Availability of a dedicated officially supported canary with a pre-existing,
   correctly paired Asahi UEFI environment.
 - A safe serial/console capture method for that exact canary.

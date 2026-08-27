@@ -1,6 +1,6 @@
 # Apple Silicon M4 selective integration matrix
 
-Status: S3 implemented locally; no user integration
+Status: S3 implemented and first Apple media statically validated locally; no user integration
 Created: 2026-08-27
 Destination branch: `feature/m4-handoff-integration`
 Destination base: `origin/main` at `c2252509fa48e430c7142543e9da4d442343328d`
@@ -81,8 +81,9 @@ repository standards.
 - Production trust-root installation, a production-signed engine, live macOS
   authorization, notarization, and a mutation-capable backend are missing. This
   is intentional and must remain fail-closed during source extraction.
-- No Apple-target ISO has passed the required disposable build and
-  Asahi-prepared m1n1/U-Boot boot test.
+- One Apple-target ISO has passed the recorded disposable static build/layout
+  checks. No candidate has passed a physical Asahi-prepared m1n1/U-Boot boot
+  test or the two-clean-build reproducibility gate.
 - No exact-model physical acceptance or release authorization exists; the
   empty allowlist correctly prevents user exposure.
 - The scrolling and ChatGPT commits are scope creep for Apple Silicon work and
@@ -129,6 +130,18 @@ repository standards.
   [`apple-silicon-validation-media-evidence.md`](apple-silicon-validation-media-evidence.md).
   M4/J614s remains installer-unsupported, and removable-media boot still
   depends on a pre-existing internal Asahi m1n1/U-Boot environment.
+- Candidate `2026-08-27-9885cf7d` was produced from accepted ARM64 ISO base
+  `b5d562f` and build source `cb26f81dbe66b4bf9b31f564f334ba0287a3a164`.
+  It was statically checked with verifier source
+  `50d97710347d82e61b420658d23173c210c46d60` in an isolated AArch64 VM.
+- The 3,414,587,392-byte ISO has SHA-256
+  `9885cf7df10b251e51b74ac4621a131d966bb1ac7c69bb062b16dedf5042ebda`.
+  Its canonical evidence proves AArch64 GRUB EFI, matching ISO/ESP EFI bytes,
+  `linux-asahi`, Asahi initramfs content, exact signed package/keyring
+  snapshot, and generic-ARM/Limine absence.
+- The tracked static evidence remains fail-closed with
+  `boot.verified=false`; no media write, boot, publish, channel, remote, or
+  installed-user action occurred.
 
 ## Proposed source-only sequence
 
@@ -148,10 +161,11 @@ This sequence is a proposal, not authorization to execute later gates.
    trust-root and candidate-bound plan interfaces are specified without
    installing keys, signing artifacts, publishing catalogs, or enabling
    mutation.
-5. **Independent media evidence (plan completed; execution not authorized):**
-   first re-author the validation-only Apple target on the accepted ARM64 ISO
-   base and prove its static structure in a disposable build sandbox. A later
-   physical boot requires a dedicated, recoverable, officially supported
+5. **Independent media evidence (static candidate completed locally):** the
+   validation-only Apple target was re-authored on the accepted ARM64 ISO base
+   and its first ISO passed canonical static layout validation. Complete the
+   two-clean-build comparison and full build evidence bundle next. A later
+   physical boot requires a dedicated, recoverable, officially supported M1
    canary with a pre-existing Asahi environment. Keep both outside user release
    paths and do not treat a supported-canary boot as M4 acceptance.
 6. **Explicit owner gate:** stop and request authorization before any push,
@@ -161,14 +175,14 @@ This sequence is a proposal, not authorization to execute later gates.
 
 ## Next decision
 
-The read-only related-repository refresh and independent validation-media plan
-are complete. The next safe action, if separately approved, is to create an
-isolated worktree from the then-current accepted ARM64 ISO release line,
-selectively re-author only the validation-media target, reconcile the accepted
-package pins and ARM keyring, and run source/static tests. Do not extract the
-contained installation backend or release wiring in that unit.
+The accepted-base re-authoring, signed Asahi dependency closure, and first
+static ISO validation are complete locally. The next safe implementation unit
+is a second clean build plus full evidence-bundle comparison. If that gate
+passes, stop before any media write and select a dedicated, recoverable,
+officially supported M1 canary with a pre-existing correctly paired Asahi
+UEFI/m1n1/U-Boot environment.
 
-Any dependency download, ISO build, removable-media write, Asahi preparation,
-boot, publication, channel change, or physical-device work remains a separate
-owner gate. M4/J614s must remain rejected while Asahi's official installer
-status remains unsupported.
+Any removable-media write, Asahi preparation, boot, publication, channel
+change, or physical-device work remains a separate owner gate. Existing-user
+machines are excluded. M4/J614s must remain rejected while Asahi's official
+installer status remains unsupported.
