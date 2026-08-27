@@ -1,0 +1,55 @@
+name: Source tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: source-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  source-tests:
+    name: Source test suites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      OMARCHY_PATH: ${{ github.workspace }}
+      OMARCHY_PKGS_PATH: ${{ github.workspace }}/dependencies/omarchy-pkgs
+      OMARCHY_ISO_PATH: ${{ github.workspace }}/dependencies/omarchy-iso
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out package contracts
+        uses: actions/checkout@v7
+        with:
+          repository: maralcbr/omarchy-pkgs
+          path: dependencies/omarchy-pkgs
+          persist-credentials: false
+      - name: Check out installer contracts
+        uses: actions/checkout@v7
+        with:
+          repository: maralcbr/omarchy-iso
+          path: dependencies/omarchy-iso
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq libarchive-tools lua5.4 ripgrep shellcheck
+      - name: Install ImageMagick 7
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          /home/linuxbrew/.linuxbrew/bin/brew install imagemagick
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "${GITHUB_PATH}"
+      - name: Expose Omarchy commands
+        run: echo "${GITHUB_WORKSPACE}/bin" >> "${GITHUB_PATH}"
+      - name: Run CLI and shell suites
+        run: ./test/all
+      - name: Verify stable release contract
+        run: bash tests/stable-release-test.sh

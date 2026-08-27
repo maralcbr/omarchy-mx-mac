@@ -13,14 +13,16 @@ Omarchy 4 (Quattro) is the maintained release:
 
 | Version | Status | Installation |
 | --- | --- | --- |
-| Omarchy `4.0.1-mac.1` | Recommended stable version | Direct signed installation on Asahi Arch Minimal |
+| Omarchy `4.0.1-mac.2` | Recommended stable version | Direct signed installation on Asahi Arch Minimal |
 | Omarchy `3.8.4-mac.4` | Legacy | Existing installations can update to Omarchy 4 |
 
 > [!NOTE]
-> Omarchy Mac has been tested on M1, M2, and M3 Macs. The complete signed
-> release, update, and reboot regression is run on a 14-inch 2021 MacBook Pro
-> with M1 Pro (`apple,j314s`). Apple Silicon support still depends on the
-> upstream Asahi Linux support available for each model.
+> Omarchy Mac has been tested on M1, M2, and M3 Macs. Physical Apple-hardware
+> qualification is recorded per release against a 14-inch 2021 MacBook Pro
+> with M1 Pro (`apple,j314s`). The current `4.0.1-mac.2` release was accepted in
+> a generic ARM64 QEMU/HVF VM and does not claim physical Apple-hardware
+> qualification. Apple Silicon support still depends on the upstream Asahi
+> Linux support available for each model.
 
 ## Before You Begin
 
@@ -80,6 +82,11 @@ available.
 The signed installer takes a prepared Asahi Arch Minimal system directly to
 Omarchy 4. It verifies immutable release metadata and never installs moving
 `main` or an intermediate Omarchy 3 release.
+
+The `vX.Y.Z-mac.N` tag records the product source and release notes. Installer,
+channel, and package assets are published separately as immutable releases in
+[`maralcbr/omarchy-pkgs`](https://github.com/maralcbr/omarchy-pkgs). Stable
+channel sequence 25 installs product version `4.0.1-mac.2`.
 
 ### 1. Install Asahi Arch Minimal
 
@@ -214,6 +221,25 @@ sudo systemctl restart NetworkManager
 sudo journalctl -u NetworkManager -b
 ```
 
+### Quickshell Fails After A Partial Update
+
+Do not replace the signed `quickshell-git` package with `quickshell` or rebuild
+it from the AUR. Those workarounds move the machine outside the validated Apple
+Silicon package bundle and can block later updates.
+
+Switch to a TTY, preserve the package and journal evidence, then use the normal
+signed updater:
+
+```bash
+pacman -Q quickshell-git qt6-base 2>&1 || true
+pacman -Qm | grep -E '^quickshell' || true
+journalctl --user -b | grep -i quickshell || true
+omarchy update
+```
+
+If the update fails, do not reboot or remove packages manually. Preserve the
+complete output and open a verified bug report with the commands above.
+
 ### An Installation Or Upgrade Failed
 
 - Do not reboot during or after a failed package transaction.
@@ -223,8 +249,8 @@ sudo journalctl -u NetworkManager -b
 
 ## Releases And Support
 
-- [Latest stable release](https://github.com/maralcbr/omarchy-mx-mac/releases/latest)
-- [Current signed Quattro channel](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-25)
+- [Latest product release and validation notes](https://github.com/maralcbr/omarchy-mx-mac/releases/latest)
+- [Current signed installer and package channel](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-25)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
 
