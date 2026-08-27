@@ -11,12 +11,21 @@ let package = Package(
     .library(
       name: "OmarchyAppleInstallerTrustCore",
       targets: ["OmarchyAppleInstallerTrustCore"]
-    )
+    ),
+    .executable(
+      name: "OmarchyAppleInstallerApp",
+      targets: ["OmarchyAppleInstallerApp"]
+    ),
   ],
   targets: [
     .target(
       name: "OmarchyAppleInstallerTrustCore",
       path: "Sources/OmarchyAppleInstaller"
+    ),
+    .executableTarget(
+      name: "OmarchyAppleInstallerApp",
+      dependencies: ["OmarchyAppleInstallerTrustCore"],
+      path: "Sources/OmarchyAppleInstallerApp"
     ),
     .testTarget(
       name: "OmarchyAppleInstallerTrustCoreTests",
