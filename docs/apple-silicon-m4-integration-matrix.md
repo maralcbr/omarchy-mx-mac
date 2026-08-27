@@ -120,6 +120,15 @@ repository standards.
   configurations through XcodeBuildMCP 2.7.0. They include public-key
   substitution, catalog-sequence binding, candidate replay, and approval-digest
   tampering failures before authorization or execution.
+- The read-only related-repository refresh is recorded in
+  [`related-repositories-refresh-2026-08-27.md`](related-repositories-refresh-2026-08-27.md).
+  The package-signing handoff is superseded on `origin/asahi-quattro`; the ISO
+  handoff's three Apple experiments are stale against seven accepted ARM64
+  release commits and must not be built directly.
+- The official-source build and boot evidence contract is recorded in
+  [`apple-silicon-validation-media-evidence.md`](apple-silicon-validation-media-evidence.md).
+  M4/J614s remains installer-unsupported, and removable-media boot still
+  depends on a pre-existing internal Asahi m1n1/U-Boot environment.
 
 ## Proposed source-only sequence
 
@@ -139,9 +148,12 @@ This sequence is a proposal, not authorization to execute later gates.
    trust-root and candidate-bound plan interfaces are specified without
    installing keys, signing artifacts, publishing catalogs, or enabling
    mutation.
-5. **Independent media evidence:** build and boot the validation-only Apple ISO
-   in a disposable Linux/Asahi-prepared environment. Keep this outside user
-   release paths.
+5. **Independent media evidence (plan completed; execution not authorized):**
+   first re-author the validation-only Apple target on the accepted ARM64 ISO
+   base and prove its static structure in a disposable build sandbox. A later
+   physical boot requires a dedicated, recoverable, officially supported
+   canary with a pre-existing Asahi environment. Keep both outside user release
+   paths and do not treat a supported-canary boot as M4 acceptance.
 6. **Explicit owner gate:** stop and request authorization before any push,
    pull request, merge, signing, notarization, publication, channel change,
    installed-user integration, privileged authorization test, or physical
@@ -149,9 +161,14 @@ This sequence is a proposal, not authorization to execute later gates.
 
 ## Next decision
 
-The next safe action, if separately approved, is a read-only refresh of the
-distinct `omarchy-iso` and `omarchy-pkgs` repositories followed by an
-independent validation-media evidence plan. Any ISO build or boot must use an
-explicitly selected disposable environment and remain outside installed-user
-and release paths. Publication, channel changes, or physical-device work remain
-separate owner gates.
+The read-only related-repository refresh and independent validation-media plan
+are complete. The next safe action, if separately approved, is to create an
+isolated worktree from the then-current accepted ARM64 ISO release line,
+selectively re-author only the validation-media target, reconcile the accepted
+package pins and ARM keyring, and run source/static tests. Do not extract the
+contained installation backend or release wiring in that unit.
+
+Any dependency download, ISO build, removable-media write, Asahi preparation,
+boot, publication, channel change, or physical-device work remains a separate
+owner gate. M4/J614s must remain rejected while Asahi's official installer
+status remains unsupported.
