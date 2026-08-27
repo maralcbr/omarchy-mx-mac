@@ -32,6 +32,9 @@
 
       XCTAssertEqual(transcript, fixture.transcript)
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+      let journals = try journalEntries(in: fixture.root)
+      XCTAssertEqual(journals.count, 1)
+      XCTAssertEqual(try Data(contentsOf: journals[0]), fixture.transcript)
     }
 
     func testEscapingBundleSymlinkIsRejected() async throws {
@@ -66,11 +69,41 @@
         )
       }
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+      XCTAssertEqual(try journalEntries(in: fixture.root).count, 1)
     }
 
     func testTruncatedTranscriptIsRejected() async throws {
       let fixture = try makeFixture(transcript: Data("truncated".utf8))
       defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+
+      await XCTAssertThrowsErrorAsync(
+        try await executor.execute(fixture.package)
+      ) {
+        XCTAssertEqual(
+          $0 as? PinnedAsahiEngineExecutionError,
+          .unsafeTranscript
+        )
+      }
+      XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
+    }
+
+    func testUnsafeExistingJournalDirectoryIsRejected() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let journalDirectory = fixture.root.appendingPathComponent(
+        "execution-journals",
+        isDirectory: true
+      )
+      try FileManager.default.createDirectory(
+        at: journalDirectory,
+        withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o755]
+      )
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: journalDirectory.path
+      )
       let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
 
       await XCTAssertThrowsErrorAsync(
@@ -223,6 +256,17 @@
         at: root,
         includingPropertiesForKeys: nil
       ).filter { $0.lastPathComponent.hasPrefix("engine-execution-") }
+    }
+
+    private func journalEntries(in root: URL) throws -> [URL] {
+      let directory = root.appendingPathComponent(
+        "execution-journals",
+        isDirectory: true
+      )
+      return try FileManager.default.contentsOfDirectory(
+        at: directory,
+        includingPropertiesForKeys: nil
+      )
     }
 
     private func importedPackage(at packageURL: URL)

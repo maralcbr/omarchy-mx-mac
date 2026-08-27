@@ -22,13 +22,19 @@
     public static let maximumTranscriptBytes: Int64 = 8_388_608
 
     private let effectiveUserID: @Sendable () -> uid_t
+    private let expectedFileOwnerID: @Sendable () -> uid_t
 
     public init() {
       effectiveUserID = { geteuid() }
+      expectedFileOwnerID = { geteuid() }
     }
 
-    init(effectiveUserID: @escaping @Sendable () -> uid_t) {
+    init(
+      effectiveUserID: @escaping @Sendable () -> uid_t,
+      expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() }
+    ) {
       self.effectiveUserID = effectiveUserID
+      self.expectedFileOwnerID = expectedFileOwnerID
     }
 
     public func execute(
@@ -65,8 +71,7 @@
       try extract(package.engineURL, into: bundle)
       try validateExtractedBundle(bundle)
 
-      let journal = executionRoot.appendingPathComponent("engine.jsonl")
-      try createPrivateJournal(journal)
+      let journal = try preparePersistentJournal(for: package)
       let process = Process()
       process.executableURL = Self.pythonURL(in: bundle)
       process.arguments = [bundle.appendingPathComponent("main.py").path]
@@ -298,16 +303,65 @@
       }
     }
 
-    private func createPrivateJournal(_ journal: URL) throws {
+    private func preparePersistentJournal(
+      for package: ImportedEngineHandoffPackage
+    ) throws -> URL {
+      guard package.bindingDigest.hasPrefix("sha256:") else {
+        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+      }
+      let identifier = String(package.bindingDigest.dropFirst(7))
+      guard identifier.count == 64,
+        identifier.allSatisfy({
+          $0.isNumber || ("a"..."f").contains($0)
+        })
+      else {
+        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+      }
+
+      let directory = package.packageURL
+        .deletingLastPathComponent()
+        .appendingPathComponent("execution-journals", isDirectory: true)
+      if !FileManager.default.fileExists(atPath: directory.path) {
+        try FileManager.default.createDirectory(
+          at: directory,
+          withIntermediateDirectories: false,
+          attributes: [.posixPermissions: 0o700]
+        )
+      }
+      try validateJournalDirectory(directory)
+
+      let journal = directory.appendingPathComponent("\(identifier).jsonl")
       let descriptor = Darwin.open(
         journal.path,
-        O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+        O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
         S_IRUSR | S_IWUSR
       )
       guard descriptor >= 0 else {
         throw PinnedAsahiEngineExecutionError.unsafeTranscript
       }
+      var status = stat()
+      guard fstat(descriptor, &status) == 0,
+        (status.st_mode & S_IFMT) == S_IFREG,
+        status.st_mode & 0o077 == 0,
+        status.st_uid == expectedFileOwnerID(),
+        status.st_size <= Self.maximumTranscriptBytes
+      else {
+        Darwin.close(descriptor)
+        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+      }
       Darwin.close(descriptor)
+      return journal
+    }
+
+    private func validateJournalDirectory(_ directory: URL) throws {
+      var status = stat()
+      guard lstat(directory.path, &status) == 0,
+        (status.st_mode & S_IFMT) == S_IFDIR,
+        status.st_mode & 0o077 == 0,
+        status.st_uid == expectedFileOwnerID()
+      else {
+        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+      }
     }
 
     private func readTranscript(_ journal: URL) throws -> Data {
