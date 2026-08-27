@@ -1,6 +1,6 @@
 # Apple Silicon M4 selective integration matrix
 
-Status: planning and review evidence only
+Status: S1 implemented locally; no user integration
 Created: 2026-08-27
 Destination branch: `feature/m4-handoff-integration`
 Destination base: `origin/main` at `c2252509fa48e430c7142543e9da4d442343328d`
@@ -98,7 +98,11 @@ repository standards.
   78 passed, 0 failed, 0 skipped.
 - The tested M4 model remains rejected by the prototype before any privileged
   or mutation-capable path.
-- No code from the handoff has been applied to this integration branch.
+- S1 adds a library-only trust core with no executable target, process adapter,
+  persistence adapter, authorization provider, signing key, installer
+  registration, or release wiring.
+- The 12 trust-core interface tests pass in both debug and release
+  configurations through XcodeBuildMCP 2.7.0.
 
 ## Proposed source-only sequence
 
@@ -106,9 +110,10 @@ This sequence is a proposal, not authorization to execute later gates.
 
 1. **S0 — review record:** approve this matrix and keep the branch
    documentation-only.
-2. **S1 — non-operational core:** re-author only the value types, parsers,
+2. **S1 — non-operational core (completed locally):** re-author only the value types, parsers,
    journal, support-catalog validation, and pure tests needed for a closed
-   Phase 4 trust boundary. Resolve the standards findings first.
+   Phase 4 trust boundary. The Python overlay, process adapters, and UI were not
+   extracted, so their standards findings remain outside the S1 module.
 3. **S2 — closed process adapter:** add one shared harness whose tests prove
    authorization cancellation, plan substitution rejection, signature
    failure, transcript validation, and `apple,j614s` rejection. Do not add a
@@ -126,7 +131,8 @@ This sequence is a proposal, not authorization to execute later gates.
 
 ## Next decision
 
-The next safe action, if separately approved, is S1 only: a local,
-non-operational extraction with focused unit tests. It must not include a live
-authorization provider, installer registration, release wiring, or any path
-that changes an existing user's machine.
+The next safe action, if separately approved, is S2 only: a local closed
+process adapter with cancellation, substitution, signature-failure, transcript,
+and M4-rejection tests. It must not include a live authorization provider,
+installer registration, release wiring, privileged execution, or any path that
+changes an existing user's machine.
