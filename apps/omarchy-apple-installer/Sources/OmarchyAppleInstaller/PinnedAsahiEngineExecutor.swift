@@ -100,6 +100,42 @@
       )
     }
 
+    public func plan(
+      _ archive: PinnedAsahiEngineArchive,
+      request: PinnedAsahiPlanRequest,
+      identity: PinnedAsahiPlanIdentity,
+      in scratchDirectory: URL
+    ) async throws -> Data {
+      try validateJournalDirectory(scratchDirectory)
+      let inputDirectory = scratchDirectory.appendingPathComponent(
+        "engine-plan-input-\(UUID().uuidString.lowercased())",
+        isDirectory: true
+      )
+      try FileManager.default.createDirectory(
+        at: inputDirectory,
+        withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700]
+      )
+      defer { try? FileManager.default.removeItem(at: inputDirectory) }
+
+      let requestURL = inputDirectory.appendingPathComponent("request.json")
+      let identityURL = inputDirectory.appendingPathComponent("identity.json")
+      try writePrivateJSON(request, to: requestURL)
+      try writePrivateJSON(identity, to: identityURL)
+      return try run(
+        archive: archive.fileURL,
+        expectedDigest: archive.expectedDigest,
+        expectedSizeBytes: archive.expectedSizeBytes,
+        executionParent: scratchDirectory,
+        journal: nil,
+        additionalEnvironment: [
+          "OMARCHY_ENGINE_MODE": "plan",
+          "OMARCHY_ENGINE_REQUEST": requestURL.path,
+          "OMARCHY_ENGINE_IDENTITY": identityURL.path,
+        ]
+      )
+    }
+
     private func run(
       archive: URL,
       expectedDigest: String? = nil,
@@ -507,6 +543,20 @@
         throw PinnedAsahiEngineExecutionError.unsafeTranscript
       }
       return data
+    }
+
+    private func writePrivateJSON<T: Encodable>(
+      _ value: T,
+      to destination: URL
+    ) throws {
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+      let data = try encoder.encode(value)
+      try data.write(to: destination, options: .withoutOverwriting)
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o400],
+        ofItemAtPath: destination.path
+      )
     }
 
     private static func pythonURL(in bundle: URL) -> URL {

@@ -69,6 +69,62 @@
       XCTAssertTrue(try executionEntries(in: scratch).isEmpty)
     }
 
+    func testVerifiedPlanReceivesPrivateInputsAndCleansAllTemporaryState()
+      async throws
+    {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let scratch = fixture.root.appendingPathComponent(
+        "planning-scratch",
+        isDirectory: true
+      )
+      try FileManager.default.createDirectory(
+        at: scratch,
+        withIntermediateDirectories: false,
+        attributes: [.posixPermissions: 0o700]
+      )
+      let archive = try PinnedAsahiEngineArchive(
+        fileURL: fixture.package.engineURL,
+        expectedDigest: try digest(of: fixture.package.engineURL),
+        expectedSizeBytes: try size(of: fixture.package.engineURL)
+      )
+      let candidate = ValidatedEngineCandidate(
+        kind: "free",
+        sourceIdentifier: "disk0s3",
+        offsetBytes: 128 * 1_048_576,
+        lengthBytes: 128 * 1_048_576,
+        minimumInstallBytes: 64 * 1_048_576,
+        minimumContainerBytes: 0
+      )
+      let request = try PinnedAsahiPlanRequest(
+        inventory: ValidatedEngineInventory(
+          layoutDigest: "sha256:" + String(repeating: "c", count: 64),
+          systemStoreIdentifier: "disk0",
+          candidates: [candidate]
+        ),
+        candidate: candidate,
+        requestedLengthBytes: 96 * 1_048_576
+      )
+      let identity = try PinnedAsahiPlanIdentity(
+        engineVersion: "v0.9.0-omarchy.2",
+        engineDigest: "sha256:" + String(repeating: "d", count: 64),
+        metadataDigest: "sha256:" + String(repeating: "e", count: 64),
+        payloadDigest: "sha256:" + String(repeating: "f", count: 64)
+      )
+      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 501 })
+
+      let result = try await executor.plan(
+        archive,
+        request: request,
+        identity: identity,
+        in: scratch
+      )
+
+      XCTAssertEqual(result, fixture.transcript)
+      XCTAssertTrue(try executionEntries(in: scratch).isEmpty)
+      XCTAssertTrue(try planningInputEntries(in: scratch).isEmpty)
+    }
+
     func testNonRootExecutionIsRejectedBeforeArchiveAccess() async throws {
       let package = importedPackage(
         at: URL(fileURLWithPath: "/does-not-exist")
@@ -229,6 +285,13 @@
       #!/bin/sh
       case "$OMARCHY_ENGINE_MODE" in
         inspect) ;;
+        plan)
+          [ -r "$OMARCHY_ENGINE_REQUEST" ] || exit 77
+          [ -r "$OMARCHY_ENGINE_IDENTITY" ] || exit 78
+          /usr/bin/grep -q '"candidate_kind":"free"' "$OMARCHY_ENGINE_REQUEST" || exit 79
+          /usr/bin/grep -q '"requested_length_bytes":100663296' "$OMARCHY_ENGINE_REQUEST" || exit 80
+          /usr/bin/grep -q '"engine_version":"v0.9.0-omarchy.2"' "$OMARCHY_ENGINE_IDENTITY" || exit 81
+          ;;
         install)
           [ "$OMARCHY_ENGINE_PLAN_DIGEST" = "\(String(repeating: "a", count: 64))" ] || exit 71
           [ "$OMARCHY_ENGINE_BINDING_DIGEST" = "sha256:\(String(repeating: "b", count: 64))" ] || exit 72
@@ -325,6 +388,13 @@
         at: root,
         includingPropertiesForKeys: nil
       ).filter { $0.lastPathComponent.hasPrefix("engine-execution-") }
+    }
+
+    private func planningInputEntries(in root: URL) throws -> [URL] {
+      try FileManager.default.contentsOfDirectory(
+        at: root,
+        includingPropertiesForKeys: nil
+      ).filter { $0.lastPathComponent.hasPrefix("engine-plan-input-") }
     }
 
     private func digest(of url: URL) throws -> String {

@@ -14,6 +14,9 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     XCTAssertEqual(result.deviceIdentifier, "apple,j314s")
     XCTAssertEqual(result.support, .supported)
     XCTAssertEqual(result.plan?.sourceIdentifier, "disk0s3")
+    XCTAssertEqual(result.inventory?.systemStoreIdentifier, "disk0")
+    XCTAssertEqual(result.inventory?.candidates.count, 1)
+    XCTAssertEqual(result.inventory?.candidates.first?.kind, "free")
     XCTAssertEqual(result.plan?.requiredHumanSteps, [
       "enterOneTrueRecovery",
       "authenticateMachineOwner",

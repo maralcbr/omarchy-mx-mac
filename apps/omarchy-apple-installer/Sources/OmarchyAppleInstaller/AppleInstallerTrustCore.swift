@@ -9,6 +9,7 @@ public struct AppleInstallerTrustCore: Sendable {
   ) throws -> ValidatedEngineTranscript {
     let envelopes = try EngineTranscriptDecoder().decode(transcript)
     var inspection: EngineInspectionMessage?
+    var inventory: ValidatedEngineInventory?
     var plan: ValidatedEnginePlan?
     var checkpoints = [ValidatedEngineCheckpoint]()
     var completion: EngineCompletionOutcome?
@@ -17,6 +18,21 @@ public struct AppleInstallerTrustCore: Sendable {
       switch envelope.message {
       case .inspection(let message):
         inspection = message
+      case .inventory(let message):
+        inventory = ValidatedEngineInventory(
+          layoutDigest: message.layoutDigest,
+          systemStoreIdentifier: message.systemStoreIdentifier,
+          candidates: message.candidates.map {
+            ValidatedEngineCandidate(
+              kind: $0.kind,
+              sourceIdentifier: $0.sourceIdentifier,
+              offsetBytes: $0.offsetBytes,
+              lengthBytes: $0.lengthBytes,
+              minimumInstallBytes: $0.minimumInstallBytes,
+              minimumContainerBytes: $0.minimumContainerBytes
+            )
+          }
+        )
       case .plan(let message):
         plan = ValidatedEnginePlan(
           planDigest: message.planDigest,
@@ -43,7 +59,7 @@ public struct AppleInstallerTrustCore: Sendable {
         )
       case .completion(let message):
         completion = EngineCompletionOutcome(rawValue: message.outcome)
-      case .inventory, .event:
+      case .event:
         break
       }
     }
@@ -58,6 +74,7 @@ public struct AppleInstallerTrustCore: Sendable {
     return ValidatedEngineTranscript(
       deviceIdentifier: inspection.deviceIdentifier,
       support: support,
+      inventory: inventory,
       plan: plan,
       checkpoints: checkpoints,
       completion: completion
@@ -121,9 +138,25 @@ public enum EngineCompletionOutcome: String, Equatable, Sendable {
 public struct ValidatedEngineTranscript: Equatable, Sendable {
   public let deviceIdentifier: String
   public let support: EngineSupport
+  public let inventory: ValidatedEngineInventory?
   public let plan: ValidatedEnginePlan?
   public let checkpoints: [ValidatedEngineCheckpoint]
   public let completion: EngineCompletionOutcome?
+}
+
+public struct ValidatedEngineInventory: Equatable, Sendable {
+  public let layoutDigest: String
+  public let systemStoreIdentifier: String
+  public let candidates: [ValidatedEngineCandidate]
+}
+
+public struct ValidatedEngineCandidate: Equatable, Sendable {
+  public let kind: String
+  public let sourceIdentifier: String
+  public let offsetBytes: UInt64
+  public let lengthBytes: UInt64
+  public let minimumInstallBytes: UInt64
+  public let minimumContainerBytes: UInt64
 }
 
 public struct ValidatedEnginePlan: Equatable, Sendable {
