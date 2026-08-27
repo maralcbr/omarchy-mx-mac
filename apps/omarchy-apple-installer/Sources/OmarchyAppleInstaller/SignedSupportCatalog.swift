@@ -11,6 +11,13 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
   public let metadataDigest: String
   public let payloadDigest: String
   public let evidenceRevision: String
+  public let delivery: PinnedInstallerDelivery?
+}
+
+public struct PinnedInstallerDelivery: Equatable, Sendable {
+  public let engine: PinnedInstallerArtifact
+  public let metadata: PinnedInstallerArtifact
+  public let payload: PinnedInstallerArtifact
 }
 
 struct SupportCatalog: Equatable, Sendable {
@@ -83,7 +90,7 @@ struct SignedSupportCatalogVerifier: Sendable {
       throw SupportCatalogError.invalidPayload
     }
 
-    guard manifest.schemaVersion == 1 else {
+    guard [1, 2].contains(manifest.schemaVersion) else {
       throw SupportCatalogError.unsupportedSchema(manifest.schemaVersion)
     }
     guard manifest.sequence > 0 else {
@@ -146,6 +153,12 @@ struct SignedSupportCatalogVerifier: Sendable {
         continue
       }
 
+      let delivery = try installerDelivery(
+        for: model,
+        schemaVersion: manifest.schemaVersion,
+        modelIndex: index
+      )
+
       records[model.deviceIdentifier] = PinnedInstallerRecord(
         deviceIdentifier: model.deviceIdentifier,
         asahiInstallerTag: model.asahiInstallerTag,
@@ -155,11 +168,51 @@ struct SignedSupportCatalogVerifier: Sendable {
         engineDigest: model.engineDigest,
         metadataDigest: model.metadataDigest,
         payloadDigest: model.payloadDigest,
-        evidenceRevision: model.evidenceRevision
+        evidenceRevision: model.evidenceRevision,
+        delivery: delivery
       )
     }
 
     return SupportCatalog(sequence: manifest.sequence, records: records)
+  }
+
+  private func installerDelivery(
+    for model: ModelRecord,
+    schemaVersion: Int,
+    modelIndex: Int
+  ) throws -> PinnedInstallerDelivery? {
+    guard schemaVersion == 2 else {
+      return nil
+    }
+    guard let engine = model.engineArtifact,
+      let metadata = model.metadataArtifact,
+      let payload = model.payloadArtifact
+    else {
+      throw SupportCatalogError.invalidField(
+        "models[\(modelIndex)].artifacts"
+      )
+    }
+
+    do {
+      return PinnedInstallerDelivery(
+        engine: try engine.descriptor(
+          role: "engine",
+          digest: model.engineDigest
+        ),
+        metadata: try metadata.descriptor(
+          role: "metadata",
+          digest: model.metadataDigest
+        ),
+        payload: try payload.descriptor(
+          role: "payload",
+          digest: model.payloadDigest
+        )
+      )
+    } catch {
+      throw SupportCatalogError.invalidField(
+        "models[\(modelIndex)].artifacts"
+      )
+    }
   }
 
   private func isSHA256Digest(_ value: String) -> Bool {
@@ -239,8 +292,29 @@ private struct ModelRecord: Decodable {
   let metadataDigest: String
   let payloadDigest: String
   let evidenceRevision: String
+  let engineArtifact: ModelArtifactRecord?
+  let metadataArtifact: ModelArtifactRecord?
+  let payloadArtifact: ModelArtifactRecord?
 }
 
+private struct ModelArtifactRecord: Decodable {
+  let sourceURL: URL
+  let fileName: String
+  let sizeBytes: UInt64
+
+  func descriptor(
+    role: String,
+    digest: String
+  ) throws -> PinnedInstallerArtifact {
+    try PinnedInstallerArtifact(
+      role: role,
+      sourceURL: sourceURL,
+      fileName: fileName,
+      expectedDigest: digest,
+      expectedSizeBytes: sizeBytes
+    )
+  }
+}
 private enum ModelStatus: String, Decodable {
   case enabled
   case disabled
