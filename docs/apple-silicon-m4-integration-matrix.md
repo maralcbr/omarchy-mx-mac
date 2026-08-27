@@ -142,6 +142,14 @@ repository standards.
 - The tracked static evidence remains fail-closed with
   `boot.verified=false`; no media write, boot, publish, channel, remote, or
   installed-user action occurred.
+- Candidate `2026-08-27-a9c09d7b` supersedes that first checkpoint for the next
+  gate. Source `0c1dbd071cd271c62b7d45dfbaa777eaaf6742c1` adds the format-aware
+  verifier dependency only to Apple validation builds. Its full isolated build
+  exited zero; the 3,414,591,488-byte ISO has SHA-256
+  `a9c09d7bc510e16275b4721f5e854bae8ade9b392f0a86ad4d3790bf152ffb8f`.
+  The complete log, environment manifest, and canonical static evidence are
+  retained under `evidence/apple-silicon/2026-08-27-a9c09d7b/`. Physical boot
+  and byte reproducibility remain explicitly unverified.
 
 ## Proposed source-only sequence
 
@@ -161,13 +169,15 @@ This sequence is a proposal, not authorization to execute later gates.
    trust-root and candidate-bound plan interfaces are specified without
    installing keys, signing artifacts, publishing catalogs, or enabling
    mutation.
-5. **Independent media evidence (static candidate completed locally):** the
-   validation-only Apple target was re-authored on the accepted ARM64 ISO base
-   and its first ISO passed canonical static layout validation. Complete the
-   two-clean-build comparison and full build evidence bundle next. A later
-   physical boot requires a dedicated, recoverable, officially supported M1
-   canary with a pre-existing Asahi environment. Keep both outside user release
-   paths and do not treat a supported-canary boot as M4 acceptance.
+5. **Independent media evidence (format-aware static candidate accepted
+   locally):** the validation-only Apple target was re-authored on the accepted
+   ARM64 ISO base, and the accepted ISO passed the canonical format-aware static
+   verifier with a complete build log and environment manifest. The compared
+   ISO bytes are not reproducible, with known generated-content and timestamp
+   differences documented. A later physical boot requires a dedicated,
+   recoverable, officially supported M1 canary with a pre-existing Asahi
+   environment. Keep both outside user release paths and do not treat a
+   supported-canary boot as M4 acceptance.
 6. **Explicit owner gate:** stop and request authorization before any push,
    pull request, merge, signing, notarization, publication, channel change,
    installed-user integration, privileged authorization test, or physical
@@ -175,11 +185,12 @@ This sequence is a proposal, not authorization to execute later gates.
 
 ## Next decision
 
-The accepted-base re-authoring, signed Asahi dependency closure, and first
-static ISO validation are complete locally. The next safe implementation unit
-is a second clean build plus full evidence-bundle comparison. If that gate
-passes, stop before any media write and select a dedicated, recoverable,
-officially supported M1 canary with a pre-existing correctly paired Asahi
+The accepted-base re-authoring, signed Asahi dependency closure, format-aware
+static validation, and full isolated build record are complete locally. The
+next safe implementation unit is to prepare the candidate-specific read-only
+canary procedure and independently audit its internal-NVMe no-write controls.
+Stop before any media write and select a dedicated, recoverable, officially
+supported M1 canary with a pre-existing correctly paired Asahi
 UEFI/m1n1/U-Boot environment.
 
 Any removable-media write, Asahi preparation, boot, publication, channel

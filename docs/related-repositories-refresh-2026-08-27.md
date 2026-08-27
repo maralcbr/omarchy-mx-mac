@@ -74,6 +74,16 @@ The first static ISO is 3,414,587,392 bytes with SHA-256
 Its canonical evidence passes static layout validation and remains fail-closed
 with `boot.verified=false`.
 
+The follow-up format-aware fix is source
+`0c1dbd071cd271c62b7d45dfbaa777eaaf6742c1`. It adds `mkinitcpio` only to the
+Apple validation build host and leaves the generic AArch64 dependency profile
+unchanged. The resulting full isolated build exited zero and produced a
+3,414,591,488-byte ISO with SHA-256
+`a9c09d7bc510e16275b4721f5e854bae8ade9b392f0a86ad4d3790bf152ffb8f`.
+Its format-aware static evidence, full build log, and environment manifest are
+retained at `evidence/apple-silicon/2026-08-27-a9c09d7b/`. Boot remains false,
+and the compared ISO byte streams are not claimed to be reproducible.
+
 ## Package handoff disposition
 
 `fix/repository-signing-certificate` exactly matches its tracked remote branch,
@@ -96,10 +106,10 @@ Neither handoff source should be synchronized into the active project as-is:
    accepted ARM64 release line; and
 3. the M1 bundle is a source snapshot, not current Git or boot evidence.
 
-The next safe implementation unit is a second clean build with a complete log,
-tool-version manifest, recursive media manifest, and artifact/evidence hash
-comparison. If that reproducibility gate passes, stop before any media write
-and request explicit owner authorization for a dedicated supported M1 canary.
+The next safe implementation unit is a candidate-specific read-only canary
+procedure and an independent audit of its internal-NVMe no-write controls.
+Stop before any media write and request explicit owner authorization for a
+dedicated supported M1 canary.
 
 An actual Apple boot remains a separate physical-device gate. It needs explicit
 authorization immediately before any internal-disk, boot-policy, firmware,

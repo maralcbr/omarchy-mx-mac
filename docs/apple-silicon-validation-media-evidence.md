@@ -1,15 +1,15 @@
 # Apple Silicon validation-media evidence plan
 
-Status: first static candidate validated locally; boot and release remain unverified
+Status: format-aware static candidate accepted locally; boot and release remain unverified
 Official-source check: 2026-08-27
 
 ## Scope and non-goals
 
 This plan defines the evidence required to call an `omarchy-mx-mac` AArch64
 candidate **build-valid** and, later, **boot-valid** through an Asahi-prepared
-Apple Silicon boot chain. The 2026-08-27 candidate below passes the recorded
-static layout checks only; it does not yet satisfy the complete build-valid or
-boot-valid gates.
+Apple Silicon boot chain. The accepted 2026-08-27 candidate below passes the
+recorded static layout checks and retains its complete isolated build log and
+environment manifest; it does not yet satisfy the physical boot-valid gate.
 
 Repository roles must remain distinct:
 
@@ -101,6 +101,35 @@ correctly records `boot.verified=false` and
 also found no mounted Apple ESP in the disposable live-root build. That is
 expected for this ISO-only stage and reinforces that device-tree and
 machine-firmware handoff remain physical-boot blockers.
+
+## Accepted format-aware candidate - 2026-08-27
+
+Candidate `2026-08-27-a9c09d7b` supersedes the first static checkpoint for the
+next gate. It was built and verified from ISO source
+`0c1dbd071cd271c62b7d45dfbaa777eaaf6742c1`, which adds `mkinitcpio` only to
+the Apple build host so `lsinitcpio` can inspect the early-CPIO-plus-compressed
+main archive emitted by mkinitcpio. Generic AArch64 build-host dependencies are
+unchanged and covered by a regression test.
+
+The exact isolated build completed with exit code zero and produced a
+3,414,591,488-byte ISO with SHA-256
+`a9c09d7bc510e16275b4721f5e854bae8ade9b392f0a86ad4d3790bf152ffb8f`.
+The verifier confirmed the AArch64 EFI image, matching ISO and appended-ESP EFI
+bytes, `linux-asahi`, the Asahi initramfs hook, pinned platform snapshot, and
+absence of generic-ARM and Limine boot artifacts. The repository-safe evidence
+is retained at
+[`evidence/apple-silicon/2026-08-27-a9c09d7b/`](../evidence/apple-silicon/2026-08-27-a9c09d7b/),
+including canonical JSON, the complete build-environment manifest, and the
+unedited build log.
+
+Three generated ISO byte streams were compared. They are not byte-identical;
+the differing content was localized to generated host identity/key/cache files
+and archive timestamps, while the kernel, initramfs, EFI binary, GRUB
+configuration, package list, and pinned inputs match. The candidate is accepted
+for static Apple media structure, not claimed to be byte-reproducible or
+boot-valid. Its evidence remains fail-closed with `boot.verified=false` and
+`disposable-asahi-boot-evidence-absent`. No media was written and no installed
+user, release channel, remote, or physical device was changed.
 
 ## Prerequisites
 
