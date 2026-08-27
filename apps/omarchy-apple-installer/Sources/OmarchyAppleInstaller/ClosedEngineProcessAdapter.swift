@@ -66,6 +66,7 @@ public enum ClosedEngineProcessError: Error, Equatable, Sendable {
   case planUnavailable
   case staleCandidateApproval
   case transcriptDeviceMismatch
+  case transcriptIncomplete
   case transcriptPlanMismatch
   case unsupportedDevice(String)
 }
@@ -178,6 +179,9 @@ public struct ClosedEngineProcessAdapter: Sendable {
     }
     guard transcript.plan == invocation.plan else {
       throw ClosedEngineProcessError.transcriptPlanMismatch
+    }
+    guard transcript.completion != nil else {
+      throw ClosedEngineProcessError.transcriptIncomplete
     }
   }
 }

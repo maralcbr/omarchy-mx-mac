@@ -98,6 +98,33 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     }
   }
 
+  func testIncompleteProcessTranscriptIsRejected() async throws {
+    let fixture = try makeFixture()
+    let lines = String(decoding: fixture.transcript, as: UTF8.self)
+      .split(separator: "\n")
+      .dropLast()
+    let incomplete = Data((lines.joined(separator: "\n") + "\n").utf8)
+    let authorization = ControlledAuthorization(decision: .granted)
+    let process = ControlledProcess(transcript: incomplete)
+
+    await XCTAssertThrowsErrorAsync(
+      try await adapter.execute(
+        fixture.request,
+        approval: fixture.approval,
+        authorization: authorization,
+        process: process
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? ClosedEngineProcessError,
+        .transcriptIncomplete
+      )
+    }
+
+    let executions = await process.executionCount
+    XCTAssertEqual(executions, 1)
+  }
+
   func testM4RemainsRejectedEvenWhenSignedCatalogEnablesIt() async throws {
     let fixture = try makeFixture()
     let m4Request = try makeRequest(deviceIdentifier: "apple,j614s")
