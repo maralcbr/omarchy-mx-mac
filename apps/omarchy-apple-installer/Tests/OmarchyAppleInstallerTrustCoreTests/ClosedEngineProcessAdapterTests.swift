@@ -16,6 +16,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     await XCTAssertThrowsErrorAsync(
       try await adapter.execute(
         fixture.request,
+        approval: fixture.approval,
         authorization: authorization,
         process: process
       )
@@ -41,6 +42,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     await XCTAssertThrowsErrorAsync(
       try await adapter.execute(
         fixture.request,
+        approval: fixture.approval,
         authorization: authorization,
         process: process
       )
@@ -56,13 +58,15 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
   }
 
   func testInvalidCatalogSignatureStopsBeforeAuthorization() async throws {
-    let fixture = try makeFixture(mutateCatalogAfterSigning: true)
+    let fixture = try makeFixture()
+    let invalidRequest = try makeRequest(mutateCatalogAfterSigning: true)
     let authorization = ControlledAuthorization(decision: .granted)
     let process = ControlledProcess(transcript: fixture.transcript)
 
     await XCTAssertThrowsErrorAsync(
       try await adapter.execute(
-        fixture.request,
+        invalidRequest,
+        approval: fixture.approval,
         authorization: authorization,
         process: process
       )
@@ -85,6 +89,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     await XCTAssertThrowsErrorAsync(
       try await adapter.execute(
         fixture.request,
+        approval: fixture.approval,
         authorization: authorization,
         process: process
       )
@@ -94,13 +99,16 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
   }
 
   func testM4RemainsRejectedEvenWhenSignedCatalogEnablesIt() async throws {
-    let fixture = try makeFixture(deviceIdentifier: "apple,j614s")
+    let fixture = try makeFixture()
+    let m4Request = try makeRequest(deviceIdentifier: "apple,j614s")
+    let m4Transcript = makeTranscript(deviceIdentifier: "apple,j614s")
     let authorization = ControlledAuthorization(decision: .granted)
-    let process = ControlledProcess(transcript: fixture.transcript)
+    let process = ControlledProcess(transcript: m4Transcript.data)
 
     await XCTAssertThrowsErrorAsync(
       try await adapter.execute(
-        fixture.request,
+        m4Request,
+        approval: fixture.approval,
         authorization: authorization,
         process: process
       )
@@ -124,6 +132,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
 
     let result = try await adapter.execute(
       fixture.request,
+      approval: fixture.approval,
       authorization: authorization,
       process: process
     )
@@ -137,33 +146,191 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     XCTAssertEqual(executions, 1)
   }
 
+  func testTrustRootRejectsPublicKeySubstitution() {
+    let expectedKey = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+    let substitutedKey = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+
+    XCTAssertThrowsError(
+      try AppOwnedTrustRoot(
+        rawRepresentation: substitutedKey,
+        expectedFingerprint: sha256Digest(expectedKey)
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? AppOwnedTrustRootError,
+        .identityMismatch
+      )
+    }
+  }
+
+  func testCandidateIdentityIsDeterministic() throws {
+    let request = try makeRequest()
+
+    let first = try adapter.candidateIdentity(for: request)
+    let replay = try adapter.candidateIdentity(for: request)
+
+    XCTAssertEqual(first, replay)
+    XCTAssertEqual(first.format, 1)
+    XCTAssertEqual(first.trustRootFingerprint, request.trustRoot.fingerprint)
+  }
+
+  func testCandidateExtentChangesBindingIdentity() throws {
+    let privateKey = Curve25519.Signing.PrivateKey()
+    let first = try adapter.candidateIdentity(
+      for: makeRequest(privateKey: privateKey)
+    )
+    let changed = try adapter.candidateIdentity(
+      for: makeRequest(
+        lengthBytes: 96_636_764_160,
+        privateKey: privateKey
+      )
+    )
+
+    XCTAssertNotEqual(first.bindingDigest, changed.bindingDigest)
+    XCTAssertNotEqual(first.lengthBytes, changed.lengthBytes)
+  }
+
+  func testCatalogSequenceChangesBindingIdentity() throws {
+    let privateKey = Curve25519.Signing.PrivateKey()
+    let first = try adapter.candidateIdentity(
+      for: makeRequest(catalogSequence: 20, privateKey: privateKey)
+    )
+    let changed = try adapter.candidateIdentity(
+      for: makeRequest(catalogSequence: 21, privateKey: privateKey)
+    )
+
+    XCTAssertNotEqual(first.bindingDigest, changed.bindingDigest)
+    XCTAssertNotEqual(
+      first.catalogIdentity.sequence,
+      changed.catalogIdentity.sequence
+    )
+  }
+
+  func testApprovalCannotReplayForDifferentCandidate() async throws {
+    let privateKey = Curve25519.Signing.PrivateKey()
+    let approved = try makeFixture(privateKey: privateKey)
+    let changedRequest = try makeRequest(
+      lengthBytes: 96_636_764_160,
+      privateKey: privateKey
+    )
+    let changedTranscript = makeTranscript(lengthBytes: 96_636_764_160)
+    let authorization = ControlledAuthorization(decision: .granted)
+    let process = ControlledProcess(transcript: changedTranscript.data)
+
+    await XCTAssertThrowsErrorAsync(
+      try await adapter.execute(
+        changedRequest,
+        approval: approved.approval,
+        authorization: authorization,
+        process: process
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? ClosedEngineProcessError,
+        .candidateIdentityMismatch
+      )
+    }
+
+    let authorizationAttempts = await authorization.attemptCount
+    let executions = await process.executionCount
+    XCTAssertEqual(authorizationAttempts, 0)
+    XCTAssertEqual(executions, 0)
+  }
+
+  func testAlteredApprovalDigestStopsBeforeAuthorization() async throws {
+    let fixture = try makeFixture()
+    let alteredApproval = CandidateBoundPlanApproval(
+      identity: fixture.approval.identity,
+      approvedBindingDigest: "sha256:" + String(repeating: "0", count: 64)
+    )
+    let authorization = ControlledAuthorization(decision: .granted)
+    let process = ControlledProcess(transcript: fixture.transcript)
+
+    await XCTAssertThrowsErrorAsync(
+      try await adapter.execute(
+        fixture.request,
+        approval: alteredApproval,
+        authorization: authorization,
+        process: process
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? ClosedEngineProcessError,
+        .staleCandidateApproval
+      )
+    }
+
+    let authorizationAttempts = await authorization.attemptCount
+    let executions = await process.executionCount
+    XCTAssertEqual(authorizationAttempts, 0)
+    XCTAssertEqual(executions, 0)
+  }
+
   private func makeFixture(
     deviceIdentifier: String = "apple,j314s",
-    mutateCatalogAfterSigning: Bool = false
+    lengthBytes: UInt64 = 107_374_182_400,
+    catalogSequence: UInt64 = 20,
+    privateKey: Curve25519.Signing.PrivateKey = .init()
   ) throws -> ClosedAdapterFixture {
-    let transcript = makeTranscript(deviceIdentifier: deviceIdentifier)
-    let privateKey = Curve25519.Signing.PrivateKey()
-    let catalog = makeCatalog(deviceIdentifier: deviceIdentifier)
-    let signature = try privateKey.signature(for: catalog)
-    let deliveredCatalog = mutateCatalogAfterSigning
-      ? catalog + Data(" ".utf8)
-      : catalog
-    let request = ClosedEngineRequest(
-      planningTranscript: transcript.data,
-      approvedPlanDigest: transcript.planDigest,
-      catalogPayload: deliveredCatalog,
-      catalogSignature: signature,
-      catalogPublicKey: privateKey.publicKey.rawRepresentation,
-      validationTime: now
+    let request = try makeRequest(
+      deviceIdentifier: deviceIdentifier,
+      lengthBytes: lengthBytes,
+      catalogSequence: catalogSequence,
+      privateKey: privateKey
+    )
+    let identity = try adapter.candidateIdentity(for: request)
+    let transcript = makeTranscript(
+      deviceIdentifier: deviceIdentifier,
+      lengthBytes: lengthBytes
     )
     return ClosedAdapterFixture(
       request: request,
+      approval: CandidateBoundPlanApproval(
+        identity: identity,
+        approvedBindingDigest: identity.bindingDigest
+      ),
       transcript: transcript.data,
       planDigest: transcript.planDigest
     )
   }
 
-  private func makeCatalog(deviceIdentifier: String) -> Data {
+  private func makeRequest(
+    deviceIdentifier: String = "apple,j314s",
+    lengthBytes: UInt64 = 107_374_182_400,
+    catalogSequence: UInt64 = 20,
+    privateKey: Curve25519.Signing.PrivateKey = .init(),
+    mutateCatalogAfterSigning: Bool = false
+  ) throws -> ClosedEngineCandidateRequest {
+    let transcript = makeTranscript(
+      deviceIdentifier: deviceIdentifier,
+      lengthBytes: lengthBytes
+    )
+    let catalog = makeCatalog(
+      deviceIdentifier: deviceIdentifier,
+      sequence: catalogSequence
+    )
+    let signature = try privateKey.signature(for: catalog)
+    let deliveredCatalog = mutateCatalogAfterSigning
+      ? catalog + Data(" ".utf8)
+      : catalog
+    let publicKey = privateKey.publicKey.rawRepresentation
+    let trustRoot = try AppOwnedTrustRoot(
+      rawRepresentation: publicKey,
+      expectedFingerprint: sha256Digest(publicKey)
+    )
+    return ClosedEngineCandidateRequest(
+      planningTranscript: transcript.data,
+      catalogPayload: deliveredCatalog,
+      catalogSignature: signature,
+      trustRoot: trustRoot,
+      validationTime: now
+    )
+  }
+
+  private func makeCatalog(
+    deviceIdentifier: String,
+    sequence: UInt64
+  ) -> Data {
     let issued = ISO8601DateFormatter().string(
       from: now.addingTimeInterval(-3_600)
     )
@@ -172,7 +339,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     )
     return Data(
       """
-      {"schemaVersion":1,"sequence":20,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(deviceIdentifier)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineDigest":"sha256:\(String(repeating: "d", count: 64))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s2"}]}
+      {"schemaVersion":1,"sequence":\(sequence),"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"\(deviceIdentifier)","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineDigest":"sha256:\(String(repeating: "d", count: 64))","metadataDigest":"sha256:\(String(repeating: "e", count: 64))","payloadDigest":"sha256:\(String(repeating: "f", count: 64))","evidenceRevision":"evidence-s3"}]}
       """.utf8
     )
   }
@@ -230,6 +397,12 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
       .joined()
     return prefix + digest
   }
+
+  private func sha256Digest(_ data: Data) -> String {
+    "sha256:" + SHA256.hash(data: data)
+      .map { String(format: "%02x", $0) }
+      .joined()
+  }
 }
 
 private actor ControlledAuthorization: EngineExecutionAuthorizing {
@@ -263,7 +436,8 @@ private actor ControlledProcess: EngineProcessExecuting {
 }
 
 private struct ClosedAdapterFixture {
-  let request: ClosedEngineRequest
+  let request: ClosedEngineCandidateRequest
+  let approval: CandidateBoundPlanApproval
   let transcript: Data
   let planDigest: String
 }

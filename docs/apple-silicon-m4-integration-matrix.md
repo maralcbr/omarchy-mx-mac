@@ -1,6 +1,6 @@
 # Apple Silicon M4 selective integration matrix
 
-Status: S2 implemented locally; no user integration
+Status: S3 implemented locally; no user integration
 Created: 2026-08-27
 Destination branch: `feature/m4-handoff-integration`
 Destination base: `origin/main` at `c2252509fa48e430c7142543e9da4d442343328d`
@@ -109,6 +109,17 @@ repository standards.
   before execution, plan-substitution rejection, signature failure before
   authorization, transcript validation, and hard rejection of `apple,j614s`
   even when a test-signed catalog enables it.
+- S3 replaces raw public-key input at the public seam with an app-owned Ed25519
+  verification root bound to its expected SHA-256 fingerprint. No production
+  root, private key, signing operation, key installation, or key persistence is
+  present in source.
+- Candidate approvals now bind the trust-root fingerprint, signed-catalog
+  identity, exact plan, device, store, candidate extent, and engine payload
+  digests. The request is revalidated before authorization.
+- The 24 identity and execution interface tests pass in both debug and release
+  configurations through XcodeBuildMCP 2.7.0. They include public-key
+  substitution, catalog-sequence binding, candidate replay, and approval-digest
+  tampering failures before authorization or execution.
 
 ## Proposed source-only sequence
 
@@ -124,9 +135,10 @@ This sequence is a proposal, not authorization to execute later gates.
    harness proves authorization cancellation, plan substitution rejection,
    signature failure, transcript validation, and `apple,j614s` rejection. No
    live authorization provider or mutation-capable engine was added.
-4. **S3 — production identity design:** specify the app-owned trust-root and
-   candidate-bound plan interfaces without installing keys, signing artifacts,
-   publishing catalogs, or enabling mutation.
+4. **S3 — production identity design (completed locally):** the app-owned
+   trust-root and candidate-bound plan interfaces are specified without
+   installing keys, signing artifacts, publishing catalogs, or enabling
+   mutation.
 5. **Independent media evidence:** build and boot the validation-only Apple ISO
    in a disposable Linux/Asahi-prepared environment. Keep this outside user
    release paths.
@@ -137,7 +149,9 @@ This sequence is a proposal, not authorization to execute later gates.
 
 ## Next decision
 
-The next safe action, if separately approved, is S3 only: design the app-owned
-trust-root and candidate-bound plan interfaces without installing keys, signing
-artifacts, publishing catalogs, enabling a live authorization provider, or
-adding any path that changes an existing user's machine.
+The next safe action, if separately approved, is a read-only refresh of the
+distinct `omarchy-iso` and `omarchy-pkgs` repositories followed by an
+independent validation-media evidence plan. Any ISO build or boot must use an
+explicitly selected disposable environment and remain outside installed-user
+and release paths. Publication, channel changes, or physical-device work remain
+separate owner gates.

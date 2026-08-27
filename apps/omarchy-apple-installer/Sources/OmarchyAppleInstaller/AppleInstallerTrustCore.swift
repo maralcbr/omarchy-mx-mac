@@ -67,14 +67,14 @@ public struct AppleInstallerTrustCore: Sendable {
   public func validateSupportCatalog(
     payload: Data,
     signature: Data,
-    publicKey: Data,
+    trustRoot: AppOwnedTrustRoot,
     now: Date,
     previouslyAccepted: AcceptedCatalogIdentity? = nil
   ) throws -> ValidatedSupportCatalog {
     let catalog = try SignedSupportCatalogVerifier().verify(
       payload: payload,
       signature: signature,
-      publicKey: publicKey,
+      publicKey: trustRoot.rawRepresentation,
       now: now
     )
     let payloadDigest = "sha256:" + SHA256.hash(data: payload)

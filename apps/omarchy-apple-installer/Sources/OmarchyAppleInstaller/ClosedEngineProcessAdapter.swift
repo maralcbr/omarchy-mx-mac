@@ -1,43 +1,43 @@
 import Foundation
 
-public struct ClosedEngineRequest: Sendable {
+public struct ClosedEngineCandidateRequest: Sendable {
   public let planningTranscript: Data
-  public let approvedPlanDigest: String
   public let catalogPayload: Data
   public let catalogSignature: Data
-  public let catalogPublicKey: Data
+  public let trustRoot: AppOwnedTrustRoot
   public let validationTime: Date
   public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
 
   public init(
     planningTranscript: Data,
-    approvedPlanDigest: String,
     catalogPayload: Data,
     catalogSignature: Data,
-    catalogPublicKey: Data,
+    trustRoot: AppOwnedTrustRoot,
     validationTime: Date,
     previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil
   ) {
     self.planningTranscript = planningTranscript
-    self.approvedPlanDigest = approvedPlanDigest
     self.catalogPayload = catalogPayload
     self.catalogSignature = catalogSignature
-    self.catalogPublicKey = catalogPublicKey
+    self.trustRoot = trustRoot
     self.validationTime = validationTime
     self.previouslyAcceptedCatalog = previouslyAcceptedCatalog
   }
 }
 
 public struct ClosedEngineInvocation: Sendable {
+  public let candidateIdentity: CandidateBoundPlanIdentity
   public let plan: ValidatedEnginePlan
   public let pinnedInstaller: PinnedInstallerRecord
   public let catalogIdentity: AcceptedCatalogIdentity
 
   fileprivate init(
+    candidateIdentity: CandidateBoundPlanIdentity,
     plan: ValidatedEnginePlan,
     pinnedInstaller: PinnedInstallerRecord,
     catalogIdentity: AcceptedCatalogIdentity
   ) {
+    self.candidateIdentity = candidateIdentity
     self.plan = plan
     self.pinnedInstaller = pinnedInstaller
     self.catalogIdentity = catalogIdentity
@@ -61,9 +61,10 @@ public protocol EngineProcessExecuting: Sendable {
 
 public enum ClosedEngineProcessError: Error, Equatable, Sendable {
   case authorizationCancelled
+  case candidateIdentityMismatch
   case catalogPlanMismatch
   case planUnavailable
-  case stalePlanApproval
+  case staleCandidateApproval
   case transcriptDeviceMismatch
   case transcriptPlanMismatch
   case unsupportedDevice(String)
@@ -77,12 +78,27 @@ public struct ClosedEngineProcessAdapter: Sendable {
     trustCore = AppleInstallerTrustCore()
   }
 
+  public func candidateIdentity(
+    for request: ClosedEngineCandidateRequest
+  ) throws -> CandidateBoundPlanIdentity {
+    try prepare(request).candidateIdentity
+  }
+
   public func execute(
-    _ request: ClosedEngineRequest,
+    _ request: ClosedEngineCandidateRequest,
+    approval: CandidateBoundPlanApproval,
     authorization: any EngineExecutionAuthorizing,
     process: any EngineProcessExecuting
   ) async throws -> ValidatedEngineTranscript {
     let invocation = try prepare(request)
+    guard approval.approvedBindingDigest
+      == approval.identity.bindingDigest
+    else {
+      throw ClosedEngineProcessError.staleCandidateApproval
+    }
+    guard approval.identity == invocation.candidateIdentity else {
+      throw ClosedEngineProcessError.candidateIdentityMismatch
+    }
 
     guard await authorization.decision(for: invocation) == .granted else {
       throw ClosedEngineProcessError.authorizationCancelled
@@ -95,12 +111,12 @@ public struct ClosedEngineProcessAdapter: Sendable {
   }
 
   private func prepare(
-    _ request: ClosedEngineRequest
+    _ request: ClosedEngineCandidateRequest
   ) throws -> ClosedEngineInvocation {
     let catalog = try trustCore.validateSupportCatalog(
       payload: request.catalogPayload,
       signature: request.catalogSignature,
-      publicKey: request.catalogPublicKey,
+      trustRoot: request.trustRoot,
       now: request.validationTime,
       previouslyAccepted: request.previouslyAcceptedCatalog
     )
@@ -125,9 +141,6 @@ public struct ClosedEngineProcessAdapter: Sendable {
     guard let plan = transcript.plan else {
       throw ClosedEngineProcessError.planUnavailable
     }
-    guard request.approvedPlanDigest == plan.planDigest else {
-      throw ClosedEngineProcessError.stalePlanApproval
-    }
     guard plan.deviceIdentifier == transcript.deviceIdentifier,
       plan.engineDigest == pinnedInstaller.engineDigest,
       plan.metadataDigest == pinnedInstaller.metadataDigest,
@@ -136,7 +149,13 @@ public struct ClosedEngineProcessAdapter: Sendable {
       throw ClosedEngineProcessError.catalogPlanMismatch
     }
 
+    let candidateIdentity = CandidateBoundPlanIdentity(
+      plan: plan,
+      catalogIdentity: catalog.acceptedIdentity,
+      trustRootFingerprint: request.trustRoot.fingerprint
+    )
     return ClosedEngineInvocation(
+      candidateIdentity: candidateIdentity,
       plan: plan,
       pinnedInstaller: pinnedInstaller,
       catalogIdentity: catalog.acceptedIdentity

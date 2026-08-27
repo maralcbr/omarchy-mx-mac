@@ -84,7 +84,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     let result = try core.validateSupportCatalog(
       payload: fixture.payload,
       signature: fixture.signature,
-      publicKey: fixture.publicKey,
+      trustRoot: fixture.trustRoot,
       now: now
     )
 
@@ -107,7 +107,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       try core.validateSupportCatalog(
         payload: mutatedPayload,
         signature: fixture.signature,
-        publicKey: fixture.publicKey,
+        trustRoot: fixture.trustRoot,
         now: now
       )
     ) {
@@ -126,7 +126,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       try core.validateSupportCatalog(
         payload: fixture.payload,
         signature: fixture.signature,
-        publicKey: fixture.publicKey,
+        trustRoot: fixture.trustRoot,
         now: now
       )
     ) {
@@ -142,7 +142,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       try core.validateSupportCatalog(
         payload: older.payload,
         signature: older.signature,
-        publicKey: older.publicKey,
+        trustRoot: older.trustRoot,
         now: now,
         previouslyAccepted: current.acceptedIdentity
       )
@@ -167,7 +167,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       try core.validateSupportCatalog(
         payload: replacement.payload,
         signature: replacement.signature,
-        publicKey: replacement.publicKey,
+        trustRoot: replacement.trustRoot,
         now: now,
         previouslyAccepted: first.acceptedIdentity
       )
@@ -182,7 +182,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     let replay = try core.validateSupportCatalog(
       payload: fixture.payload,
       signature: fixture.signature,
-      publicKey: fixture.publicKey,
+      trustRoot: fixture.trustRoot,
       now: now,
       previouslyAccepted: first.acceptedIdentity
     )
@@ -210,7 +210,7 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     try core.validateSupportCatalog(
       payload: fixture.payload,
       signature: fixture.signature,
-      publicKey: fixture.publicKey,
+      trustRoot: fixture.trustRoot,
       now: now
     )
   }
@@ -245,10 +245,17 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       {"schemaVersion":1,"sequence":\(sequence),"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[\(models)]}
       """.utf8
     )
+    let publicKey = privateKey.publicKey.rawRepresentation
+    let fingerprint = "sha256:" + SHA256.hash(data: publicKey)
+      .map { String(format: "%02x", $0) }
+      .joined()
     return CatalogFixture(
       payload: payload,
       signature: try privateKey.signature(for: payload),
-      publicKey: privateKey.publicKey.rawRepresentation
+      trustRoot: try AppOwnedTrustRoot(
+        rawRepresentation: publicKey,
+        expectedFingerprint: fingerprint
+      )
     )
   }
 
@@ -317,5 +324,5 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
 private struct CatalogFixture {
   let payload: Data
   let signature: Data
-  let publicKey: Data
+  let trustRoot: AppOwnedTrustRoot
 }
