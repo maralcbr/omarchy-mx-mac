@@ -14,6 +14,9 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     XCTAssertThrowsError(try descriptor(fileName: "../installer.tar.gz")) {
       XCTAssertEqual($0 as? ArtifactStageError, .invalidFileName)
     }
+    XCTAssertThrowsError(try descriptor(fileName: "installer\0ignored.tar.gz")) {
+      XCTAssertEqual($0 as? ArtifactStageError, .invalidFileName)
+    }
     XCTAssertThrowsError(try descriptor(digest: "sha256:ABC")) {
       XCTAssertEqual($0 as? ArtifactStageError, .invalidDigest)
     }
