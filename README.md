@@ -221,6 +221,25 @@ sudo systemctl restart NetworkManager
 sudo journalctl -u NetworkManager -b
 ```
 
+### Quickshell Fails After A Partial Update
+
+Do not replace the signed `quickshell-git` package with `quickshell` or rebuild
+it from the AUR. Those workarounds move the machine outside the validated Apple
+Silicon package bundle and can block later updates.
+
+Switch to a TTY, preserve the package and journal evidence, then use the normal
+signed updater:
+
+```bash
+pacman -Q quickshell-git qt6-base 2>&1 || true
+pacman -Qm | grep -E '^quickshell' || true
+journalctl --user -b | grep -i quickshell || true
+omarchy update
+```
+
+If the update fails, do not reboot or remove packages manually. Preserve the
+complete output and open a verified bug report with the commands above.
+
 ### An Installation Or Upgrade Failed
 
 - Do not reboot during or after a failed package transaction.
