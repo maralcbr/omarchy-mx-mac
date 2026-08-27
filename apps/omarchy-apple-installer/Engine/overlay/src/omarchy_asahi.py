@@ -156,38 +156,7 @@ class AsahiStage1Adapter:
         ).encode("utf-8")
 
     def _load_metadata(self):
-        flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        try:
-            descriptor = os.open(self.metadata_path, flags)
-        except OSError as error:
-            raise AsahiAdapterError("metadata is unavailable") from error
-        try:
-            status = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(status.st_mode)
-                or status.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
-                or status.st_size < 1
-                or status.st_size > 65_536
-            ):
-                raise AsahiAdapterError("metadata is invalid")
-            data = os.read(descriptor, status.st_size + 1)
-        finally:
-            os.close(descriptor)
-        if not data or len(data) > 65_536:
-            raise AsahiAdapterError("metadata is invalid")
-        try:
-            metadata = json.loads(data)
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise AsahiAdapterError("metadata is invalid") from error
-        if (
-            not isinstance(metadata, dict)
-            or set(metadata) != {"os_list"}
-            or not isinstance(metadata["os_list"], list)
-        ):
-            raise AsahiAdapterError("metadata is invalid")
-        return metadata
+        return load_metadata(self.metadata_path)
 
     def _refresh_parts(self):
         self.installer.dutil.get_info()
@@ -268,3 +237,38 @@ class AsahiStage1Adapter:
     def _require_preflight(self):
         if not self.preflight_complete:
             raise AsahiAdapterError("adapter preflight is required")
+
+
+def load_metadata(path):
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise AsahiAdapterError("metadata is unavailable") from error
+    try:
+        status = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(status.st_mode)
+            or status.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+            or status.st_size < 1
+            or status.st_size > 65_536
+        ):
+            raise AsahiAdapterError("metadata is invalid")
+        data = os.read(descriptor, status.st_size + 1)
+    finally:
+        os.close(descriptor)
+    if not data or len(data) > 65_536:
+        raise AsahiAdapterError("metadata is invalid")
+    try:
+        metadata = json.loads(data)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise AsahiAdapterError("metadata is invalid") from error
+    if (
+        not isinstance(metadata, dict)
+        or set(metadata) != {"os_list"}
+        or not isinstance(metadata["os_list"], list)
+    ):
+        raise AsahiAdapterError("metadata is invalid")
+    return metadata

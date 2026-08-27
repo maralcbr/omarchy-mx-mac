@@ -16,6 +16,7 @@ from omarchy_stage1 import (  # noqa: E402
     AmbiguousMutationState,
     Stage1Error,
     run_stage1,
+    validate_stage1_resume,
 )
 
 
@@ -124,6 +125,11 @@ class Stage1CoordinatorTests(unittest.TestCase):
             run_stage1(wrong, self.journal, adapter)
 
         self.assertEqual(adapter.calls, [])
+
+    def test_resume_validation_does_not_require_an_adapter(self):
+        self.assertIsNone(
+            validate_stage1_resume(self.plan, self.journal)
+        )
 
     def _planned_journal(self):
         journal = Journal(str(self.path))

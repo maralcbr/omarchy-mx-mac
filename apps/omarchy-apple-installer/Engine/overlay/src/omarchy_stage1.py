@@ -44,25 +44,13 @@ STAGES = (
 
 def run_stage1(plan, journal, adapter):
     """Run each mutation once, or return an already completed outcome."""
-    if journal.plan_digest != plan.plan_digest:
-        raise Stage1Error("journal plan does not match admitted plan")
-    if journal.completion_outcome is not None:
-        if journal.completion_outcome != "awaiting_recovery":
-            raise Stage1Error("unexpected stage-1 completion")
-        _require_all_checkpoints(journal)
-        return journal.completion_outcome
+    completed = validate_stage1_resume(plan, journal)
+    if completed is not None:
+        return completed
 
     for stage in STAGES:
-        completed = stage.checkpoint_identifier in journal.checkpoints
-        started = journal.has_event(stage.event)
-        if completed:
-            if not started:
-                raise Stage1Error("checkpoint is missing its intent record")
+        if stage.checkpoint_identifier in journal.checkpoints:
             continue
-        if started:
-            raise AmbiguousMutationState(
-                f"{stage.event} has no completion checkpoint"
-            )
 
         journal.event(stage.event)
         operation = getattr(adapter, stage.adapter_method, None)
@@ -84,6 +72,30 @@ def run_stage1(plan, journal, adapter):
     _require_all_checkpoints(journal)
     journal.completion("awaiting_recovery")
     return "awaiting_recovery"
+
+
+def validate_stage1_resume(plan, journal):
+    """Validate resume state before adapter preflight or mutation."""
+    if journal.plan_digest != plan.plan_digest:
+        raise Stage1Error("journal plan does not match admitted plan")
+    if journal.completion_outcome is not None:
+        if journal.completion_outcome != "awaiting_recovery":
+            raise Stage1Error("unexpected stage-1 completion")
+        _require_all_checkpoints(journal)
+        return journal.completion_outcome
+
+    for stage in STAGES:
+        completed = stage.checkpoint_identifier in journal.checkpoints
+        started = journal.has_event(stage.event)
+        if completed:
+            if not started:
+                raise Stage1Error("checkpoint is missing its intent record")
+            continue
+        if started:
+            raise AmbiguousMutationState(
+                f"{stage.event} has no completion checkpoint"
+            )
+    return None
 
 
 def _require_all_checkpoints(journal):
