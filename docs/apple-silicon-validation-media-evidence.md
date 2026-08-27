@@ -1,6 +1,6 @@
 # Apple Silicon validation-media evidence plan
 
-Status: format-aware static candidate accepted locally; boot and release remain unverified
+Status: read-only static candidate accepted locally; boot and release remain unverified
 Official-source check: 2026-08-27
 
 ## Scope and non-goals
@@ -130,6 +130,43 @@ for static Apple media structure, not claimed to be byte-reproducible or
 boot-valid. Its evidence remains fail-closed with `boot.verified=false` and
 `disposable-asahi-boot-evidence-absent`. No media was written and no installed
 user, release channel, remote, or physical device was changed.
+
+Subsequent live-root inspection found that this structurally valid candidate
+still contained and could auto-launch the normal installer, accepted cidata
+automation, and retained disk-mutation entry points. It is therefore not safe
+or eligible for a physical canary. It remains historical static evidence only.
+
+## Accepted read-only canary candidate - 2026-08-27
+
+Candidate `2026-08-27-e732b2bc` supersedes the format-aware candidate for the
+read-only canary gate. It was built and verified from ISO source
+`dfa58faded2b123ea01dbfadad20d22bdc0bd9fb`. That source seals the Apple live
+root after profile assembly: it removes the configurator, cidata loader,
+installer dashboard, installer, cleanup helper, orchestrator, partitioning,
+and setup-form paths; installs a validation-only console; and adds
+`systemd.gpt_auto=0`, `rd.systemd.gpt_auto=0`, `fstab=no`, and `rd.fstab=no` to
+every Apple GRUB and loopback kernel command line.
+
+The full isolated build exited zero and produced a 3,414,530,048-byte ISO with
+SHA-256
+`e732b2bc025e382dcf5c75e43236f06dc1eb6db574a6c9e70a2a308af151b2c7`.
+The canonical verifier confirmed the earlier format-aware structural checks
+plus `validation_console=true`, `installer_entrypoints_absent=true`, and
+`automatic_disk_discovery_disabled=true`. The complete evidence is retained at
+[`evidence/apple-silicon/2026-08-27-e732b2bc/`](../evidence/apple-silicon/2026-08-27-e732b2bc/).
+
+At live startup the console rejects a pre-existing read-write NVMe mount,
+disables NVMe-backed swap, sets every discovered NVMe namespace read-only with
+`blockdev --setro`, verifies the block-layer state, writes its report under
+`/run`, and only then presents a diagnostic shell. Focused negative tests prove
+failure when an installer entry point survives, a boot guard is missing, or an
+NVMe mount is already read-write.
+
+This is the first candidate eligible to be proposed for a separately
+authorized, dedicated, recoverable, officially supported M1 read-only canary.
+It is not physical-boot evidence, M4 acceptance, or release authorization.
+Its canonical result remains fail-closed with `boot.verified=false` and
+`disposable-asahi-boot-evidence-absent`.
 
 ## Prerequisites
 

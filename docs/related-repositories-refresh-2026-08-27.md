@@ -1,6 +1,6 @@
 # Related repository refresh — 2026-08-27
 
-Status: initial refresh and follow-up static Apple ISO validation complete; no boot, release, or user integration
+Status: refresh and read-only static Apple ISO validation complete; no boot, release, or user integration
 
 ## Scope and authority
 
@@ -84,6 +84,24 @@ Its format-aware static evidence, full build log, and environment manifest are
 retained at `evidence/apple-silicon/2026-08-27-a9c09d7b/`. Boot remains false,
 and the compared ISO byte streams are not claimed to be reproducible.
 
+Live-root inspection later found that this structurally valid candidate still
+retained the normal installer, cidata automation, and disk-mutation entry
+points, so it is not eligible for physical canary use. Source
+`dfa58faded2b123ea01dbfadad20d22bdc0bd9fb` seals a read-only Apple validation
+profile by removing those entry points, installing a validation-only console,
+and disabling systemd GPT/fstab automatic discovery. Its focused negative
+tests fail on surviving installer paths, missing boot guards, or pre-existing
+read-write NVMe mounts.
+
+The resulting candidate-4 isolated build exited zero and produced a
+3,414,530,048-byte ISO with SHA-256
+`e732b2bc025e382dcf5c75e43236f06dc1eb6db574a6c9e70a2a308af151b2c7`.
+Canonical evidence records the validation console, absent installer entry
+points, and automatic-discovery guards in addition to the earlier Asahi layout
+checks. The complete tracked record is retained at
+`evidence/apple-silicon/2026-08-27-e732b2bc/`. Boot remains false and no media
+was written.
+
 ## Package handoff disposition
 
 `fix/repository-signing-certificate` exactly matches its tracked remote branch,
@@ -106,10 +124,9 @@ Neither handoff source should be synchronized into the active project as-is:
    accepted ARM64 release line; and
 3. the M1 bundle is a source snapshot, not current Git or boot evidence.
 
-The next safe implementation unit is a candidate-specific read-only canary
-procedure and an independent audit of its internal-NVMe no-write controls.
-Stop before any media write and request explicit owner authorization for a
-dedicated supported M1 canary.
+The source-level read-only canary procedure, focused no-write tests, and full
+candidate-4 static build are complete. Stop before any media write and request
+explicit owner authorization for a dedicated supported M1 canary.
 
 An actual Apple boot remains a separate physical-device gate. It needs explicit
 authorization immediately before any internal-disk, boot-policy, firmware,

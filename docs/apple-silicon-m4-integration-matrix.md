@@ -1,6 +1,6 @@
 # Apple Silicon M4 selective integration matrix
 
-Status: S3 implemented and first Apple media statically validated locally; no user integration
+Status: S3 implemented and read-only Apple media statically validated locally; no user integration
 Created: 2026-08-27
 Destination branch: `feature/m4-handoff-integration`
 Destination base: `origin/main` at `c2252509fa48e430c7142543e9da4d442343328d`
@@ -82,8 +82,9 @@ repository standards.
   authorization, notarization, and a mutation-capable backend are missing. This
   is intentional and must remain fail-closed during source extraction.
 - One Apple-target ISO has passed the recorded disposable static build/layout
-  checks. No candidate has passed a physical Asahi-prepared m1n1/U-Boot boot
-  test or the two-clean-build reproducibility gate.
+  and read-only-media checks. No candidate has passed a physical
+  Asahi-prepared m1n1/U-Boot boot test or the two-clean-build reproducibility
+  gate.
 - No exact-model physical acceptance or release authorization exists; the
   empty allowlist correctly prevents user exposure.
 - The scrolling and ChatGPT commits are scope creep for Apple Silicon work and
@@ -150,6 +151,18 @@ repository standards.
   The complete log, environment manifest, and canonical static evidence are
   retained under `evidence/apple-silicon/2026-08-27-a9c09d7b/`. Physical boot
   and byte reproducibility remain explicitly unverified.
+- Live-root inspection then disqualified `2026-08-27-a9c09d7b` from physical
+  canary use because it retained the normal installer, cidata automation, and
+  disk-mutation entry points. Candidate `2026-08-27-e732b2bc`, built from
+  `dfa58faded2b123ea01dbfadad20d22bdc0bd9fb`, removes those paths, installs a
+  validation-only console, disables systemd GPT/fstab automatic discovery,
+  and proves NVMe read-only fail-closed behavior in focused tests.
+- The candidate-4 full isolated build exited zero; its 3,414,530,048-byte ISO
+  has SHA-256
+  `e732b2bc025e382dcf5c75e43236f06dc1eb6db574a6c9e70a2a308af151b2c7`.
+  Canonical evidence, the environment manifest, and complete compressed log
+  are retained under `evidence/apple-silicon/2026-08-27-e732b2bc/`. Physical
+  boot remains explicitly false and no media was written.
 
 ## Proposed source-only sequence
 
@@ -169,12 +182,13 @@ This sequence is a proposal, not authorization to execute later gates.
    trust-root and candidate-bound plan interfaces are specified without
    installing keys, signing artifacts, publishing catalogs, or enabling
    mutation.
-5. **Independent media evidence (format-aware static candidate accepted
+5. **Independent media evidence (read-only static candidate accepted
    locally):** the validation-only Apple target was re-authored on the accepted
-   ARM64 ISO base, and the accepted ISO passed the canonical format-aware static
-   verifier with a complete build log and environment manifest. The compared
-   ISO bytes are not reproducible, with known generated-content and timestamp
-   differences documented. A later physical boot requires a dedicated,
+   ARM64 ISO base. The latest accepted ISO passed the canonical format-aware
+   and read-only static verifier with a complete build log and environment
+   manifest. The compared ISO bytes are not reproducible, with known
+   generated-content and timestamp differences documented. A later physical
+   boot requires a dedicated,
    recoverable, officially supported M1 canary with a pre-existing Asahi
    environment. Keep both outside user release paths and do not treat a
    supported-canary boot as M4 acceptance.
@@ -186,12 +200,11 @@ This sequence is a proposal, not authorization to execute later gates.
 ## Next decision
 
 The accepted-base re-authoring, signed Asahi dependency closure, format-aware
-static validation, and full isolated build record are complete locally. The
-next safe implementation unit is to prepare the candidate-specific read-only
-canary procedure and independently audit its internal-NVMe no-write controls.
-Stop before any media write and select a dedicated, recoverable, officially
-supported M1 canary with a pre-existing correctly paired Asahi
-UEFI/m1n1/U-Boot environment.
+validation, source-level read-only controls, focused no-write tests, and full
+isolated candidate-4 build record are complete locally. The next gate is an
+explicit owner decision to write the recorded candidate to removable media and
+boot only a dedicated, recoverable, officially supported M1 canary with a
+pre-existing correctly paired Asahi UEFI/m1n1/U-Boot environment.
 
 Any removable-media write, Asahi preparation, boot, publication, channel
 change, or physical-device work remains a separate owner gate. Existing-user
