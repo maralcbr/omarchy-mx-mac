@@ -73,11 +73,16 @@
       } catch {
         throw InstallerReleaseConfigurationError.invalidTrustRoot
       }
-      guard AuthenticatedEngineXPCSubmitter.isMachServiceName(
+      guard
+        AuthenticatedEngineXPCSubmitter.isMachServiceName(
+          decoded.helperMachServiceName
+        ),
         decoded.helperMachServiceName
-      ), EngineCodeSigningRequirement.isValid(
-        decoded.helperCodeSigningRequirement
-      ) else {
+          == InstallerProductIdentity.helperMachServiceName,
+        EngineCodeSigningRequirement.isValid(
+          decoded.helperCodeSigningRequirement
+        )
+      else {
         throw InstallerReleaseConfigurationError.invalidHelperIdentity
       }
 

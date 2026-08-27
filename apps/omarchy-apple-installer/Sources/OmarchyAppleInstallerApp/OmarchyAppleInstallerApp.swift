@@ -14,6 +14,7 @@ struct OmarchyAppleInstallerApp: App {
 
 private struct InstallerRootView: View {
   private let workflow = InstallerWorkflow()
+  private let helperService = InstallerHelperServiceManager.bundledDaemon()
   @State private var selectedStepID = "inspect"
   @State private var hostInspection: AppleSiliconHostInspection?
   @State private var engineInspection: ValidatedEngineTranscript?
@@ -24,6 +25,7 @@ private struct InstallerRootView: View {
   @State private var inspectionError: String?
   @State private var engineInspectionError: String?
   @State private var planPreparationError: String?
+  @State private var helperServiceStatus = InstallerHelperServiceStatus.unknown
   @State private var isInspecting = true
   @State private var isPreparingPlan = false
 
@@ -55,6 +57,7 @@ private struct InstallerRootView: View {
     }
     .background(Color(nsColor: .windowBackgroundColor))
     .task {
+      helperServiceStatus = helperService.status
       await inspectThisMac()
     }
   }
@@ -202,6 +205,7 @@ private struct InstallerRootView: View {
           summaryRow("FileVault", fileVaultStatus)
           summaryRow("APFS free", freeSpaceStatus)
           summaryRow("Engine", engineStatus)
+          summaryRow("Helper", helperStatus)
           summaryRow("Downloads", downloadStatus)
         }
         .padding(8)
@@ -367,6 +371,21 @@ private struct InstallerRootView: View {
     return engineInspectionError == nil ? "Pending" : "Unavailable • locked"
   }
 
+  private var helperStatus: String {
+    switch helperServiceStatus {
+    case .notRegistered:
+      "Not registered • locked"
+    case .enabled:
+      "Enabled"
+    case .requiresApproval:
+      "Awaiting System Settings"
+    case .notFound:
+      "Bundled service unavailable"
+    case .unknown:
+      "Unknown • locked"
+    }
+  }
+
   private var engineConnectionLabel: String {
     if isPreparingPlan {
       return "Signed engine planning"
@@ -498,8 +517,9 @@ private struct InstallerRootView: View {
       let signedInspection = try await EngineInspectionRunner().inspect(
         archive
       )
-      guard signedInspection.validated.deviceIdentifier
-        == hostInspection.identity.deviceIdentifier,
+      guard
+        signedInspection.validated.deviceIdentifier
+          == hostInspection.identity.deviceIdentifier,
         signedInspection.validated.support == .supported,
         let inventory = signedInspection.validated.inventory
       else {
@@ -560,10 +580,12 @@ private struct InstallerRootView: View {
   private func installerWorkspace() throws
     -> (staging: URL, scratch: URL, state: URL)
   {
-    guard let applicationSupport = FileManager.default.urls(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask
-    ).first else {
+    guard
+      let applicationSupport = FileManager.default.urls(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask
+      ).first
+    else {
       throw InstallerAppError.workspaceUnavailable
     }
     let base = applicationSupport.appendingPathComponent(
@@ -610,8 +632,9 @@ private struct InstallerRootView: View {
 
       do {
         let inspection = try await EngineInspectionRunner().inspect()
-        guard inspection.validated.deviceIdentifier
-          == result.identity.deviceIdentifier
+        guard
+          inspection.validated.deviceIdentifier
+            == result.identity.deviceIdentifier
         else {
           engineInspectionError =
             "Pinned engine identity did not match this Mac. Installation remains locked."

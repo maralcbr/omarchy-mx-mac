@@ -21,7 +21,7 @@
       XCTAssertEqual(configuration.trustRoot.fingerprint, fingerprint)
       XCTAssertEqual(
         configuration.helperMachServiceName,
-        "com.omarchy.apple-installer.helper"
+        InstallerProductIdentity.helperMachServiceName
       )
     }
 
@@ -67,6 +67,29 @@
       }
     }
 
+    func testUnexpectedHelperMachServiceFailsClosed() throws {
+      let key = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+      var value = try XCTUnwrap(
+        JSONSerialization.jsonObject(
+          with: descriptor(fingerprint: digest(key))
+        ) as? [String: Any]
+      )
+      value["helper_mach_service_name"] = "com.example.other.helper"
+      let altered = try JSONSerialization.data(withJSONObject: value)
+
+      XCTAssertThrowsError(
+        try InstallerReleaseConfigurationLoader().load(
+          descriptor: altered,
+          trustRootPublicKey: key
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? InstallerReleaseConfigurationError,
+          .invalidHelperIdentity
+        )
+      }
+    }
+
     func testCatalogAndSignatureDownloadInParallelWithBounds() async throws {
       let configuration = try configuration()
       let catalog = Data("signed catalog".utf8)
@@ -93,7 +116,7 @@
         ])
       )
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await fetcher.fetch(configuration: configuration)
       ) {
         XCTAssertEqual(
@@ -168,13 +191,14 @@
     private func descriptor(fingerprint: String) -> Data {
       Data(
         """
-        {"schema_version":1,"catalog_url":"https://releases.omarchy.example/apple/catalog.json","catalog_signature_url":"https://releases.omarchy.example/apple/catalog.json.sig","trust_root_fingerprint":"\(fingerprint)","helper_mach_service_name":"com.omarchy.apple-installer.helper","helper_code_signing_requirement":"identifier \\"com.omarchy.apple-installer.helper\\""}
+        {"schema_version":1,"catalog_url":"https://releases.omarchy.example/apple/catalog.json","catalog_signature_url":"https://releases.omarchy.example/apple/catalog.json.sig","trust_root_fingerprint":"\(fingerprint)","helper_mach_service_name":"com.omarchy.mx.installer.helper","helper_code_signing_requirement":"identifier \\"com.omarchy.mx.installer.helper\\""}
         """.utf8
       )
     }
 
     private func digest(_ data: Data) -> String {
-      "sha256:" + SHA256.hash(data: data)
+      "sha256:"
+        + SHA256.hash(data: data)
         .map { String(format: "%02x", $0) }
         .joined()
     }
@@ -211,7 +235,7 @@
     }
   }
 
-  private func XCTAssertThrowsErrorAsync<T>(
+  private func assertThrowsErrorAsync<T>(
     _ expression: @autoclosure () async throws -> T,
     _ errorHandler: (any Error) -> Void = { _ in }
   ) async {
