@@ -13,12 +13,27 @@ struct OmarchyAppleInstallerApp: App {
 }
 
 private struct InstallerRootView: View {
-  private let snapshot = InstallerWorkflow().referenceM1ProPreview()
+  private let workflow = InstallerWorkflow()
   @State private var selectedStepID = "inspect"
   @State private var planPrepared = false
+  @State private var hostInspection: AppleSiliconHostInspection?
+  @State private var inspectionError: String?
+  @State private var isInspecting = true
+
+  private var snapshot: InstallerWorkflowSnapshot {
+    if let hostInspection {
+      workflow.preview(for: hostInspection)
+    } else {
+      workflow.referenceM1ProPreview()
+    }
+  }
 
   private var selectedStep: InstallerWorkflowStep {
     snapshot.steps.first { $0.id == selectedStepID } ?? snapshot.steps[0]
+  }
+
+  private var installationBlocked: Bool {
+    snapshot.blockedReason != nil
   }
 
   var body: some View {
@@ -32,6 +47,9 @@ private struct InstallerRootView: View {
       }
     }
     .background(Color(nsColor: .windowBackgroundColor))
+    .task {
+      await inspectThisMac()
+    }
   }
 
   private var header: some View {
@@ -54,12 +72,18 @@ private struct InstallerRootView: View {
 
       Spacer()
 
-      Label("SAFE PREVIEW", systemImage: "lock.shield")
-        .font(.caption.weight(.bold))
-        .foregroundStyle(.orange)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.orange.opacity(0.12), in: Capsule())
+      Label(
+        installationBlocked ? "INSTALLATION LOCKED" : "SAFE PREVIEW",
+        systemImage: installationBlocked ? "xmark.shield" : "lock.shield"
+      )
+      .font(.caption.weight(.bold))
+      .foregroundStyle(installationBlocked ? .red : .orange)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+      .background(
+        (installationBlocked ? Color.red : Color.orange).opacity(0.12),
+        in: Capsule()
+      )
     }
     .padding(.horizontal, 28)
     .padding(.vertical, 20)
@@ -68,12 +92,12 @@ private struct InstallerRootView: View {
   private var stepList: some View {
     VStack(alignment: .leading, spacing: 0) {
       VStack(alignment: .leading, spacing: 6) {
-        Text("INSTALLATION PLAN")
+        Text("THIS MAC")
           .font(.caption.weight(.bold))
           .foregroundStyle(.secondary)
-        Text(snapshot.deviceName)
+        Text(isInspecting ? "Inspecting…" : snapshot.deviceName)
           .font(.headline)
-        Text(snapshot.deviceIdentifier)
+        Text(isInspecting ? "read-only preflight" : snapshot.deviceIdentifier)
           .font(.caption.monospaced())
           .foregroundStyle(.secondary)
       }
@@ -145,7 +169,7 @@ private struct InstallerRootView: View {
   }
 
   private var detail: some View {
-    VStack(alignment: .leading, spacing: 26) {
+    VStack(alignment: .leading, spacing: 24) {
       HStack(alignment: .top, spacing: 18) {
         Image(systemName: selectedStep.systemImage)
           .font(.system(size: 32, weight: .medium))
@@ -164,29 +188,41 @@ private struct InstallerRootView: View {
       }
 
       GroupBox {
-        VStack(alignment: .leading, spacing: 14) {
-          summaryRow("Distribution", snapshot.distributionName)
-          summaryRow("Candidate", snapshot.releaseCandidate)
-          summaryRow("Execution", snapshot.canMutateSystem ? "Enabled" : "Locked")
-          summaryRow("Owner handoff", "One True Recovery required")
+        VStack(alignment: .leading, spacing: 12) {
+          summaryRow("Model", hostInspection?.identity.model ?? "Pending")
+          summaryRow("macOS", hostInspection?.macOSVersion ?? "Pending")
+          summaryRow("Power", hostInspection?.powerSource.rawValue ?? "Pending")
+          summaryRow("FileVault", fileVaultStatus)
+          summaryRow("APFS free", freeSpaceStatus)
+          summaryRow("Downloads", downloadStatus)
         }
         .padding(8)
       } label: {
-        Label("Verified plan envelope", systemImage: "checkmark.seal")
+        Label("Read-only preflight", systemImage: "checkmark.seal")
           .font(.headline)
       }
 
-      if planPrepared {
-        Label(
-          "Safe preview prepared. No authorization was requested and no disk, boot policy, or user setting was changed.",
-          systemImage: "checkmark.circle.fill"
+      if let reason = snapshot.blockedReason {
+        statusMessage(
+          reason,
+          systemImage: "xmark.octagon.fill",
+          color: .red
         )
-        .foregroundStyle(.green)
-        .padding(14)
-        .background(.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+      } else if let inspectionError {
+        statusMessage(
+          inspectionError,
+          systemImage: "exclamationmark.triangle.fill",
+          color: .red
+        )
+      } else if planPrepared {
+        statusMessage(
+          "Safe preview prepared. No authorization was requested and no disk, boot policy, or user setting was changed.",
+          systemImage: "checkmark.circle.fill",
+          color: .green
+        )
       } else {
         Label(
-          "This build demonstrates the complete handoff before privileged execution is connected.",
+          "Host inspection is live. Verified downloads remain locked until a production-signed model catalog is available.",
           systemImage: "info.circle"
         )
         .foregroundStyle(.secondary)
@@ -195,11 +231,19 @@ private struct InstallerRootView: View {
       Spacer()
 
       HStack {
-        Button("Prepare safe preview") {
-          planPrepared = true
+        Button(isInspecting ? "Inspecting…" : "Inspect this Mac") {
+          Task { await inspectThisMac() }
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
+        .disabled(isInspecting)
+
+        Button("Prepare safe preview") {
+          planPrepared = true
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .disabled(isInspecting || hostInspection == nil)
 
         Button("Start installation") {}
           .buttonStyle(.bordered)
@@ -216,25 +260,81 @@ private struct InstallerRootView: View {
     .padding(34)
   }
 
+  private var fileVaultStatus: String {
+    guard let hostInspection else {
+      return "Pending"
+    }
+    return hostInspection.fileVaultEnabled ? "On" : "Off"
+  }
+
+  private var freeSpaceStatus: String {
+    guard let storage = hostInspection?.storage else {
+      return "Pending"
+    }
+    return ByteCountFormatter.string(
+      fromByteCount: Int64(storage.containerFreeBytes),
+      countStyle: .file
+    )
+  }
+
+  private var downloadStatus: String {
+    if installationBlocked {
+      return "Blocked for this model"
+    }
+    return "Awaiting signed catalog"
+  }
+
   private func summaryRow(_ label: String, _ value: String) -> some View {
     HStack(alignment: .firstTextBaseline) {
       Text(label)
         .foregroundStyle(.secondary)
-        .frame(width: 105, alignment: .leading)
+        .frame(width: 92, alignment: .leading)
       Text(value)
         .fontWeight(.medium)
       Spacer()
     }
   }
 
+  private func statusMessage(
+    _ message: String,
+    systemImage: String,
+    color: Color
+  ) -> some View {
+    Label(message, systemImage: systemImage)
+      .foregroundStyle(color)
+      .padding(14)
+      .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+  }
+
   private func statusColor(_ status: InstallerWorkflowStepStatus) -> Color {
     switch status {
     case .planned:
       .blue
+    case .observed:
+      .green
     case .ownerRequired:
       .orange
+    case .blocked:
+      .red
     case .locked:
       .secondary
     }
+  }
+
+  @MainActor
+  private func inspectThisMac() async {
+    isInspecting = true
+    planPrepared = false
+    do {
+      let result = try await Task.detached(priority: .userInitiated) {
+        try AppleSiliconHostInspector().inspect()
+      }.value
+      hostInspection = result
+      inspectionError = nil
+    } catch {
+      hostInspection = nil
+      inspectionError = "Read-only inspection failed. Installation remains locked."
+    }
+    isInspecting = false
   }
 }
