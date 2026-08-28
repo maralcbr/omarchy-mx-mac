@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 enum EngineContractMessage: Equatable, Sendable {
@@ -38,7 +37,7 @@ struct EngineInventoryMessage: Codable, Equatable, Sendable {
         String(candidate.minimumContainerBytes),
       ])
     }
-    return lengthPrefixedDigest(fields, prefix: "sha256:")
+    return InstallerDigest.lengthPrefixedSHA256(fields).rawValue
   }
 }
 
@@ -67,23 +66,21 @@ struct EnginePlanMessage: Codable, Equatable, Sendable {
   let requiredHumanSteps: [String]
 
   var computedPlanDigest: String {
-    lengthPrefixedDigest(
-      [
-        deviceIdentifier,
-        storeIdentifier,
-        layoutDigest,
-        candidateKind,
-        sourceIdentifier,
-        String(offsetBytes),
-        String(lengthBytes),
-        engineVersion,
-        engineDigest,
-        metadataDigest,
-        payloadDigest,
-        requiredHumanSteps.joined(separator: ","),
-      ],
-      prefix: ""
-    )
+    InstallerDigest.lengthPrefixedSHA256([
+      deviceIdentifier,
+      storeIdentifier,
+      layoutDigest,
+      candidateKind,
+      sourceIdentifier,
+      String(offsetBytes),
+      String(lengthBytes),
+      engineVersion,
+      engineDigest,
+      metadataDigest,
+      payloadDigest,
+      requiredHumanSteps.joined(separator: ","),
+    ]
+    ).hexadecimal
   }
 }
 
@@ -333,8 +330,9 @@ struct EngineTranscriptDecoder: Sendable {
         highestPhase = phase
       case .completion(let completion):
         try requireCurrentPlan(completion.planDigest, planDigest, lineNumber)
-        guard ["awaiting_recovery", "awaiting_media", "installed", "manual_recovery_required"]
-          .contains(completion.outcome)
+        guard
+          ["awaiting_recovery", "awaiting_media", "installed", "manual_recovery_required"]
+            .contains(completion.outcome)
         else {
           throw EngineContractError.invalidMessage(lineNumber)
         }
@@ -357,9 +355,11 @@ struct EngineTranscriptDecoder: Sendable {
     _ plan: EnginePlanMessage,
     _ inventory: EngineInventoryMessage
   ) -> Bool {
-    guard let candidate = inventory.candidates.first(where: {
-      $0.kind == plan.candidateKind && $0.sourceIdentifier == plan.sourceIdentifier
-    }), plan.lengthBytes >= candidate.minimumInstallBytes else {
+    guard
+      let candidate = inventory.candidates.first(where: {
+        $0.kind == plan.candidateKind && $0.sourceIdentifier == plan.sourceIdentifier
+      }), plan.lengthBytes >= candidate.minimumInstallBytes
+    else {
       return false
     }
 
@@ -400,11 +400,11 @@ struct EngineTranscriptDecoder: Sendable {
   }
 
   private func isPlanDigest(_ value: String) -> Bool {
-    value.count == 64 && value.allSatisfy { $0.isNumber || ("a"..."f").contains($0) }
+    SHA256Digest(hexadecimal: value) != nil
   }
 
   private func isSHA256Digest(_ value: String) -> Bool {
-    value.hasPrefix("sha256:") && isPlanDigest(String(value.dropFirst(7)))
+    SHA256Digest(rawValue: value) != nil
   }
 
   private func isDeviceIdentifier(_ value: String) -> Bool {
@@ -428,14 +428,4 @@ struct EngineTranscriptDecoder: Sendable {
     "media_handoff": 5,
     "omarchy_install": 6,
   ]
-}
-
-private func lengthPrefixedDigest(_ fields: [String], prefix: String) -> String {
-  let canonical = fields
-    .map { "\($0.utf8.count):\($0)" }
-    .joined(separator: "|")
-  let digest = SHA256.hash(data: Data(canonical.utf8))
-    .map { String(format: "%02x", $0) }
-    .joined()
-  return prefix + digest
 }

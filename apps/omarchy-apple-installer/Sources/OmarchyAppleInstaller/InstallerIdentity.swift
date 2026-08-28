@@ -11,15 +11,17 @@ public struct AppOwnedTrustRoot: Sendable {
     rawRepresentation: Data,
     expectedFingerprint: String
   ) throws {
-    guard Self.isSHA256Digest(expectedFingerprint) else {
+    guard SHA256Digest(rawValue: expectedFingerprint) != nil else {
       throw AppOwnedTrustRootError.invalidFingerprint
     }
-    guard let publicKey = try? Curve25519.Signing.PublicKey(
-      rawRepresentation: rawRepresentation
-    ) else {
+    guard
+      let publicKey = try? Curve25519.Signing.PublicKey(
+        rawRepresentation: rawRepresentation
+      )
+    else {
       throw AppOwnedTrustRootError.invalidPublicKey
     }
-    let fingerprint = Self.digest(rawRepresentation)
+    let fingerprint = SHA256Digest(hashing: rawRepresentation).rawValue
     guard fingerprint == expectedFingerprint else {
       throw AppOwnedTrustRootError.identityMismatch
     }
@@ -34,22 +36,6 @@ public struct AppOwnedTrustRoot: Sendable {
     publicKey.rawRepresentation
   }
 
-  private static func digest(_ data: Data) -> String {
-    "sha256:" + SHA256.hash(data: data)
-      .map { String(format: "%02x", $0) }
-      .joined()
-  }
-
-  private static func isSHA256Digest(_ value: String) -> Bool {
-    guard value.hasPrefix("sha256:") else {
-      return false
-    }
-    let hexadecimal = value.dropFirst(7)
-    return hexadecimal.count == 64
-      && hexadecimal.allSatisfy {
-        $0.isNumber || ("a"..."f").contains($0)
-      }
-  }
 }
 
 public enum AppOwnedTrustRootError: Error, Equatable, Sendable {
@@ -88,33 +74,25 @@ public struct CandidateBoundPlanIdentity: Equatable, Sendable {
     sourceIdentifier = plan.sourceIdentifier
     offsetBytes = plan.offsetBytes
     lengthBytes = plan.lengthBytes
-    bindingDigest = Self.digest([
-      "omarchy.apple.candidate-bound-plan",
-      "1",
-      trustRootFingerprint,
-      String(catalogIdentity.sequence),
-      catalogIdentity.payloadDigest,
-      plan.planDigest,
-      plan.deviceIdentifier,
-      plan.storeIdentifier,
-      plan.layoutDigest,
-      plan.candidateKind,
-      plan.sourceIdentifier,
-      String(plan.offsetBytes),
-      String(plan.lengthBytes),
-      plan.engineDigest,
-      plan.metadataDigest,
-      plan.payloadDigest,
-    ])
-  }
-
-  private static func digest(_ fields: [String]) -> String {
-    let canonical = fields
-      .map { "\($0.utf8.count):\($0)" }
-      .joined(separator: "|")
-    return "sha256:" + SHA256.hash(data: Data(canonical.utf8))
-      .map { String(format: "%02x", $0) }
-      .joined()
+    bindingDigest =
+      InstallerDigest.lengthPrefixedSHA256([
+        "omarchy.apple.candidate-bound-plan",
+        "1",
+        trustRootFingerprint,
+        String(catalogIdentity.sequence),
+        catalogIdentity.payloadDigest,
+        plan.planDigest,
+        plan.deviceIdentifier,
+        plan.storeIdentifier,
+        plan.layoutDigest,
+        plan.candidateKind,
+        plan.sourceIdentifier,
+        String(plan.offsetBytes),
+        String(plan.lengthBytes),
+        plan.engineDigest,
+        plan.metadataDigest,
+        plan.payloadDigest,
+      ]).rawValue
   }
 }
 

@@ -253,9 +253,7 @@
       guard size == artifact.sizeBytes else {
         throw EngineHandoffImportError.sizeMismatch(role)
       }
-      let digest = "sha256:" + hasher.finalize()
-        .map { String(format: "%02x", $0) }
-        .joined()
+      let digest = SHA256Digest.prefixedHex(hasher.finalize())
       guard digest == artifact.digest else {
         throw EngineHandoffImportError.digestMismatch(role)
       }
@@ -408,20 +406,21 @@
     ) throws {
       guard manifest.bindingDigest == identity.bindingDigest,
         request.planDigest == identity.planDigest,
-        request.planDigest == lengthPrefixedDigest([
-          request.deviceIdentifier,
-          request.storeIdentifier,
-          request.layoutDigest,
-          request.candidateKind,
-          request.sourceIdentifier,
-          String(request.offsetBytes),
-          String(request.lengthBytes),
-          request.engineVersion,
-          identity.engineDigest,
-          identity.metadataDigest,
-          identity.payloadDigest,
-          request.requiredHumanSteps.joined(separator: ","),
-        ]),
+        request.planDigest
+          == lengthPrefixedDigest([
+            request.deviceIdentifier,
+            request.storeIdentifier,
+            request.layoutDigest,
+            request.candidateKind,
+            request.sourceIdentifier,
+            String(request.offsetBytes),
+            String(request.lengthBytes),
+            request.engineVersion,
+            identity.engineDigest,
+            identity.metadataDigest,
+            identity.payloadDigest,
+            request.requiredHumanSteps.joined(separator: ","),
+          ]),
         manifest.engine.digest == identity.engineDigest,
         manifest.metadata.digest == identity.metadataDigest,
         manifest.payload.digest == identity.payloadDigest
@@ -435,8 +434,9 @@
       keys: Set<String>,
       error: EngineHandoffImportError
     ) throws -> [String: Any] {
-      guard let object = try JSONSerialization.jsonObject(with: data)
-        as? [String: Any],
+      guard
+        let object = try JSONSerialization.jsonObject(with: data)
+          as? [String: Any],
         Set(object.keys) == keys
       else {
         throw error
@@ -462,24 +462,15 @@
     }
 
     private func isSHA256Digest(_ value: String) -> Bool {
-      value.hasPrefix("sha256:")
-        && isHexDigest(String(value.dropFirst(7)))
+      SHA256Digest(rawValue: value) != nil
     }
 
     private func isHexDigest(_ value: String) -> Bool {
-      value.count == 64
-        && value.allSatisfy {
-          $0.isNumber || ("a"..."f").contains($0)
-        }
+      SHA256Digest(hexadecimal: value) != nil
     }
 
     private func lengthPrefixedDigest(_ fields: [String]) -> String {
-      let canonical = fields
-        .map { "\($0.utf8.count):\($0)" }
-        .joined(separator: "|")
-      return SHA256.hash(data: Data(canonical.utf8))
-        .map { String(format: "%02x", $0) }
-        .joined()
+      InstallerDigest.lengthPrefixedSHA256(fields).hexadecimal
     }
   }
 

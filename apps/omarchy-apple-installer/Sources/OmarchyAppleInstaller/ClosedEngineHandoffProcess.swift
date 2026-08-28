@@ -246,9 +246,7 @@
       guard size == staged.artifact.expectedSizeBytes else {
         throw ClosedEngineHandoffError.artifactSizeMismatch(role)
       }
-      let digest = "sha256:" + hasher.finalize()
-        .map { String(format: "%02x", $0) }
-        .joined()
+      let digest = SHA256Digest.prefixedHex(hasher.finalize())
       guard digest == staged.artifact.expectedDigest else {
         throw ClosedEngineHandoffError.artifactDigestMismatch(role)
       }

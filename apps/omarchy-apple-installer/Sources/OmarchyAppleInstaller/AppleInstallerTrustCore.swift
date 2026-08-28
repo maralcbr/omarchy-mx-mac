@@ -94,9 +94,7 @@ public struct AppleInstallerTrustCore: Sendable {
       publicKey: trustRoot.rawRepresentation,
       now: now
     )
-    let payloadDigest = "sha256:" + SHA256.hash(data: payload)
-      .map { String(format: "%02x", $0) }
-      .joined()
+    let payloadDigest = SHA256Digest(hashing: payload).rawValue
     let candidate = try AcceptedCatalogIdentity(
       sequence: catalog.sequence,
       payloadDigest: payloadDigest
@@ -109,8 +107,9 @@ public struct AppleInstallerTrustCore: Sendable {
           candidate: candidate.sequence
         )
       }
-      guard candidate.sequence != previouslyAccepted.sequence
-        || candidate.payloadDigest == previouslyAccepted.payloadDigest
+      guard
+        candidate.sequence != previouslyAccepted.sequence
+          || candidate.payloadDigest == previouslyAccepted.payloadDigest
       else {
         throw SupportCatalogSequenceError.sequenceReuse(candidate.sequence)
       }
@@ -216,7 +215,7 @@ public struct AcceptedCatalogIdentity: Equatable, Sendable {
   public let payloadDigest: String
 
   public init(sequence: UInt64, payloadDigest: String) throws {
-    guard sequence > 0, Self.isSHA256Digest(payloadDigest) else {
+    guard sequence > 0, SHA256Digest(rawValue: payloadDigest) != nil else {
       throw SupportCatalogSequenceError.invalidStoredIdentity
     }
     format = 1
@@ -224,16 +223,6 @@ public struct AcceptedCatalogIdentity: Equatable, Sendable {
     self.payloadDigest = payloadDigest
   }
 
-  private static func isSHA256Digest(_ value: String) -> Bool {
-    guard value.hasPrefix("sha256:") else {
-      return false
-    }
-    let hexadecimal = value.dropFirst(7)
-    return hexadecimal.count == 64
-      && hexadecimal.allSatisfy {
-        $0.isNumber || ("a"..."f").contains($0)
-      }
-  }
 }
 
 public enum SupportCatalogSequenceError: Error, Equatable, Sendable {

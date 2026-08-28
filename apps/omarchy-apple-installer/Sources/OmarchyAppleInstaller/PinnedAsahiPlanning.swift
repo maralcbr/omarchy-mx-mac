@@ -70,9 +70,9 @@ public struct PinnedAsahiPlanIdentity: Equatable, Sendable, Encodable {
   ) throws {
     guard !engineVersion.isEmpty,
       engineVersion.utf8.count <= 128,
-      Self.isSHA256Digest(engineDigest),
-      Self.isSHA256Digest(metadataDigest),
-      Self.isSHA256Digest(payloadDigest)
+      SHA256Digest(rawValue: engineDigest) != nil,
+      SHA256Digest(rawValue: metadataDigest) != nil,
+      SHA256Digest(rawValue: payloadDigest) != nil
     else {
       throw PinnedAsahiPlanningError.invalidEngineIdentity
     }
@@ -102,14 +102,4 @@ public struct PinnedAsahiPlanIdentity: Equatable, Sendable, Encodable {
     case payloadDigest = "payload_digest"
   }
 
-  private static func isSHA256Digest(_ value: String) -> Bool {
-    guard value.hasPrefix("sha256:") else {
-      return false
-    }
-    let hexadecimal = value.dropFirst(7)
-    return hexadecimal.count == 64
-      && hexadecimal.allSatisfy {
-        $0.isNumber || ("a"..."f").contains($0)
-      }
-  }
 }

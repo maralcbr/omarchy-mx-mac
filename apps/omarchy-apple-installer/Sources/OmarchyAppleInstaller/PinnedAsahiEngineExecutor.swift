@@ -29,14 +29,8 @@
       expectedDigest: String,
       expectedSizeBytes: UInt64
     ) throws {
-      let hexadecimal = expectedDigest.hasPrefix("sha256:")
-        ? String(expectedDigest.dropFirst(7))
-        : ""
       guard fileURL.isFileURL,
-        hexadecimal.count == 64,
-        hexadecimal.allSatisfy({
-          $0.isNumber || ("a"..."f").contains($0)
-        }),
+        SHA256Digest(rawValue: expectedDigest) != nil,
         expectedSizeBytes > 0,
         expectedSizeBytes <= UInt64(PinnedAsahiEngineExecutor.maximumArchiveBytes)
       else {
@@ -150,7 +144,8 @@
         expectedSizeBytes: expectedSizeBytes
       )
 
-      let executionRoot = executionParent
+      let executionRoot =
+        executionParent
         .appendingPathComponent(
           "engine-execution-\(UUID().uuidString.lowercased())",
           isDirectory: true
@@ -175,10 +170,12 @@
       try extract(archive, into: bundle)
       try validateExtractedBundle(bundle)
 
-      let transcriptURL = journal ?? executionRoot.appendingPathComponent(
-        "transcript.jsonl",
-        isDirectory: false
-      )
+      let transcriptURL =
+        journal
+        ?? executionRoot.appendingPathComponent(
+          "transcript.jsonl",
+          isDirectory: false
+        )
       let process = Process()
       process.executableURL = Self.pythonURL(in: bundle)
       process.arguments = [bundle.appendingPathComponent("main.py").path]
@@ -300,9 +297,7 @@
         guard bytesRead == UInt64(status.st_size) else {
           throw PinnedAsahiEngineExecutionError.unsafeArchive
         }
-        let digest = "sha256:" + hasher.finalize()
-          .map { String(format: "%02x", $0) }
-          .joined()
+        let digest = SHA256Digest.prefixedHex(hasher.finalize())
         guard digest == expectedDigest else {
           throw PinnedAsahiEngineExecutionError.archiveDigestMismatch
         }
@@ -381,12 +376,14 @@
     }
 
     private func validateExtractedBundle(_ bundle: URL) throws {
-      guard let enumerator = FileManager.default.enumerator(
-        at: bundle,
-        includingPropertiesForKeys: nil,
-        options: [],
-        errorHandler: { _, _ in false }
-      ) else {
+      guard
+        let enumerator = FileManager.default.enumerator(
+          at: bundle,
+          includingPropertiesForKeys: nil,
+          options: [],
+          errorHandler: { _, _ in false }
+        )
+      else {
         throw PinnedAsahiEngineExecutionError.invalidBundle
       }
 
@@ -421,7 +418,8 @@
       guard !target.isEmpty, !target.hasPrefix("/") else {
         throw PinnedAsahiEngineExecutionError.invalidBundle
       }
-      var depth = url.deletingLastPathComponent().pathComponents.count
+      var depth =
+        url.deletingLastPathComponent().pathComponents.count
         - bundle.pathComponents.count
       for component in target.split(
         separator: "/",
@@ -455,17 +453,14 @@
     private func preparePersistentJournal(
       for package: ImportedEngineHandoffPackage
     ) throws -> URL {
-      guard package.bindingDigest.hasPrefix("sha256:") else {
-        throw PinnedAsahiEngineExecutionError.unsafeTranscript
-      }
-      let identifier = String(package.bindingDigest.dropFirst(7))
-      guard identifier.count == 64,
-        identifier.allSatisfy({
-          $0.isNumber || ("a"..."f").contains($0)
-        })
+      guard
+        let bindingDigest = SHA256Digest(
+          rawValue: package.bindingDigest
+        )
       else {
         throw PinnedAsahiEngineExecutionError.unsafeTranscript
       }
+      let identifier = bindingDigest.hexadecimal
 
       let directory = package.packageURL
         .deletingLastPathComponent()

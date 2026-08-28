@@ -29,7 +29,7 @@ public struct PinnedInstallerArtifact: Equatable, Sendable {
     guard Self.isSafeFileName(fileName) else {
       throw ArtifactStageError.invalidFileName
     }
-    guard Self.isSHA256Digest(expectedDigest) else {
+    guard SHA256Digest(rawValue: expectedDigest) != nil else {
       throw ArtifactStageError.invalidDigest
     }
     guard expectedSizeBytes > 0 else {
@@ -54,16 +54,6 @@ public struct PinnedInstallerArtifact: Equatable, Sendable {
       && (value as NSString).lastPathComponent == value
   }
 
-  private static func isSHA256Digest(_ value: String) -> Bool {
-    guard value.hasPrefix("sha256:") else {
-      return false
-    }
-    let hexadecimal = value.dropFirst(7)
-    return hexadecimal.count == 64
-      && hexadecimal.allSatisfy {
-        $0.isNumber || ("a"..."f").contains($0)
-      }
-  }
 }
 
 public struct StagedInstallerArtifact: Equatable, Sendable {
@@ -232,9 +222,7 @@ public struct VerifiedArtifactStager: Sendable {
       hasher.update(data: chunk)
     }
 
-    let digest = "sha256:" + hasher.finalize()
-      .map { String(format: "%02x", $0) }
-      .joined()
+    let digest = SHA256Digest.prefixedHex(hasher.finalize())
     return (digest, size)
   }
 }

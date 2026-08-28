@@ -120,13 +120,13 @@ struct SignedSupportCatalogVerifier: Sendable {
       guard isSemanticVersionTag(model.asahiInstallerTag) else {
         throw SupportCatalogError.invalidField("models[\(index)].asahiInstallerTag")
       }
-      guard isSHA256Digest(model.engineDigest) else {
+      guard SHA256Digest(rawValue: model.engineDigest) != nil else {
         throw SupportCatalogError.invalidField("models[\(index)].engineDigest")
       }
-      guard isSHA256Digest(model.metadataDigest) else {
+      guard SHA256Digest(rawValue: model.metadataDigest) != nil else {
         throw SupportCatalogError.invalidField("models[\(index)].metadataDigest")
       }
-      guard isSHA256Digest(model.payloadDigest) else {
+      guard SHA256Digest(rawValue: model.payloadDigest) != nil else {
         throw SupportCatalogError.invalidField("models[\(index)].payloadDigest")
       }
       guard isGitRevision(model.asahiInstallerRevision) else {
@@ -229,15 +229,6 @@ struct SignedSupportCatalogVerifier: Sendable {
         "models[\(modelIndex)].artifacts"
       )
     }
-  }
-
-  private func isSHA256Digest(_ value: String) -> Bool {
-    guard value.hasPrefix("sha256:") else {
-      return false
-    }
-
-    let hexadecimal = value.dropFirst(7)
-    return isLowercaseHex(String(hexadecimal), count: 64)
   }
 
   private func isGitRevision(_ value: String) -> Bool {
