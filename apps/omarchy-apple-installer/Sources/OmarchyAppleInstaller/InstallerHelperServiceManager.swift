@@ -32,6 +32,10 @@
       )
     }
 
+    public static func openSystemSettings() {
+      SMAppService.openSystemSettingsLoginItems()
+    }
+
     public var status: InstallerHelperServiceStatus {
       controller.status
     }

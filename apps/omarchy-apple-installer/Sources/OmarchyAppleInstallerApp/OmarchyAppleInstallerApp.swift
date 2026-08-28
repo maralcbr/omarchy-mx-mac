@@ -13,6 +13,7 @@ struct OmarchyAppleInstallerApp: App {
 }
 
 private struct InstallerRootView: View {
+  @Environment(\.scenePhase) private var scenePhase
   private let workflow = InstallerWorkflow()
   private let helperService = InstallerHelperServiceManager.bundledDaemon()
   @State private var selectedStepID = "inspect"
@@ -20,14 +21,23 @@ private struct InstallerRootView: View {
   @State private var engineInspection: ValidatedEngineTranscript?
   @State private var engineInspectionTranscript: Data?
   @State private var planReview: InstallerPlanReview?
+  @State private var preparedPlan: PreparedInstallerPlanExecution?
   @State private var planApproval: CandidateBoundPlanApproval?
+  @State private var releaseConfiguration: InstallerReleaseConfiguration?
+  @State private var executionProgress: InstallerExecutionProgress?
   @State private var ownerAcknowledged = false
   @State private var inspectionError: String?
   @State private var engineInspectionError: String?
   @State private var planPreparationError: String?
   @State private var helperServiceStatus = InstallerHelperServiceStatus.unknown
+  @State private var helperRegistrationError: String?
+  @State private var executionError: String?
   @State private var isInspecting = true
   @State private var isPreparingPlan = false
+  @State private var isExecuting = false
+  @State private var hasExecutionStarted = false
+  @State private var showsHelperConfirmation = false
+  @State private var showsExecutionConfirmation = false
 
   private var snapshot: InstallerWorkflowSnapshot {
     if let hostInspection {
@@ -59,6 +69,39 @@ private struct InstallerRootView: View {
     .task {
       helperServiceStatus = helperService.status
       await inspectThisMac()
+    }
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .active {
+        helperServiceStatus = helperService.status
+      }
+    }
+    .confirmationDialog(
+      "Register the privileged installer helper?",
+      isPresented: $showsHelperConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Register helper") {
+        registerHelperAfterConfirmation()
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "macOS will request administrator approval. This does not start the installation or change a disk."
+      )
+    }
+    .confirmationDialog(
+      "Start the exact approved installation?",
+      isPresented: $showsExecutionConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Start installation", role: .destructive) {
+        Task { await executeApprovedPlan() }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "This authorizes the privileged helper to apply the reviewed disk extent. Do not continue without a current backup."
+      )
     }
   }
 
@@ -226,9 +269,29 @@ private struct InstallerRootView: View {
           systemImage: "exclamationmark.triangle.fill",
           color: .red
         )
+      } else if let executionProgress {
+        statusMessage(
+          executionMessage(executionProgress),
+          systemImage: "checkmark.shield.fill",
+          color: .green
+        )
+      } else if let executionError {
+        statusMessage(
+          executionError,
+          systemImage: "exclamationmark.octagon.fill",
+          color: .red
+        )
+      } else if let helperRegistrationError {
+        statusMessage(
+          helperRegistrationError,
+          systemImage: "exclamationmark.shield.fill",
+          color: .orange
+        )
       } else if planApproval != nil {
         statusMessage(
-          "The exact candidate-bound plan is approved in memory. Privileged execution remains locked until the signed helper is installed.",
+          helperServiceStatus == .enabled
+            ? "The exact candidate-bound plan is approved and the signed helper is enabled. Starting still requires a separate confirmation."
+            : "The exact candidate-bound plan is approved in memory. Privileged execution remains locked until the signed helper is enabled.",
           systemImage: "checkmark.circle.fill",
           color: .green
         )
@@ -314,10 +377,27 @@ private struct InstallerRootView: View {
           .disabled(!ownerAcknowledged)
         }
 
-        Button("Start installation") {}
+        if planApproval != nil, helperServiceStatus == .requiresApproval {
+          Button("Open System Settings") {
+            InstallerHelperServiceManager.openSystemSettings()
+          }
           .buttonStyle(.bordered)
           .controlSize(.large)
-          .disabled(true)
+        } else if planApproval != nil, helperServiceStatus != .enabled {
+          Button("Register helper") {
+            showsHelperConfirmation = true
+          }
+          .buttonStyle(.bordered)
+          .controlSize(.large)
+          .disabled(installationBlocked)
+        }
+
+        Button(isExecuting ? "Installing…" : "Start installation") {
+          showsExecutionConfirmation = true
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .disabled(!canStartInstallation)
 
         Spacer()
 
@@ -383,6 +463,34 @@ private struct InstallerRootView: View {
       "Bundled service unavailable"
     case .unknown:
       "Unknown • locked"
+    }
+  }
+
+  private var canStartInstallation: Bool {
+    !installationBlocked
+      && !isExecuting
+      && !hasExecutionStarted
+      && engineInspection?.support == .supported
+      && preparedPlan != nil
+      && planApproval != nil
+      && releaseConfiguration != nil
+      && helperServiceStatus == .enabled
+  }
+
+  private func executionMessage(
+    _ progress: InstallerExecutionProgress
+  ) -> String {
+    switch progress.nextAction {
+    case .continueInstallation:
+      "The helper accepted the exact plan and installation is continuing."
+    case .enterRecovery:
+      "Preparation completed. Shut down and enter 1TR Recovery to continue the signed handoff."
+    case .attachInstallationMedia:
+      "Preparation completed. Attach the verified installation media to continue."
+    case .verifyInstalledSystem:
+      "Installation completed. Boot and verify the installed Omarchy system."
+    case .manualRecovery:
+      "The engine stopped safely and requires manual recovery before continuing."
     }
   }
 
@@ -484,7 +592,13 @@ private struct InstallerRootView: View {
     isPreparingPlan = true
     planPreparationError = nil
     planReview = nil
+    preparedPlan = nil
     planApproval = nil
+    releaseConfiguration = nil
+    executionProgress = nil
+    executionError = nil
+    helperRegistrationError = nil
+    hasExecutionStarted = false
     ownerAcknowledged = false
     defer { isPreparingPlan = false }
 
@@ -530,8 +644,8 @@ private struct InstallerRootView: View {
       let recommendation = try InstallerAllocationRecommendation(
         inventory: inventory
       )
-      let review = try await InstallerPlanPreparationCoordinator()
-        .prepare(
+      let prepared = try await InstallerPlanPreparationCoordinator()
+        .prepareExecution(
           InstallerPlanPreparationRequest(
             host: hostInspection,
             release: release,
@@ -540,11 +654,13 @@ private struct InstallerRootView: View {
             candidate: recommendation.candidate,
             requestedLengthBytes: recommendation.requestedLengthBytes,
             validationTime: validationTime,
-            previouslyAcceptedCatalog: release.assets.catalogIdentity,
+            previouslyAcceptedCatalog: previouslyAcceptedCatalog,
             scratchDirectory: workspace.scratch
           )
         )
-      planReview = review
+      preparedPlan = prepared
+      planReview = prepared.review
+      releaseConfiguration = configuration
       selectedStepID = "plan"
     } catch InstallerReleaseConfigurationError.releaseResourcesUnavailable {
       planPreparationError =
@@ -577,8 +693,83 @@ private struct InstallerRootView: View {
     }
   }
 
+  @MainActor
+  private func registerHelperAfterConfirmation() {
+    guard planApproval != nil,
+      preparedPlan != nil,
+      releaseConfiguration != nil,
+      !installationBlocked
+    else {
+      helperRegistrationError =
+        "A supported Mac and exact approved plan are required before helper registration."
+      return
+    }
+    helperRegistrationError = nil
+    do {
+      try helperService.registerAfterOwnerAuthorization()
+      helperServiceStatus = helperService.status
+      if helperServiceStatus == .requiresApproval {
+        helperRegistrationError =
+          "macOS requires approval in System Settings before the helper can run."
+      } else if helperServiceStatus != .enabled {
+        helperRegistrationError =
+          "The helper is not enabled. Keep installation locked and review macOS service status."
+      }
+    } catch {
+      helperServiceStatus = helperService.status
+      helperRegistrationError =
+        "Helper registration failed (\(String(describing: error))). Installation remains locked."
+    }
+  }
+
+  @MainActor
+  private func executeApprovedPlan() async {
+    helperServiceStatus = helperService.status
+    guard canStartInstallation,
+      let preparedPlan,
+      let planApproval,
+      let releaseConfiguration,
+      let hostInspection
+    else {
+      executionError =
+        "The approved plan or enabled helper is no longer available. Prepare and review the plan again."
+      return
+    }
+
+    isExecuting = true
+    hasExecutionStarted = true
+    executionProgress = nil
+    executionError = nil
+    defer { isExecuting = false }
+
+    do {
+      let currentHost = try AppleSiliconHostInspector().inspect()
+      guard
+        currentHost.identity.deviceIdentifier
+          == hostInspection.identity.deviceIdentifier
+      else {
+        throw InstallerAppError.hostChanged
+      }
+      let workspace = try installerWorkspace()
+      let progress = try await InstallerExecutionCoordinator().execute(
+        preparedPlan,
+        approval: planApproval,
+        configuration: releaseConfiguration,
+        handoffDirectory: workspace.handoff
+      )
+      executionProgress = progress
+      selectedStepID =
+        progress.nextAction == .verifyInstalledSystem
+        ? "boot"
+        : "recovery"
+    } catch {
+      executionError =
+        "Installation stopped or was rejected (\(String(describing: error))). Review the last trusted checkpoint, then prepare and approve a fresh plan before retrying."
+    }
+  }
+
   private func installerWorkspace() throws
-    -> (staging: URL, scratch: URL, state: URL)
+    -> (staging: URL, scratch: URL, state: URL, handoff: URL)
   {
     guard
       let applicationSupport = FileManager.default.urls(
@@ -595,11 +786,13 @@ private struct InstallerRootView: View {
     let staging = base.appendingPathComponent("staging", isDirectory: true)
     let scratch = base.appendingPathComponent("scratch", isDirectory: true)
     let state = base.appendingPathComponent("state", isDirectory: true)
+    let handoff = base.appendingPathComponent("handoff", isDirectory: true)
     try createPrivateDirectoryIfMissing(base)
     try createPrivateDirectoryIfMissing(staging)
     try createPrivateDirectoryIfMissing(scratch)
     try createPrivateDirectoryIfMissing(state)
-    return (staging, scratch, state)
+    try createPrivateDirectoryIfMissing(handoff)
+    return (staging, scratch, state, handoff)
   }
 
   private func createPrivateDirectoryIfMissing(_ directory: URL) throws {
@@ -617,7 +810,13 @@ private struct InstallerRootView: View {
   private func inspectThisMac() async {
     isInspecting = true
     planReview = nil
+    preparedPlan = nil
     planApproval = nil
+    releaseConfiguration = nil
+    executionProgress = nil
+    executionError = nil
+    helperRegistrationError = nil
+    hasExecutionStarted = false
     planPreparationError = nil
     ownerAcknowledged = false
     engineInspection = nil
@@ -708,5 +907,6 @@ private struct EngineInspectionResult: Sendable {
 }
 
 private enum InstallerAppError: Error {
+  case hostChanged
   case workspaceUnavailable
 }

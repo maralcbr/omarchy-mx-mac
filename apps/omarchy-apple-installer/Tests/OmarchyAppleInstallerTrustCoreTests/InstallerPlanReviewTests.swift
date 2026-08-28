@@ -107,9 +107,9 @@
       let planner = RecordingPlanExecutor(transcript: fixture.transcript)
       let base = fixture.request
 
-      let review = try await InstallerPlanPreparationCoordinator(
+      let prepared = try await InstallerPlanPreparationCoordinator(
         planner: planner
-      ).prepare(
+      ).prepareExecution(
         InstallerPlanPreparationRequest(
           host: base.host,
           release: base.release,
@@ -121,6 +121,7 @@
           scratchDirectory: URL(fileURLWithPath: "/private/tmp")
         )
       )
+      let review = prepared.review
 
       let capturedRequest = await planner.capturedRequest()
       let capturedIdentity = await planner.capturedIdentity()
@@ -138,6 +139,27 @@
         "v0.9.0-omarchy.2"
       )
       XCTAssertEqual(review.plan.lengthBytes, candidate.lengthBytes)
+      XCTAssertEqual(
+        prepared.candidateRequest.planningTranscript,
+        fixture.transcript
+      )
+
+      let approval = try review.approve(
+        confirming: confirmation(for: review)
+      )
+      let process = RecordingEngineProcess(response: fixture.transcript)
+      let progress = try await InstallerExecutionCoordinator().execute(
+        prepared,
+        approval: approval,
+        process: process
+      )
+
+      XCTAssertEqual(progress.nextAction, .enterRecovery)
+      let capturedInvocation = await process.capturedInvocation()
+      XCTAssertEqual(
+        capturedInvocation?.candidateIdentity,
+        review.identity
+      )
     }
 
     private func confirmation(
@@ -173,9 +195,11 @@
         trustRoot: trustRoot,
         now: validationTime
       )
-      guard case .admitted(let installer) = accepted.admission(
-        for: "apple,j314s"
-      ), let delivery = installer.delivery else {
+      guard
+        case .admitted(let installer) = accepted.admission(
+          for: "apple,j314s"
+        ), let delivery = installer.delivery
+      else {
         XCTFail("Expected admitted schema-v2 installer")
         throw InstallerPlanReviewError.assetBindingMismatch
       }
@@ -318,7 +342,8 @@
       _ fields: [String],
       prefix: String
     ) -> String {
-      let canonical = fields
+      let canonical =
+        fields
         .map { "\($0.utf8.count):\($0)" }
         .joined(separator: "|")
       let digest = SHA256.hash(data: Data(canonical.utf8))
@@ -328,7 +353,8 @@
     }
 
     private func digest(_ data: Data) -> String {
-      "sha256:" + SHA256.hash(data: data)
+      "sha256:"
+        + SHA256.hash(data: data)
         .map { String(format: "%02x", $0) }
         .joined()
     }
@@ -365,6 +391,24 @@
 
     func capturedIdentity() -> PinnedAsahiPlanIdentity? {
       identity
+    }
+  }
+
+  private actor RecordingEngineProcess: EngineProcessExecuting {
+    private let response: Data
+    private var invocation: ClosedEngineInvocation?
+
+    init(response: Data) {
+      self.response = response
+    }
+
+    func execute(_ invocation: ClosedEngineInvocation) async throws -> Data {
+      self.invocation = invocation
+      return response
+    }
+
+    func capturedInvocation() -> ClosedEngineInvocation? {
+      invocation
     }
   }
 #endif

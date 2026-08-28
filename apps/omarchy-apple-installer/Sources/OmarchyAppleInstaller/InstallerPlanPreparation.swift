@@ -54,6 +54,19 @@
     }
   }
 
+  public struct PreparedInstallerPlanExecution: Sendable {
+    public let review: InstallerPlanReview
+    public let candidateRequest: ClosedEngineCandidateRequest
+
+    fileprivate init(
+      review: InstallerPlanReview,
+      candidateRequest: ClosedEngineCandidateRequest
+    ) {
+      self.review = review
+      self.candidateRequest = candidateRequest
+    }
+  }
+
   public struct InstallerPlanPreparationCoordinator: Sendable {
     private let trustCore: AppleInstallerTrustCore
     private let planner: any InstallerPlanExecuting
@@ -74,6 +87,12 @@
     public func prepare(
       _ request: InstallerPlanPreparationRequest
     ) async throws -> InstallerPlanReview {
+      try await prepareExecution(request).review
+    }
+
+    public func prepareExecution(
+      _ request: InstallerPlanPreparationRequest
+    ) async throws -> PreparedInstallerPlanExecution {
       let inspection = try trustCore.validateEngineTranscript(
         request.inspectionTranscript
       )
@@ -114,7 +133,7 @@
         identity: planIdentity,
         in: request.scratchDirectory
       )
-      return try reviewCoordinator.prepare(
+      let review = try reviewCoordinator.prepare(
         InstallerPlanReviewRequest(
           host: request.host,
           release: request.release,
@@ -123,6 +142,18 @@
           validationTime: request.validationTime,
           previouslyAcceptedCatalog: request.previouslyAcceptedCatalog
         )
+      )
+      let candidateRequest = ClosedEngineCandidateRequest(
+        planningTranscript: planningTranscript,
+        catalogPayload: request.release.catalogDocuments.payload,
+        catalogSignature: request.release.catalogDocuments.signature,
+        trustRoot: request.configuration.trustRoot,
+        validationTime: request.validationTime,
+        previouslyAcceptedCatalog: request.previouslyAcceptedCatalog
+      )
+      return PreparedInstallerPlanExecution(
+        review: review,
+        candidateRequest: candidateRequest
       )
     }
   }
