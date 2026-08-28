@@ -360,7 +360,8 @@
     }
 
     private func digest(_ data: Data) -> String {
-      "sha256:" + SHA256.hash(data: data)
+      "sha256:"
+        + SHA256.hash(data: data)
         .map { String(format: "%02x", $0) }
         .joined()
     }
@@ -369,10 +370,12 @@
       _ fields: [String],
       prefix: String
     ) -> String {
-      let canonical = fields
+      let canonical =
+        fields
         .map { "\($0.utf8.count):\($0)" }
         .joined(separator: "|")
-      return prefix + SHA256.hash(data: Data(canonical.utf8))
+      return prefix
+        + SHA256.hash(data: Data(canonical.utf8))
         .map { String(format: "%02x", $0) }
         .joined()
     }

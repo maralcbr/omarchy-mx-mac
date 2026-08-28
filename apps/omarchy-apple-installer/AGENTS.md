@@ -11,8 +11,8 @@ or would cross a safety boundary below.
 
 - Format Python with conventional four-space indentation and validate it with
   `py_compile` plus the focused engine tests.
-- Format Swift with the package's `swift-format` configuration and validate
-  macOS builds and tests through XcodeBuildMCP.
+- Format Swift with Xcode's bundled `swift-format`, require strict lint for the
+  package, and validate macOS builds and tests through XcodeBuildMCP.
 - Keep shell scripts compatible with the root repository rules. Build workers
   come from `OMARCHY_BUILD_JOBS`, whose default is 10.
 

@@ -11,10 +11,11 @@
       let root = try makeDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
       let archive = root.appendingPathComponent("engine.tar.gz")
-      XCTAssertTrue(FileManager.default.createFile(
-        atPath: archive.path,
-        contents: Data("fixture".utf8)
-      ))
+      XCTAssertTrue(
+        FileManager.default.createFile(
+          atPath: archive.path,
+          contents: Data("fixture".utf8)
+        ))
 
       let result = try ValidationEngineArtifactLocator().locate(
         environment: ["OMARCHY_VALIDATION_ENGINE_ARCHIVE": archive.path],

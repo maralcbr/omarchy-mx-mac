@@ -38,10 +38,12 @@ public struct InstallerWorkflow: Sendable {
     inspectionStatus: InstallerWorkflowStepStatus,
     blockedReason: String?
   ) -> InstallerWorkflowSnapshot {
-    let preparationStatus: InstallerWorkflowStepStatus = blockedReason == nil
+    let preparationStatus: InstallerWorkflowStepStatus =
+      blockedReason == nil
       ? .planned
       : .blocked
-    let recoveryStatus: InstallerWorkflowStepStatus = blockedReason == nil
+    let recoveryStatus: InstallerWorkflowStepStatus =
+      blockedReason == nil
       ? .ownerRequired
       : .blocked
 
@@ -57,42 +59,48 @@ public struct InstallerWorkflow: Sendable {
         InstallerWorkflowStep(
           id: "inspect",
           title: "Inspect this Mac",
-          detail: "Confirm the exact Apple model, macOS version, power source, FileVault state, and current APFS limits without changing the disk.",
+          detail:
+            "Confirm the exact Apple model, macOS version, power source, FileVault state, and current APFS limits without changing the disk.",
           status: inspectionStatus,
           systemImage: "laptopcomputer.and.arrow.down"
         ),
         InstallerWorkflowStep(
           id: "verify",
           title: "Verify trusted sources",
-          detail: "Fetch the signed support catalog and accept only pinned Asahi installer, metadata, engine, and Omarchy payload digests.",
+          detail:
+            "Fetch the signed support catalog and accept only pinned Asahi installer, metadata, engine, and Omarchy payload digests.",
           status: preparationStatus,
           systemImage: "checkmark.shield"
         ),
         InstallerWorkflowStep(
           id: "download",
           title: "Download installation assets",
-          detail: "Download the model-specific boot preparation payload and Omarchy image into private staging, verify size and SHA-256, then accept each file atomically.",
+          detail:
+            "Download the model-specific boot preparation payload and Omarchy image into private staging, verify size and SHA-256, then accept each file atomically.",
           status: preparationStatus,
           systemImage: "arrow.down.circle"
         ),
         InstallerWorkflowStep(
           id: "plan",
           title: "Review the disk plan",
-          detail: "Present the exact APFS container, byte extent, required free space, rollback evidence, and candidate-bound approval before authorization.",
+          detail:
+            "Present the exact APFS container, byte extent, required free space, rollback evidence, and candidate-bound approval before authorization.",
           status: preparationStatus,
           systemImage: "externaldrive.badge.questionmark"
         ),
         InstallerWorkflowStep(
           id: "recovery",
           title: "Complete Recovery handoff",
-          detail: "A machine owner must hold the power button, enter One True Recovery, authenticate, and approve the machine-specific m1n1 stage 1 setup.",
+          detail:
+            "A machine owner must hold the power button, enter One True Recovery, authenticate, and approve the machine-specific m1n1 stage 1 setup.",
           status: recoveryStatus,
           systemImage: "person.badge.key"
         ),
         InstallerWorkflowStep(
           id: "boot",
           title: "Boot and finish Omarchy",
-          detail: "The prepared chain continues through m1n1 stage 2 and U-Boot to the AArch64 EFI loader, then verifies the installed system before offering normal boot.",
+          detail:
+            "The prepared chain continues through m1n1 stage 2 and U-Boot to the AArch64 EFI loader, then verifies the installed system before offering normal boot.",
           status: .locked,
           systemImage: "power"
         ),

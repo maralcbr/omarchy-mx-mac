@@ -37,7 +37,7 @@
         executor: executor
       )
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await server.submit(packageDirectory: source)
       ) {
         XCTAssertEqual(
@@ -63,7 +63,7 @@
         executor: executor
       )
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await server.submit(packageDirectory: source)
       ) {
         XCTAssertEqual(
@@ -85,7 +85,7 @@
         executor: executor
       )
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await server.submit(packageDirectory: source)
       ) {
         XCTAssertEqual(
@@ -161,13 +161,16 @@
         ],
         prefix: ""
       )
-      let transcriptEngineDigest = transcriptPlanMismatch
+      let transcriptEngineDigest =
+        transcriptPlanMismatch
         ? "sha256:" + String(repeating: "d", count: 64)
         : engineDigest
-      let transcriptMetadataDigest = transcriptPlanMismatch
+      let transcriptMetadataDigest =
+        transcriptPlanMismatch
         ? "sha256:" + String(repeating: "e", count: 64)
         : metadataDigest
-      let transcriptPayloadDigest = transcriptPlanMismatch
+      let transcriptPayloadDigest =
+        transcriptPlanMismatch
         ? "sha256:" + String(repeating: "f", count: 64)
         : payloadDigest
       let transcriptPlanDigest = lengthPrefixedDigest(
@@ -255,7 +258,8 @@
     }
 
     private func digest(_ data: Data) -> String {
-      "sha256:" + SHA256.hash(data: data)
+      "sha256:"
+        + SHA256.hash(data: data)
         .map { String(format: "%02x", $0) }
         .joined()
     }
@@ -264,7 +268,8 @@
       _ fields: [String],
       prefix: String
     ) -> String {
-      let canonical = fields
+      let canonical =
+        fields
         .map { "\($0.utf8.count):\($0)" }
         .joined(separator: "|")
       let value = SHA256.hash(data: Data(canonical.utf8))
@@ -297,7 +302,7 @@
     let transcript: Data
   }
 
-  private func XCTAssertThrowsErrorAsync<T>(
+  private func assertThrowsErrorAsync<T>(
     _ expression: @autoclosure () async throws -> T,
     _ errorHandler: (any Error) -> Void = { _ in }
   ) async {

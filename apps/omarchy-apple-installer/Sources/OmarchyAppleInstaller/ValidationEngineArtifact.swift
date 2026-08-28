@@ -59,9 +59,11 @@
           .appendingPathComponent(Self.fileName)
       )
 
-      guard let fileURL = candidates.first(where: {
-        FileManager.default.fileExists(atPath: $0.path)
-      }) else {
+      guard
+        let fileURL = candidates.first(where: {
+          FileManager.default.fileExists(atPath: $0.path)
+        })
+      else {
         throw ValidationEngineArtifactError.unavailable
       }
       return try PinnedAsahiEngineArchive(

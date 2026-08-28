@@ -1,8 +1,7 @@
 import CryptoKit
 import Foundation
-import XCTest
-
 import OmarchyAppleInstallerTrustCore
+import XCTest
 
 final class ClosedEngineProcessAdapterTests: XCTestCase {
   private let adapter = ClosedEngineProcessAdapter()
@@ -13,7 +12,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let authorization = ControlledAuthorization(decision: .cancelled)
     let process = ControlledProcess(transcript: fixture.transcript)
 
-    await XCTAssertThrowsErrorAsync(
+    await assertThrowsErrorAsync(
       try await adapter.execute(
         fixture.request,
         approval: fixture.approval,
@@ -39,7 +38,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let authorization = ControlledAuthorization(decision: .granted)
     let process = ControlledProcess(transcript: substituted.data)
 
-    await XCTAssertThrowsErrorAsync(
+    await assertThrowsErrorAsync(
       try await adapter.execute(
         fixture.request,
         approval: fixture.approval,
@@ -63,7 +62,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let authorization = ControlledAuthorization(decision: .granted)
     let process = ControlledProcess(transcript: fixture.transcript)
 
-    await XCTAssertThrowsErrorAsync(
+    await assertThrowsErrorAsync(
       try await adapter.execute(
         invalidRequest,
         approval: fixture.approval,
@@ -100,7 +99,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let authorization = ControlledAuthorization(decision: .granted)
     let process = ControlledProcess(transcript: malformed)
 
-    await XCTAssertThrowsErrorAsync(
+    await assertThrowsErrorAsync(
       try await adapter.execute(
         fixture.request,
         approval: fixture.approval,
@@ -121,7 +120,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let authorization = ControlledAuthorization(decision: .granted)
     let process = ControlledProcess(transcript: incomplete)
 
-    await XCTAssertThrowsErrorAsync(
+    await assertThrowsErrorAsync(
       try await adapter.execute(
         fixture.request,
         approval: fixture.approval,
@@ -146,7 +145,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let authorization = ControlledAuthorization(decision: .granted)
     let process = ControlledProcess(transcript: m4Transcript.data)
 
-    await XCTAssertThrowsErrorAsync(
+    await assertThrowsErrorAsync(
       try await adapter.execute(
         m4Request,
         approval: fixture.approval,
@@ -258,7 +257,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let authorization = ControlledAuthorization(decision: .granted)
     let process = ControlledProcess(transcript: changedTranscript.data)
 
-    await XCTAssertThrowsErrorAsync(
+    await assertThrowsErrorAsync(
       try await adapter.execute(
         changedRequest,
         approval: approved.approval,
@@ -287,7 +286,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let authorization = ControlledAuthorization(decision: .granted)
     let process = ControlledProcess(transcript: fixture.transcript)
 
-    await XCTAssertThrowsErrorAsync(
+    await assertThrowsErrorAsync(
       try await adapter.execute(
         fixture.request,
         approval: alteredApproval,
@@ -355,7 +354,8 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
       engineVersion: catalogEngineVersion
     )
     let signature = try privateKey.signature(for: catalog)
-    let deliveredCatalog = mutateCatalogAfterSigning
+    let deliveredCatalog =
+      mutateCatalogAfterSigning
       ? catalog + Data(" ".utf8)
       : catalog
     let publicKey = privateKey.publicKey.rawRepresentation
@@ -384,7 +384,8 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let expires = ISO8601DateFormatter().string(
       from: now.addingTimeInterval(86_400)
     )
-    let delivery = schemaVersion == 2
+    let delivery =
+      schemaVersion == 2
       ? """
       ,"engineVersion":"\(engineVersion ?? "")","engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":1},"metadataArtifact":{"sourceURL":"https://downloads.example.com/metadata.json","fileName":"metadata.json","sizeBytes":1},"payloadArtifact":{"sourceURL":"https://downloads.example.com/payload.img.zst","fileName":"payload.img.zst","sizeBytes":1}
       """
@@ -441,7 +442,8 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     _ fields: [String],
     prefix: String
   ) -> String {
-    let canonical = fields
+    let canonical =
+      fields
       .map { "\($0.utf8.count):\($0)" }
       .joined(separator: "|")
     let digest = SHA256.hash(data: Data(canonical.utf8))
@@ -451,7 +453,8 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
   }
 
   private func sha256Digest(_ data: Data) -> String {
-    "sha256:" + SHA256.hash(data: data)
+    "sha256:"
+      + SHA256.hash(data: data)
       .map { String(format: "%02x", $0) }
       .joined()
   }
@@ -499,7 +502,7 @@ private struct TranscriptFixture {
   let planDigest: String
 }
 
-private func XCTAssertThrowsErrorAsync<T>(
+private func assertThrowsErrorAsync<T>(
   _ expression: @autoclosure () async throws -> T,
   _ errorHandler: (any Error) -> Void = { _ in }
 ) async {

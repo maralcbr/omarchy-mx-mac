@@ -58,7 +58,7 @@
       )
       let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 501 })
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await executor.inspect(archive, in: scratch)
       ) {
         XCTAssertEqual(
@@ -131,7 +131,7 @@
       )
       let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 501 })
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await executor.execute(package)
       ) {
         XCTAssertEqual(
@@ -162,7 +162,7 @@
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await executor.execute(fixture.package)
       ) {
         XCTAssertEqual(
@@ -180,7 +180,7 @@
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await executor.execute(fixture.package)
       ) {
         XCTAssertEqual(
@@ -197,7 +197,7 @@
       defer { try? FileManager.default.removeItem(at: fixture.root) }
       let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await executor.execute(fixture.package)
       ) {
         XCTAssertEqual(
@@ -226,7 +226,7 @@
       )
       let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
 
-      await XCTAssertThrowsErrorAsync(
+      await assertThrowsErrorAsync(
         try await executor.execute(fixture.package)
       ) {
         XCTAssertEqual(
@@ -282,29 +282,29 @@
         attributes: [.posixPermissions: 0o700]
       )
       let script = """
-      #!/bin/sh
-      case "$OMARCHY_ENGINE_MODE" in
-        inspect) ;;
-        plan)
-          [ -r "$OMARCHY_ENGINE_REQUEST" ] || exit 77
-          [ -r "$OMARCHY_ENGINE_IDENTITY" ] || exit 78
-          /usr/bin/grep -q '"candidate_kind":"free"' "$OMARCHY_ENGINE_REQUEST" || exit 79
-          /usr/bin/grep -q '"requested_length_bytes":100663296' "$OMARCHY_ENGINE_REQUEST" || exit 80
-          /usr/bin/grep -q '"engine_version":"v0.9.0-omarchy.2"' "$OMARCHY_ENGINE_IDENTITY" || exit 81
-          ;;
-        install)
-          [ "$OMARCHY_ENGINE_PLAN_DIGEST" = "\(String(repeating: "a", count: 64))" ] || exit 71
-          [ "$OMARCHY_ENGINE_BINDING_DIGEST" = "sha256:\(String(repeating: "b", count: 64))" ] || exit 72
-          [ -r "$OMARCHY_ENGINE_REQUEST" ] || exit 73
-          [ -r "$OMARCHY_ENGINE_IDENTITY" ] || exit 74
-          [ -r "$OMARCHY_ENGINE_METADATA" ] || exit 75
-          [ -r "$OMARCHY_ENGINE_PAYLOAD" ] || exit 76
-          ;;
-        *) exit 70 ;;
-      esac
-      /bin/cp "$PWD/transcript.jsonl" "$OMARCHY_ENGINE_JOURNAL"
-      exit \(exitCode)
-      """
+        #!/bin/sh
+        case "$OMARCHY_ENGINE_MODE" in
+          inspect) ;;
+          plan)
+            [ -r "$OMARCHY_ENGINE_REQUEST" ] || exit 77
+            [ -r "$OMARCHY_ENGINE_IDENTITY" ] || exit 78
+            /usr/bin/grep -q '"candidate_kind":"free"' "$OMARCHY_ENGINE_REQUEST" || exit 79
+            /usr/bin/grep -q '"requested_length_bytes":100663296' "$OMARCHY_ENGINE_REQUEST" || exit 80
+            /usr/bin/grep -q '"engine_version":"v0.9.0-omarchy.2"' "$OMARCHY_ENGINE_IDENTITY" || exit 81
+            ;;
+          install)
+            [ "$OMARCHY_ENGINE_PLAN_DIGEST" = "\(String(repeating: "a", count: 64))" ] || exit 71
+            [ "$OMARCHY_ENGINE_BINDING_DIGEST" = "sha256:\(String(repeating: "b", count: 64))" ] || exit 72
+            [ -r "$OMARCHY_ENGINE_REQUEST" ] || exit 73
+            [ -r "$OMARCHY_ENGINE_IDENTITY" ] || exit 74
+            [ -r "$OMARCHY_ENGINE_METADATA" ] || exit 75
+            [ -r "$OMARCHY_ENGINE_PAYLOAD" ] || exit 76
+            ;;
+          *) exit 70 ;;
+        esac
+        /bin/cp "$PWD/transcript.jsonl" "$OMARCHY_ENGINE_JOURNAL"
+        exit \(exitCode)
+        """
       try script.data(using: .utf8)?.write(
         to: python,
         options: .withoutOverwriting
@@ -399,7 +399,8 @@
 
     private func digest(of url: URL) throws -> String {
       let data = try Data(contentsOf: url)
-      return "sha256:" + SHA256.hash(data: data)
+      return "sha256:"
+        + SHA256.hash(data: data)
         .map { String(format: "%02x", $0) }
         .joined()
     }
@@ -446,7 +447,7 @@
     let transcript: Data
   }
 
-  private func XCTAssertThrowsErrorAsync<T>(
+  private func assertThrowsErrorAsync<T>(
     _ expression: @autoclosure () async throws -> T,
     _ errorHandler: (any Error) -> Void = { _ in }
   ) async {

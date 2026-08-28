@@ -71,9 +71,11 @@
         now: request.validationTime,
         previouslyAccepted: request.previouslyAcceptedCatalog
       )
-      guard case .admitted(let installer) = catalog.admission(
-        for: deviceIdentifier
-      ) else {
+      guard
+        case .admitted(let installer) = catalog.admission(
+          for: deviceIdentifier
+        )
+      else {
         throw InstallerAssetPreparationError.unsupportedDevice(deviceIdentifier)
       }
       guard let delivery = installer.delivery else {

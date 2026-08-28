@@ -92,8 +92,9 @@ public struct ClosedEngineProcessAdapter: Sendable {
     process: any EngineProcessExecuting
   ) async throws -> ValidatedEngineTranscript {
     let invocation = try prepare(request)
-    guard approval.approvedBindingDigest
-      == approval.identity.bindingDigest
+    guard
+      approval.approvedBindingDigest
+        == approval.identity.bindingDigest
     else {
       throw ClosedEngineProcessError.staleCandidateApproval
     }
@@ -132,9 +133,11 @@ public struct ClosedEngineProcessAdapter: Sendable {
         transcript.deviceIdentifier
       )
     }
-    guard case .admitted(let pinnedInstaller) = catalog.admission(
-      for: transcript.deviceIdentifier
-    ) else {
+    guard
+      case .admitted(let pinnedInstaller) = catalog.admission(
+        for: transcript.deviceIdentifier
+      )
+    else {
       throw ClosedEngineProcessError.unsupportedDevice(
         transcript.deviceIdentifier
       )
@@ -143,8 +146,8 @@ public struct ClosedEngineProcessAdapter: Sendable {
       throw ClosedEngineProcessError.planUnavailable
     }
     guard plan.deviceIdentifier == transcript.deviceIdentifier,
-      (pinnedInstaller.engineVersion == nil
-        || plan.engineVersion == pinnedInstaller.engineVersion),
+      pinnedInstaller.engineVersion == nil
+        || plan.engineVersion == pinnedInstaller.engineVersion,
       plan.engineDigest == pinnedInstaller.engineDigest,
       plan.metadataDigest == pinnedInstaller.metadataDigest,
       plan.payloadDigest == pinnedInstaller.payloadDigest

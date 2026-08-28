@@ -203,7 +203,8 @@
         omitEngineVersion: omitEngineVersion
       )
       let signature = try privateKey.signature(for: payloadData)
-      let deliveredSignature = invalidateSignature
+      let deliveredSignature =
+        invalidateSignature
         ? Data(repeating: 0, count: signature.count)
         : signature
       let publicKey = privateKey.publicKey.rawRepresentation
@@ -235,10 +236,11 @@
           stager: VerifiedArtifactStager(downloader: downloader)
         ),
         downloader: downloader,
-        host: host ?? self.host(
-          deviceIdentifier: "apple,j314s",
-          eligibility: .requiresSignedCatalog
-        ),
+        host: host
+          ?? self.host(
+            deviceIdentifier: "apple,j314s",
+            eligibility: .requiresSignedCatalog
+          ),
         catalogPayload: payloadData,
         catalogSignature: deliveredSignature,
         trustRoot: trustRoot,
@@ -264,10 +266,12 @@
       let expires = ISO8601DateFormatter().string(
         from: now.addingTimeInterval(86_400)
       )
-      let engineVersion = omitEngineVersion
+      let engineVersion =
+        omitEngineVersion
         ? ""
         : ",\"engineVersion\":\"v0.9.0-omarchy.2\""
-      let delivery = schemaVersion == 2
+      let delivery =
+        schemaVersion == 2
         ? """
         \(engineVersion),"engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":\(engine.count)},"metadataArtifact":{"sourceURL":"https://downloads.example.com/installer-data.json","fileName":"installer-data.json","sizeBytes":\(metadata.count)},"payloadArtifact":{"sourceURL":"https://downloads.example.com/omarchy.img.zst","fileName":"omarchy.img.zst","sizeBytes":\(payload.count)}
         """
@@ -305,7 +309,8 @@
     }
 
     private func digest(_ data: Data) -> String {
-      "sha256:" + SHA256.hash(data: data)
+      "sha256:"
+        + SHA256.hash(data: data)
         .map { String(format: "%02x", $0) }
         .joined()
     }

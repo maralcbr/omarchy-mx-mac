@@ -1,6 +1,5 @@
-import XCTest
-
 import OmarchyAppleInstallerTrustCore
+import XCTest
 
 final class InstallerWorkflowTests: XCTestCase {
   private let preview = InstallerWorkflow().referenceM1ProPreview()

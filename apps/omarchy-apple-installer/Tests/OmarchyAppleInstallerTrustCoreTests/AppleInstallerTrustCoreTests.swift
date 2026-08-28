@@ -1,8 +1,7 @@
 import CryptoKit
 import Foundation
-import XCTest
-
 import OmarchyAppleInstallerTrustCore
+import XCTest
 
 final class AppleInstallerTrustCoreTests: XCTestCase {
   private let core = AppleInstallerTrustCore()
@@ -17,19 +16,21 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     XCTAssertEqual(result.inventory?.systemStoreIdentifier, "disk0")
     XCTAssertEqual(result.inventory?.candidates.count, 1)
     XCTAssertEqual(result.inventory?.candidates.first?.kind, "free")
-    XCTAssertEqual(result.plan?.requiredHumanSteps, [
-      "enterOneTrueRecovery",
-      "authenticateMachineOwner",
-    ])
+    XCTAssertEqual(
+      result.plan?.requiredHumanSteps,
+      [
+        "enterOneTrueRecovery",
+        "authenticateMachineOwner",
+      ])
     XCTAssertEqual(result.checkpoints.map(\.phase), ["apfs_preparation"])
     XCTAssertEqual(result.completion, .awaitingRecovery)
   }
 
   func testM4UnsupportedInspectionRemainsClosed() throws {
     let transcript = """
-    {"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j614s","support":"unsupported"}}
+      {"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j614s","support":"unsupported"}}
 
-    """
+      """
 
     let result = try core.validateEngineTranscript(Data(transcript.utf8))
 
@@ -59,7 +60,8 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
   func testTranscriptRejectsUnknownPlanField() {
     let transcript = makeTranscript().replacingOccurrences(
       of: #""required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]"#,
-      with: #""required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"],"whole_disk":true"#
+      with:
+        #""required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"],"whole_disk":true"#
     )
 
     XCTAssertThrowsError(
@@ -249,7 +251,9 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
       """.utf8
     )
     let publicKey = privateKey.publicKey.rawRepresentation
-    let fingerprint = "sha256:" + SHA256.hash(data: publicKey)
+    let fingerprint =
+      "sha256:"
+      + SHA256.hash(data: publicKey)
       .map { String(format: "%02x", $0) }
       .joined()
     return CatalogFixture(
@@ -314,7 +318,8 @@ final class AppleInstallerTrustCoreTests: XCTestCase {
     _ fields: [String],
     prefix: String
   ) -> String {
-    let canonical = fields
+    let canonical =
+      fields
       .map { "\($0.utf8.count):\($0)" }
       .joined(separator: "|")
     let digest = SHA256.hash(data: Data(canonical.utf8))

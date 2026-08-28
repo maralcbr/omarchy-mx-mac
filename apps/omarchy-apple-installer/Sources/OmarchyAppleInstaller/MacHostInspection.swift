@@ -104,7 +104,8 @@
       let model = try nonemptyHardwareProperty("hw.model")
       let chip = try nonemptyHardwareProperty("machdep.cpu.brand_string")
       let rawTarget = try nonemptyHardwareProperty("hw.targettype").lowercased()
-      let target = rawTarget.hasPrefix("apple,")
+      let target =
+        rawTarget.hasPrefix("apple,")
         ? String(rawTarget.dropFirst(6))
         : rawTarget
 
@@ -330,11 +331,12 @@
       _ data: Data,
       command: String
     ) throws -> [String: Any] {
-      guard let value = try? PropertyListSerialization.propertyList(
-        from: data,
-        options: [],
-        format: nil
-      ) as? [String: Any]
+      guard
+        let value = try? PropertyListSerialization.propertyList(
+          from: data,
+          options: [],
+          format: nil
+        ) as? [String: Any]
       else {
         throw AppleSiliconHostInspectionError.invalidCommandResponse(command)
       }

@@ -207,7 +207,8 @@
         "enterOneTrueRecovery,authenticateMachineOwner",
       ])
       let extraField = extraManifestField ? #","unexpected":true"# : ""
-      let engineFileName = nulEngineFileName
+      let engineFileName =
+        nulEngineFileName
         ? #"engine\u0000ignored.tar.gz"#
         : "engine.tar.gz"
       let manifest = Data(
@@ -285,13 +286,15 @@
     }
 
     private func digest(_ data: Data) -> String {
-      "sha256:" + SHA256.hash(data: data)
+      "sha256:"
+        + SHA256.hash(data: data)
         .map { String(format: "%02x", $0) }
         .joined()
     }
 
     private func lengthPrefixedDigest(_ fields: [String]) -> String {
-      let canonical = fields
+      let canonical =
+        fields
         .map { "\($0.utf8.count):\($0)" }
         .joined(separator: "|")
       return SHA256.hash(data: Data(canonical.utf8))

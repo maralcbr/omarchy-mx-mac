@@ -80,8 +80,9 @@
             candidate: identity.sequence
           )
         }
-        guard identity.sequence != existing.sequence
-          || identity.payloadDigest == existing.payloadDigest
+        guard
+          identity.sequence != existing.sequence
+            || identity.payloadDigest == existing.payloadDigest
         else {
           throw SupportCatalogSequenceError.sequenceReuse(identity.sequence)
         }

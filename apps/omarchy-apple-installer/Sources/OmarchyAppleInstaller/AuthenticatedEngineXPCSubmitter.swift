@@ -32,9 +32,11 @@
       guard Self.isMachServiceName(machServiceName) else {
         throw EngineXPCSubmissionError.invalidMachServiceName
       }
-      guard EngineCodeSigningRequirement.isValid(
-        helperCodeSigningRequirement
-      ) else {
+      guard
+        EngineCodeSigningRequirement.isValid(
+          helperCodeSigningRequirement
+        )
+      else {
         throw EngineXPCSubmissionError.invalidCodeSigningRequirement
       }
       self.machServiceName = machServiceName
@@ -87,12 +89,14 @@
         }
         connection.activate()
 
-        guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
-          gate.resume(
-            throwing: EngineXPCSubmissionError.connectionFailed
-          )
-          connectionHandle.invalidate()
-        }) as? ClosedEngineXPCService else {
+        guard
+          let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+            gate.resume(
+              throwing: EngineXPCSubmissionError.connectionFailed
+            )
+            connectionHandle.invalidate()
+          }) as? ClosedEngineXPCService
+        else {
           gate.resume(
             throwing: EngineXPCSubmissionError.connectionFailed
           )

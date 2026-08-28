@@ -48,9 +48,11 @@
       )
       defer { try? FileManager.default.removeItem(at: package.packageURL) }
 
-      guard !Self.explicitlyUnsupportedDevices.contains(
-        package.deviceIdentifier
-      ) else {
+      guard
+        !Self.explicitlyUnsupportedDevices.contains(
+          package.deviceIdentifier
+        )
+      else {
         throw ClosedEngineHelperError.unsupportedDevice(
           package.deviceIdentifier
         )
@@ -116,9 +118,11 @@
       clientCodeSigningRequirement: String,
       server: ClosedEngineHelperServer
     ) throws {
-      guard EngineCodeSigningRequirement.isValid(
-        clientCodeSigningRequirement
-      ) else {
+      guard
+        EngineCodeSigningRequirement.isValid(
+          clientCodeSigningRequirement
+        )
+      else {
         throw ClosedEngineHelperError.invalidClientRequirement
       }
       self.clientCodeSigningRequirement = clientCodeSigningRequirement
