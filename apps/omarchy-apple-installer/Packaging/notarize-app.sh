@@ -7,7 +7,7 @@ fail() {
   exit 1
 }
 
-[[ $# -eq 1 ]] \
+(( $# == 1 )) \
   || fail "usage: notarize-app.sh '/absolute/path/Omarchy MX Mac Installer.app'"
 
 app_path="$1"

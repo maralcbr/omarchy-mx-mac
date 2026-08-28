@@ -12,7 +12,7 @@ usage() {
   exit 64
 }
 
-[[ $# -eq 2 ]] || usage
+(( $# == 2 )) || usage
 
 script_directory="$({ cd "$(dirname "$0")" && pwd -P; })"
 package_directory="$({ cd "$script_directory/.." && pwd -P; })"
@@ -57,7 +57,7 @@ else
     || fail "OMARCHY_TEAM_ID is required for named signing identities"
   client_requirement="anchor apple generic and identifier \"$app_identifier\" and certificate leaf[subject.OU] = \"$team_identifier\""
   helper_requirement="anchor apple generic and identifier \"$helper_identifier\" and certificate leaf[subject.OU] = \"$team_identifier\""
-  if [[ $signing_identity == Developer\ ID\ Application:* ]]; then
+  if [[ $signing_identity == "Developer ID Application:"* ]]; then
     timestamp_arguments=(--timestamp)
   else
     timestamp_arguments=(--timestamp=none)

@@ -25,7 +25,7 @@ python3 "$engine_root/verify-source-lock.py" "$checkout"
 
 require_exact() {
   local actual=$1 expected=$2 name=$3
-  if [[ $actual != "$expected" ]]; then
+  if [[ $actual != $expected ]]; then
     echo "$name does not match source lock" >&2
     echo "expected: $expected" >&2
     echo "actual:   $actual" >&2
@@ -76,13 +76,17 @@ while IFS=$'\t' read -r filename size expected; do
     exit 1
   }
   actual_size=$(stat -f '%z' "$path")
-  [[ $actual_size == "$size" ]] || {
+  [[ $size =~ ^[0-9]+$ ]] || {
+    echo "Locked build input size is invalid: $path" >&2
+    exit 1
+  }
+  (( actual_size == size )) || {
     echo "Locked build input size mismatch: $path" >&2
     exit 1
   }
   actual=$(shasum -a 256 "$path")
   actual=${actual%% *}
-  [[ $actual == "$expected" ]] || {
+  [[ $actual == $expected ]] || {
     echo "Locked build input digest mismatch: $path" >&2
     exit 1
   }
@@ -146,15 +150,21 @@ actual_digest=${actual_digest%% *}
 expected_filename=$(jq -r '.validation_artifact.filename' "$lock")
 expected_size=$(jq -r '.validation_artifact.size_bytes // empty' "$lock")
 expected_digest=$(jq -r '.validation_artifact.sha256 // empty' "$lock")
-if [[ ${artifact##*/} != "$expected_filename" ]]; then
+if [[ ${artifact##*/} != $expected_filename ]]; then
   echo "Built engine filename does not match source lock" >&2
   exit 1
 fi
-if [[ -n $expected_size && $actual_size != "$expected_size" ]]; then
-  echo "Built engine size does not reproduce source lock" >&2
-  exit 1
+if [[ -n $expected_size ]]; then
+  [[ $expected_size =~ ^[0-9]+$ ]] || {
+    echo "Expected engine size is invalid" >&2
+    exit 1
+  }
+  if (( actual_size != expected_size )); then
+    echo "Built engine size does not reproduce source lock" >&2
+    exit 1
+  fi
 fi
-if [[ -n $expected_digest && $actual_digest != "$expected_digest" ]]; then
+if [[ -n $expected_digest && $actual_digest != $expected_digest ]]; then
   echo "Built engine digest does not reproduce source lock" >&2
   exit 1
 fi
