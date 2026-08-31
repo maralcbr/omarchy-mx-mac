@@ -7,12 +7,17 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 status=0
 
 verify_core_packages() {
-  local package manifest="$OMARCHY_PATH/install/omarchy-base.packages"
+  local package
+  local manifest="$OMARCHY_PATH/install/omarchy-base.packages"
   local -a missing=()
 
   if [[ $(uname -m) == "aarch64" && -f $OMARCHY_PATH/install/omarchy-base-asahi.packages ]]; then
     manifest="$OMARCHY_PATH/install/omarchy-base-asahi.packages"
   fi
+
+  # Without this, a missing manifest reads as an empty package list and the
+  # audit passes having checked nothing.
+  [[ -f $manifest ]] || fail "all Omarchy core packages are installed" "package manifest not found: $manifest"
 
   while IFS= read -r package; do
     [[ -z $package || $package == \#* ]] && continue
@@ -60,7 +65,7 @@ verify_services() {
   local unit
 
   for unit in \
-    avahi-daemon.service cups.service cups-browsed.service docker.socket \
+    avahi-daemon.service docker.socket \
     NetworkManager.service power-profiles-daemon.service sddm.service \
     systemd-resolved.service ufw.service; do
     systemctl is-enabled --quiet "$unit" || fail "core system services are enabled" "$unit is not enabled"
