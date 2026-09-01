@@ -154,8 +154,8 @@ verify_signature "$repository/omarchy.files" "$repository/omarchy.files.sig"
 described_files[CANDIDATE]=1
 described_files[CANDIDATE.sig]=1
 described_files[SHA256SUMS]=1
-described_files[PLAN.json]=1
-described_files[PROVENANCE.json]=1
+[[ ! -f $repository/PLAN.json ]] || described_files[PLAN.json]=1
+[[ ! -f $repository/PROVENANCE.json ]] || described_files[PROVENANCE.json]=1
 
 if [[ -s $repository/RUNTIME-SHA256SUMS ]]; then
   [[ -s $repository/asahi-quattro-bundle.manifest && -s $repository/asahi-quattro-bundle.manifest.sig ]] ||

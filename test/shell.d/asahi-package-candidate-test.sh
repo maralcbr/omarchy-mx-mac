@@ -30,7 +30,7 @@ sign() {
     --local-user "$signing_fingerprint!" --detach-sign "$1"
 }
 
-for number in $(seq -w 1 21); do
+for number in $(seq -w 1 33); do
   package=phase-two-package-$number
   metadata=$test_tmp/.PKGINFO
   printf 'pkgname = %s\npkgver = 1.2.%s-1\narch = aarch64\n' "$package" "$number" >"$metadata"
@@ -53,7 +53,7 @@ sign "$repository/omarchy.files"
   printf 'workflow_run=42\n'
   printf 'runner_arch=aarch64\n'
   printf 'signing_fingerprint=%s\n' "$signing_fingerprint"
-  printf 'package_count=21\n'
+  printf 'package_count=33\n'
   index=0
   for archive in "$repository"/*.pkg.tar.zst; do
     ((index += 1))
@@ -71,8 +71,21 @@ sign "$repository/omarchy.files"
   done
 } >"$repository/CANDIDATE"
 sign "$repository/CANDIDATE"
+
+runtime_metadata=$test_tmp/.PKGINFO
+printf 'pkgname = omarchy-dev\npkgver = 9.9.9-1\narch = aarch64\n' >"$runtime_metadata"
+runtime_archive=$repository/omarchy-dev-9.9.9-1-aarch64.pkg.tar.zst
+bsdtar -cf "$runtime_archive" -C "$test_tmp" .PKGINFO
+sign "$runtime_archive"
+printf 'runtime bundle fixture\n' >"$repository/asahi-quattro-bundle.manifest"
+sign "$repository/asahi-quattro-bundle.manifest"
+cp "$test_tmp/candidate.gpg" "$repository/asahi-repository-signing.asc"
 (
   cd "$repository"
+  sha256sum omarchy-dev-9.9.9-1-aarch64.pkg.tar.zst \
+    omarchy-dev-9.9.9-1-aarch64.pkg.tar.zst.sig \
+    asahi-quattro-bundle.manifest asahi-quattro-bundle.manifest.sig \
+    asahi-repository-signing.asc >RUNTIME-SHA256SUMS
   sha256sum -- * >SHA256SUMS
 )
 descriptor_sha256=$(sha256sum "$repository/CANDIDATE" | cut -d' ' -f1)
