@@ -3,3 +3,6 @@
 __pycache__/
 *.pyc
 test/vm/asahi-fresh/test-runs/
+
+# macOS Finder metadata
+.DS_Store
