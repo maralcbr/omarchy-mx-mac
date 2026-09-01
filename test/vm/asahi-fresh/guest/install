@@ -78,7 +78,15 @@ expect <<EOF
 set timeout -1
 log_file $work/lock-collision.log
 spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
-expect eof
+expect {
+  "New password:" {
+    send "omarchy\r"
+    expect "Retype new password:"
+    send "omarchy\r"
+    exp_continue
+  }
+  eof
+}
 catch wait result
 set status [lindex \$result 3]
 if {\$status == 0} { exit 1 }
@@ -97,7 +105,15 @@ expect <<EOF
 set timeout -1
 log_file $work/account-collision.log
 spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
-expect eof
+expect {
+  "New password:" {
+    send "omarchy\r"
+    expect "Retype new password:"
+    send "omarchy\r"
+    exp_continue
+  }
+  eof
+}
 catch wait result
 exit 0
 EOF
@@ -110,7 +126,15 @@ expect <<EOF
 set timeout -1
 log_file $work/sudo-collision.log
 spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
-expect eof
+expect {
+  "New password:" {
+    send "omarchy\r"
+    expect "Retype new password:"
+    send "omarchy\r"
+    exp_continue
+  }
+  eof
+}
 catch wait result
 set status [lindex \$result 3]
 if {\$status == 0} { exit 1 }
@@ -125,7 +149,15 @@ expect <<EOF
 set timeout -1
 log_file $work/cache-collision.log
 spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
-expect eof
+expect {
+  "New password:" {
+    send "omarchy\r"
+    expect "Retype new password:"
+    send "omarchy\r"
+    exp_continue
+  }
+  eof
+}
 catch wait result
 set status [lindex \$result 3]
 if {\$status == 0} { exit 1 }
@@ -169,7 +201,15 @@ log_file $work/failed-install.log
 spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
 set installer_pid [exp_pid]
 exec sh -c "printf '%s\\n' \$installer_pid > /var/tmp/omarchy-vm-installer.pid"
-expect eof
+expect {
+  "New password:" {
+    send "omarchy\r"
+    expect "Retype new password:"
+    send "omarchy\r"
+    exp_continue
+  }
+  eof
+}
 catch wait result
 exit 0
 EOF
@@ -197,7 +237,15 @@ expect <<EOF
 set timeout -1
 log_file $work/target-replacement.log
 spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
-expect eof
+expect {
+  "New password:" {
+    send "omarchy\r"
+    expect "Retype new password:"
+    send "omarchy\r"
+    exp_continue
+  }
+  eof
+}
 catch wait result
 set status [lindex \$result 3]
 if {\$status == 0} { exit 1 }
