@@ -26,6 +26,28 @@ Two other packages live in `omarchy-pkgs/` but stand alone:
 `omarchy-keyring` (GPG keys for pacman) and `omarchy-nvim` (the Neovim
 setup; independently seeds `/etc/skel`).
 
+## Fork-only areas
+
+These directories exist only in the Mac fork and are not built into either
+Arch package. Keep new Mac-only material inside them so upstream-bound
+changes stay cleanly separable (see
+`.opencode/skills/update-omarchy-quattro/SKILL.md` for the upstream-merge
+runbook):
+
+- **`apps/omarchy-apple-installer/`** — the macOS installer application
+  (SwiftPM). Ships to users as its own signed and notarized `.pkg` built by
+  `apps/omarchy-apple-installer/Packaging/`, never via pacman.
+- **`evidence/`** — Apple Silicon acceptance and hardware-run evidence
+  records referenced by release decisions.
+- **`scripts/`** — repo maintenance helpers (`build-stable-release`,
+  `cleanup-tonights-extras.py`); run from a checkout, not installed.
+- **`docs/apple-silicon-*`, `docs/releases/`** — fork planning, design, and
+  release records.
+
+Interleaved changes to upstream files are gated behind
+`omarchy-hw-apple-silicon` so they stay inert off-platform and merge
+cleanly.
+
 Three layers populate `$HOME`:
 
 1. **Seed** — `omarchy-settings` ships static defaults to `/etc/skel/`.
