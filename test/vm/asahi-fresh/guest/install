@@ -85,6 +85,10 @@ expect {
     send "omarchy\r"
     exp_continue
   }
+  -re {\[Y/n\]:? ?$} {
+    send "\r"
+    exp_continue
+  }
   eof
 }
 catch wait result
@@ -112,6 +116,10 @@ expect {
     send "omarchy\r"
     exp_continue
   }
+  -re {\[Y/n\]:? ?$} {
+    send "\r"
+    exp_continue
+  }
   eof
 }
 catch wait result
@@ -131,6 +139,10 @@ expect {
     send "omarchy\r"
     expect "Retype new password:"
     send "omarchy\r"
+    exp_continue
+  }
+  -re {\[Y/n\]:? ?$} {
+    send "\r"
     exp_continue
   }
   eof
@@ -154,6 +166,10 @@ expect {
     send "omarchy\r"
     expect "Retype new password:"
     send "omarchy\r"
+    exp_continue
+  }
+  -re {\[Y/n\]:? ?$} {
+    send "\r"
     exp_continue
   }
   eof
@@ -219,6 +235,10 @@ expect {
     send "omarchy\r"
     exp_continue
   }
+  -re {\[Y/n\]:? ?$} {
+    send "\r"
+    exp_continue
+  }
   eof
 }
 catch wait result
@@ -253,6 +273,10 @@ expect {
     send "omarchy\r"
     expect "Retype new password:"
     send "omarchy\r"
+    exp_continue
+  }
+  -re {\[Y/n\]:? ?$} {
+    send "\r"
     exp_continue
   }
   eof
@@ -295,6 +319,10 @@ expect {
     send "omarchy\r"
     expect "Retype new password:"
     send "omarchy\r"
+    exp_continue
+  }
+  -re {\[Y/n\]:? ?$} {
+    send "\r"
     exp_continue
   }
   eof
