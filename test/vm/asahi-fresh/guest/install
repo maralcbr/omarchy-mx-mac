@@ -173,6 +173,17 @@ touch /var/tmp/omarchy-vm-build-active
 while :; do sleep 60; done
 EOF
 chmod +x /usr/local/bin/makepkg
+# The signed repository now provides every source package, so the installer's
+# build path never runs on its own. Hide one package from -Q so the pinned
+# build window (and its interruption) still gets exercised.
+cat >/usr/local/bin/pacman <<'EOF'
+#!/bin/bash
+if [[ $1 == "-Q" && $2 == "localsend" ]]; then
+  exit 1
+fi
+exec /usr/bin/pacman "$@"
+EOF
+chmod +x /usr/local/bin/pacman
 interrupted=0
 for attempt in {1..3}; do
   rm -f /var/tmp/omarchy-vm-installer.pid /var/tmp/omarchy-vm-build-active
@@ -231,7 +242,7 @@ done
 [[ -f /var/cache/omarchy-fresh-pkgbuilds/.omarchy-fresh-install-owner ]]
 getent passwd omarchy-fresh-build >/dev/null
 [[ " $(id -nG alarm) " == *" wheel "* ]]
-rm -f /usr/local/bin/makepkg
+rm -f /usr/local/bin/makepkg /usr/local/bin/pacman
 usermod --home /home/omarchy-replaced omarchy
 expect <<EOF
 set timeout -1
