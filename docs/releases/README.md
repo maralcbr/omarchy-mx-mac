@@ -10,7 +10,7 @@ Release preparation must:
 2. Add the release to `CHANGELOG.md`.
 3. Add `docs/releases/vX.Y.Z-mac.N.md` with user-facing changes, validation,
    known limitations when applicable, and a full-diff link.
-4. Run `tests/stable-release-test.sh` before creating the tag.
+4. Run `test/shell.d/stable-release-test.sh` before creating the tag.
 
 The notes file must exist in the tagged commit. The publishing workflow reads
 it with `git show`, validates its title and required sections, and passes the

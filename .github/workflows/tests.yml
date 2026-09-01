@@ -52,4 +52,4 @@ jobs:
       - name: Run CLI and shell suites
         run: ./test/all
       - name: Verify stable release contract
-        run: bash tests/stable-release-test.sh
+        run: bash test/shell.d/stable-release-test.sh

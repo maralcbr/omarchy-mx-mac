@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 version=$(<"$ROOT/version")
 notes="$ROOT/docs/releases/v$version.md"
 [[ -s $notes ]]
