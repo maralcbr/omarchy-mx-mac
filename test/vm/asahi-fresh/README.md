@@ -49,6 +49,6 @@ test/vm/asahi-fresh/run
 ```
 
 This opt-in path verifies the signed descriptor inside the guest, installs all
-21 candidate packages through the exact release repository, and checks their
+33 candidate packages through the exact release repository, and checks their
 versions again after the full install and reboot. It does not alter the stable
 repository pin used by the production installer or the default VM path.

@@ -33,8 +33,8 @@ if [[ -f /var/lib/omarchy/vm-package-candidate ]]; then
   [[ $(sha256sum "$candidate" | cut -d' ' -f1) == "${candidate_sha256,,}" ]] || fail "candidate descriptor checksum"
   grep -Fxq 'channel=candidate' "$candidate" || fail "candidate channel"
   grep -Eq '^release_tag=asahi-packages-candidate-[0-9a-f]{40}$' "$candidate" || fail "candidate release tag"
-  grep -Fxq 'package_count=21' "$candidate" || fail "candidate package count"
-  (( $(grep -c '^package=' "$candidate") == 21 )) || fail "candidate package inventory"
+  grep -Fxq 'package_count=33' "$candidate" || fail "candidate package count"
+  (( $(grep -c '^package=' "$candidate") == 33 )) || fail "candidate package inventory"
   pacman-key --finger "$candidate_primary_fingerprint" >/dev/null || fail "candidate signing certificate"
   while IFS='|' read -r _ package version _ _ _ _ _; do
     [[ $(pacman -Q "$package" | cut -d' ' -f2) == "$version" ]] || fail "candidate package version: $package"
