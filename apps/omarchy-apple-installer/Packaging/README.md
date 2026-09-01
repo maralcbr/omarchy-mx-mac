@@ -30,6 +30,13 @@ Provide a directory containing the production-owned `release.json` and the exact
 Packaging/build-app.sh /absolute/path/to/release-inputs /absolute/path/to/output
 ```
 
+For a private or offline build, the same directory may also contain the signed
+pair `catalog.json` and `catalog.json.sig`. The packager accepts the pair only
+when both are regular, non-symlinked files within the catalog size limits and
+the signature is exactly 64 bytes. The app verifies this sealed catalog with
+the same bundled Ed25519 trust root; when the pair is absent, it fetches the
+configured HTTPS catalog as normal.
+
 Build concurrency defaults to 10 workers so a 14-core Mac retains four cores for
 responsiveness. Override it with `OMARCHY_BUILD_JOBS`; the same value is exported
 as `CARGO_BUILD_JOBS` for nested Rust builds.

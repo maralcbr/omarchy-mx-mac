@@ -29,8 +29,8 @@ build_jobs="${OMARCHY_BUILD_JOBS:-10}"
   || fail "OMARCHY_BUILD_JOBS must be a positive integer"
 export CARGO_BUILD_JOBS="$build_jobs"
 
-marketing_version="${OMARCHY_APP_VERSION:-0.1.0}"
-build_number="${OMARCHY_APP_BUILD_NUMBER:-1}"
+marketing_version="${OMARCHY_APP_VERSION:-0.6.0}"
+build_number="${OMARCHY_APP_BUILD_NUMBER:-6}"
 signing_identity="${OMARCHY_APP_SIGNING_IDENTITY:--}"
 team_identifier="${OMARCHY_TEAM_ID:-}"
 
@@ -45,8 +45,8 @@ app_name="Omarchy MX Mac Installer.app"
 app_executable_name="OmarchyAppleInstallerApp"
 helper_executable_name="omarchy-apple-installer-helper"
 daemon_plist_name="$helper_identifier.plist"
-engine_file_name="installer-v0.9.0-omarchy.2.tar.gz"
-engine_digest="09eefcb25ba434f084a3b1e0700c3277629f67f1d3514f59bddd6107a39dfde5"
+engine_file_name="installer-v0.9.0-omarchy.7.tar.gz"
+engine_digest="063fd0765fb2057384d9653f7bf547b0471af31fc764e039d578d4fef6dce4d5"
 
 if [[ $signing_identity == "-" ]]; then
   client_requirement="identifier \"$app_identifier\""
@@ -59,6 +59,13 @@ else
   helper_requirement="anchor apple generic and identifier \"$helper_identifier\" and certificate leaf[subject.OU] = \"$team_identifier\""
   if [[ $signing_identity == "Developer ID Application:"* ]]; then
     timestamp_arguments=(--timestamp)
+  elif [[ $signing_identity =~ ^[0-9A-Fa-f]{40}$ ]] \
+    && security find-identity -p codesigning -v \
+      | grep -i "$signing_identity" | grep -q "Developer ID Application"; then
+    # Signing by SHA-1 fingerprint (duplicate same-name certificates make
+    # names ambiguous): resolve the certificate kind from the keychain so
+    # Developer ID builds keep the secure timestamp notarization requires.
+    timestamp_arguments=(--timestamp)
   else
     timestamp_arguments=(--timestamp=none)
   fi
@@ -66,6 +73,8 @@ fi
 
 release_descriptor="$release_directory/release.json"
 trust_root="$release_directory/trust-root.ed25519.pub"
+sealed_catalog="$release_directory/catalog.json"
+sealed_catalog_signature="$release_directory/catalog.json.sig"
 [[ -f $release_descriptor && ! -L $release_descriptor ]] \
   || fail "release.json is missing or unsafe"
 [[ -f $trust_root && ! -L $trust_root ]] \
@@ -75,26 +84,51 @@ trust_root="$release_directory/trust-root.ed25519.pub"
 (( $(stat -f %z "$trust_root") == 32 )) \
   || fail "trust-root.ed25519.pub must contain exactly 32 bytes"
 
+sealed_catalog_available=false
+if [[ -e $sealed_catalog || -L $sealed_catalog \
+  || -e $sealed_catalog_signature || -L $sealed_catalog_signature ]]; then
+  if [[ ! -f $sealed_catalog || -L $sealed_catalog ]]; then
+    fail "catalog.json is missing or unsafe"
+  fi
+  if [[ ! -f $sealed_catalog_signature || -L $sealed_catalog_signature ]]; then
+    fail "catalog.json.sig is missing or unsafe"
+  fi
+  catalog_size="$(stat -f %z "$sealed_catalog")"
+  if (( catalog_size <= 0 || catalog_size > 1048576 )); then
+    fail "catalog.json is empty or exceeds 1048576 bytes"
+  fi
+  if (( $(stat -f %z "$sealed_catalog_signature") != 64 )); then
+    fail "catalog.json.sig must contain exactly 64 bytes"
+  fi
+  sealed_catalog_available=true
+fi
+
 descriptor_schema="$(plutil -extract schema_version raw -o - "$release_descriptor")"
 descriptor_service="$(plutil -extract helper_mach_service_name raw -o - "$release_descriptor")"
 descriptor_requirement="$(plutil -extract helper_code_signing_requirement raw -o - "$release_descriptor")"
 descriptor_fingerprint="$(plutil -extract trust_root_fingerprint raw -o - "$release_descriptor")"
-[[ $descriptor_schema == "1" ]] \
-  || fail "release.json schema_version must be 1"
-[[ $descriptor_service == $helper_identifier ]] \
-  || fail "release.json helper service does not match the compiled product"
-[[ $descriptor_requirement == $helper_requirement ]] \
-  || fail "release.json helper signing requirement does not match this build"
-actual_fingerprint="sha256:$(shasum -a 256 "$trust_root" | awk '{print $1}')"
-[[ $descriptor_fingerprint == $actual_fingerprint ]] \
-  || fail "release.json trust root fingerprint does not match the public key"
+if [[ $descriptor_schema != "1" ]]; then
+  fail "release.json schema_version must be 1"
+fi
+if [[ $descriptor_service != "$helper_identifier" ]]; then
+  fail "release.json helper service does not match the compiled product"
+fi
+if [[ $descriptor_requirement != "$helper_requirement" ]]; then
+  fail "release.json helper signing requirement does not match this build"
+fi
+actual_fingerprint="sha256:$(/usr/bin/shasum -a 256 "$trust_root" | awk '{print $1}')"
+if [[ $descriptor_fingerprint != "$actual_fingerprint" ]]; then
+  fail "release.json trust root fingerprint does not match the public key"
+fi
 
 engine_source="$package_directory/Engine/artifacts/$engine_file_name"
-[[ -f $engine_source && ! -L $engine_source ]] \
-  || fail "the pinned validation engine artifact is missing"
-actual_engine_digest="$(shasum -a 256 "$engine_source" | awk '{print $1}')"
-[[ $actual_engine_digest == $engine_digest ]] \
-  || fail "the pinned validation engine digest is incorrect"
+if [[ ! -f $engine_source || -L $engine_source ]]; then
+  fail "the pinned validation engine artifact is missing"
+fi
+actual_engine_digest="$(/usr/bin/shasum -a 256 "$engine_source" | awk '{print $1}')"
+if [[ $actual_engine_digest != "$engine_digest" ]]; then
+  fail "the pinned validation engine digest is incorrect"
+fi
 
 mkdir -p "$output_directory"
 final_app="$output_directory/$app_name"
@@ -115,8 +149,17 @@ binary_directory="$({
 
 app_binary="$binary_directory/$app_executable_name"
 helper_binary="$binary_directory/OmarchyAppleInstallerHelper"
+app_icon_source="$package_directory/Sources/OmarchyAppleInstallerApp/Resources/omarchy-icon.png"
 [[ -x $app_binary ]] || fail "app executable was not built"
 [[ -x $helper_binary ]] || fail "helper executable was not built"
+if [[ ! -f $app_icon_source || -L $app_icon_source ]]; then
+  fail "authoritative Omarchy UI asset is missing"
+fi
+if [[ $(/usr/bin/shasum -a 256 "$app_icon_source" \
+  | awk '{print $1}') != \
+  "edd69e61d711d8b423555f27a5afc64935c299f6e7f779112d2ce970ec0236e4" ]]; then
+  fail "authoritative Omarchy UI asset digest is incorrect"
+fi
 
 assembly_root="$(mktemp -d "$output_directory/.omarchy-app.XXXXXX")"
 trap 'rm -rf "$assembly_root"' EXIT
@@ -134,7 +177,17 @@ install -m 0755 "$app_binary" "$contents/MacOS/$app_executable_name"
 install -m 0755 "$helper_binary" "$resources/$helper_executable_name"
 install -m 0444 "$release_descriptor" "$resources/Release/release.json"
 install -m 0444 "$trust_root" "$resources/Release/trust-root.ed25519.pub"
+if [[ $sealed_catalog_available == "true" ]]; then
+  install -m 0444 "$sealed_catalog" "$resources/Release/catalog.json"
+  install -m 0444 \
+    "$sealed_catalog_signature" \
+    "$resources/Release/catalog.json.sig"
+fi
 install -m 0444 "$engine_source" "$resources/Engine/artifacts/$engine_file_name"
+install -m 0444 \
+  "$script_directory/OmarchyInstaller.icns" \
+  "$resources/OmarchyInstaller.icns"
+install -m 0444 "$app_icon_source" "$resources/omarchy-icon.png"
 install -m 0444 "$script_directory/Info.plist" "$contents/Info.plist"
 install -m 0444 \
   "$script_directory/$daemon_plist_name" \
