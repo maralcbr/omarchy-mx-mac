@@ -1,0 +1,368 @@
+#!/bin/bash
+
+set -euo pipefail
+
+DEFAULT_SPLIT_BYTES=1992294400
+MAXIMUM_PART_COUNT=16
+RELEASE_LOGIN="maralcbr"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  publish-m1-release prepare --payload FILE --engine FILE --metadata FILE \
+      --tag TAG --repo OWNER/REPO [--repair-manifest FILE] [--out-dir DIR] \
+      [--split-bytes N] [--force]
+  publish-m1-release publish --dir DIR --app FILE --tag TAG --repo OWNER/REPO \
+      --notes-file FILE [--title TITLE]
+
+prepare stages the release assets into --out-dir (default
+dist/m1-release/TAG), splits an oversized payload into <payload>.partNN
+files, and writes SHA256SUMS plus release-urls.env. Run
+make-unsigned-catalog.py against the same directory afterwards: the URLs are
+deterministic before the release exists.
+
+publish uploads the staged assets to the already pushed tag. Published assets
+are never deleted, replaced, or clobbered; an asset that differs from the
+staged bytes is a hard error that requires cutting a new tag.
+EOF
+  exit 1
+}
+
+die() {
+  echo "publish-m1-release: $1" >&2
+  exit 1
+}
+
+require_file() {
+  [[ -f $1 && ! -L $1 ]] || die "missing or unsafe file: $1"
+}
+
+file_size() {
+  wc -c <"$1" | tr -d ' '
+}
+
+file_digest() {
+  shasum -a 256 "$1" | cut -d ' ' -f 1
+}
+
+validate_tag() {
+  [[ $1 =~ ^v[0-9A-Za-z][0-9A-Za-z.+_-]*$ ]] || die "invalid tag: $1"
+}
+
+validate_repo() {
+  [[ $1 =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || die "invalid repo: $1"
+}
+
+stage_asset() {
+  local source=$1 destination=$2 force=$3
+  local name
+  name=$(basename "$destination")
+  if [[ -f $destination ]]; then
+    if cmp -s "$source" "$destination"; then
+      echo "  reused $name"
+      return 0
+    fi
+    [[ $force == "yes" ]] ||
+      die "$name is already staged with different bytes; publish a new tag or re-run with --force"
+    rm -f "$destination"
+  fi
+  cp "$source" "$destination"
+  echo "  staged $name"
+}
+
+payload_part_names() {
+  local out_dir=$1 payload_name=$2 part
+  for part in "$out_dir/$payload_name".part[0-9][0-9]; do
+    [[ -f $part ]] || continue
+    basename "$part"
+  done
+}
+
+staged_parts_match_payload() {
+  local out_dir=$1 payload_name=$2
+  local payload_digest=$3
+  local names name total=0 size
+  names=$(payload_part_names "$out_dir" "$payload_name")
+  [[ -n $names ]] || return 1
+
+  local index=0
+  while IFS= read -r name; do
+    [[ $name == "$(printf '%s.part%02d' "$payload_name" $index)" ]] || return 1
+    size=$(file_size "$out_dir/$name")
+    total=$((total + size))
+    index=$((index + 1))
+  done <<<"$names"
+  (( index >= 2 )) || return 1
+  (( total == $(file_size "$out_dir/$payload_name") )) || return 1
+
+  local concatenated
+  concatenated=$(
+    while IFS= read -r name; do
+      cat "$out_dir/$name"
+    done <<<"$names" | shasum -a 256 | cut -d ' ' -f 1
+  )
+  [[ $concatenated == "$payload_digest" ]]
+}
+
+split_payload() {
+  local out_dir=$1 payload_name=$2 split_bytes=$3
+  local prefix="$out_dir/.split-$payload_name."
+  local part index=0 target
+
+  rm -f "$prefix"*
+  rm -f "$out_dir/$payload_name".part[0-9][0-9]
+  split -b "$split_bytes" "$out_dir/$payload_name" "$prefix"
+
+  for part in "$prefix"*; do
+    [[ -f $part ]] || die "split produced no parts for $payload_name"
+    target=$(printf '%s/%s.part%02d' "$out_dir" "$payload_name" $index)
+    mv "$part" "$target"
+    echo "  split  $(basename "$target")"
+    index=$((index + 1))
+  done
+
+  (( index >= 2 )) || die "payload split produced $index part(s); expected at least 2"
+  (( index <= MAXIMUM_PART_COUNT )) ||
+    die "payload split produced $index parts; the app accepts at most $MAXIMUM_PART_COUNT"
+}
+
+prepare_release() {
+  local payload="" engine="" metadata="" repair_manifest=""
+  local tag="" repo="" out_dir="" force="no"
+  local split_bytes=$DEFAULT_SPLIT_BYTES
+
+  while (( $# > 0 )); do
+    case $1 in
+      --payload) payload=${2:-}; shift 2 ;;
+      --engine) engine=${2:-}; shift 2 ;;
+      --metadata) metadata=${2:-}; shift 2 ;;
+      --repair-manifest) repair_manifest=${2:-}; shift 2 ;;
+      --tag) tag=${2:-}; shift 2 ;;
+      --repo) repo=${2:-}; shift 2 ;;
+      --out-dir) out_dir=${2:-}; shift 2 ;;
+      --split-bytes) split_bytes=${2:-}; shift 2 ;;
+      --force) force="yes"; shift ;;
+      *) usage ;;
+    esac
+  done
+
+  [[ -n $payload && -n $engine && -n $metadata && -n $tag && -n $repo ]] || usage
+  validate_tag "$tag"
+  validate_repo "$repo"
+  [[ $split_bytes =~ ^[1-9][0-9]*$ ]] || die "--split-bytes must be a positive integer"
+  require_file "$payload"
+  require_file "$engine"
+  require_file "$metadata"
+  [[ -z $repair_manifest ]] || require_file "$repair_manifest"
+  [[ -n $out_dir ]] || out_dir="dist/m1-release/$tag"
+  [[ ! -L $out_dir ]] || die "unsafe output directory: $out_dir"
+  mkdir -p "$out_dir"
+
+  local payload_name engine_name metadata_name repair_name=""
+  payload_name=$(basename "$payload")
+  engine_name=$(basename "$engine")
+  metadata_name=$(basename "$metadata")
+  [[ -z $repair_manifest ]] || repair_name=$(basename "$repair_manifest")
+
+  echo "Staging assets into $out_dir"
+  stage_asset "$engine" "$out_dir/$engine_name" "$force"
+  stage_asset "$metadata" "$out_dir/$metadata_name" "$force"
+  stage_asset "$payload" "$out_dir/$payload_name" "$force"
+  [[ -z $repair_name ]] ||
+    stage_asset "$repair_manifest" "$out_dir/$repair_name" "$force"
+
+  local payload_bytes payload_digest part_names="" part_count=0
+  payload_bytes=$(file_size "$out_dir/$payload_name")
+  payload_digest=$(file_digest "$out_dir/$payload_name")
+
+  if (( payload_bytes > split_bytes )); then
+    if staged_parts_match_payload "$out_dir" "$payload_name" "$payload_digest"; then
+      echo "  reused existing payload parts"
+    else
+      split_payload "$out_dir" "$payload_name" "$split_bytes"
+    fi
+    part_names=$(payload_part_names "$out_dir" "$payload_name" | tr '\n' ' ')
+    part_names=${part_names% }
+    part_count=$(payload_part_names "$out_dir" "$payload_name" | wc -l | tr -d ' ')
+  else
+    rm -f "$out_dir/$payload_name".part[0-9][0-9]
+  fi
+
+  local release_assets="$engine_name $metadata_name"
+  if (( part_count > 0 )); then
+    release_assets="$release_assets $part_names"
+  else
+    release_assets="$release_assets $payload_name"
+  fi
+  [[ -z $repair_name ]] || release_assets="$release_assets $repair_name"
+  release_assets="$release_assets SHA256SUMS"
+
+  local sums_inputs="$engine_name $metadata_name $payload_name"
+  [[ -z $part_names ]] || sums_inputs="$sums_inputs $part_names"
+  [[ -z $repair_name ]] || sums_inputs="$sums_inputs $repair_name"
+  ( cd "$out_dir" && shasum -a 256 $sums_inputs >SHA256SUMS )
+
+  local base_url="https://github.com/$repo/releases/download/$tag"
+  cat >"$out_dir/release-urls.env" <<EOF
+# Generated by publish-m1-release prepare. Do not edit.
+BASE_URL=$base_url
+REPO=$repo
+TAG=$tag
+ENGINE_ASSET=$engine_name
+METADATA_ASSET=$metadata_name
+PAYLOAD_FILE=$payload_name
+PAYLOAD_PART_COUNT=$part_count
+PAYLOAD_PART_ASSETS="$part_names"
+REPAIR_MANIFEST_ASSET=$repair_name
+RELEASE_ASSETS="$release_assets"
+EOF
+
+  echo
+  echo "payload_bytes=$payload_bytes"
+  echo "payload_parts=$part_count"
+  echo "out_dir=$out_dir"
+  echo "sha256sums=$out_dir/SHA256SUMS"
+  echo "release_urls=$out_dir/release-urls.env"
+  echo
+  echo "Next: make-unsigned-catalog.py --base-url $base_url --assets-dir $out_dir"
+}
+
+confirm_publication() {
+  local tag=$1 repo=$2 assets=$3 answer
+  # Explicit non-interactive opt-in for an owner-authorized publish. The value
+  # must name the exact tag being published, so it cannot be a blanket setting
+  # left on by accident.
+  if [[ ${OMARCHY_PUBLISH_ASSUME_YES:-} == "$tag" ]]; then
+    echo "publication confirmed for $repo tag $tag via OMARCHY_PUBLISH_ASSUME_YES" >&2
+    return 0
+  fi
+  [[ -t 0 || -e /dev/tty ]] || die "publication requires an interactive terminal"
+  {
+    echo
+    echo "About to publish to $repo tag $tag:"
+    echo "  $assets"
+    echo "Assets are uploaded once and never replaced."
+    printf 'Type "publish" to continue: '
+  } >/dev/tty
+  read -r answer </dev/tty || die "publication cancelled"
+  [[ $answer == "publish" ]] || die "publication cancelled"
+}
+
+remote_asset_field() {
+  local listing=$1 name=$2 column=$3
+  awk -F '\t' -v name="$name" -v column="$column" '$1 == name { print $column }' "$listing"
+}
+
+publish_release() {
+  local dir="" app="" tag="" repo="" notes_file="" title=""
+
+  while (( $# > 0 )); do
+    case $1 in
+      --dir) dir=${2:-}; shift 2 ;;
+      --app) app=${2:-}; shift 2 ;;
+      --tag) tag=${2:-}; shift 2 ;;
+      --repo) repo=${2:-}; shift 2 ;;
+      --notes-file) notes_file=${2:-}; shift 2 ;;
+      --title) title=${2:-}; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+
+  [[ -n $dir && -n $app && -n $tag && -n $repo && -n $notes_file ]] || usage
+  validate_tag "$tag"
+  validate_repo "$repo"
+  [[ -d $dir && ! -L $dir ]] || die "missing or unsafe release directory: $dir"
+  require_file "$app"
+  require_file "$notes_file"
+  require_file "$dir/release-urls.env"
+  require_file "$dir/SHA256SUMS"
+
+  BASE_URL=""; REPO=""; TAG=""; RELEASE_ASSETS=""
+  # shellcheck source=/dev/null
+  . "$dir/release-urls.env"
+  [[ $TAG == "$tag" ]] || die "release-urls.env pins tag $TAG, not $tag"
+  [[ $REPO == "$repo" ]] || die "release-urls.env pins repo $REPO, not $repo"
+  [[ -n $RELEASE_ASSETS ]] || die "release-urls.env lists no assets"
+
+  local login
+  login=$(gh api user --jq .login)
+  [[ $login == "$RELEASE_LOGIN" ]] ||
+    die "gh is authenticated as $login; expected $RELEASE_LOGIN"
+  git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null ||
+    die "tag $tag is not pushed to origin"
+
+  local app_name asset
+  app_name=$(basename "$app")
+  for asset in $RELEASE_ASSETS; do
+    require_file "$dir/$asset"
+  done
+  confirm_publication "$tag" "$repo" "$RELEASE_ASSETS $app_name"
+
+  local listing
+  listing=$(mktemp -t publish-m1-release)
+  trap 'rm -f "${listing:-}"' EXIT
+
+  if gh api "repos/$repo/releases/tags/$tag" >/dev/null 2>&1; then
+    echo "Release $tag already exists; comparing published assets."
+  else
+    echo "Creating release $tag."
+    gh release create "$tag" \
+      --repo "$repo" \
+      --verify-tag \
+      --title "${title:-$tag}" \
+      --notes-file "$notes_file"
+  fi
+
+  local source_path remote_size remote_digest local_size local_digest
+  for asset in $RELEASE_ASSETS $app_name; do
+    source_path="$dir/$asset"
+    [[ $asset != "$app_name" ]] || source_path=$app
+    gh api "repos/$repo/releases/tags/$tag" \
+      --jq '.assets[] | [.name, (.size|tostring), (.digest // "")] | @tsv' >"$listing"
+    remote_size=$(remote_asset_field "$listing" "$asset" 2)
+    if [[ -z $remote_size ]]; then
+      echo "  uploading $asset"
+      gh release upload "$tag" --repo "$repo" "$source_path"
+      continue
+    fi
+    local_size=$(file_size "$source_path")
+    remote_digest=$(remote_asset_field "$listing" "$asset" 3)
+    local_digest="sha256:$(file_digest "$source_path")"
+    if (( remote_size != local_size )); then
+      die "published $asset is $remote_size bytes but staged bytes are $local_size; publish a new tag"
+    fi
+    if [[ -n $remote_digest && $remote_digest != "$local_digest" ]]; then
+      die "published $asset is $remote_digest but staged bytes are $local_digest; publish a new tag"
+    fi
+    echo "  matched $asset"
+  done
+
+  gh api "repos/$repo/releases/tags/$tag" \
+    --jq '.assets[] | [.name, .browser_download_url] | @tsv' >"$listing"
+  echo
+  echo "Published assets:"
+  local url expected
+  for asset in $RELEASE_ASSETS $app_name; do
+    url=$(remote_asset_field "$listing" "$asset" 2)
+    [[ -n $url ]] || die "$asset is missing from release $tag"
+    if [[ $asset != "$app_name" ]]; then
+      expected="$BASE_URL/$asset"
+      [[ $url == "$expected" ]] ||
+        die "$asset resolved to $url but release-urls.env expects $expected"
+    fi
+    echo "  $url"
+  done
+}
+
+main() {
+  (( $# > 0 )) || usage
+  local subcommand=$1
+  shift
+  case $subcommand in
+    prepare) prepare_release "$@" ;;
+    publish) publish_release "$@" ;;
+    *) usage ;;
+  esac
+}
+
+main "$@"

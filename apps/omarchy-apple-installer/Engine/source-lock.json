@@ -1,0 +1,258 @@
+{
+  "schema_version": 2,
+  "status": "reproducible_validation_artifact_unsigned",
+  "source_acquisition": "verified-git-object-graph",
+  "upstream_installer": {
+    "repository": "https://github.com/AsahiLinux/asahi-installer.git",
+    "tag": "v0.9.0",
+    "tag_object": "4a579361edc1e0f65569ce2fe0efde737c248509",
+    "commit": "f0469cea0899f3efed8efead604174c7a53c4451",
+    "tag_signature": {
+      "verification": "good_at_signature_time_key_now_expired",
+      "primary_fingerprint": "8B336A6BE4E5695E89B8532B81E806F586338419",
+      "signing_subkey_fingerprint": "622BE98800AB7C215C7DE056A11B3CDB8D2F6566",
+      "key_source": "https://github.com/jannau.gpg"
+    },
+    "submodules": [
+      {
+        "name": "m1n1",
+        "repository": "https://github.com/AsahiLinux/m1n1.git",
+        "commit": "06a4601a351ebfd1abb6abba9a44c34e40d94776",
+        "submodules": [
+          {
+            "name": "artwork",
+            "repository": "https://github.com/AsahiLinux/artwork.git",
+            "commit": "80d14f8b6f485b310e305a84b4b806361518ddd1"
+          }
+        ]
+      },
+      {
+        "name": "artwork",
+        "repository": "https://github.com/AsahiLinux/artwork.git",
+        "commit": "634948f40aea08fafde8f5fe8f4221c248a7df46"
+      }
+    ]
+  },
+  "upstream_metadata": {
+    "repository": "https://github.com/AsahiLinux/asahi-installer-data.git",
+    "commit": "42648e71423eba308d2e3e6228253eff679b068b"
+  },
+  "build_inputs": [
+    {
+      "filename": "python-3.13.9-macos11.pkg",
+      "url": "https://www.python.org/ftp/python/3.13.9/python-3.13.9-macos11.pkg",
+      "size_bytes": 70163313,
+      "sha256": "dafebf62b8737f341f6b7eca2d6d1153a50a6b1bfbfa4b8aaf0e62adc73e5017"
+    },
+    {
+      "filename": "libffi-3.5.2-macos.tar.gz",
+      "url": "https://ghcr.io/v2/homebrew/core/libffi/blobs/sha256:564ce412bbf20deb184e488fe9b1cbf94b5c770965e48567c829a5f580141a95",
+      "size_bytes": 221915,
+      "sha256": "564ce412bbf20deb184e488fe9b1cbf94b5c770965e48567c829a5f580141a95"
+    },
+    {
+      "filename": "certifi-cacert-2026.07.22.pem",
+      "url": "https://raw.githubusercontent.com/certifi/python-certifi/2026.07.22/certifi/cacert.pem",
+      "size_bytes": 240216,
+      "sha256": "9cc2a774b5198dcff14d9be1e66091f538975d867ce029a96bce15a55dfd730f"
+    }
+  ],
+  "build_toolchain": {
+    "platform": "arm64-apple-darwin",
+    "default_jobs": 10,
+    "source_date_epoch": 1786436181,
+    "rust_target": "aarch64-unknown-none-softfloat",
+    "tools": {
+      "clang": {
+        "path": "/opt/homebrew/opt/llvm/bin/clang",
+        "version": "Homebrew clang version 22.1.8"
+      },
+      "lld": {
+        "path": "/opt/homebrew/opt/lld/bin/ld.lld",
+        "version": "Homebrew LLD 22.1.8 (compatible with GNU linkers)"
+      },
+      "rustc": {
+        "path": "/Users/maralc/.cargo/bin/rustc",
+        "version": "rustc 1.89.0 (29483883e 2025-08-04)"
+      },
+      "cargo": {
+        "path": "/Users/maralc/.cargo/bin/cargo",
+        "version": "cargo 1.89.0 (c24e10642 2025-06-23)"
+      },
+      "make": {
+        "path": "/usr/bin/make",
+        "version": "GNU Make 3.81"
+      },
+      "bsdtar": {
+        "path": "/usr/bin/bsdtar",
+        "version": "bsdtar 3.5.3 - libarchive 3.7.4 zlib/1.2.12 liblzma/5.4.3 bz2lib/1.0.8 "
+      },
+      "cpio": {
+        "path": "/usr/bin/cpio",
+        "version": "bsdcpio 3.5.3 - libarchive 3.7.4 zlib/1.2.12 liblzma/5.4.3 bz2lib/1.0.8 "
+      },
+      "gtar": {
+        "path": "/opt/homebrew/bin/gtar",
+        "version": "tar (GNU tar) 1.35"
+      },
+      "gzip": {
+        "path": "/opt/homebrew/opt/gzip/bin/gzip",
+        "version": "gzip 1.14"
+      },
+      "seven_zip": {
+        "path": "/opt/homebrew/bin/7z",
+        "version": "7-Zip [64] 17.05 : Copyright (c) 1999-2021 Igor Pavlov : 2017-08-28"
+      }
+    }
+  },
+  "full_os_payload": {
+    "filename": "omarchy-2026.09.01-aarch64-apple-silicon-asahi-os-package.zip",
+    "admission": "sealed-catalog-signature-plus-exact-size-and-sha256",
+    "size_bytes": 3638034944,
+    "sha256": "ccd48c3ce69962cae6a574f630feca32072f18f610a2b5b84b07993fd2cc18e9",
+    "images": [
+      {
+        "path": "esp/",
+        "partition": "EFI",
+        "size_bytes": 524288000
+      },
+      {
+        "path": "boot.img",
+        "partition": "Linux filesystem",
+        "size_bytes": 2147483648
+      },
+      {
+        "path": "root.img",
+        "partition": "Linux filesystem",
+        "size_bytes": 34359738368,
+        "expand": true
+      }
+    ],
+    "installed_content_evidence": "required",
+    "uefi_source": {
+      "filename": "uefi-only-20260810-asahi-7.1.6-1.zip",
+      "url": "https://cdn.asahilinux.org/os/uefi-only-20260810-asahi-7.1.6-1.zip",
+      "size_bytes": 1005310,
+      "sha256": "80e3826665ba92380c32fbab3a0f8e4b5e738941d4baecb7a3d91b1894e4f699",
+      "contents": [
+        "esp/m1n1/boot.bin"
+      ],
+      "firmware_copy_is_installer_managed": true
+    }
+  },
+  "downstream_overlay": {
+    "version": "v0.9.0-omarchy.6",
+    "capability": "candidate_bound_full_os_stage_one_authenticated_recovery",
+    "engine_modes": [
+      "inspect",
+      "plan",
+      "install"
+    ],
+    "patch": {
+      "path": "patches/0001-omarchy-engine-runtime.patch",
+      "sha256": "b95b969a2146d57e7a5530e9985638579d37503c4abfb108836debf6a9d0712c"
+    },
+    "metadata": {
+      "path": "installer_data.json",
+      "sha256": "34fc87e269bece044c19d9e8f5bb1cf495f2c35541e373d6308c604e9adc58ba"
+    },
+    "files": [
+      {
+        "path": "overlay/m1n1/data/bootlogo_48.bin",
+        "destination": "m1n1/data/bootlogo_48.bin",
+        "sha256": "6668050653645711ad7523fe2abeb4cbe85a92c875f3eec754b6db23cea2191c"
+      },
+      {
+        "path": "overlay/m1n1/data/bootlogo_128.bin",
+        "destination": "m1n1/data/bootlogo_128.bin",
+        "sha256": "b19cb017645c7a9068ea0be9b6bb394131d7ca11b28093cf6caa1ffca74b0a4e"
+      },
+      {
+        "path": "overlay/m1n1/data/bootlogo_256.bin",
+        "destination": "m1n1/data/bootlogo_256.bin",
+        "sha256": "9c659b392aacfa31c62c638003d2257abfdbe17919b5c90cde4c4e62f87addab"
+      },
+      {
+        "path": "overlay/src/omarchy_asahi.py",
+        "destination": "src/omarchy_asahi.py",
+        "sha256": "6da5c83b9224cefbb1baf2352aaf11f7a55e1bf02845f2418bde80c07e57e523"
+      },
+      {
+        "path": "overlay/src/omarchy_contract.py",
+        "destination": "src/omarchy_contract.py",
+        "sha256": "39d31589b306f8eb00830f786bf6e048018fea5dc31f12e504b3f6afc23b4723"
+      },
+      {
+        "path": "overlay/src/omarchy_execution.py",
+        "destination": "src/omarchy_execution.py",
+        "sha256": "ceb7b8fe072224224a39591968fab51aee768680e20409204704b03a92a1de04"
+      },
+      {
+        "path": "overlay/src/omarchy_planner.py",
+        "destination": "src/omarchy_planner.py",
+        "sha256": "6bf8eb6b026f43c329fce6d8f226b7c844155e90b35ecac78bebce36b15b653c"
+      },
+      {
+        "path": "overlay/src/omarchy_runtime.py",
+        "destination": "src/omarchy_runtime.py",
+        "sha256": "a34ad5c15025b1307cb9f114153b4218cf586bf8bf88ee5d22e02febab3702f5"
+      },
+      {
+        "path": "overlay/src/omarchy_stage1.py",
+        "destination": "src/omarchy_stage1.py",
+        "sha256": "3b5ca1426944f8c260e0ccb52df5ff1a4456d26a09473680876c7747ef9922ac"
+      },
+      {
+        "path": "overlay/tests/test_omarchy_asahi.py",
+        "destination": "tests/test_omarchy_asahi.py",
+        "sha256": "c6713a92dbc10eb2e0b21b697dced3b71cb3d9a04cadb0a611c3d3979bc6e595"
+      },
+      {
+        "path": "overlay/tests/test_omarchy_contract.py",
+        "destination": "tests/test_omarchy_contract.py",
+        "sha256": "de6423d243946a3b4d95f3c06eb72ad3bca4f2a1754d544f375cd9183fc41c53"
+      },
+      {
+        "path": "overlay/tests/test_omarchy_execution.py",
+        "destination": "tests/test_omarchy_execution.py",
+        "sha256": "5f6d009385e77e54b52f834f57201674da5b54618b3111307b7aecd87ffdcfb4"
+      },
+      {
+        "path": "overlay/tests/test_omarchy_planner.py",
+        "destination": "tests/test_omarchy_planner.py",
+        "sha256": "a384316bf086d19813433a27914052e3909d2aef7606715a1b66c3efaa7fe1bb"
+      },
+      {
+        "path": "overlay/tests/test_omarchy_runtime.py",
+        "destination": "tests/test_omarchy_runtime.py",
+        "sha256": "5ceb472f794c242606eb08388ba984047bc0c71ecb39ad7ca641e3ff5e302cbb"
+      },
+      {
+        "path": "overlay/tests/test_omarchy_stage1.py",
+        "destination": "tests/test_omarchy_stage1.py",
+        "sha256": "dd7d4b909a9ee57863fb9c4f5f731ab51086e1a16bbf787447477bbe6d0bffb3"
+      }
+    ]
+  },
+  "build_recipe": [
+    {
+      "path": "build-locked-engine.sh",
+      "sha256": "1c1618fcf4a3d162d50f7560cc245be96c56d2ae4b68a0ef64fd3afbd07214c6"
+    },
+    {
+      "path": "verify-archive-modes.py",
+      "sha256": "bcbff0ab5a123c2c90548a4b5b0ebe6ec59cae20daf4a5bb0d649884dd232cc2"
+    },
+    {
+      "path": "verify-source-lock.py",
+      "sha256": "875284f3219a831deceb9b4b0b07ce0a064e1c53f40242903835589e89bd06e0"
+    }
+  ],
+  "validation_artifact": {
+    "filename": "installer-v0.9.0-omarchy.7.tar.gz",
+    "size_bytes": 17904504,
+    "sha256": "063fd0765fb2057384d9653f7bf547b0471af31fc764e039d578d4fef6dce4d5",
+    "reproducibility_scope": "two-clean-builds-same-host-pinned-toolchain",
+    "signature": "absent"
+  }
+}

@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "target": {
+    "architecture": "aarch64",
+    "platform": "apple-silicon",
+    "boot_backend": "asahi-grub",
+    "artifact_kind": "iso"
+  },
+  "safety_invariants": [
+    "never-write-apfs-or-whole-disk-from-linux",
+    "never-write-internal-esp-from-removable-media",
+    "only-write-the-signed-handoff-extent",
+    "preserve-the-asahi-paired-system-esp",
+    "never-install-limine-on-apple-silicon"
+  ],
+  "engine_artifact": {
+    "source_lock": "apps/omarchy-apple-installer/Engine/source-lock.json",
+    "source_lock_sha256": "e54ac07229f7735a30d04497c2e92f87d5f440016ac72f667f7fc9a510b1e618",
+    "status": "reproducible-validation-artifact-unsigned",
+    "filename": "installer-v0.9.0-omarchy.7.tar.gz",
+    "size_bytes": 17904504,
+    "sha256": "063fd0765fb2057384d9653f7bf547b0471af31fc764e039d578d4fef6dce4d5",
+    "signature": null,
+    "reproducibility_scope": "two-clean-builds-same-host-pinned-toolchain"
+  },
+  "readiness": {
+    "ready": false,
+    "blockers": [
+      "signed-engine-artifact-absent",
+      "apple-live-media-build-unverified",
+      "bootaa64-assembly-unverified",
+      "platform-stack-transaction-unverified",
+      "physical-install-evidence-absent"
+    ]
+  },
+  "update_policy": {
+    "platform_transaction_owner": "asahi-alarm",
+    "omarchy_transaction_owner": "omarchy-signed-channel",
+    "asahi_repository_key_fingerprint": "12CE6799A94A3F1B5DDFFE88F576553597FB8FEB",
+    "asahi_repository_snapshot": "45918ecb078813808d9eace5d6ccca57463c15439d46483e11337c9a39aae08f",
+    "rule": "Boot-critical Asahi packages must be pinned and verified as one compatible platform transaction before physical installation."
+  },
+  "release_lifecycle": {
+    "stage": "development",
+    "public_release_authorized": false,
+    "physical_allowlist": [],
+    "preview": {
+      "channel": "signed-apple-preview",
+      "enablement": "exact-device-tree-catalog-only",
+      "gate": "platform-ready-and-every-allowlisted-model-passes-physical-matrix",
+      "readme_install_path": "retain-current-asahi-minimal-until-preview-gate"
+    },
+    "promotion": {
+      "target": "standard-signed-omarchy-channel",
+      "requires": [
+        "preview-allowlist-complete",
+        "install-reboot-recovery-update-rollback-pass",
+        "signed-artifact-chain-complete"
+      ]
+    },
+    "rollback": {
+      "sequence_policy": "reject-lower-sequence",
+      "action": "publish-higher-sequence-disable-record-pointing-to-last-known-good",
+      "recovery_assets": "retain"
+    },
+    "removal": {
+      "mode": "archive-and-disable-never-delete-lineage",
+      "preserve": [
+        "signed-manifests-and-signatures",
+        "iso-and-platform-recovery-assets",
+        "source-commit-provenance",
+        "sanitized-acceptance-evidence",
+        "migration-and-rollback-instructions"
+      ]
+    },
+    "source_provenance": {
+      "required": true,
+      "fields": [
+        "iso-source-commit",
+        "omarchy-source-commit",
+        "package-source-commit",
+        "asahi-source-lock",
+        "platform-snapshot-sha256",
+        "media-evidence-sha256"
+      ]
+    }
+  },
+  "components": [
+    {
+      "id": "apple-boot-policy",
+      "owner": "asahi-installer-recoveryos",
+      "update_authority": "machine-owner-in-paired-1tr",
+      "delivery": "installer-generated",
+      "packages": [],
+      "required": true,
+      "condition": "all-supported-models",
+      "mutation_scope": "recoveryos-authorized-stub-only",
+      "state": "blocked",
+      "blocker": "signed-engine-artifact-absent"
+    },
+    {
+      "id": "m1n1-stage1",
+      "owner": "asahi-installer-recoveryos",
+      "update_authority": "machine-owner-in-paired-1tr",
+      "delivery": "installer-generated",
+      "packages": [],
+      "required": true,
+      "condition": "all-supported-models",
+      "mutation_scope": "recoveryos-authorized-stub-only",
+      "state": "blocked",
+      "blocker": "signed-engine-artifact-absent"
+    },
+    {
+      "id": "installed-platform-bundle",
+      "owner": "asahi-alarm",
+      "update_authority": "installed-system-package-manager",
+      "delivery": "required-preinstalled",
+      "packages": [
+        "linux-asahi",
+        "m1n1",
+        "uboot-asahi",
+        "asahi-scripts"
+      ],
+      "required": true,
+      "condition": "all-supported-models",
+      "mutation_scope": "paired-internal-system-esp-only",
+      "state": "blocked",
+      "blocker": "platform-stack-transaction-unverified"
+    },
+    {
+      "id": "machine-firmware",
+      "owner": "asahi-installer",
+      "update_authority": "machine-specific-firmware-collector",
+      "delivery": "omarchy-manifest",
+      "packages": [
+        "asahi-fwextract"
+      ],
+      "required": true,
+      "condition": "all-supported-models",
+      "mutation_scope": "signed-target-vendorfw-only",
+      "state": "blocked",
+      "blocker": "signed-engine-artifact-absent"
+    },
+    {
+      "id": "installed-grub",
+      "owner": "asahi-alarm",
+      "update_authority": "installed-system-package-manager",
+      "delivery": "required-preinstalled",
+      "packages": [
+        "grub"
+      ],
+      "required": true,
+      "condition": "all-supported-models",
+      "mutation_scope": "paired-internal-system-esp-only",
+      "state": "blocked",
+      "blocker": "platform-stack-transaction-unverified"
+    },
+    {
+      "id": "removable-media-grub",
+      "owner": "omarchy-iso",
+      "update_authority": "signed-iso-release",
+      "delivery": "apple-iso",
+      "packages": [],
+      "required": true,
+      "condition": "installer-and-rescue-media",
+      "mutation_scope": "removable-media-only",
+      "state": "blocked",
+      "blocker": "bootaa64-assembly-unverified"
+    },
+    {
+      "id": "asahi-kernel",
+      "owner": "asahi-alarm",
+      "update_authority": "installed-system-package-manager",
+      "delivery": "omarchy-manifest",
+      "packages": [
+        "linux-asahi",
+        "linux-asahi-headers"
+      ],
+      "required": true,
+      "condition": "all-supported-models",
+      "mutation_scope": "linux-filesystems-only",
+      "state": "blocked",
+      "blocker": "apple-live-media-build-unverified"
+    },
+    {
+      "id": "audio-and-speaker-safety",
+      "owner": "asahi-alarm",
+      "update_authority": "installed-system-package-manager",
+      "delivery": "required-preinstalled",
+      "packages": [
+        "asahi-audio",
+        "speakersafetyd"
+      ],
+      "required": true,
+      "condition": "models-with-supported-speakers",
+      "mutation_scope": "linux-filesystems-only",
+      "state": "blocked",
+      "blocker": "platform-stack-transaction-unverified"
+    },
+    {
+      "id": "touch-bar-support",
+      "owner": "asahi-alarm",
+      "update_authority": "installed-system-package-manager",
+      "delivery": "model-conditional",
+      "packages": [
+        "tiny-dfr"
+      ],
+      "required": false,
+      "condition": "touch-bar-models-only",
+      "mutation_scope": "linux-filesystems-only",
+      "state": "conditional",
+      "blocker": null
+    }
+  ]
+}

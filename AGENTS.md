@@ -121,3 +121,17 @@ omarchy-refresh-config hypr/hyprland.lua
 This copies `$OMARCHY_PATH/config/hypr/hyprland.lua` to `~/.config/hypr/hyprland.lua`. The argument
 is interpolated into both paths and only checked with `[[ -e ]]`, so pass a plain relative path: a
 name containing `..` resolves and copies, landing outside `~/.config` rather than being rejected.
+
+# Apple Silicon integration safety
+
+For Apple Silicon handoff, installer, trust, authorization, ISO, package,
+release, or physical-device work, read
+[`docs/apple-silicon-m4-integration-matrix.md`](docs/apple-silicon-m4-integration-matrix.md)
+before acting.
+
+Keep integration source-only and local. Stop and obtain the owner's explicit
+authorization immediately before any push, pull request, merge, signing,
+notarization, publication, channel change, deployment, installed-user
+integration, user-default change, privileged authorization run, or physical
+device mutation. Keep public release authorization false, the physical
+allowlist empty, and `apple,j614s` rejected until that authorization is given.

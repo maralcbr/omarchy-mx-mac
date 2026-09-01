@@ -1,0 +1,228 @@
+#!/bin/bash
+
+# omarchy:summary=Validate the Apple Silicon platform ownership contract
+# omarchy:args=[--require-ready] [FILE]
+# omarchy:hidden=true
+
+set -euo pipefail
+
+require_ready=0
+contract_explicit=0
+contract="${OMARCHY_PATH}/install/apple-silicon-platform-stack.json"
+
+fail() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+while (($#)); do
+  case "$1" in
+    --require-ready)
+      require_ready=1
+      shift
+      ;;
+    --help|-h)
+      echo "Usage: omarchy-apple-platform-stack-verify [--require-ready] [FILE]"
+      exit 0
+      ;;
+    --*)
+      fail "Unknown option: $1"
+      ;;
+    *)
+      (( contract_explicit == 0 )) || fail "Only one contract file may be specified"
+      contract="$1"
+      contract_explicit=1
+      shift
+      ;;
+  esac
+done
+
+[[ -r $contract ]] || fail "Apple Silicon platform contract is unavailable: $contract"
+
+required_ids='["apple-boot-policy","asahi-kernel","audio-and-speaker-safety","installed-grub","installed-platform-bundle","m1n1-stage1","machine-firmware","removable-media-grub","touch-bar-support"]'
+
+jq -e --argjson required_ids "$required_ids" '
+  def nonempty_string: type == "string" and length > 0;
+  def unique_strings: type == "array" and all(.[]; nonempty_string) and length == (unique | length);
+  .schema_version == 1 and
+  .target == {
+    architecture: "aarch64",
+    platform: "apple-silicon",
+    boot_backend: "asahi-grub",
+    artifact_kind: "iso"
+  } and
+  .safety_invariants == [
+    "never-write-apfs-or-whole-disk-from-linux",
+    "never-write-internal-esp-from-removable-media",
+    "only-write-the-signed-handoff-extent",
+    "preserve-the-asahi-paired-system-esp",
+    "never-install-limine-on-apple-silicon"
+  ] and
+  .engine_artifact == {
+    source_lock: "apps/omarchy-apple-installer/Engine/source-lock.json",
+    source_lock_sha256: .engine_artifact.source_lock_sha256,
+    status: "reproducible-validation-artifact-unsigned",
+    filename: "installer-v0.9.0-omarchy.7.tar.gz",
+    size_bytes: 17904504,
+    sha256: "063fd0765fb2057384d9653f7bf547b0471af31fc764e039d578d4fef6dce4d5",
+    signature: null,
+    reproducibility_scope: "two-clean-builds-same-host-pinned-toolchain"
+  } and
+  (.engine_artifact.source_lock_sha256 | test("^[0-9a-f]{64}$")) and
+  (.readiness.blockers | index("signed-engine-artifact-absent")) != null and
+  (.readiness.ready | type) == "boolean" and
+  (.readiness.blockers | unique_strings) and
+  (.readiness.ready == (.readiness.blockers | length == 0)) and
+  (.update_policy.platform_transaction_owner | nonempty_string) and
+  (.update_policy.omarchy_transaction_owner | nonempty_string) and
+  (.update_policy.asahi_repository_key_fingerprint | test("^[0-9A-F]{40}$")) and
+  (.update_policy.asahi_repository_snapshot == null or
+    (.update_policy.asahi_repository_snapshot | test("^[0-9a-f]{64}$"))) and
+  (.release_lifecycle.stage | IN("development", "preview", "stable", "retired")) and
+  (.release_lifecycle.public_release_authorized | type) == "boolean" and
+  (.release_lifecycle.physical_allowlist | type) == "array" and
+  ([.release_lifecycle.physical_allowlist[].device_tree] | length) ==
+    ([.release_lifecycle.physical_allowlist[].device_tree] | unique | length) and
+  all(.release_lifecycle.physical_allowlist[];
+    (keys == ["catalog_sequence", "device_tree", "evidence_revision", "evidence_sha256", "matrix", "matrix_complete"]) and
+    (.device_tree | test("^apple,j[0-9]+[a-z]?$")) and
+    (.evidence_revision | nonempty_string) and
+    (.evidence_sha256 | test("^[0-9a-f]{64}$")) and
+    (.catalog_sequence | type == "number" and floor == . and . >= 1) and
+    (.matrix | keys == [
+      "audio", "brightness", "display", "install", "keyboard", "macos_coexistence",
+      "power_management", "reboot", "recovery", "rollback", "storage", "suspend",
+      "touchpad", "updates", "wifi"
+    ]) and
+    all(.matrix[]; type == "boolean") and
+    (.matrix_complete | type) == "boolean" and
+    (.matrix_complete == all(.matrix[]; . == true))
+  ) and
+  .release_lifecycle.preview == {
+    channel: "signed-apple-preview",
+    enablement: "exact-device-tree-catalog-only",
+    gate: "platform-ready-and-every-allowlisted-model-passes-physical-matrix",
+    readme_install_path: (if .release_lifecycle.stage == "development" then
+      "retain-current-asahi-minimal-until-preview-gate"
+    else
+      "macos-bridge-to-verified-apple-media"
+    end)
+  } and
+  .release_lifecycle.promotion == {
+    target: "standard-signed-omarchy-channel",
+    requires: [
+      "preview-allowlist-complete",
+      "install-reboot-recovery-update-rollback-pass",
+      "signed-artifact-chain-complete"
+    ]
+  } and
+  .release_lifecycle.rollback == {
+    sequence_policy: "reject-lower-sequence",
+    action: "publish-higher-sequence-disable-record-pointing-to-last-known-good",
+    recovery_assets: "retain"
+  } and
+  .release_lifecycle.removal == {
+    mode: "archive-and-disable-never-delete-lineage",
+    preserve: [
+      "signed-manifests-and-signatures",
+      "iso-and-platform-recovery-assets",
+      "source-commit-provenance",
+      "sanitized-acceptance-evidence",
+      "migration-and-rollback-instructions"
+    ]
+  } and
+  .release_lifecycle.source_provenance == {
+    required: true,
+    fields: [
+      "iso-source-commit",
+      "omarchy-source-commit",
+      "package-source-commit",
+      "asahi-source-lock",
+      "platform-snapshot-sha256",
+      "media-evidence-sha256"
+    ]
+  } and
+  (if .release_lifecycle.stage == "development" then
+    .release_lifecycle.public_release_authorized == false and
+    (.release_lifecycle.physical_allowlist | length) == 0 and
+    .readiness.ready == false
+  elif .release_lifecycle.stage == "preview" or .release_lifecycle.stage == "stable" then
+    .release_lifecycle.public_release_authorized == true and
+    (.release_lifecycle.physical_allowlist | length) > 0 and
+    all(.release_lifecycle.physical_allowlist[]; .matrix_complete == true) and
+    .readiness.ready == true
+  else
+    .release_lifecycle.public_release_authorized == false
+  end) and
+  (.components | type) == "array" and
+  ([.components[].id] | sort) == $required_ids and
+  ([.components[].id] | length) == ([.components[].id] | unique | length) and
+  all(.components[];
+    (.id | nonempty_string) and
+    (.owner | nonempty_string) and
+    (.update_authority | nonempty_string) and
+    (.delivery | IN("installer-generated", "required-preinstalled", "omarchy-manifest", "apple-iso", "model-conditional")) and
+    (.packages | unique_strings) and
+    (.required | type) == "boolean" and
+    (.condition | nonempty_string) and
+    (.mutation_scope | nonempty_string) and
+    (.state | IN("integrated", "blocked", "conditional")) and
+    (if .state == "blocked" then
+      (.blocker | nonempty_string) and (.blocker as $blocker | $blocker | IN($ARGS.named.blockers[]))
+    else
+      .blocker == null
+    end)
+  ) and
+  (if .readiness.ready then all(.components[]; .required == false or .state == "integrated") else true end) and
+  (.components[] | select(.id == "apple-boot-policy") | .mutation_scope) == "recoveryos-authorized-stub-only" and
+  (.components[] | select(.id == "m1n1-stage1") | .mutation_scope) == "recoveryos-authorized-stub-only" and
+  (.components[] | select(.id == "installed-platform-bundle") | .mutation_scope) == "paired-internal-system-esp-only" and
+  (.components[] | select(.id == "installed-grub") | .mutation_scope) == "paired-internal-system-esp-only" and
+  (.components[] | select(.id == "removable-media-grub") | .mutation_scope) == "removable-media-only"
+' --argjson blockers "$(jq -c '.readiness.blockers' "$contract")" "$contract" >/dev/null ||
+  fail "Apple Silicon platform contract is invalid"
+
+engine_source_lock=$(jq -r '.engine_artifact.source_lock' "$contract")
+[[ -f ${OMARCHY_PATH}/$engine_source_lock ]] ||
+  fail "Apple engine source lock is unavailable: $engine_source_lock"
+actual_source_lock_sha256=$(sha256sum "${OMARCHY_PATH}/$engine_source_lock")
+actual_source_lock_sha256=${actual_source_lock_sha256%% *}
+expected_source_lock_sha256=$(jq -r '.engine_artifact.source_lock_sha256' "$contract")
+[[ $actual_source_lock_sha256 == $expected_source_lock_sha256 ]] ||
+  fail "Apple engine source lock digest does not match the platform contract"
+
+jq -e --argjson engine "$(jq -c '.engine_artifact' "$contract")" '
+  .status == "reproducible_validation_artifact_unsigned" and
+  .validation_artifact == {
+    filename: $engine.filename,
+    size_bytes: $engine.size_bytes,
+    sha256: $engine.sha256,
+    reproducibility_scope: $engine.reproducibility_scope,
+    signature: "absent"
+  }
+' "${OMARCHY_PATH}/$engine_source_lock" >/dev/null ||
+  fail "Apple engine source lock does not match the platform artifact identity"
+
+mapfile -t manifest_packages < <(
+  jq -r '.components[] |
+    select(.delivery == "omarchy-manifest") |
+    .packages[]' "$contract" | sort -u
+)
+for package in "${manifest_packages[@]}"; do
+  count=$(awk -v package="$package" '$0 == package { count++ } END { print count + 0 }' \
+    "${OMARCHY_PATH}/install/omarchy-base-asahi.packages" \
+    "${OMARCHY_PATH}/install/omarchy-other-asahi.packages")
+  (( count == 1 )) || fail "Contract package must occur once in the Asahi manifests: $package"
+done
+
+if (( require_ready )) && ! jq -e '.readiness.ready' "$contract" >/dev/null; then
+  echo "Apple Silicon physical installation is not ready:" >&2
+  jq -r '.readiness.blockers[] | "- " + .' "$contract" >&2
+  exit 1
+fi
+
+if jq -e '.readiness.ready' "$contract" >/dev/null; then
+  echo "Apple Silicon platform contract is valid and ready"
+else
+  echo "Apple Silicon platform contract is valid but not ready"
+fi

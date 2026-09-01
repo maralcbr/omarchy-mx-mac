@@ -1,0 +1,185 @@
+diff --git a/src/main.py b/src/main.py
+index e6407ba..0ecebb5 100644
+--- a/src/main.py
++++ b/src/main.py
+@@ -4,6 +4,7 @@ import os, os.path, shlex, subprocess, sys, time, termios, json, getpass, report
+ from dataclasses import dataclass
+ 
+ import system, osenum, stub, diskutil, osinstall, asahi_firmware, m1n1, bugs
++import omarchy_runtime
+ from util import *
+ 
+ PART_ALIGN = psize("1MiB")
+@@ -128,7 +129,10 @@ IPSW_VERSIONS = [
+ class InstallerMain:
+     def __init__(self, version):
+         self.version = version
++        self.engine_runtime = omarchy_runtime.EngineRuntime.from_environment()
+         self.data = json.load(open("installer_data.json"))
++        if self.engine_runtime:
++            self.data = self.engine_runtime.metadata(self.data)
+         self.credentials_validated = False
+         self.expert = False
+         self.ipsw = None
+@@ -812,18 +816,15 @@ class InstallerMain:
+         else:
+             target = resizable[0]
+ 
+-        limits = self.dutil.get_resize_limits(target.name)
+-
+-        total = target.container["CapacityCeiling"]
+-        free = target.container["CapacityFree"]
+-        min_free = self.get_min_free_space(target)
+-        # Minimum size, ignoring APFS snapshots & co, but with a conservative buffer
+-        min_size_raw = align_up(total - free + min_free, PART_ALIGN)
+-        # Minimum size reported by diskutil, considering APFS snapshots & co but with a less conservative buffer
+-        min_size_safe = limits["MinimumSizePreferred"]
+-        min_size = max(min_size_raw, min_size_safe)
+-        overhead = min_size - min_size_raw
+-        avail = total - min_size
++        bounds = self.get_resize_bounds(target)
++        total = bounds["total_bytes"]
++        free = bounds["free_bytes"]
++        min_free = bounds["reserved_free_bytes"]
++        min_size_raw = bounds["calculated_minimum_bytes"]
++        min_size_safe = bounds["diskutil_minimum_bytes"]
++        min_size = bounds["minimum_size_bytes"]
++        overhead = bounds["overhead_bytes"]
++        avail = bounds["available_bytes"]
+ 
+         min_perc = 100 * min_size / total
+ 
+@@ -922,6 +923,25 @@ class InstallerMain:
+ 
+         return True
+ 
++    def get_resize_bounds(self, target):
++        limits = self.dutil.get_resize_limits(target.name)
++        total = target.container["CapacityCeiling"]
++        free = target.container["CapacityFree"]
++        min_free = self.get_min_free_space(target)
++        min_size_raw = align_up(total - free + min_free, PART_ALIGN)
++        min_size_safe = limits["MinimumSizePreferred"]
++        min_size = max(min_size_raw, min_size_safe)
++        return {
++            "total_bytes": total,
++            "free_bytes": free,
++            "reserved_free_bytes": min_free,
++            "calculated_minimum_bytes": min_size_raw,
++            "diskutil_minimum_bytes": min_size_safe,
++            "minimum_size_bytes": min_size,
++            "overhead_bytes": min_size - min_size_raw,
++            "available_bytes": total - min_size,
++        }
++
+     def action_select_disk(self):
+         choices = {"1": "Internal storage"}
+ 
+@@ -939,21 +959,22 @@ class InstallerMain:
+         return True
+ 
+     def main(self):
+-        print()
+-        p_message(f"Welcome to the {DISTRO} installer!")
+-        print()
+-        p_message("This installer will guide you through the process of setting up")
+-        p_message(f"{DISTRO} on your Mac.")
+-        print()
+-        p_message("Please make sure you are familiar with our documentation at:")
+-        p_plain( f"  {col(BLUE, BRIGHT)}{DISTRO_DOCS}{col()}")
+-        print()
+-        p_question("Press enter to continue.")
+-        self.input()
+-        print()
++        if not self.engine_runtime:
++            print()
++            p_message(f"Welcome to the {DISTRO} installer!")
++            print()
++            p_message("This installer will guide you through the process of setting up")
++            p_message(f"{DISTRO} on your Mac.")
++            print()
++            p_message("Please make sure you are familiar with our documentation at:")
++            p_plain( f"  {col(BLUE, BRIGHT)}{DISTRO_DOCS}{col()}")
++            print()
++            p_question("Press enter to continue.")
++            self.input()
++            print()
+ 
+         self.expert = False
+-        if os.environ.get("EXPERT", None):
++        if os.environ.get("EXPERT", None) and not self.engine_runtime:
+             p_message("By default, this installer will hide certain advanced options that")
+             p_message("are only useful for Asahi Linux developers. You can enable expert mode")
+             p_message("to show them. Do not enable this unless you know what you are doing.")
+@@ -970,7 +991,19 @@ class InstallerMain:
+ 
+         self.chip_min_ver = CHIP_MIN_VER.get(self.sysinfo.chip_id, None)
+         self.device = DEVICES.get(self.sysinfo.device_class, None)
+-        if not self.chip_min_ver or not self.device or (self.device.expert_only and not self.expert):
++        supported = bool(
++            self.chip_min_ver
++            and self.device
++            and (not self.device.expert_only or self.expert)
++        )
++        if self.engine_runtime:
++            self.engine_runtime.inspect(
++                self.sysinfo.device_class,
++                supported,
++            )
++            if not supported:
++                return
++        if not supported:
+             p_error("This device is not supported yet!")
+             p_error("Please check out the Asahi Linux Blog for updates on device support:")
+             print()
+@@ -1126,6 +1159,15 @@ class InstallerMain:
+ 
+         if self.cur_os is None and self.sysinfo.boot_mode != "macOS":
+             self.cur_os = default_os
++        if self.engine_runtime:
++            self.engine_runtime.run_layout(
++                installer=self,
++                free_parts=parts_free if is_gpt else [],
++                resizable_parts=parts_resizable if is_gpt else [],
++                stub_size=STUB_SIZE,
++                part_align=PART_ALIGN,
++            )
++            return False
+         self.check_cur_os()
+ 
+         actions = {}
+@@ -1226,7 +1268,11 @@ if __name__ == "__main__":
+         logging.exception("Process execution failed")
+         p_warning("If you need to file a bug report, please attach the log file:")
+         p_warning(f"  {os.getcwd()}/installer.log")
++        if os.environ.get("OMARCHY_ENGINE_MODE"):
++            raise
+     except Exception:
+         logging.exception("Exception caught")
+         p_warning("If you need to file a bug report, please attach the log file:")
+         p_warning(f"  {os.getcwd()}/installer.log")
++        if os.environ.get("OMARCHY_ENGINE_MODE"):
++            raise
+diff --git a/build.sh b/build.sh
+index 21031fd..76c0935 100755
+--- a/build.sh
++++ b/build.sh
+@@ -101,3 +101,3 @@ echo "Copying files..."
+ cp -r "$SRC"/* "$PACKAGE/"
+-rm "$PACKAGE/asahi_firmware"
++rm -rf "$PACKAGE/asahi_firmware"
+ cp -r "$AFW" "$PACKAGE/"
+@@ -126,6 +126,6 @@ if $(bsdtar -tf "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload > /dev/null); then
+     bsdtar -xOf "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload | zcat | \
+-        cpio -i -D "$PACKAGE/Frameworks/Python.framework"
++        (cd "$PACKAGE/Frameworks/Python.framework" && cpio -i)
+ else
+     7z x -so "$DL/$PYTHON_PKG" Python_Framework.pkg/Payload | zcat | \
+-        cpio -i -D "$PACKAGE/Frameworks/Python.framework"
++        (cd "$PACKAGE/Frameworks/Python.framework" && cpio -i)
+ fi
+@@ -154,2 +154,3 @@ echo "Copying certificates..."
+-certs="$(python3 -c 'import certifi; print(certifi.where())')"
++certs="$DL/certifi-cacert-2026.07.22.pem"
++[ -r "$certs" ]
+ cp "$certs" "$PACKAGE/Frameworks/Python.framework/Versions/Current/etc/openssl/cert.pem"

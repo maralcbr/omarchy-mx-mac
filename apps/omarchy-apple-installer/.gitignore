@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+DerivedData/
+Engine/artifacts/*.tar.gz
+dist/
+build/
+__pycache__/
