@@ -9,6 +9,11 @@ if pacman -Qem >/dev/null; then
     if omarchy-hw-apple-silicon; then
       ignored_packages+=,omarchy-dev,omarchy-keyring,omarchy-nvim,omarchy-settings-dev,quickshell-git,ttf-jetbrains-mono-nerd-basic
     fi
+    # Building outlasts sudo's credential cache, and yay only needs the
+    # password once it starts installing — by which time the prompt has
+    # already timed out and the whole step is discarded. Same reason
+    # omarchy-pkg-aur-install holds the credential open while it builds.
+    source omarchy-sudo-keepalive
     yay -Sua --noconfirm --cleanafter --ignore "$ignored_packages"
     echo
   else

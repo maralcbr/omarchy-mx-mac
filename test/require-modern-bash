@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# The shell suite measures sub-second deadlines with EPOCHREALTIME. Apple Bash
+# 3.2 expands that variable to an empty string, which turns deadline loops into
+# unbounded runs instead of useful test failures.
+if (( BASH_VERSINFO[0] < 5 )); then
+  printf 'Omarchy shell tests require Bash 5+; found %s.\n' "$BASH_VERSION" >&2
+  exit 2
+fi
+
+epoch_start=${EPOCHREALTIME-}
+if [[ ! $epoch_start =~ ^[0-9]+[.,][0-9]+$ ]]; then
+  printf 'Omarchy shell tests require a numeric EPOCHREALTIME.\n' >&2
+  exit 2
+fi
+
+epoch_end=$epoch_start
+for ((epoch_probe = 0; epoch_probe < 10000; epoch_probe++)); do
+  epoch_end=${EPOCHREALTIME-}
+  if [[ $epoch_end != $epoch_start ]]; then
+    break
+  fi
+done
+if [[ ! $epoch_end =~ ^[0-9]+[.,][0-9]+$ || $epoch_end == $epoch_start ]]; then
+  printf 'Omarchy shell tests require an advancing EPOCHREALTIME.\n' >&2
+  exit 2
+fi
+
+unset epoch_start epoch_end epoch_probe

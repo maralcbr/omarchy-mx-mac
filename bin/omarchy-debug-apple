@@ -1,0 +1,350 @@
+#!/bin/bash
+
+# omarchy:summary=Run an Apple Silicon post-install health report
+# omarchy:group=debug
+# omarchy:args=[--json] [--speaker-test]
+
+# Checks the hardware and software health of an installed Omarchy system on
+# Apple Silicon and prints a PASS/FAIL report. Run it right after an install,
+# or whenever something feels broken. Exits non-zero when any check fails.
+#
+# --json          machine-readable output
+# --speaker-test  additionally play a short sound at low volume (only when
+#                 speakersafetyd is active)
+
+set -uo pipefail
+
+json=false
+speaker_test=false
+
+for arg in "$@"; do
+  case $arg in
+    --json) json=true ;;
+    --speaker-test) speaker_test=true ;;
+    *)
+      echo "Usage: omarchy-debug-apple [--json] [--speaker-test]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+diag_root="${OMARCHY_DIAG_ROOT:-}"
+proc_root="${OMARCHY_PROC_ROOT:-/proc}"
+
+pass_count=0 fail_count=0 warn_count=0 skip_count=0
+results=()
+
+record() {
+  local status=$1 id=$2 detail=$3
+  results+=("$status"$'\t'"$id"$'\t'"$detail")
+  case $status in
+    PASS) pass_count=$((pass_count + 1)) ;;
+    FAIL) fail_count=$((fail_count + 1)) ;;
+    WARN) warn_count=$((warn_count + 1)) ;;
+    SKIP) skip_count=$((skip_count + 1)) ;;
+  esac
+}
+
+require_apple_silicon() {
+  if [[ $(uname -m) != "aarch64" ]] ||
+    ! grep -aq 'apple,' "$proc_root/device-tree/compatible" 2>/dev/null; then
+    echo "omarchy-debug-apple: this is not an Apple Silicon Mac" >&2
+    exit 2
+  fi
+  local model
+  model=$(tr -d '\0' <"$proc_root/device-tree/model" 2>/dev/null)
+  record PASS platform "${model:-Apple Silicon Mac}"
+}
+
+check_version() {
+  local vfile="$diag_root/usr/share/omarchy/version" version
+  if [[ ! -r $vfile ]]; then
+    record FAIL omarchy-version "/usr/share/omarchy/version is missing"
+    return
+  fi
+  version=$(<"$vfile")
+  if [[ $version == 4.* ]]; then
+    record PASS omarchy-version "Omarchy $version"
+  else
+    record WARN omarchy-version "unexpected Omarchy version '$version'"
+  fi
+}
+
+check_repos() {
+  local repos repo
+  repos=$(pacman-conf --repo-list 2>/dev/null)
+  if [[ -z $repos ]]; then
+    record FAIL pacman-repos "pacman-conf returned no repositories"
+    return
+  fi
+  for repo in asahi-alarm omarchy core extra alarm; do
+    if grep -qx "$repo" <<<"$repos"; then
+      record PASS "repo-$repo" "the [$repo] pacman repository is configured"
+    else
+      record FAIL "repo-$repo" "the [$repo] pacman repository is missing from pacman.conf"
+    fi
+  done
+}
+
+check_packages() {
+  local pkg
+  for pkg in linux-asahi asahi-fwextract asahi-desktop-meta vulkan-asahi \
+    mesa networkmanager iwd wireplumber speakersafetyd alsa-ucm-conf-asahi; do
+    if pacman -Q "$pkg" >/dev/null 2>&1; then
+      record PASS "pkg-$pkg" "$(pacman -Q "$pkg" 2>/dev/null)"
+    else
+      record FAIL "pkg-$pkg" "package $pkg is not installed"
+    fi
+  done
+}
+
+check_wifi_backend() {
+  local conf="$diag_root/etc/NetworkManager/conf.d/wifi_backend.conf"
+  if grep -qs 'wifi.backend=iwd' "$conf" ||
+    NetworkManager --print-config 2>/dev/null | grep -q 'wifi.backend=iwd'; then
+    record PASS wifi-backend "NetworkManager uses the iwd Wi-Fi backend"
+  else
+    record FAIL wifi-backend "NetworkManager is not configured with wifi.backend=iwd"
+  fi
+}
+
+check_migrations() {
+  if ! omarchy-cmd-present omarchy-migrate; then
+    record SKIP migrations "omarchy-migrate is not available"
+    return
+  fi
+  local pending
+  pending=$(omarchy-migrate --pending 2>/dev/null)
+  if [[ -z $pending ]]; then
+    record PASS migrations "no pending migrations"
+  else
+    record WARN migrations "pending migrations: $(tr '\n' ' ' <<<"$pending")"
+  fi
+}
+
+check_wifi_firmware() {
+  local fw_dir="$diag_root/lib/firmware/brcm" count
+  count=$(find "$fw_dir" -name '*apple*' 2>/dev/null | grep -c '.')
+  if (( count > 0 )); then
+    record PASS wifi-firmware "Apple Broadcom firmware present ($count files in /lib/firmware/brcm)"
+  else
+    record FAIL wifi-firmware "no Apple Wi-Fi firmware under /lib/firmware/brcm — vendor firmware did not load"
+  fi
+}
+
+check_wifi_link() {
+  local status wifi_line device state
+  status=$(nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null)
+  if [[ -z $status ]]; then
+    record WARN wifi-link "nmcli gave no answer — NetworkManager may not be running"
+    return
+  fi
+  wifi_line=$(awk -F: '$2 == "wifi" { print; exit }' <<<"$status")
+  if [[ -z $wifi_line ]]; then
+    record FAIL wifi-link "no Wi-Fi device is visible to NetworkManager"
+    return
+  fi
+  device=${wifi_line%%:*}
+  state=${wifi_line##*:}
+  if [[ $state == "connected" ]]; then
+    record PASS wifi-link "Wi-Fi device $device is connected"
+  else
+    record WARN wifi-link "Wi-Fi device $device is $state (not connected)"
+  fi
+}
+
+check_audio() {
+  # The Asahi speaker path is a wireplumber filter chain (an "audio_effect.*
+  # [Audio/Sink]" entry under Filters), not a plain ALSA sink. Raw hardware
+  # sinks alone mean the DSP never loaded and the speakers are unprotected.
+  local status effect_sink plain_sinks
+  status=$(wpctl status 2>/dev/null)
+  if [[ -z $status ]]; then
+    record FAIL audio-dsp "wpctl returned nothing — PipeWire is not running"
+    return
+  fi
+  effect_sink=$(sed -n '/Filters:/,/Streams:/p' <<<"$status" |
+    grep -E 'audio_effect\..*\[Audio/Sink\]' | head -1 |
+    sed 's/^[ │*.]*//; s/ *\[Audio\/Sink\].*$//; s/[0-9]*\. *//')
+  plain_sinks=$(sed -n '/Sinks:/,/Sources:/p' <<<"$status" |
+    grep -v -e 'Sinks:' -e 'Sources:')
+
+  if [[ -n $effect_sink ]]; then
+    record PASS audio-dsp "Asahi DSP chain loaded: $effect_sink"
+  elif [[ -z ${plain_sinks//[[:space:]│]/} ]]; then
+    record FAIL audio-dsp "no audio sinks — the Asahi audio stack is not running"
+  else
+    record FAIL audio-dsp "raw sinks only, no Asahi DSP chain: $(head -1 <<<"$plain_sinks" | sed 's/^[ │*.]*//')"
+  fi
+
+  if systemctl is-active --quiet speakersafetyd 2>/dev/null; then
+    record PASS speakersafetyd "speaker protection service is active"
+  else
+    record FAIL speakersafetyd "speakersafetyd is not active — speakers are not protected"
+  fi
+}
+
+check_vendor_firmware() {
+  if ! systemctl is-enabled --quiet omarchy-vendor-firmware.service 2>/dev/null; then
+    record FAIL vendor-firmware "omarchy-vendor-firmware.service is not enabled — Apple firmware will not load"
+    return
+  fi
+  if systemctl is-failed --quiet omarchy-vendor-firmware.service 2>/dev/null; then
+    record FAIL vendor-firmware "omarchy-vendor-firmware.service failed on this boot"
+  else
+    record PASS vendor-firmware "omarchy-vendor-firmware.service is enabled and did not fail"
+  fi
+}
+
+check_bluetooth() {
+  if systemctl is-active --quiet bluetooth 2>/dev/null; then
+    record PASS bluetooth-service "bluetooth.service is active"
+  else
+    record FAIL bluetooth-service "bluetooth.service is not active"
+  fi
+  local controllers
+  controllers=$(bluetoothctl list 2>/dev/null)
+  if [[ -n $controllers ]]; then
+    record PASS bluetooth-controller "$(head -1 <<<"$controllers")"
+  else
+    record WARN bluetooth-controller "no Bluetooth controller is visible to bluetoothctl"
+  fi
+}
+
+check_gpu() {
+  local dri="$diag_root/dev/dri" cards renders
+  cards=$(find "$dri" -maxdepth 1 -name 'card*' 2>/dev/null | grep -c '.')
+  renders=$(find "$dri" -maxdepth 1 -name 'renderD*' 2>/dev/null | grep -c '.')
+  if (( cards > 0 && renders > 0 )); then
+    record PASS gpu-drm "DRM nodes present ($cards card, $renders render)"
+  else
+    record FAIL gpu-drm "missing DRM nodes under /dev/dri ($cards card, $renders render)"
+  fi
+
+  local icds
+  icds=$(find "$diag_root/usr/share/vulkan/icd.d" -maxdepth 1 -name '*.json' 2>/dev/null | grep -c '.')
+  if (( icds > 0 )); then
+    record PASS gpu-vulkan "Vulkan ICD configured ($icds driver manifest(s))"
+  else
+    record FAIL gpu-vulkan "no Vulkan ICD manifest under /usr/share/vulkan/icd.d"
+  fi
+}
+
+check_backlight() {
+  local bl="$diag_root/sys/class/backlight"
+  if [[ -d $bl/apple-panel-bl ]]; then
+    local brightness max
+    brightness=$(cat "$bl/apple-panel-bl/brightness" 2>/dev/null)
+    max=$(cat "$bl/apple-panel-bl/max_brightness" 2>/dev/null)
+    record PASS backlight "apple-panel-bl present (brightness ${brightness:-?}/${max:-?})"
+  elif [[ -n $(find "$bl" -mindepth 1 -maxdepth 1 2>/dev/null) ]]; then
+    record WARN backlight "no apple-panel-bl; found: $(find "$bl" -mindepth 1 -maxdepth 1 -exec basename {} \; | tr '\n' ' ')"
+  else
+    record FAIL backlight "no backlight device — display brightness control is missing"
+  fi
+}
+
+check_battery() {
+  local ps="$diag_root/sys/class/power_supply"
+  if [[ -r $ps/macsmc-battery/capacity ]]; then
+    local capacity battery_status
+    capacity=$(cat "$ps/macsmc-battery/capacity" 2>/dev/null)
+    battery_status=$(cat "$ps/macsmc-battery/status" 2>/dev/null)
+    record PASS battery "macsmc-battery at ${capacity:-?}% (${battery_status:-unknown})"
+  else
+    record FAIL battery "the macsmc-battery power supply is missing"
+  fi
+  if [[ -r $ps/macsmc-ac/online ]]; then
+    if [[ $(cat "$ps/macsmc-ac/online" 2>/dev/null) == "1" ]]; then
+      record PASS ac-adapter "AC adapter is connected"
+    else
+      record PASS ac-adapter "AC adapter detected (currently unplugged)"
+    fi
+  else
+    record WARN ac-adapter "the macsmc-ac power supply is missing"
+  fi
+}
+
+check_camera() {
+  local devices
+  devices=$(find "$diag_root/dev" -maxdepth 1 -name 'video*' 2>/dev/null | sort | tr '\n' ' ')
+  if [[ -n $devices ]]; then
+    record PASS camera "video device(s) present: $devices"
+  else
+    record WARN camera "no /dev/video* device — the camera stack is not active"
+  fi
+  record SKIP video-decode "Apple Silicon exposes no hardware video decode; software decode is expected"
+}
+
+run_speaker_test() {
+  if ! systemctl is-active --quiet speakersafetyd 2>/dev/null; then
+    record SKIP speaker-test "refusing to play sound while speakersafetyd is not active"
+    return
+  fi
+  local sound="$diag_root/usr/share/sounds/freedesktop/stereo/complete.oga"
+  if [[ ! -r $sound ]]; then
+    record SKIP speaker-test "test sound file is missing ($sound)"
+    return
+  fi
+  if ! omarchy-cmd-present pw-play; then
+    record SKIP speaker-test "pw-play is not available"
+    return
+  fi
+  wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.2 2>/dev/null
+  if pw-play "$sound" 2>/dev/null; then
+    record PASS speaker-test "played a test sound at 20% volume"
+  else
+    record FAIL speaker-test "pw-play could not play the test sound"
+  fi
+}
+
+json_escape() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  printf '%s' "$value"
+}
+
+print_report() {
+  local line status id detail
+  if [[ $json == "true" ]]; then
+    local first=true
+    printf '{\n  "checks": [\n'
+    for line in "${results[@]}"; do
+      IFS=$'\t' read -r status id detail <<<"$line"
+      [[ $first == "true" ]] || printf ',\n'
+      first=false
+      printf '    {"id": "%s", "status": "%s", "detail": "%s"}' \
+        "$(json_escape "$id")" "$status" "$(json_escape "$detail")"
+    done
+    printf '\n  ],\n  "passed": %s,\n  "failed": %s,\n  "warnings": %s,\n  "skipped": %s\n}\n' \
+      "$pass_count" "$fail_count" "$warn_count" "$skip_count"
+    return
+  fi
+  for line in "${results[@]}"; do
+    IFS=$'\t' read -r status id detail <<<"$line"
+    printf '%-4s  %-21s %s\n' "$status" "$id" "$detail"
+  done
+  echo
+  echo "$pass_count passed, $fail_count failed, $warn_count warnings, $skip_count skipped"
+}
+
+require_apple_silicon
+check_version
+check_repos
+check_packages
+check_wifi_backend
+check_migrations
+check_vendor_firmware
+check_wifi_firmware
+check_wifi_link
+check_audio
+check_bluetooth
+check_gpu
+check_backlight
+check_battery
+check_camera
+[[ $speaker_test == "true" ]] && run_speaker_test
+
+print_report
+(( fail_count == 0 ))

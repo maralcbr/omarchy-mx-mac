@@ -4,14 +4,31 @@ set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 TEST_DIR="$ROOT/test/shell.d"
+source "$ROOT/test/require-modern-bash"
 
-shopt -s nullglob
 tests=()
-for test in "$TEST_DIR"/*-test.sh; do
-  [[ $(basename "$test") == "base-test.sh" ]] && continue
-  tests+=("$test")
-done
-shopt -u nullglob
+if (( $# > 0 )); then
+  for requested_test in "$@"; do
+    requested_test=$(cd -- "$(dirname -- "$requested_test")" && pwd)/$(basename "$requested_test")
+    if [[ $requested_test != $TEST_DIR/*-test.sh || ! -f $requested_test ]]; then
+      printf 'Invalid focused shell test: %s\n' "$requested_test" >&2
+      exit 2
+    fi
+    if [[ $(basename "$requested_test") == "base-test.sh" ]]; then
+      printf 'The shell test base cannot run directly.\n' >&2
+      exit 2
+    fi
+    tests+=("$requested_test")
+  done
+else
+  shopt -s nullglob
+  for test in "$TEST_DIR"/*-test.sh; do
+    if [[ $(basename "$test") != "base-test.sh" ]]; then
+      tests+=("$test")
+    fi
+  done
+  shopt -u nullglob
+fi
 
 if (( ${#tests[@]} == 0 )); then
   echo "No shell tests found in $TEST_DIR" >&2
@@ -24,7 +41,9 @@ fi
 failed=()
 for test in "${tests[@]}"; do
   printf '==> %s\n' "${test#$ROOT/}"
-  bash "$test" || failed+=("${test#$ROOT/}")
+  if ! bash "$test"; then
+    failed+=("${test#$ROOT/}")
+  fi
 done
 
 if (( ${#failed[@]} > 0 )); then
