@@ -26,8 +26,8 @@ grep -Fxq 'channel=candidate' "$work/CANDIDATE"
 grep -Fxq "release_tag=$tag" "$work/CANDIDATE"
 grep -Fxq "source_commit=${tag#asahi-packages-candidate-}" "$work/CANDIDATE"
 grep -Fxq "signing_fingerprint=${signing_fingerprint^^}" "$work/CANDIDATE"
-grep -Fxq 'package_count=21' "$work/CANDIDATE"
-(( $(grep -c '^package=' "$work/CANDIDATE") == 21 ))
+grep -Fxq 'package_count=33' "$work/CANDIDATE"
+(( $(grep -c '^package=' "$work/CANDIDATE") == 33 ))
 
 export GNUPGHOME=$work/gnupg
 mkdir -m 0700 "$GNUPGHOME"
@@ -60,8 +60,8 @@ while IFS='|' read -r _ package version _ _ _ _ _; do
   [[ $package =~ ^[a-z0-9@._+-]+$ && -n $version ]]
   packages+=("$package")
 done < <(sed -n 's/^package=//p' "$work/CANDIDATE")
-(( ${#packages[@]} == 21 ))
-(( $(printf '%s\n' "${packages[@]}" | sort -u | wc -l) == 21 ))
+(( ${#packages[@]} == 33 ))
+(( $(printf '%s\n' "${packages[@]}" | sort -u | wc -l) == 33 ))
 
 pacman -Syu --needed --noconfirm "${packages[@]}"
 while IFS='|' read -r _ package version _ _ _ _ _; do
