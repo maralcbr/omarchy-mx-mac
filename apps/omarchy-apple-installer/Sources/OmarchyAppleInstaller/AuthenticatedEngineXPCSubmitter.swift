@@ -6,6 +6,9 @@
   @objc public protocol ClosedEngineXPCService {
     func submit(
       packageDirectory: FileHandle,
+      operation: String,
+      machineOwner: String,
+      password: Data,
       reply: @escaping @Sendable (Data?, NSError?) -> Void
     )
   }
@@ -15,6 +18,8 @@
     case invalidCodeSigningRequirement
     case unsafeHandoffPackage
     case connectionFailed
+    case recoveryAuthorizationFailed
+    case machineOwnerCredentialsRejected
     case helperRejected(domain: String, code: Int)
     case emptyResponse
   }
@@ -24,10 +29,12 @@
   {
     private let machServiceName: String
     private let helperCodeSigningRequirement: String
+    private let journalProgress: (@Sendable (Data) -> Void)?
 
     public init(
       machServiceName: String,
-      helperCodeSigningRequirement: String
+      helperCodeSigningRequirement: String,
+      journalProgress: (@Sendable (Data) -> Void)? = nil
     ) throws {
       guard Self.isMachServiceName(machServiceName) else {
         throw EngineXPCSubmissionError.invalidMachServiceName
@@ -41,9 +48,14 @@
       }
       self.machServiceName = machServiceName
       self.helperCodeSigningRequirement = helperCodeSigningRequirement
+      self.journalProgress = journalProgress
     }
 
-    public func submit(_ handoff: PreparedEngineHandoff) async throws -> Data {
+    public func submit(
+      _ handoff: PreparedEngineHandoff,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation
+    ) async throws -> Data {
       let descriptor = Darwin.open(
         handoff.packageURL.path,
         O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
@@ -74,6 +86,14 @@
         with: ClosedEngineXPCService.self
       )
       connection.setCodeSigningRequirement(helperCodeSigningRequirement)
+      if let journalProgress {
+        connection.exportedInterface = NSXPCInterface(
+          with: ClosedEngineProgressClient.self
+        )
+        connection.exportedObject = EngineProgressClientRelay(
+          handler: journalProgress
+        )
+      }
 
       return try await withCheckedThrowingContinuation { continuation in
         let gate = EngineXPCReplyGate(continuation: continuation)
@@ -104,14 +124,16 @@
           return
         }
 
-        proxy.submit(packageDirectory: directoryHandle) { response, error in
+        proxy.submit(
+          packageDirectory: directoryHandle,
+          operation: operation.rawValue,
+          machineOwner: authorization.username,
+          password: authorization.password
+        ) { response, error in
           defer { connectionHandle.invalidate() }
           if let error {
             gate.resume(
-              throwing: EngineXPCSubmissionError.helperRejected(
-                domain: error.domain,
-                code: error.code
-              )
+              throwing: EngineXPCErrorBridge.submissionError(error)
             )
           } else if let response, !response.isEmpty {
             gate.resume(returning: response)
@@ -139,6 +161,70 @@
           || byte == 45
           || byte == 46
       }
+    }
+  }
+
+  enum EngineXPCErrorBridge {
+    private static let recoveryAuthorizationDomain =
+      "com.omarchy.mx.installer.recovery-authorization"
+    private static let recoveryAuthorizationCode = 1
+    // Dedicated domain so the app can tell "wrong password" from every other
+    // helper rejection. Skew-safe: an older app maps this unknown domain to the
+    // generic helperRejected case exactly as it does today.
+    static let machineOwnerAuthorizationDomain =
+      "com.omarchy.mx.installer.machine-owner-authorization"
+    static let machineOwnerAuthorizationCode = 1
+
+    static func serviceError(for error: any Error) -> NSError {
+      if let executionError = error
+        as? PinnedAsahiEngineExecutionError,
+        executionError == .recoveryAuthorizationFailed
+      {
+        return NSError(
+          domain: recoveryAuthorizationDomain,
+          code: recoveryAuthorizationCode,
+          userInfo: [:]
+        )
+      }
+      if let helperError = error as? ClosedEngineHelperError,
+        helperError == .invalidMachineOwnerCredentials
+      {
+        return NSError(
+          domain: machineOwnerAuthorizationDomain,
+          code: machineOwnerAuthorizationCode,
+          userInfo: [:]
+        )
+      }
+      return error as NSError
+    }
+
+    static func submissionError(
+      _ error: NSError
+    ) -> EngineXPCSubmissionError {
+      if error.domain == recoveryAuthorizationDomain,
+        error.code == recoveryAuthorizationCode
+      {
+        return .recoveryAuthorizationFailed
+      }
+      if error.domain == machineOwnerAuthorizationDomain,
+        error.code == machineOwnerAuthorizationCode
+      {
+        return .machineOwnerCredentialsRejected
+      }
+      return .helperRejected(
+        domain: error.domain,
+        code: error.code
+      )
+    }
+  }
+
+  public enum RecoveryAuthorizationRetryPolicy {
+    public static func isEligible(after error: any Error) -> Bool {
+      guard let submissionError = error as? EngineXPCSubmissionError
+      else {
+        return false
+      }
+      return submissionError == .recoveryAuthorizationFailed
     }
   }
 

@@ -23,7 +23,29 @@
       XCTAssertEqual(try Data(contentsOf: result.metadata.fileURL), fixture.metadata)
       XCTAssertEqual(try Data(contentsOf: result.payload.fileURL), fixture.payload)
       let downloadCount = await fixture.downloader.downloadCount
+      let maximumConcurrentDownloads = await fixture.downloader.maximumConcurrentDownloads
       XCTAssertEqual(downloadCount, 3)
+      XCTAssertEqual(maximumConcurrentDownloads, 3)
+    }
+
+    func testSignedRepairCatalogStagesExactRepairManifest() async throws {
+      let fixture = try makeFixture(schemaVersion: 3)
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+
+      let result = try await fixture.preparer.prepare(
+        fixture.request(stagingDirectory: directory)
+      )
+
+      let repairManifest = try XCTUnwrap(result.repairManifest)
+      XCTAssertEqual(
+        try Data(contentsOf: repairManifest.fileURL),
+        fixture.repairManifest
+      )
+      let downloadCount = await fixture.downloader.downloadCount
+      let maximumConcurrentDownloads = await fixture.downloader.maximumConcurrentDownloads
+      XCTAssertEqual(downloadCount, 4)
+      XCTAssertEqual(maximumConcurrentDownloads, 4)
     }
 
     func testReleaseCoordinatorFetchesSignedCatalogThenStagesExactAssets()
@@ -179,6 +201,35 @@
       XCTAssertEqual(downloadCount, 0)
     }
 
+    func testPrepareForwardsStagingProgressForEveryRole() async throws {
+      let fixture = try makeFixture(schemaVersion: 2)
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let recorder = AssetStagingProgressRecorder()
+
+      let result = try await fixture.preparer.prepare(
+        fixture.request(stagingDirectory: directory),
+        progress: recorder.handler
+      )
+
+      let events = recorder.events
+      XCTAssertEqual(
+        Set(events.filter { $0.phase == .verified }.map(\.role)),
+        ["engine", "metadata", "payload"]
+      )
+      XCTAssertTrue(
+        events.allSatisfy { $0.bytesCompleted == $0.totalBytes }
+      )
+      XCTAssertEqual(
+        events.first(where: { $0.role == "payload" })?.totalBytes,
+        UInt64(fixture.payload.count)
+      )
+      XCTAssertEqual(
+        try Data(contentsOf: result.payload.fileURL),
+        fixture.payload
+      )
+    }
+
     private func makeFixture(
       schemaVersion: Int,
       host: AppleSiliconHostInspection? = nil,
@@ -188,11 +239,15 @@
       let engine = Data("engine archive".utf8)
       let metadata = Data("installer metadata".utf8)
       let payload = Data("omarchy payload".utf8)
-      let artifacts = [
+      let repairManifest = Data("{\"operation\":\"repair-installed-system\"}".utf8)
+      var artifacts = [
         URL(string: "https://downloads.example.com/engine.tar.gz")!: engine,
         URL(string: "https://downloads.example.com/installer-data.json")!: metadata,
         URL(string: "https://downloads.example.com/omarchy.img.zst")!: payload,
       ]
+      artifacts[
+        URL(string: "https://downloads.example.com/repair.json")!
+      ] = repairManifest
       let downloader = CatalogFixtureDownloader(artifacts: artifacts)
       let privateKey = Curve25519.Signing.PrivateKey()
       let payloadData = catalog(
@@ -200,6 +255,7 @@
         engine: engine,
         metadata: metadata,
         payload: payload,
+        repairManifest: repairManifest,
         omitEngineVersion: omitEngineVersion
       )
       let signature = try privateKey.signature(for: payloadData)
@@ -249,7 +305,8 @@
         validationTime: now,
         engine: engine,
         metadata: metadata,
-        payload: payload
+        payload: payload,
+        repairManifest: repairManifest
       )
     }
 
@@ -258,6 +315,7 @@
       engine: Data,
       metadata: Data,
       payload: Data,
+      repairManifest: Data,
       omitEngineVersion: Bool
     ) -> Data {
       let issued = ISO8601DateFormatter().string(
@@ -270,10 +328,14 @@
         omitEngineVersion
         ? ""
         : ",\"engineVersion\":\"v0.9.0-omarchy.2\""
+      let repairDelivery =
+        schemaVersion == 3
+        ? ",\"operation\":\"repair-installed-system\",\"repairManifestDigest\":\"\(digest(repairManifest))\",\"repairManifestArtifact\":{\"sourceURL\":\"https://downloads.example.com/repair.json\",\"fileName\":\"repair.json\",\"sizeBytes\":\(repairManifest.count)}"
+        : ""
       let delivery =
-        schemaVersion == 2
+        schemaVersion >= 2
         ? """
-        \(engineVersion),"engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":\(engine.count)},"metadataArtifact":{"sourceURL":"https://downloads.example.com/installer-data.json","fileName":"installer-data.json","sizeBytes":\(metadata.count)},"payloadArtifact":{"sourceURL":"https://downloads.example.com/omarchy.img.zst","fileName":"omarchy.img.zst","sizeBytes":\(payload.count)}
+        \(engineVersion),"engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":\(engine.count)},"metadataArtifact":{"sourceURL":"https://downloads.example.com/installer-data.json","fileName":"installer-data.json","sizeBytes":\(metadata.count)},"payloadArtifact":{"sourceURL":"https://downloads.example.com/omarchy.img.zst","fileName":"omarchy.img.zst","sizeBytes":\(payload.count)}\(repairDelivery)
         """
         : ""
       return Data(
@@ -326,6 +388,8 @@
   private actor CatalogFixtureDownloader: ArtifactDownloading {
     let artifacts: [URL: Data]
     private(set) var downloadCount = 0
+    private(set) var maximumConcurrentDownloads = 0
+    private var concurrentDownloads = 0
 
     init(artifacts: [URL: Data]) {
       self.artifacts = artifacts
@@ -336,6 +400,13 @@
         throw URLError(.fileDoesNotExist)
       }
       downloadCount += 1
+      concurrentDownloads += 1
+      maximumConcurrentDownloads = max(
+        maximumConcurrentDownloads,
+        concurrentDownloads
+      )
+      defer { concurrentDownloads -= 1 }
+      try await Task.sleep(for: .milliseconds(20))
       let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-catalog-download-\(UUID().uuidString.lowercased())"
       )
@@ -370,6 +441,25 @@
     }
   }
 
+  private final class AssetStagingProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = [ArtifactStagingProgress]()
+
+    var events: [ArtifactStagingProgress] {
+      lock.lock()
+      defer { lock.unlock() }
+      return storage
+    }
+
+    var handler: ArtifactStagingProgressHandler {
+      { [self] event in
+        lock.lock()
+        storage.append(event)
+        lock.unlock()
+      }
+    }
+  }
+
   private struct AssetPreparationFixture {
     let preparer: InstallerAssetPreparer
     let downloader: CatalogFixtureDownloader
@@ -383,6 +473,7 @@
     let engine: Data
     let metadata: Data
     let payload: Data
+    let repairManifest: Data
 
     func request(stagingDirectory: URL) -> InstallerAssetPreparationRequest {
       InstallerAssetPreparationRequest(

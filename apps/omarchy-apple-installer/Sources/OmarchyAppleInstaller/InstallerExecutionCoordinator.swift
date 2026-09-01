@@ -10,17 +10,61 @@
       _ prepared: PreparedInstallerPlanExecution,
       approval: CandidateBoundPlanApproval,
       configuration: InstallerReleaseConfiguration,
-      handoffDirectory: URL
+      handoffDirectory: URL,
+      machineOwnerAuthorization: MachineOwnerAuthorization,
+      journalProgress: (@Sendable (Data) -> Void)? = nil
+    ) async throws -> InstallerExecutionProgress {
+      try await execute(
+        prepared,
+        approval: approval,
+        configuration: configuration,
+        handoffDirectory: handoffDirectory,
+        machineOwnerAuthorization: machineOwnerAuthorization,
+        operation: .install,
+        journalProgress: journalProgress
+      )
+    }
+
+    public func retryRecoveryAuthorization(
+      _ prepared: PreparedInstallerPlanExecution,
+      approval: CandidateBoundPlanApproval,
+      configuration: InstallerReleaseConfiguration,
+      handoffDirectory: URL,
+      machineOwnerAuthorization: MachineOwnerAuthorization,
+      journalProgress: (@Sendable (Data) -> Void)? = nil
+    ) async throws -> InstallerExecutionProgress {
+      try await execute(
+        prepared,
+        approval: approval,
+        configuration: configuration,
+        handoffDirectory: handoffDirectory,
+        machineOwnerAuthorization: machineOwnerAuthorization,
+        operation: .retryRecoveryAuthorization,
+        journalProgress: journalProgress
+      )
+    }
+
+    private func execute(
+      _ prepared: PreparedInstallerPlanExecution,
+      approval: CandidateBoundPlanApproval,
+      configuration: InstallerReleaseConfiguration,
+      handoffDirectory: URL,
+      machineOwnerAuthorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation,
+      journalProgress: (@Sendable (Data) -> Void)?
     ) async throws -> InstallerExecutionProgress {
       let submitter = try AuthenticatedEngineXPCSubmitter(
         machServiceName: configuration.helperMachServiceName,
         helperCodeSigningRequirement:
-          configuration.helperCodeSigningRequirement
+          configuration.helperCodeSigningRequirement,
+        journalProgress: journalProgress
       )
       let process = ClosedEngineHandoffProcess(
         assets: prepared.review.assets,
         handoffDirectory: handoffDirectory,
-        submitter: submitter
+        submitter: submitter,
+        authorization: machineOwnerAuthorization,
+        operation: operation
       )
       return try await execute(
         prepared,

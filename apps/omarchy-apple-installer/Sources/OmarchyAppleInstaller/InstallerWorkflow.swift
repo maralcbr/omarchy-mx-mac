@@ -52,7 +52,7 @@ public struct InstallerWorkflow: Sendable {
       deviceName: deviceName,
       deviceIdentifier: deviceIdentifier,
       distributionName: "Omarchy MX Mac",
-      releaseCandidate: "Read-only Apple media candidate e732b2bc",
+      releaseCandidate: "Signed full-OS Asahi package • private qualification",
       executionGate: .locked,
       blockedReason: blockedReason,
       steps: [
@@ -76,7 +76,7 @@ public struct InstallerWorkflow: Sendable {
           id: "download",
           title: "Download installation assets",
           detail:
-            "Download the model-specific boot preparation payload and Omarchy image into private staging, verify size and SHA-256, then accept each file atomically.",
+            "Download the model-specific engine, metadata, and complete Omarchy ESP, boot, and root images into private staging, verify size and SHA-256, then accept each file atomically.",
           status: preparationStatus,
           systemImage: "arrow.down.circle"
         ),
@@ -92,7 +92,7 @@ public struct InstallerWorkflow: Sendable {
           id: "recovery",
           title: "Complete Recovery handoff",
           detail:
-            "A machine owner must hold the power button, enter One True Recovery, authenticate, and approve the machine-specific m1n1 stage 1 setup.",
+            "After the full OS is written, a machine owner must hold the power button, enter One True Recovery, authenticate, and let Finish Installation establish the machine-specific boot policy.",
           status: recoveryStatus,
           systemImage: "person.badge.key"
         ),
@@ -100,7 +100,7 @@ public struct InstallerWorkflow: Sendable {
           id: "boot",
           title: "Boot and finish Omarchy",
           detail:
-            "The prepared chain continues through m1n1 stage 2 and U-Boot to the AArch64 EFI loader, then verifies the installed system before offering normal boot.",
+            "Boot the installed linux-asahi system through m1n1 stage 2, U-Boot, and AArch64 GRUB; complete first-owner setup; then verify Omarchy and macOS both remain bootable.",
           status: .locked,
           systemImage: "power"
         ),

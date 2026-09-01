@@ -15,10 +15,14 @@
       let executor = RecordingHandoffExecutor(result: fixture.transcript)
       let server = ClosedEngineHelperServer(
         workingDirectory: fixture.destination,
-        executor: executor
+        executor: executor,
+        credentialValidator: AcceptingMachineOwnerCredentialValidator()
       )
 
-      let result = try await server.submit(packageDirectory: source)
+      let result = try await server.submit(
+        packageDirectory: source,
+        authorization: try machineOwnerAuthorization()
+      )
       let executionCount = await executor.executionCount
 
       XCTAssertEqual(result, fixture.transcript)
@@ -34,11 +38,15 @@
       let executor = RecordingHandoffExecutor(result: fixture.transcript)
       let server = ClosedEngineHelperServer(
         workingDirectory: fixture.destination,
-        executor: executor
+        executor: executor,
+        credentialValidator: AcceptingMachineOwnerCredentialValidator()
       )
 
       await assertThrowsErrorAsync(
-        try await server.submit(packageDirectory: source)
+        try await server.submit(
+          packageDirectory: source,
+          authorization: try machineOwnerAuthorization()
+        )
       ) {
         XCTAssertEqual(
           $0 as? ClosedEngineHelperError,
@@ -60,11 +68,15 @@
       let executor = RecordingHandoffExecutor(result: fixture.transcript)
       let server = ClosedEngineHelperServer(
         workingDirectory: fixture.destination,
-        executor: executor
+        executor: executor,
+        credentialValidator: AcceptingMachineOwnerCredentialValidator()
       )
 
       await assertThrowsErrorAsync(
-        try await server.submit(packageDirectory: source)
+        try await server.submit(
+          packageDirectory: source,
+          authorization: try machineOwnerAuthorization()
+        )
       ) {
         XCTAssertEqual(
           $0 as? ClosedEngineHelperError,
@@ -82,17 +94,49 @@
       let executor = RecordingHandoffExecutor(result: fixture.transcript)
       let server = ClosedEngineHelperServer(
         workingDirectory: fixture.destination,
-        executor: executor
+        executor: executor,
+        credentialValidator: AcceptingMachineOwnerCredentialValidator()
       )
 
       await assertThrowsErrorAsync(
-        try await server.submit(packageDirectory: source)
+        try await server.submit(
+          packageDirectory: source,
+          authorization: try machineOwnerAuthorization()
+        )
       ) {
         XCTAssertEqual(
           $0 as? ClosedEngineHelperError,
           .transcriptIncomplete
         )
       }
+      XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+    }
+
+    func testRejectedCredentialCannotReachEngineOrImportedState() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let executor = RecordingHandoffExecutor(result: fixture.transcript)
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination,
+        executor: executor,
+        credentialValidator: RejectingMachineOwnerCredentialValidator()
+      )
+
+      await assertThrowsErrorAsync(
+        try await server.submit(
+          packageDirectory: source,
+          authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? ClosedEngineHelperError,
+          .invalidMachineOwnerCredentials
+        )
+      }
+      let executionCount = await executor.executionCount
+      XCTAssertEqual(executionCount, 0)
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
@@ -143,7 +187,6 @@
       let layoutDigest = lengthPrefixedDigest(
         [
           "disk0", "free", "disk0s3", "447750000000", "107374182400",
-          "67501226240", "0",
         ],
         prefix: "sha256:"
       )
@@ -264,6 +307,15 @@
         .joined()
     }
 
+    private func machineOwnerAuthorization() throws
+      -> MachineOwnerAuthorization
+    {
+      try MachineOwnerAuthorization(
+        username: "mina",
+        password: Data("owner-password".utf8)
+      )
+    }
+
     private func lengthPrefixedDigest(
       _ fields: [String],
       prefix: String
@@ -288,10 +340,26 @@
     }
 
     func execute(
-      _ package: ImportedEngineHandoffPackage
+      _ package: ImportedEngineHandoffPackage,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation
     ) async throws -> Data {
       executionCount += 1
       return result
+    }
+  }
+
+  private struct AcceptingMachineOwnerCredentialValidator:
+    MachineOwnerCredentialValidating
+  {
+    func validate(_ authorization: MachineOwnerAuthorization) throws {}
+  }
+
+  private struct RejectingMachineOwnerCredentialValidator:
+    MachineOwnerCredentialValidating
+  {
+    func validate(_ authorization: MachineOwnerAuthorization) throws {
+      throw MachineOwnerCredentialValidationError.rejected
     }
   }
 

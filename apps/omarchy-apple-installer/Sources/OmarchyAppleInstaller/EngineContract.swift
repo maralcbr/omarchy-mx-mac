@@ -33,9 +33,12 @@ struct EngineInventoryMessage: Codable, Equatable, Sendable {
         candidate.sourceIdentifier,
         String(candidate.offsetBytes),
         String(candidate.lengthBytes),
-        String(candidate.minimumInstallBytes),
-        String(candidate.minimumContainerBytes),
       ])
+      if ["repair", "replace"].contains(candidate.kind),
+        let identity = candidate.identityDigest
+      {
+        fields.append(identity)
+      }
     }
     return InstallerDigest.lengthPrefixedSHA256(fields).rawValue
   }
@@ -48,6 +51,7 @@ struct EngineInstallCandidate: Codable, Equatable, Sendable {
   let lengthBytes: UInt64
   let minimumInstallBytes: UInt64
   let minimumContainerBytes: UInt64
+  let identityDigest: String?
 }
 
 struct EnginePlanMessage: Codable, Equatable, Sendable {
@@ -63,10 +67,11 @@ struct EnginePlanMessage: Codable, Equatable, Sendable {
   let engineDigest: String
   let metadataDigest: String
   let payloadDigest: String
+  let repairManifestDigest: String?
   let requiredHumanSteps: [String]
 
   var computedPlanDigest: String {
-    InstallerDigest.lengthPrefixedSHA256([
+    var fields = [
       deviceIdentifier,
       storeIdentifier,
       layoutDigest,
@@ -78,9 +83,12 @@ struct EnginePlanMessage: Codable, Equatable, Sendable {
       engineDigest,
       metadataDigest,
       payloadDigest,
-      requiredHumanSteps.joined(separator: ","),
     ]
-    ).hexadecimal
+    if let repairManifestDigest {
+      fields.append(repairManifestDigest)
+    }
+    fields.append(requiredHumanSteps.joined(separator: ","))
+    return InstallerDigest.lengthPrefixedSHA256(fields).hexadecimal
   }
 }
 
@@ -184,25 +192,37 @@ struct EngineTranscriptDecoder: Sendable {
           throw EngineContractError.invalidMessage(lineNumber)
         }
         for candidate in candidates {
-          try requireKeys(
-            candidate,
-            [
+          let candidateKeys: Set<String> =
+            ["repair", "replace"].contains(candidate["kind"] as? String ?? "")
+            ? [
               "kind", "source_identifier", "offset_bytes", "length_bytes",
               "minimum_install_bytes", "minimum_container_bytes",
-            ],
+              "identity_digest",
+            ]
+            : [
+              "kind", "source_identifier", "offset_bytes", "length_bytes",
+              "minimum_install_bytes", "minimum_container_bytes",
+            ]
+          try requireKeys(
+            candidate,
+            candidateKeys,
             lineNumber
           )
         }
         message = .inventory(try decoder.decode(EngineInventoryMessage.self, from: payloadData))
       case "plan":
+        let repairKeys: Set<String> =
+          payload["candidate_kind"] as? String == "repair"
+          ? ["repair_manifest_digest"]
+          : []
         try requireKeys(
           payload,
-          [
+          Set([
             "plan_digest", "device_identifier", "store_identifier", "layout_digest",
             "candidate_kind", "source_identifier", "offset_bytes", "length_bytes",
             "engine_version", "engine_digest", "metadata_digest", "payload_digest",
             "required_human_steps",
-          ],
+          ]).union(repairKeys),
           lineNumber
         )
         message = .plan(try decoder.decode(EnginePlanMessage.self, from: payloadData))
@@ -272,14 +292,25 @@ struct EngineTranscriptDecoder: Sendable {
         }
         var candidateIdentities = Set<String>()
         for candidate in candidateInventory.candidates {
-          guard ["free", "resize"].contains(candidate.kind),
+          guard ["free", "resize", "repair", "replace"].contains(candidate.kind),
             isPartitionIdentifier(candidate.sourceIdentifier),
             candidateIdentities.insert("\(candidate.kind):\(candidate.sourceIdentifier)").inserted,
             candidate.lengthBytes > 0,
             candidate.minimumInstallBytes > 0,
             candidate.offsetBytes.addingReportingOverflow(candidate.lengthBytes).overflow == false,
-            (candidate.kind == "free" && candidate.minimumContainerBytes == 0)
-              || (candidate.kind == "resize" && candidate.minimumContainerBytes > 0)
+            (candidate.kind == "free" && candidate.minimumContainerBytes == 0
+              && candidate.identityDigest == nil)
+              || (candidate.kind == "resize"
+                && candidate.minimumContainerBytes > 0
+                && candidate.identityDigest == nil)
+              || (candidate.kind == "repair"
+                && candidate.minimumContainerBytes == 0
+                && candidate.minimumInstallBytes == candidate.lengthBytes
+                && candidate.identityDigest.map(isSHA256Digest) == true)
+              || (candidate.kind == "replace"
+                && candidate.minimumContainerBytes == 0
+                && candidate.minimumInstallBytes <= candidate.lengthBytes
+                && candidate.identityDigest.map(isSHA256Digest) == true)
           else {
             throw EngineContractError.unsafeExtent(lineNumber)
           }
@@ -290,6 +321,9 @@ struct EngineTranscriptDecoder: Sendable {
           isPlanDigest(plan.planDigest), plan.planDigest == plan.computedPlanDigest,
           isSHA256Digest(plan.engineDigest),
           isSHA256Digest(plan.metadataDigest), isSHA256Digest(plan.payloadDigest),
+          (plan.candidateKind == "repair"
+            && plan.repairManifestDigest.map(isSHA256Digest) == true)
+            || (plan.candidateKind != "repair" && plan.repairManifestDigest == nil),
           plan.storeIdentifier == inventory.systemStoreIdentifier,
           plan.layoutDigest == inventory.layoutDigest,
           planMatchesInventory(plan, inventory),
@@ -367,6 +401,11 @@ struct EngineTranscriptDecoder: Sendable {
       return plan.offsetBytes == candidate.offsetBytes && plan.lengthBytes <= candidate.lengthBytes
     }
 
+    if candidate.kind == "repair" || candidate.kind == "replace" {
+      return plan.offsetBytes == candidate.offsetBytes
+        && plan.lengthBytes == candidate.lengthBytes
+    }
+
     guard candidate.kind == "resize",
       candidate.lengthBytes >= candidate.minimumContainerBytes
     else {
@@ -421,11 +460,12 @@ struct EngineTranscriptDecoder: Sendable {
 
   private static let phaseOrder = [
     "preflight": 0,
-    "apfs_preparation": 1,
-    "stub_and_esp": 2,
-    "awaiting_recovery": 3,
-    "boot_policy": 4,
-    "media_handoff": 5,
-    "omarchy_install": 6,
+    "existing_removal": 1,
+    "apfs_preparation": 2,
+    "stub_and_esp": 3,
+    "awaiting_recovery": 4,
+    "boot_policy": 5,
+    "media_handoff": 6,
+    "omarchy_install": 7,
   ]
 }

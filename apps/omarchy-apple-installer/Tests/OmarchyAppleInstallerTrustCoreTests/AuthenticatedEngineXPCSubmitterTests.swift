@@ -43,5 +43,30 @@
         )
       }
     }
+
+    func testRecoveryAuthorizationFailureCrossesXPCAsTypedSafeError() {
+      let serviceError = EngineXPCErrorBridge.serviceError(
+        for: PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed
+      )
+
+      XCTAssertEqual(
+        EngineXPCErrorBridge.submissionError(serviceError),
+        .recoveryAuthorizationFailed
+      )
+      XCTAssertTrue(serviceError.userInfo.isEmpty)
+      XCTAssertTrue(
+        RecoveryAuthorizationRetryPolicy.isEligible(
+          after: EngineXPCSubmissionError.recoveryAuthorizationFailed
+        )
+      )
+      XCTAssertFalse(
+        RecoveryAuthorizationRetryPolicy.isEligible(
+          after: EngineXPCSubmissionError.helperRejected(
+            domain: "example",
+            code: 1
+          )
+        )
+      )
+    }
   }
 #endif

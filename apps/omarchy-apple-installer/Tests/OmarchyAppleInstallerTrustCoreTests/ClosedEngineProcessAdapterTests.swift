@@ -404,7 +404,7 @@ final class ClosedEngineProcessAdapterTests: XCTestCase {
     let layoutDigest = lengthPrefixedDigest(
       [
         "disk0", "free", "disk0s3", "447750000000",
-        String(lengthBytes), "67501226240", "0",
+        String(lengthBytes),
       ],
       prefix: "sha256:"
     )

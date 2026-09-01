@@ -35,6 +35,23 @@
     public let engine: StagedInstallerArtifact
     public let metadata: StagedInstallerArtifact
     public let payload: StagedInstallerArtifact
+    public let repairManifest: StagedInstallerArtifact?
+
+    public init(
+      catalogIdentity: AcceptedCatalogIdentity,
+      installer: PinnedInstallerRecord,
+      engine: StagedInstallerArtifact,
+      metadata: StagedInstallerArtifact,
+      payload: StagedInstallerArtifact,
+      repairManifest: StagedInstallerArtifact? = nil
+    ) {
+      self.catalogIdentity = catalogIdentity
+      self.installer = installer
+      self.engine = engine
+      self.metadata = metadata
+      self.payload = payload
+      self.repairManifest = repairManifest
+    }
   }
 
   public enum InstallerAssetPreparationError: Error, Equatable, Sendable {
@@ -60,7 +77,8 @@
     }
 
     public func prepare(
-      _ request: InstallerAssetPreparationRequest
+      _ request: InstallerAssetPreparationRequest,
+      progress: ArtifactStagingProgressHandler? = nil
     ) async throws -> PreparedInstallerAssets {
       let deviceIdentifier = try validateHost(request.host)
 
@@ -82,25 +100,49 @@
         throw InstallerAssetPreparationError.deliveryMetadataUnavailable
       }
 
-      let engine = try await stager.stage(
+      async let engine = stager.stage(
         delivery.engine,
-        in: request.stagingDirectory
+        in: request.stagingDirectory,
+        progress: progress
       )
-      let metadata = try await stager.stage(
+      async let metadata = stager.stage(
         delivery.metadata,
-        in: request.stagingDirectory
+        in: request.stagingDirectory,
+        progress: progress
       )
-      let payload = try await stager.stage(
+      async let payload = stager.stage(
         delivery.payload,
-        in: request.stagingDirectory
+        in: request.stagingDirectory,
+        progress: progress
+      )
+      async let repairManifest = stageRepairManifest(
+        delivery.repairManifest,
+        in: request.stagingDirectory,
+        progress: progress
       )
 
       return PreparedInstallerAssets(
         catalogIdentity: catalog.acceptedIdentity,
         installer: installer,
-        engine: engine,
-        metadata: metadata,
-        payload: payload
+        engine: try await engine,
+        metadata: try await metadata,
+        payload: try await payload,
+        repairManifest: try await repairManifest
+      )
+    }
+
+    private func stageRepairManifest(
+      _ artifact: PinnedInstallerArtifact?,
+      in stagingDirectory: URL,
+      progress: ArtifactStagingProgressHandler?
+    ) async throws -> StagedInstallerArtifact? {
+      guard let artifact else {
+        return nil
+      }
+      return try await stager.stage(
+        artifact,
+        in: stagingDirectory,
+        progress: progress
       )
     }
 

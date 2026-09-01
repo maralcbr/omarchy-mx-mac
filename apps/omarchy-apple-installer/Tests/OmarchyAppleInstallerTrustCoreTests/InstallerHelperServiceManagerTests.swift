@@ -4,37 +4,33 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class InstallerHelperServiceManagerTests: XCTestCase {
-    func testReadingStatusDoesNotRegisterHelper() {
-      let controller = FixtureHelperServiceController(status: .notRegistered)
-      let manager = InstallerHelperServiceManager(controller: controller)
+    func testReportsEnabledWhenControllerSeesInstalledDaemon() {
+      let manager = InstallerHelperServiceManager(
+        controller: FixtureHelperServiceController(status: .enabled)
+      )
 
-      XCTAssertEqual(manager.status, .notRegistered)
-      XCTAssertEqual(controller.registrationCount, 0)
+      XCTAssertEqual(manager.status, .enabled)
     }
 
-    func testRegistrationRequiresExplicitMethodCall() throws {
-      let controller = FixtureHelperServiceController(status: .requiresApproval)
-      let manager = InstallerHelperServiceManager(controller: controller)
+    func testReportsNotInstalledWhenControllerSeesMissingDaemon() {
+      let manager = InstallerHelperServiceManager(
+        controller: FixtureHelperServiceController(status: .notInstalled)
+      )
 
-      try manager.registerAfterOwnerAuthorization()
+      XCTAssertEqual(manager.status, .notInstalled)
+    }
 
-      XCTAssertEqual(controller.registrationCount, 1)
+    func testReachabilityChecksTheCanonicalSystemLaunchDaemonPath() {
+      XCTAssertEqual(
+        InstallerProductIdentity.systemLaunchDaemonPath,
+        "/Library/LaunchDaemons/com.omarchy.mx.installer.helper.plist"
+      )
     }
   }
 
-  private final class FixtureHelperServiceController:
-    InstallerHelperServiceControlling,
-    @unchecked Sendable
+  private struct FixtureHelperServiceController:
+    InstallerHelperServiceControlling
   {
     let status: InstallerHelperServiceStatus
-    private(set) var registrationCount = 0
-
-    init(status: InstallerHelperServiceStatus) {
-      self.status = status
-    }
-
-    func register() throws {
-      registrationCount += 1
-    }
   }
 #endif

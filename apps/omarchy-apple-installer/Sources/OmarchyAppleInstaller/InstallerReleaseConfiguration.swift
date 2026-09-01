@@ -23,6 +23,23 @@
     public let trustRoot: AppOwnedTrustRoot
     public let helperMachServiceName: String
     public let helperCodeSigningRequirement: String
+    public let sealedCatalogDocuments: InstallerReleaseCatalogDocuments?
+
+    public init(
+      catalogURL: URL,
+      catalogSignatureURL: URL,
+      trustRoot: AppOwnedTrustRoot,
+      helperMachServiceName: String,
+      helperCodeSigningRequirement: String,
+      sealedCatalogDocuments: InstallerReleaseCatalogDocuments? = nil
+    ) {
+      self.catalogURL = catalogURL
+      self.catalogSignatureURL = catalogSignatureURL
+      self.trustRoot = trustRoot
+      self.helperMachServiceName = helperMachServiceName
+      self.helperCodeSigningRequirement = helperCodeSigningRequirement
+      self.sealedCatalogDocuments = sealedCatalogDocuments
+    }
   }
 
   public struct InstallerReleaseConfigurationLoader: Sendable {
@@ -91,7 +108,8 @@
         catalogSignatureURL: decoded.catalogSignatureURL,
         trustRoot: trustRoot,
         helperMachServiceName: decoded.helperMachServiceName,
-        helperCodeSigningRequirement: decoded.helperCodeSigningRequirement
+        helperCodeSigningRequirement: decoded.helperCodeSigningRequirement,
+        sealedCatalogDocuments: nil
       )
     }
 
@@ -110,6 +128,8 @@
   public struct InstallerReleaseConfigurationLocator: Sendable {
     public static let descriptorFileName = "release.json"
     public static let trustRootFileName = "trust-root.ed25519.pub"
+    public static let sealedCatalogFileName = "catalog.json"
+    public static let sealedCatalogSignatureFileName = "catalog.json.sig"
 
     public init() {}
 
@@ -141,10 +161,83 @@
         maximumBytes: 32,
         role: "trust-root"
       )
-      return try InstallerReleaseConfigurationLoader().load(
+      let configuration = try InstallerReleaseConfigurationLoader().load(
         descriptor: descriptor,
         trustRootPublicKey: trustRoot
       )
+      let sealedCatalogDocuments = try loadSealedCatalogDocuments(
+        from: releaseDirectory
+      )
+      return InstallerReleaseConfiguration(
+        catalogURL: configuration.catalogURL,
+        catalogSignatureURL: configuration.catalogSignatureURL,
+        trustRoot: configuration.trustRoot,
+        helperMachServiceName: configuration.helperMachServiceName,
+        helperCodeSigningRequirement:
+          configuration.helperCodeSigningRequirement,
+        sealedCatalogDocuments: sealedCatalogDocuments
+      )
+    }
+
+    private func loadSealedCatalogDocuments(
+      from releaseDirectory: URL
+    ) throws -> InstallerReleaseCatalogDocuments? {
+      let payloadURL = releaseDirectory.appendingPathComponent(
+        Self.sealedCatalogFileName
+      )
+      let signatureURL = releaseDirectory.appendingPathComponent(
+        Self.sealedCatalogSignatureFileName
+      )
+      let hasPayload = try resourceExists(
+        payloadURL,
+        role: "sealed-catalog"
+      )
+      let hasSignature = try resourceExists(
+        signatureURL,
+        role: "sealed-catalog-signature"
+      )
+      guard hasPayload || hasSignature else {
+        return nil
+      }
+      guard hasPayload && hasSignature else {
+        throw InstallerReleaseConfigurationError.unsafeReleaseResource(
+          "sealed-catalog-pair"
+        )
+      }
+
+      let payload = try readRegularFile(
+        payloadURL,
+        maximumBytes:
+          InstallerReleaseCatalogFetcher.maximumCatalogBytes,
+        role: "sealed-catalog"
+      )
+      let signature = try readRegularFile(
+        signatureURL,
+        maximumBytes: InstallerReleaseCatalogFetcher.signatureBytes,
+        role: "sealed-catalog-signature"
+      )
+      guard signature.count == InstallerReleaseCatalogFetcher.signatureBytes
+      else {
+        throw InstallerReleaseConfigurationError.invalidCatalogSignature
+      }
+      return InstallerReleaseCatalogDocuments(
+        payload: payload,
+        signature: signature
+      )
+    }
+
+    private func resourceExists(
+      _ url: URL,
+      role: String
+    ) throws -> Bool {
+      var status = stat()
+      if lstat(url.path, &status) == 0 {
+        return true
+      }
+      guard errno == ENOENT else {
+        throw InstallerReleaseConfigurationError.unsafeReleaseResource(role)
+      }
+      return false
     }
 
     private func validateDirectory(_ directory: URL) throws {
@@ -215,6 +308,20 @@
     public func fetch(
       configuration: InstallerReleaseConfiguration
     ) async throws -> InstallerReleaseCatalogDocuments {
+      if let sealed = configuration.sealedCatalogDocuments {
+        guard !sealed.payload.isEmpty,
+          sealed.payload.count <= Self.maximumCatalogBytes
+        else {
+          throw InstallerReleaseConfigurationError.oversizedDocument(
+            "catalog"
+          )
+        }
+        guard sealed.signature.count == Self.signatureBytes else {
+          throw InstallerReleaseConfigurationError.invalidCatalogSignature
+        }
+        return sealed
+      }
+
       async let payload = downloader.download(
         from: configuration.catalogURL,
         maximumBytes: Self.maximumCatalogBytes,

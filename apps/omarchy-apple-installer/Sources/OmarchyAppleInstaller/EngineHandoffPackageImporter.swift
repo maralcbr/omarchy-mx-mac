@@ -11,9 +11,39 @@
     public let engineURL: URL
     public let metadataURL: URL
     public let payloadURL: URL
+    public let repairManifestURL: URL?
     public let bindingDigest: String
     public let planDigest: String
     public let deviceIdentifier: String
+    public let storeIdentifier: String
+
+    public init(
+      packageURL: URL,
+      manifestURL: URL,
+      requestURL: URL,
+      identityURL: URL,
+      engineURL: URL,
+      metadataURL: URL,
+      payloadURL: URL,
+      repairManifestURL: URL? = nil,
+      bindingDigest: String,
+      planDigest: String,
+      deviceIdentifier: String,
+      storeIdentifier: String
+    ) {
+      self.packageURL = packageURL
+      self.manifestURL = manifestURL
+      self.requestURL = requestURL
+      self.identityURL = identityURL
+      self.engineURL = engineURL
+      self.metadataURL = metadataURL
+      self.payloadURL = payloadURL
+      self.repairManifestURL = repairManifestURL
+      self.bindingDigest = bindingDigest
+      self.planDigest = planDigest
+      self.deviceIdentifier = deviceIdentifier
+      self.storeIdentifier = storeIdentifier
+    }
   }
 
   public enum EngineHandoffImportError: Error, Equatable, Sendable {
@@ -91,6 +121,9 @@
         manifest.metadata.fileName
       )
       let payloadURL = package.appendingPathComponent(manifest.payload.fileName)
+      let repairManifestURL = manifest.repairManifest.map {
+        package.appendingPathComponent($0.fileName)
+      }
       try copyArtifact(
         manifest.engine,
         role: "engine",
@@ -109,6 +142,16 @@
         from: sourceDescriptor,
         to: payloadURL
       )
+      if let repairManifest = manifest.repairManifest,
+        let repairManifestURL
+      {
+        try copyArtifact(
+          repairManifest,
+          role: "repair-manifest",
+          from: sourceDescriptor,
+          to: repairManifestURL
+        )
+      }
 
       keepPackage = true
       return ImportedEngineHandoffPackage(
@@ -119,9 +162,11 @@
         engineURL: engineURL,
         metadataURL: metadataURL,
         payloadURL: payloadURL,
+        repairManifestURL: repairManifestURL,
         bindingDigest: identity.bindingDigest,
         planDigest: request.planDigest,
-        deviceIdentifier: request.deviceIdentifier
+        deviceIdentifier: request.deviceIdentifier,
+        storeIdentifier: request.storeIdentifier
       )
     }
 
@@ -269,15 +314,26 @@
 
     private func decodeManifest(_ data: Data) throws -> ImportedManifest {
       do {
+        guard
+          let rawObject = try JSONSerialization.jsonObject(with: data)
+            as? [String: Any]
+        else {
+          throw EngineHandoffImportError.invalidManifest
+        }
+        var manifestKeys: Set<String> = [
+          "format", "binding_digest", "request_file", "identity_file",
+          "engine", "metadata", "payload",
+        ]
+        if rawObject["repair_manifest"] != nil {
+          manifestKeys.insert("repair_manifest")
+        }
         let object = try exactObject(
           data,
-          keys: [
-            "format", "binding_digest", "request_file", "identity_file",
-            "engine", "metadata", "payload",
-          ],
+          keys: manifestKeys,
           error: .invalidManifest
         )
-        for key in ["engine", "metadata", "payload"] {
+        for key in ["engine", "metadata", "payload", "repair_manifest"]
+        where object[key] != nil {
           guard let artifact = object[key] as? [String: Any],
             Set(artifact.keys) == ["file_name", "digest", "size_bytes"]
           else {
@@ -288,11 +344,12 @@
           ImportedManifest.self,
           from: data
         )
-        let fileNames = [
-          manifest.engine.fileName,
-          manifest.metadata.fileName,
-          manifest.payload.fileName,
-        ]
+        let fileNames =
+          [
+            manifest.engine.fileName,
+            manifest.metadata.fileName,
+            manifest.payload.fileName,
+          ] + (manifest.repairManifest.map { [$0.fileName] } ?? [])
         guard manifest.format == 1,
           manifest.requestFile == "request.json",
           manifest.identityFile == "identity.json",
@@ -300,7 +357,8 @@
           Set(fileNames).isDisjoint(
             with: ["manifest.json", "request.json", "identity.json"]
           ),
-          [manifest.engine, manifest.metadata, manifest.payload]
+          ([manifest.engine, manifest.metadata, manifest.payload]
+            + (manifest.repairManifest.map { [$0] } ?? []))
             .allSatisfy(validArtifact)
         else {
           throw EngineHandoffImportError.invalidManifest
@@ -327,7 +385,10 @@
         )
         let request = try JSONDecoder().decode(ImportedRequest.self, from: data)
         guard request.format == 1,
-          request.operation == "install",
+          (request.operation == "install"
+            && ["free", "resize", "replace"].contains(request.candidateKind))
+            || (request.operation == "repair-installed-system"
+              && request.candidateKind == "repair"),
           isHexDigest(request.planDigest),
           request.deviceIdentifier.range(
             of: #"^apple,[a-z0-9]+$"#,
@@ -338,7 +399,6 @@
             options: .regularExpression
           ) != nil,
           isSHA256Digest(request.layoutDigest),
-          ["free", "resize"].contains(request.candidateKind),
           request.sourceIdentifier.range(
             of: #"^disk[0-9]+(?:s[0-9]+)?$"#,
             options: .regularExpression
@@ -366,13 +426,23 @@
 
     private func decodeIdentity(_ data: Data) throws -> ImportedIdentity {
       do {
+        guard
+          let rawObject = try JSONSerialization.jsonObject(with: data)
+            as? [String: Any]
+        else {
+          throw EngineHandoffImportError.invalidIdentity
+        }
+        var identityKeys: Set<String> = [
+          "format", "binding_digest", "trust_root_fingerprint",
+          "catalog_sequence", "catalog_payload_digest", "plan_digest",
+          "engine_digest", "metadata_digest", "payload_digest",
+        ]
+        if rawObject["repair_manifest_digest"] != nil {
+          identityKeys.insert("repair_manifest_digest")
+        }
         _ = try exactObject(
           data,
-          keys: [
-            "format", "binding_digest", "trust_root_fingerprint",
-            "catalog_sequence", "catalog_payload_digest", "plan_digest",
-            "engine_digest", "metadata_digest", "payload_digest",
-          ],
+          keys: identityKeys,
           error: .invalidIdentity
         )
         let identity = try JSONDecoder().decode(
@@ -388,6 +458,8 @@
           isSHA256Digest(identity.engineDigest),
           isSHA256Digest(identity.metadataDigest),
           isSHA256Digest(identity.payloadDigest)
+            && (identity.repairManifestDigest == nil
+              || isSHA256Digest(identity.repairManifestDigest!))
         else {
           throw EngineHandoffImportError.invalidIdentity
         }
@@ -404,26 +476,34 @@
       request: ImportedRequest,
       identity: ImportedIdentity
     ) throws {
+      var planFields = [
+        request.deviceIdentifier,
+        request.storeIdentifier,
+        request.layoutDigest,
+        request.candidateKind,
+        request.sourceIdentifier,
+        String(request.offsetBytes),
+        String(request.lengthBytes),
+        request.engineVersion,
+        identity.engineDigest,
+        identity.metadataDigest,
+        identity.payloadDigest,
+      ]
+      if let repairManifestDigest = identity.repairManifestDigest {
+        planFields.append(repairManifestDigest)
+      }
+      planFields.append(request.requiredHumanSteps.joined(separator: ","))
       guard manifest.bindingDigest == identity.bindingDigest,
         request.planDigest == identity.planDigest,
-        request.planDigest
-          == lengthPrefixedDigest([
-            request.deviceIdentifier,
-            request.storeIdentifier,
-            request.layoutDigest,
-            request.candidateKind,
-            request.sourceIdentifier,
-            String(request.offsetBytes),
-            String(request.lengthBytes),
-            request.engineVersion,
-            identity.engineDigest,
-            identity.metadataDigest,
-            identity.payloadDigest,
-            request.requiredHumanSteps.joined(separator: ","),
-          ]),
+        request.planDigest == lengthPrefixedDigest(planFields),
         manifest.engine.digest == identity.engineDigest,
         manifest.metadata.digest == identity.metadataDigest,
-        manifest.payload.digest == identity.payloadDigest
+        manifest.payload.digest == identity.payloadDigest,
+        manifest.repairManifest?.digest == identity.repairManifestDigest,
+        (request.operation == "repair-installed-system"
+          && identity.repairManifestDigest != nil)
+          || (request.operation == "install"
+            && identity.repairManifestDigest == nil)
       else {
         throw EngineHandoffImportError.bindingMismatch
       }
@@ -482,6 +562,7 @@
     let engine: ImportedArtifactRecord
     let metadata: ImportedArtifactRecord
     let payload: ImportedArtifactRecord
+    let repairManifest: ImportedArtifactRecord?
 
     enum CodingKeys: String, CodingKey {
       case format
@@ -491,6 +572,7 @@
       case engine
       case metadata
       case payload
+      case repairManifest = "repair_manifest"
     }
   }
 
@@ -546,6 +628,7 @@
     let engineDigest: String
     let metadataDigest: String
     let payloadDigest: String
+    let repairManifestDigest: String?
 
     enum CodingKeys: String, CodingKey {
       case format
@@ -557,6 +640,7 @@
       case engineDigest = "engine_digest"
       case metadataDigest = "metadata_digest"
       case payloadDigest = "payload_digest"
+      case repairManifestDigest = "repair_manifest_digest"
     }
   }
 #endif

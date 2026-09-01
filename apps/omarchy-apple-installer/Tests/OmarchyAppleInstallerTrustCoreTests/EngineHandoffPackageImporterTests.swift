@@ -56,6 +56,90 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
+    func testRepairPackageImportsManifestBoundToPlanIdentity() throws {
+      let fixture = try makeFixture(repair: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+
+      let imported = try EngineHandoffPackageImporter().prepare(
+        from: source,
+        in: fixture.destination
+      )
+      defer { try? FileManager.default.removeItem(at: imported.packageURL) }
+
+      XCTAssertEqual(
+        try Data(contentsOf: try XCTUnwrap(imported.repairManifestURL)),
+        try XCTUnwrap(fixture.repairManifest)
+      )
+    }
+
+    func testReplacePackageImportsUnderInstallOperation() throws {
+      let fixture = try makeFixture(replace: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+
+      let imported = try EngineHandoffPackageImporter().prepare(
+        from: source,
+        in: fixture.destination
+      )
+      defer { try? FileManager.default.removeItem(at: imported.packageURL) }
+
+      XCTAssertNil(imported.repairManifestURL)
+      XCTAssertEqual(try Data(contentsOf: imported.engineURL), fixture.engine)
+    }
+
+    func testReplacePackageWithRepairManifestIsRejected() throws {
+      let fixture = try makeFixture(replace: true, strayRepairManifest: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+
+      XCTAssertThrowsError(
+        try EngineHandoffPackageImporter().prepare(
+          from: source,
+          in: fixture.destination
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? EngineHandoffImportError,
+          .bindingMismatch
+        )
+      }
+      XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+    }
+
+    func testReplacePackageUnderRepairOperationIsRejected() throws {
+      let fixture = try makeFixture(replace: true)
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let original = try String(
+        contentsOf: fixture.requestURL,
+        encoding: .utf8
+      )
+      let changed = original.replacingOccurrences(
+        of: #""operation":"install""#,
+        with: #""operation":"repair-installed-system""#
+      )
+      try FileManager.default.removeItem(at: fixture.requestURL)
+      try writePrivate(Data(changed.utf8), to: fixture.requestURL)
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+
+      XCTAssertThrowsError(
+        try EngineHandoffPackageImporter().prepare(
+          from: source,
+          in: fixture.destination
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? EngineHandoffImportError,
+          .invalidRequest
+        )
+      }
+      XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+    }
+
     func testNulArtifactFileNameIsRejectedBeforeImport() throws {
       let fixture = try makeFixture(nulEngineFileName: true)
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -150,7 +234,10 @@
       extraManifestField: Bool = false,
       corruptPayload: Bool = false,
       symlinkEngine: Bool = false,
-      nulEngineFileName: Bool = false
+      nulEngineFileName: Bool = false,
+      repair: Bool = false,
+      replace: Bool = false,
+      strayRepairManifest: Bool = false
     ) throws -> ImportFixture {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-helper-import-\(UUID().uuidString.lowercased())",
@@ -175,9 +262,11 @@
       let engine = Data("engine-a".utf8)
       let metadata = Data("metadata".utf8)
       let payload = Data("payload-a".utf8)
+      let repairManifest = Data("{\"operation\":\"repair-installed-system\"}".utf8)
       let engineURL = source.appendingPathComponent("engine.tar.gz")
       let metadataURL = source.appendingPathComponent("installer-data.json")
       let payloadURL = source.appendingPathComponent("omarchy.img.zst")
+      let repairURL = source.appendingPathComponent("repair.json")
       if symlinkEngine {
         let target = source.appendingPathComponent("engine-target")
         try writePrivate(engine, to: target)
@@ -193,37 +282,52 @@
         corruptPayload ? Data("payload-b".utf8) : payload,
         to: payloadURL
       )
+      let includeRepairManifest = repair || strayRepairManifest
+      if includeRepairManifest {
+        try writePrivate(repairManifest, to: repairURL)
+      }
 
       let bindingDigest = digest(Data("binding".utf8))
       let engineDigest = digest(engine)
       let metadataDigest = digest(metadata)
       let payloadDigest = digest(payload)
+      let repairDigest = digest(repairManifest)
       let layoutDigest = digest(Data("layout".utf8))
       let engineVersion = "v0.9.0-omarchy.2"
-      let planDigest = lengthPrefixedDigest([
+      let candidateKind = repair ? "repair" : replace ? "replace" : "free"
+      var planFields = [
         "apple,j314s", "disk0", layoutDigest, "free", "disk0s3",
         "2000", "1000", engineVersion, engineDigest, metadataDigest,
         payloadDigest,
-        "enterOneTrueRecovery,authenticateMachineOwner",
-      ])
+      ]
+      planFields[3] = candidateKind
+      if includeRepairManifest {
+        planFields.append(repairDigest)
+      }
+      planFields.append("enterOneTrueRecovery,authenticateMachineOwner")
+      let planDigest = lengthPrefixedDigest(planFields)
       let extraField = extraManifestField ? #","unexpected":true"# : ""
       let engineFileName =
         nulEngineFileName
         ? #"engine\u0000ignored.tar.gz"#
         : "engine.tar.gz"
+      let repairManifestField =
+        includeRepairManifest
+        ? ",\"repair_manifest\":{\"file_name\":\"repair.json\",\"digest\":\"\(repairDigest)\",\"size_bytes\":\(repairManifest.count)}"
+        : ""
       let manifest = Data(
         """
-        {"format":1,"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json","engine":{"file_name":"\(engineFileName)","digest":"\(engineDigest)","size_bytes":\(engine.count)},"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)}\(extraField)}
+        {"format":1,"binding_digest":"\(bindingDigest)","request_file":"request.json","identity_file":"identity.json","engine":{"file_name":"\(engineFileName)","digest":"\(engineDigest)","size_bytes":\(engine.count)},"metadata":{"file_name":"installer-data.json","digest":"\(metadataDigest)","size_bytes":\(metadata.count)},"payload":{"file_name":"omarchy.img.zst","digest":"\(payloadDigest)","size_bytes":\(payload.count)}\(repairManifestField)\(extraField)}
         """.utf8
       )
       let request = Data(
         """
-        {"format":1,"operation":"install","plan_digest":"\(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\(layoutDigest)","candidate_kind":"free","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"\(engineVersion)","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}
+        {"format":1,"operation":"\(repair ? "repair-installed-system" : "install")","plan_digest":"\(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0","layout_digest":"\(layoutDigest)","candidate_kind":"\(candidateKind)","source_identifier":"disk0s3","offset_bytes":2000,"length_bytes":1000,"engine_version":"\(engineVersion)","required_human_steps":["enterOneTrueRecovery","authenticateMachineOwner"]}
         """.utf8
       )
       let identity = Data(
         """
-        {"format":1,"binding_digest":"\(bindingDigest)","trust_root_fingerprint":"\(digest(Data("root".utf8)))","catalog_sequence":40,"catalog_payload_digest":"\(digest(Data("catalog".utf8)))","plan_digest":"\(planDigest)","engine_digest":"\(engineDigest)","metadata_digest":"\(metadataDigest)","payload_digest":"\(payloadDigest)"}
+        {"format":1,"binding_digest":"\(bindingDigest)","trust_root_fingerprint":"\(digest(Data("root".utf8)))","catalog_sequence":40,"catalog_payload_digest":"\(digest(Data("catalog".utf8)))","plan_digest":"\(planDigest)","engine_digest":"\(engineDigest)","metadata_digest":"\(metadataDigest)","payload_digest":"\(payloadDigest)"\(includeRepairManifest ? ",\"repair_manifest_digest\":\"\(repairDigest)\"" : "")}
         """.utf8
       )
       try writePrivate(
@@ -247,7 +351,8 @@
         requestURL: source.appendingPathComponent("request.json"),
         engine: engine,
         metadata: metadata,
-        payload: payload
+        payload: payload,
+        repairManifest: includeRepairManifest ? repairManifest : nil
       )
     }
 
@@ -312,5 +417,6 @@
     let engine: Data
     let metadata: Data
     let payload: Data
+    let repairManifest: Data?
   }
 #endif

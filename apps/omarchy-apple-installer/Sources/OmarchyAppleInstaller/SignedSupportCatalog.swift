@@ -3,6 +3,7 @@ import Foundation
 
 public struct PinnedInstallerRecord: Equatable, Sendable {
   public let deviceIdentifier: String
+  public let operation: String
   public let asahiInstallerTag: String
   public let asahiInstallerRevision: String
   public let asahiInstallerDataRevision: String
@@ -11,14 +12,58 @@ public struct PinnedInstallerRecord: Equatable, Sendable {
   public let engineDigest: String
   public let metadataDigest: String
   public let payloadDigest: String
+  public let repairManifestDigest: String?
   public let evidenceRevision: String
   public let delivery: PinnedInstallerDelivery?
+
+  public init(
+    deviceIdentifier: String,
+    operation: String = "install",
+    asahiInstallerTag: String,
+    asahiInstallerRevision: String,
+    asahiInstallerDataRevision: String,
+    downstreamRevision: String,
+    engineVersion: String?,
+    engineDigest: String,
+    metadataDigest: String,
+    payloadDigest: String,
+    repairManifestDigest: String? = nil,
+    evidenceRevision: String,
+    delivery: PinnedInstallerDelivery?
+  ) {
+    self.deviceIdentifier = deviceIdentifier
+    self.operation = operation
+    self.asahiInstallerTag = asahiInstallerTag
+    self.asahiInstallerRevision = asahiInstallerRevision
+    self.asahiInstallerDataRevision = asahiInstallerDataRevision
+    self.downstreamRevision = downstreamRevision
+    self.engineVersion = engineVersion
+    self.engineDigest = engineDigest
+    self.metadataDigest = metadataDigest
+    self.payloadDigest = payloadDigest
+    self.repairManifestDigest = repairManifestDigest
+    self.evidenceRevision = evidenceRevision
+    self.delivery = delivery
+  }
 }
 
 public struct PinnedInstallerDelivery: Equatable, Sendable {
   public let engine: PinnedInstallerArtifact
   public let metadata: PinnedInstallerArtifact
   public let payload: PinnedInstallerArtifact
+  public let repairManifest: PinnedInstallerArtifact?
+
+  public init(
+    engine: PinnedInstallerArtifact,
+    metadata: PinnedInstallerArtifact,
+    payload: PinnedInstallerArtifact,
+    repairManifest: PinnedInstallerArtifact? = nil
+  ) {
+    self.engine = engine
+    self.metadata = metadata
+    self.payload = payload
+    self.repairManifest = repairManifest
+  }
 }
 
 struct SupportCatalog: Equatable, Sendable {
@@ -91,7 +136,7 @@ struct SignedSupportCatalogVerifier: Sendable {
       throw SupportCatalogError.invalidPayload
     }
 
-    guard [1, 2].contains(manifest.schemaVersion) else {
+    guard [1, 2, 3].contains(manifest.schemaVersion) else {
       throw SupportCatalogError.unsupportedSchema(manifest.schemaVersion)
     }
     guard manifest.sequence > 0 else {
@@ -129,6 +174,27 @@ struct SignedSupportCatalogVerifier: Sendable {
       guard SHA256Digest(rawValue: model.payloadDigest) != nil else {
         throw SupportCatalogError.invalidField("models[\(index)].payloadDigest")
       }
+      let operation: String
+      let repairManifestDigest: String?
+      if manifest.schemaVersion == 3 {
+        guard model.operation == "repair-installed-system" else {
+          throw SupportCatalogError.invalidField(
+            "models[\(index)].operation"
+          )
+        }
+        guard let digest = model.repairManifestDigest,
+          SHA256Digest(rawValue: digest) != nil
+        else {
+          throw SupportCatalogError.invalidField(
+            "models[\(index)].repairManifestDigest"
+          )
+        }
+        operation = "repair-installed-system"
+        repairManifestDigest = digest
+      } else {
+        operation = "install"
+        repairManifestDigest = nil
+      }
       guard isGitRevision(model.asahiInstallerRevision) else {
         throw SupportCatalogError.invalidField(
           "models[\(index)].asahiInstallerRevision"
@@ -151,7 +217,7 @@ struct SignedSupportCatalogVerifier: Sendable {
       }
 
       let engineVersion: String?
-      if manifest.schemaVersion == 2 {
+      if manifest.schemaVersion >= 2 {
         guard let candidate = model.engineVersion,
           isEngineVersion(candidate)
         else {
@@ -176,6 +242,7 @@ struct SignedSupportCatalogVerifier: Sendable {
 
       records[model.deviceIdentifier] = PinnedInstallerRecord(
         deviceIdentifier: model.deviceIdentifier,
+        operation: operation,
         asahiInstallerTag: model.asahiInstallerTag,
         asahiInstallerRevision: model.asahiInstallerRevision,
         asahiInstallerDataRevision: model.asahiInstallerDataRevision,
@@ -184,6 +251,7 @@ struct SignedSupportCatalogVerifier: Sendable {
         engineDigest: model.engineDigest,
         metadataDigest: model.metadataDigest,
         payloadDigest: model.payloadDigest,
+        repairManifestDigest: repairManifestDigest,
         evidenceRevision: model.evidenceRevision,
         delivery: delivery
       )
@@ -197,7 +265,7 @@ struct SignedSupportCatalogVerifier: Sendable {
     schemaVersion: Int,
     modelIndex: Int
   ) throws -> PinnedInstallerDelivery? {
-    guard schemaVersion == 2 else {
+    guard schemaVersion >= 2 else {
       return nil
     }
     guard let engine = model.engineArtifact,
@@ -210,20 +278,44 @@ struct SignedSupportCatalogVerifier: Sendable {
     }
 
     do {
+      let repairManifest: PinnedInstallerArtifact?
+      if schemaVersion == 3 {
+        guard let artifact = model.repairManifestArtifact,
+          let digest = model.repairManifestDigest
+        else {
+          throw SupportCatalogError.invalidField(
+            "models[\(modelIndex)].artifacts"
+          )
+        }
+        repairManifest = try artifact.descriptor(
+          role: "repair-manifest",
+          digest: digest,
+          field: "models[\(modelIndex)].repairManifestArtifact"
+        )
+      } else {
+        repairManifest = nil
+      }
       return PinnedInstallerDelivery(
         engine: try engine.descriptor(
           role: "engine",
-          digest: model.engineDigest
+          digest: model.engineDigest,
+          field: "models[\(modelIndex)].engineArtifact"
         ),
         metadata: try metadata.descriptor(
           role: "metadata",
-          digest: model.metadataDigest
+          digest: model.metadataDigest,
+          field: "models[\(modelIndex)].metadataArtifact"
         ),
         payload: try payload.descriptor(
           role: "payload",
-          digest: model.payloadDigest
-        )
+          digest: model.payloadDigest,
+          field: "models[\(modelIndex)].payloadArtifact",
+          allowsParts: true
+        ),
+        repairManifest: repairManifest
       )
+    } catch let error as SupportCatalogError {
+      throw error
     } catch {
       throw SupportCatalogError.invalidField(
         "models[\(modelIndex)].artifacts"
@@ -305,6 +397,7 @@ private struct Manifest: Decodable {
 private struct ModelRecord: Decodable {
   let deviceIdentifier: String
   let status: ModelStatus
+  let operation: String?
   let asahiInstallerTag: String
   let asahiInstallerRevision: String
   let asahiInstallerDataRevision: String
@@ -313,26 +406,60 @@ private struct ModelRecord: Decodable {
   let engineDigest: String
   let metadataDigest: String
   let payloadDigest: String
+  let repairManifestDigest: String?
   let evidenceRevision: String
   let engineArtifact: ModelArtifactRecord?
   let metadataArtifact: ModelArtifactRecord?
   let payloadArtifact: ModelArtifactRecord?
+  let repairManifestArtifact: ModelArtifactRecord?
 }
 
 private struct ModelArtifactRecord: Decodable {
   let sourceURL: URL
   let fileName: String
   let sizeBytes: UInt64
+  let parts: [ModelArtifactPartRecord]?
 
   func descriptor(
     role: String,
-    digest: String
+    digest: String,
+    field: String,
+    allowsParts: Bool = false
   ) throws -> PinnedInstallerArtifact {
-    try PinnedInstallerArtifact(
+    var pinnedParts = [PinnedArtifactPart]()
+    if let parts {
+      guard allowsParts else {
+        throw SupportCatalogError.invalidField("\(field).parts")
+      }
+      guard (2...PinnedInstallerArtifact.maximumPartCount).contains(parts.count)
+      else {
+        throw SupportCatalogError.invalidField("\(field).parts")
+      }
+      pinnedParts = try parts.map { part in try part.descriptor() }
+    }
+
+    return try PinnedInstallerArtifact(
       role: role,
       sourceURL: sourceURL,
       fileName: fileName,
       expectedDigest: digest,
+      expectedSizeBytes: sizeBytes,
+      parts: pinnedParts
+    )
+  }
+}
+
+private struct ModelArtifactPartRecord: Decodable {
+  let sourceURL: URL
+  let fileName: String
+  let sizeBytes: UInt64
+  let sha256: String
+
+  func descriptor() throws -> PinnedArtifactPart {
+    try PinnedArtifactPart(
+      sourceURL: sourceURL,
+      fileName: fileName,
+      expectedDigest: sha256,
       expectedSizeBytes: sizeBytes
     )
   }

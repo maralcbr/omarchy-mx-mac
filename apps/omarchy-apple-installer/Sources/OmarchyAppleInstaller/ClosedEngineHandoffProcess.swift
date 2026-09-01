@@ -11,10 +11,15 @@
     public let engineURL: URL
     public let metadataURL: URL
     public let payloadURL: URL
+    public let repairManifestURL: URL?
   }
 
   public protocol EngineHandoffSubmitting: Sendable {
-    func submit(_ handoff: PreparedEngineHandoff) async throws -> Data
+    func submit(
+      _ handoff: PreparedEngineHandoff,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation
+    ) async throws -> Data
   }
 
   public enum ClosedEngineHandoffError: Error, Equatable, Sendable {
@@ -30,15 +35,21 @@
     private let assets: PreparedInstallerAssets
     private let handoffDirectory: URL
     private let submitter: any EngineHandoffSubmitting
+    private let authorization: MachineOwnerAuthorization
+    private let operation: EngineHandoffOperation
 
     public init(
       assets: PreparedInstallerAssets,
       handoffDirectory: URL,
-      submitter: any EngineHandoffSubmitting
+      submitter: any EngineHandoffSubmitting,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation = .install
     ) {
       self.assets = assets
       self.handoffDirectory = handoffDirectory
       self.submitter = submitter
+      self.authorization = authorization
+      self.operation = operation
     }
 
     public func execute(_ invocation: ClosedEngineInvocation) async throws -> Data {
@@ -48,7 +59,11 @@
         in: handoffDirectory
       )
       defer { try? FileManager.default.removeItem(at: handoff.packageURL) }
-      return try await submitter.submit(handoff)
+      return try await submitter.submit(
+        handoff,
+        authorization: authorization,
+        operation: operation
+      )
     }
   }
 
@@ -67,11 +82,12 @@
       try validateBindings(invocation: invocation, assets: assets)
       try ensurePrivateDirectory(handoffDirectory)
 
-      let artifactFileNames = [
-        assets.engine.artifact.fileName,
-        assets.metadata.artifact.fileName,
-        assets.payload.artifact.fileName,
-      ]
+      let artifactFileNames =
+        [
+          assets.engine.artifact.fileName,
+          assets.metadata.artifact.fileName,
+          assets.payload.artifact.fileName,
+        ] + (assets.repairManifest.map { [$0.artifact.fileName] } ?? [])
       guard Set(artifactFileNames).count == artifactFileNames.count,
         Set(artifactFileNames).isDisjoint(
           with: Self.reservedFileNames
@@ -110,9 +126,19 @@
       let payloadURL = pending.appendingPathComponent(
         assets.payload.artifact.fileName
       )
+      let repairManifestURL = assets.repairManifest.map {
+        pending.appendingPathComponent($0.artifact.fileName)
+      }
       try copyVerified(assets.engine, role: "engine", to: engineURL)
       try copyVerified(assets.metadata, role: "metadata", to: metadataURL)
       try copyVerified(assets.payload, role: "payload", to: payloadURL)
+      if let staged = assets.repairManifest, let repairManifestURL {
+        try copyVerified(
+          staged,
+          role: "repair-manifest",
+          to: repairManifestURL
+        )
+      }
 
       let requestURL = pending.appendingPathComponent("request.json")
       let identityURL = pending.appendingPathComponent("identity.json")
@@ -145,7 +171,10 @@
         ),
         payloadURL: package.appendingPathComponent(
           assets.payload.artifact.fileName
-        )
+        ),
+        repairManifestURL: assets.repairManifest.map {
+          package.appendingPathComponent($0.artifact.fileName)
+        }
       )
     }
 
@@ -158,10 +187,21 @@
         invocation.plan.engineDigest == assets.engine.artifact.expectedDigest,
         invocation.plan.metadataDigest == assets.metadata.artifact.expectedDigest,
         invocation.plan.payloadDigest == assets.payload.artifact.expectedDigest,
+        invocation.plan.repairManifestDigest
+          == assets.repairManifest?.artifact.expectedDigest,
         let delivery = invocation.pinnedInstaller.delivery,
         delivery.engine == assets.engine.artifact,
         delivery.metadata == assets.metadata.artifact,
-        delivery.payload == assets.payload.artifact
+        delivery.payload == assets.payload.artifact,
+        delivery.repairManifest == assets.repairManifest?.artifact,
+        invocation.pinnedInstaller.repairManifestDigest
+          == invocation.plan.repairManifestDigest,
+        (invocation.pinnedInstaller.operation == "repair-installed-system"
+          && invocation.plan.candidateKind == "repair"
+          && assets.repairManifest != nil)
+          || (invocation.pinnedInstaller.operation == "install"
+            && invocation.plan.candidateKind != "repair"
+            && assets.repairManifest == nil)
       else {
         throw ClosedEngineHandoffError.assetBindingMismatch
       }
@@ -269,7 +309,7 @@
 
   private struct EngineExecutionRequest: Encodable {
     let format = 1
-    let operation = "install"
+    let operation: String
     let planDigest: String
     let deviceIdentifier: String
     let storeIdentifier: String
@@ -283,6 +323,7 @@
 
     init(invocation: ClosedEngineInvocation) {
       let plan = invocation.plan
+      operation = invocation.pinnedInstaller.operation
       planDigest = plan.planDigest
       deviceIdentifier = plan.deviceIdentifier
       storeIdentifier = plan.storeIdentifier
@@ -321,6 +362,7 @@
     let engineDigest: String
     let metadataDigest: String
     let payloadDigest: String
+    let repairManifestDigest: String?
 
     init(invocation: ClosedEngineInvocation) {
       bindingDigest = invocation.candidateIdentity.bindingDigest
@@ -331,6 +373,7 @@
       engineDigest = invocation.plan.engineDigest
       metadataDigest = invocation.plan.metadataDigest
       payloadDigest = invocation.plan.payloadDigest
+      repairManifestDigest = invocation.plan.repairManifestDigest
     }
 
     enum CodingKeys: String, CodingKey {
@@ -343,6 +386,7 @@
       case engineDigest = "engine_digest"
       case metadataDigest = "metadata_digest"
       case payloadDigest = "payload_digest"
+      case repairManifestDigest = "repair_manifest_digest"
     }
   }
 
@@ -354,6 +398,7 @@
     let engine: EngineHandoffArtifact
     let metadata: EngineHandoffArtifact
     let payload: EngineHandoffArtifact
+    let repairManifest: EngineHandoffArtifact?
 
     init(
       invocation: ClosedEngineInvocation,
@@ -363,6 +408,9 @@
       engine = EngineHandoffArtifact(staged: assets.engine)
       metadata = EngineHandoffArtifact(staged: assets.metadata)
       payload = EngineHandoffArtifact(staged: assets.payload)
+      repairManifest = assets.repairManifest.map {
+        EngineHandoffArtifact(staged: $0)
+      }
     }
 
     enum CodingKeys: String, CodingKey {
@@ -373,6 +421,7 @@
       case engine
       case metadata
       case payload
+      case repairManifest = "repair_manifest"
     }
   }
 

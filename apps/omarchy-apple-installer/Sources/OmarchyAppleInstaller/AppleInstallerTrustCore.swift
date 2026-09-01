@@ -29,7 +29,8 @@ public struct AppleInstallerTrustCore: Sendable {
               offsetBytes: $0.offsetBytes,
               lengthBytes: $0.lengthBytes,
               minimumInstallBytes: $0.minimumInstallBytes,
-              minimumContainerBytes: $0.minimumContainerBytes
+              minimumContainerBytes: $0.minimumContainerBytes,
+              identityDigest: $0.identityDigest
             )
           }
         )
@@ -47,6 +48,7 @@ public struct AppleInstallerTrustCore: Sendable {
           engineDigest: message.engineDigest,
           metadataDigest: message.metadataDigest,
           payloadDigest: message.payloadDigest,
+          repairManifestDigest: message.repairManifestDigest,
           requiredHumanSteps: message.requiredHumanSteps
         )
       case .checkpoint(let message):
@@ -156,6 +158,25 @@ public struct ValidatedEngineCandidate: Equatable, Sendable {
   public let lengthBytes: UInt64
   public let minimumInstallBytes: UInt64
   public let minimumContainerBytes: UInt64
+  public let identityDigest: String?
+
+  public init(
+    kind: String,
+    sourceIdentifier: String,
+    offsetBytes: UInt64,
+    lengthBytes: UInt64,
+    minimumInstallBytes: UInt64,
+    minimumContainerBytes: UInt64,
+    identityDigest: String? = nil
+  ) {
+    self.kind = kind
+    self.sourceIdentifier = sourceIdentifier
+    self.offsetBytes = offsetBytes
+    self.lengthBytes = lengthBytes
+    self.minimumInstallBytes = minimumInstallBytes
+    self.minimumContainerBytes = minimumContainerBytes
+    self.identityDigest = identityDigest
+  }
 }
 
 public struct ValidatedEnginePlan: Equatable, Sendable {
@@ -171,6 +192,7 @@ public struct ValidatedEnginePlan: Equatable, Sendable {
   public let engineDigest: String
   public let metadataDigest: String
   public let payloadDigest: String
+  public let repairManifestDigest: String?
   public let requiredHumanSteps: [String]
 }
 

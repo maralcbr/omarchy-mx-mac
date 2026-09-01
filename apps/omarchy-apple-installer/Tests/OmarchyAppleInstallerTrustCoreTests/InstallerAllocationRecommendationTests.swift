@@ -70,6 +70,47 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
     }
   }
 
+  func testReplaceOnlyInventoryFailsClosed() {
+    let replace = candidate(
+      kind: "replace",
+      source: "disk0s3",
+      length: 300 * gib,
+      minimumInstall: 64 * gib,
+      identityDigest: "sha256:" + String(repeating: "9", count: 64)
+    )
+
+    XCTAssertThrowsError(
+      try InstallerAllocationRecommendation(inventory: inventory([replace]))
+    ) {
+      XCTAssertEqual(
+        $0 as? InstallerAllocationRecommendationError,
+        .noEligibleCandidate
+      )
+    }
+  }
+
+  func testReplaceCandidateIsNeverAutoSelected() throws {
+    let replace = candidate(
+      kind: "replace",
+      source: "disk0s2",
+      length: 600 * gib,
+      minimumInstall: 64 * gib,
+      identityDigest: "sha256:" + String(repeating: "9", count: 64)
+    )
+    let free = candidate(
+      kind: "free",
+      source: "disk0s3",
+      length: 300 * gib,
+      minimumInstall: 64 * gib
+    )
+
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([replace, free])
+    )
+
+    XCTAssertEqual(recommendation.candidate, free)
+  }
+
   private func inventory(
     _ candidates: [ValidatedEngineCandidate]
   ) -> ValidatedEngineInventory {
@@ -85,7 +126,8 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
     source: String,
     length: UInt64,
     minimumInstall: UInt64,
-    minimumContainer: UInt64 = 0
+    minimumContainer: UInt64 = 0,
+    identityDigest: String? = nil
   ) -> ValidatedEngineCandidate {
     ValidatedEngineCandidate(
       kind: kind,
@@ -93,7 +135,8 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
       offsetBytes: 0,
       lengthBytes: length,
       minimumInstallBytes: minimumInstall,
-      minimumContainerBytes: minimumContainer
+      minimumContainerBytes: minimumContainer,
+      identityDigest: identityDigest
     )
   }
 }

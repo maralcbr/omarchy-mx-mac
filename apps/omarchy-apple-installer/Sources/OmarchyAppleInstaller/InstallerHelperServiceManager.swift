@@ -1,18 +1,24 @@
 #if os(macOS)
   import Foundation
-  import ServiceManagement
 
+  /// Whether the pre-installed privileged helper is available.
+  ///
+  /// The helper is a plain system `LaunchDaemon` that the installer package
+  /// installs into `/Library/LaunchDaemons` and loads at package-install time,
+  /// under the package's single administrator prompt. The app never registers,
+  /// approves, or gates on Login Items: it only reports whether the daemon is
+  /// present so the flow stays locked when the package has not been run.
   public enum InstallerHelperServiceStatus: Equatable, Sendable {
-    case notRegistered
+    /// The system daemon is installed; its mach service is reachable.
     case enabled
-    case requiresApproval
-    case notFound
-    case unknown
+    /// The system daemon is not installed. The installer package must be run.
+    case notInstalled
   }
 
+  /// The injection seam. The shipping controller checks the filesystem; tests
+  /// supply a fake that returns a fixed status.
   public protocol InstallerHelperServiceControlling: Sendable {
     var status: InstallerHelperServiceStatus { get }
-    func register() throws
   }
 
   public struct InstallerHelperServiceManager: Sendable {
@@ -22,56 +28,28 @@
       self.controller = controller
     }
 
-    public static func bundledDaemon() -> Self {
-      Self(
-        controller: SMAppServiceController(
-          service: .daemon(
-            plistName: InstallerProductIdentity.helperDaemonPlistName
-          )
-        )
-      )
-    }
-
-    public static func openSystemSettings() {
-      SMAppService.openSystemSettingsLoginItems()
+    /// The shipping controller: a synchronous check for the system daemon the
+    /// package installed. No SMAppService registration or Login Items approval
+    /// is ever involved.
+    public static func preinstalledSystemDaemon() -> Self {
+      Self(controller: SystemLaunchDaemonController())
     }
 
     public var status: InstallerHelperServiceStatus {
       controller.status
     }
-
-    public func registerAfterOwnerAuthorization() throws {
-      try controller.register()
-    }
   }
 
-  private final class SMAppServiceController:
-    InstallerHelperServiceControlling,
-    @unchecked Sendable
+  /// Reports the helper as reachable when its LaunchDaemon plist is present at
+  /// the canonical system path. Existence is a synchronous `stat`, so it is
+  /// safe to read from the main actor and never blocks on an XPC probe.
+  private struct SystemLaunchDaemonController:
+    InstallerHelperServiceControlling
   {
-    private let service: SMAppService
-
-    init(service: SMAppService) {
-      self.service = service
-    }
-
     var status: InstallerHelperServiceStatus {
-      switch service.status {
-      case .notRegistered:
-        .notRegistered
-      case .enabled:
-        .enabled
-      case .requiresApproval:
-        .requiresApproval
-      case .notFound:
-        .notFound
-      @unknown default:
-        .unknown
-      }
-    }
-
-    func register() throws {
-      try service.register()
+      FileManager.default.fileExists(
+        atPath: InstallerProductIdentity.systemLaunchDaemonPath
+      ) ? .enabled : .notInstalled
     }
   }
 #endif

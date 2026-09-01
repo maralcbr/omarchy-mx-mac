@@ -26,6 +26,8 @@ public struct PinnedAsahiPlanRequest: Equatable, Sendable, Encodable {
     let maximum: UInt64
     if candidate.kind == "free" {
       maximum = candidate.lengthBytes
+    } else if candidate.kind == "repair" || candidate.kind == "replace" {
+      maximum = candidate.lengthBytes
     } else if candidate.kind == "resize",
       candidate.lengthBytes > candidate.minimumContainerBytes
     {
@@ -35,7 +37,9 @@ public struct PinnedAsahiPlanRequest: Equatable, Sendable, Encodable {
     }
     guard requestedLengthBytes >= candidate.minimumInstallBytes,
       requestedLengthBytes <= maximum,
-      requestedLengthBytes % Self.allocationUnitBytes == 0
+      requestedLengthBytes % Self.allocationUnitBytes == 0,
+      !["repair", "replace"].contains(candidate.kind)
+        || requestedLengthBytes == candidate.lengthBytes
     else {
       throw PinnedAsahiPlanningError.invalidRequestedLength
     }
@@ -61,18 +65,22 @@ public struct PinnedAsahiPlanIdentity: Equatable, Sendable, Encodable {
   public let engineDigest: String
   public let metadataDigest: String
   public let payloadDigest: String
+  public let repairManifestDigest: String?
 
   public init(
     engineVersion: String,
     engineDigest: String,
     metadataDigest: String,
-    payloadDigest: String
+    payloadDigest: String,
+    repairManifestDigest: String? = nil
   ) throws {
     guard !engineVersion.isEmpty,
       engineVersion.utf8.count <= 128,
       SHA256Digest(rawValue: engineDigest) != nil,
       SHA256Digest(rawValue: metadataDigest) != nil,
-      SHA256Digest(rawValue: payloadDigest) != nil
+      SHA256Digest(rawValue: payloadDigest) != nil,
+      repairManifestDigest == nil
+        || SHA256Digest(rawValue: repairManifestDigest!) != nil
     else {
       throw PinnedAsahiPlanningError.invalidEngineIdentity
     }
@@ -80,6 +88,7 @@ public struct PinnedAsahiPlanIdentity: Equatable, Sendable, Encodable {
     self.engineDigest = engineDigest
     self.metadataDigest = metadataDigest
     self.payloadDigest = payloadDigest
+    self.repairManifestDigest = repairManifestDigest
   }
 
   public init(
@@ -90,7 +99,8 @@ public struct PinnedAsahiPlanIdentity: Equatable, Sendable, Encodable {
       engineVersion: engineVersion,
       engineDigest: installer.engineDigest,
       metadataDigest: installer.metadataDigest,
-      payloadDigest: installer.payloadDigest
+      payloadDigest: installer.payloadDigest,
+      repairManifestDigest: installer.repairManifestDigest
     )
   }
 
@@ -100,6 +110,7 @@ public struct PinnedAsahiPlanIdentity: Equatable, Sendable, Encodable {
     case engineDigest = "engine_digest"
     case metadataDigest = "metadata_digest"
     case payloadDigest = "payload_digest"
+    case repairManifestDigest = "repair_manifest_digest"
   }
 
 }

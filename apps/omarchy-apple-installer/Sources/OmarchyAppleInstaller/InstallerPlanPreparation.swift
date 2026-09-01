@@ -14,6 +14,7 @@
       _ archive: PinnedAsahiEngineArchive,
       request: PinnedAsahiPlanRequest,
       identity: PinnedAsahiPlanIdentity,
+      repairManifestURL: URL?,
       in scratchDirectory: URL
     ) async throws -> Data
   }
@@ -131,6 +132,7 @@
         archive,
         request: planRequest,
         identity: planIdentity,
+        repairManifestURL: request.release.assets.repairManifest?.fileURL,
         in: request.scratchDirectory
       )
       let review = try reviewCoordinator.prepare(

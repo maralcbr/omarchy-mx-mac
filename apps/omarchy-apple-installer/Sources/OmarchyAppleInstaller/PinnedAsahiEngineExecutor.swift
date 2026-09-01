@@ -16,6 +16,7 @@
     case invalidBundle
     case launchFailed
     case engineExited(Int32)
+    case recoveryAuthorizationFailed
     case unsafeTranscript
   }
 
@@ -50,22 +51,28 @@
 
     private let effectiveUserID: @Sendable () -> uid_t
     private let expectedFileOwnerID: @Sendable () -> uid_t
+    private let extractionOptions: [String]
 
     public init() {
       effectiveUserID = { geteuid() }
       expectedFileOwnerID = { geteuid() }
+      extractionOptions = []
     }
 
     init(
       effectiveUserID: @escaping @Sendable () -> uid_t,
-      expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() }
+      expectedFileOwnerID: @escaping @Sendable () -> uid_t = { geteuid() },
+      extractionOptions: [String] = []
     ) {
       self.effectiveUserID = effectiveUserID
       self.expectedFileOwnerID = expectedFileOwnerID
+      self.extractionOptions = extractionOptions
     }
 
     public func execute(
-      _ package: ImportedEngineHandoffPackage
+      _ package: ImportedEngineHandoffPackage,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation = .install
     ) async throws -> Data {
       guard effectiveUserID() == 0 else {
         throw PinnedAsahiEngineExecutionError.privilegeRequired
@@ -75,12 +82,19 @@
         archive: package.engineURL,
         executionParent: package.packageURL.deletingLastPathComponent(),
         journal: journal,
-        additionalEnvironment: installEnvironment(package: package)
+        additionalEnvironment: installEnvironment(
+          package: package,
+          authorization: authorization,
+          operation: operation
+        ),
+        standardInput: authorization.password + Data([10]),
+        retryIdentity: RecoveryRetryIdentity(package: package)
       )
     }
 
     public func inspect(
       _ archive: PinnedAsahiEngineArchive,
+      repairManifestURL: URL? = nil,
       in scratchDirectory: URL
     ) async throws -> Data {
       try validateJournalDirectory(scratchDirectory)
@@ -90,7 +104,10 @@
         expectedSizeBytes: archive.expectedSizeBytes,
         executionParent: scratchDirectory,
         journal: nil,
-        additionalEnvironment: ["OMARCHY_ENGINE_MODE": "inspect"]
+        additionalEnvironment: repairEnvironment(
+          mode: "inspect",
+          repairManifestURL: repairManifestURL
+        )
       )
     }
 
@@ -98,6 +115,7 @@
       _ archive: PinnedAsahiEngineArchive,
       request: PinnedAsahiPlanRequest,
       identity: PinnedAsahiPlanIdentity,
+      repairManifestURL: URL? = nil,
       in scratchDirectory: URL
     ) async throws -> Data {
       try validateJournalDirectory(scratchDirectory)
@@ -122,11 +140,15 @@
         expectedSizeBytes: archive.expectedSizeBytes,
         executionParent: scratchDirectory,
         journal: nil,
-        additionalEnvironment: [
-          "OMARCHY_ENGINE_MODE": "plan",
-          "OMARCHY_ENGINE_REQUEST": requestURL.path,
-          "OMARCHY_ENGINE_IDENTITY": identityURL.path,
-        ]
+        additionalEnvironment: repairEnvironment(
+          mode: "plan",
+          repairManifestURL: repairManifestURL,
+          additional: [
+            "OMARCHY_ENGINE_MODE": "plan",
+            "OMARCHY_ENGINE_REQUEST": requestURL.path,
+            "OMARCHY_ENGINE_IDENTITY": identityURL.path,
+          ]
+        )
       )
     }
 
@@ -136,7 +158,9 @@
       expectedSizeBytes: UInt64? = nil,
       executionParent: URL,
       journal: URL?,
-      additionalEnvironment: [String: String]
+      additionalEnvironment: [String: String],
+      standardInput: Data? = nil,
+      retryIdentity: RecoveryRetryIdentity? = nil
     ) throws -> Data {
       try validateArchive(
         archive,
@@ -186,11 +210,16 @@
         additional: additionalEnvironment
       )
       process.currentDirectoryURL = bundle
-      process.standardInput = FileHandle.nullDevice
+      let inputPipe = standardInput == nil ? nil : Pipe()
+      process.standardInput = inputPipe ?? FileHandle.nullDevice
       process.standardOutput = FileHandle.nullDevice
       process.standardError = FileHandle.nullDevice
       do {
         try process.run()
+        if let standardInput, let inputPipe {
+          try inputPipe.fileHandleForWriting.write(contentsOf: standardInput)
+          try inputPipe.fileHandleForWriting.close()
+        }
         process.waitUntilExit()
       } catch {
         throw PinnedAsahiEngineExecutionError.launchFailed
@@ -198,6 +227,15 @@
       guard process.terminationReason == .exit,
         process.terminationStatus == 0
       else {
+        if let journal, let retryIdentity,
+          isRecoveryAuthorizationRetryEligible(
+            journal: journal,
+            identity: retryIdentity
+          )
+        {
+          throw PinnedAsahiEngineExecutionError
+            .recoveryAuthorizationFailed
+        }
         throw PinnedAsahiEngineExecutionError.engineExited(
           process.terminationStatus
         )
@@ -205,18 +243,111 @@
       return try readTranscript(transcriptURL)
     }
 
+    private func isRecoveryAuthorizationRetryEligible(
+      journal: URL,
+      identity: RecoveryRetryIdentity
+    ) -> Bool {
+      guard let transcript = try? readTranscript(journal) else {
+        return false
+      }
+      var evidence = [String: Data]()
+      for identifier in [
+        "apfs-target-prepared",
+        "stub-and-esp-installed",
+      ] {
+        guard
+          let value = try? readCheckpointEvidence(
+            journal: journal,
+            identifier: identifier
+          )
+        else {
+          return false
+        }
+        evidence[identifier] = value
+      }
+      return RecoveryAuthorizationRetryCheckpoint.isEligible(
+        transcript: transcript,
+        planDigest: identity.planDigest,
+        deviceIdentifier: identity.deviceIdentifier,
+        storeIdentifier: identity.storeIdentifier,
+        checkpointEvidence: evidence
+      )
+    }
+
+    private func readCheckpointEvidence(
+      journal: URL,
+      identifier: String
+    ) throws -> Data {
+      let evidenceURL = URL(
+        fileURLWithPath: "\(journal.path).\(identifier).evidence"
+      )
+      let descriptor = Darwin.open(
+        evidenceURL.path,
+        O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+      )
+      guard descriptor >= 0 else {
+        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+      }
+      defer { Darwin.close(descriptor) }
+
+      var status = stat()
+      guard fstat(descriptor, &status) == 0,
+        (status.st_mode & S_IFMT) == S_IFREG,
+        status.st_mode & 0o077 == 0,
+        status.st_uid == expectedFileOwnerID(),
+        status.st_size > 0,
+        status.st_size <= 1_048_576
+      else {
+        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+      }
+      let handle = FileHandle(
+        fileDescriptor: descriptor,
+        closeOnDealloc: false
+      )
+      guard let data = try handle.readToEnd(),
+        data.count == Int(status.st_size)
+      else {
+        throw PinnedAsahiEngineExecutionError.unsafeTranscript
+      }
+      return data
+    }
+
     private func installEnvironment(
-      package: ImportedEngineHandoffPackage
+      package: ImportedEngineHandoffPackage,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation
     ) -> [String: String] {
-      [
-        "OMARCHY_ENGINE_MODE": "install",
+      var environment = [
+        "OMARCHY_ENGINE_MODE": operation.rawValue,
         "OMARCHY_ENGINE_REQUEST": package.requestURL.path,
         "OMARCHY_ENGINE_IDENTITY": package.identityURL.path,
         "OMARCHY_ENGINE_METADATA": package.metadataURL.path,
         "OMARCHY_ENGINE_PAYLOAD": package.payloadURL.path,
         "OMARCHY_ENGINE_BINDING_DIGEST": package.bindingDigest,
         "OMARCHY_ENGINE_PLAN_DIGEST": package.planDigest,
+        "OMARCHY_MACHINE_OWNER": authorization.username,
+        "DISTRO": "Omarchy MX Mac",
+        "DISTRO_DOCS": "https://omarchy.org/manual/",
       ]
+      if let repairManifestURL = package.repairManifestURL {
+        environment["OMARCHY_ENGINE_REPAIR_MANIFEST"] =
+          repairManifestURL.path
+      }
+      return environment
+    }
+
+    private func repairEnvironment(
+      mode: String,
+      repairManifestURL: URL?,
+      additional: [String: String] = [:]
+    ) -> [String: String] {
+      var environment = additional
+      environment["OMARCHY_ENGINE_MODE"] = mode
+      if let repairManifestURL {
+        environment["OMARCHY_ENGINE_REPAIR_MANIFEST"] =
+          repairManifestURL.path
+      }
+      return environment
     }
 
     private func environment(
@@ -352,9 +483,11 @@
     private func extract(_ archive: URL, into bundle: URL) throws {
       let process = Process()
       process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-      process.arguments = [
-        "-xzf", archive.path, "-C", bundle.path, "--no-same-owner",
-      ]
+      process.arguments =
+        extractionOptions + [
+          "-xzf", archive.path, "-C", bundle.path, "--no-same-owner",
+          "--no-same-permissions",
+        ]
       process.environment = Self.systemEnvironment
       process.currentDirectoryURL = bundle
       process.standardInput = FileHandle.nullDevice
@@ -565,5 +698,17 @@
       "LC_ALL": "C",
       "LANG": "C",
     ]
+
+    private struct RecoveryRetryIdentity {
+      let planDigest: String
+      let deviceIdentifier: String
+      let storeIdentifier: String
+
+      init(package: ImportedEngineHandoffPackage) {
+        planDigest = package.planDigest
+        deviceIdentifier = package.deviceIdentifier
+        storeIdentifier = package.storeIdentifier
+      }
+    }
   }
 #endif

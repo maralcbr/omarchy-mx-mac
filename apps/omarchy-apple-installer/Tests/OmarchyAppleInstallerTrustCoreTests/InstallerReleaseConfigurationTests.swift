@@ -146,6 +146,60 @@
       let result = try InstallerReleaseConfigurationLocator().load(from: root)
 
       XCTAssertEqual(result.trustRoot.fingerprint, digest(key))
+      XCTAssertNil(result.sealedCatalogDocuments)
+    }
+
+    func testLocatorLoadsAndFetcherPrefersSealedCatalog() async throws {
+      let root = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      let key = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+      let catalog = Data("sealed signed catalog".utf8)
+      let signature = Data(repeating: 9, count: 64)
+      try writeReleaseIdentity(key, to: root)
+      try catalog.write(
+        to: root.appendingPathComponent(
+          InstallerReleaseConfigurationLocator.sealedCatalogFileName
+        ),
+        options: .withoutOverwriting
+      )
+      try signature.write(
+        to: root.appendingPathComponent(
+          InstallerReleaseConfigurationLocator
+            .sealedCatalogSignatureFileName
+        ),
+        options: .withoutOverwriting
+      )
+
+      let configuration = try InstallerReleaseConfigurationLocator()
+        .load(from: root)
+      let result = try await InstallerReleaseCatalogFetcher(
+        downloader: FixtureReleaseDownloader(values: [:])
+      ).fetch(configuration: configuration)
+
+      XCTAssertEqual(result.payload, catalog)
+      XCTAssertEqual(result.signature, signature)
+    }
+
+    func testLocatorRejectsIncompleteSealedCatalogPair() throws {
+      let root = try makeDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      let key = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+      try writeReleaseIdentity(key, to: root)
+      try Data("catalog".utf8).write(
+        to: root.appendingPathComponent(
+          InstallerReleaseConfigurationLocator.sealedCatalogFileName
+        ),
+        options: .withoutOverwriting
+      )
+
+      XCTAssertThrowsError(
+        try InstallerReleaseConfigurationLocator().load(from: root)
+      ) {
+        XCTAssertEqual(
+          $0 as? InstallerReleaseConfigurationError,
+          .unsafeReleaseResource("sealed-catalog-pair")
+        )
+      }
     }
 
     func testLocatorRejectsSymlinkedTrustRoot() throws {
@@ -193,6 +247,24 @@
         """
         {"schema_version":1,"catalog_url":"https://releases.omarchy.example/apple/catalog.json","catalog_signature_url":"https://releases.omarchy.example/apple/catalog.json.sig","trust_root_fingerprint":"\(fingerprint)","helper_mach_service_name":"com.omarchy.mx.installer.helper","helper_code_signing_requirement":"identifier \\"com.omarchy.mx.installer.helper\\""}
         """.utf8
+      )
+    }
+
+    private func writeReleaseIdentity(
+      _ key: Data,
+      to root: URL
+    ) throws {
+      try descriptor(fingerprint: digest(key)).write(
+        to: root.appendingPathComponent(
+          InstallerReleaseConfigurationLocator.descriptorFileName
+        ),
+        options: .withoutOverwriting
+      )
+      try key.write(
+        to: root.appendingPathComponent(
+          InstallerReleaseConfigurationLocator.trustRootFileName
+        ),
+        options: .withoutOverwriting
       )
     }
 
