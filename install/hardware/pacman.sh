@@ -30,6 +30,7 @@ if omarchy-hw-apple-silicon; then
       skip && /^\[[^]]+\][[:space:]]*$/ { skip = 0 }
       !skip { print }
     ' "$pacman_conf" >"$tmp"
+    # omarchy:heredoc-expands paths=none -- $release_server is assembled from fixed literals in this root-owned script
     cat >>"$tmp" <<EOF
 
 [omarchy]

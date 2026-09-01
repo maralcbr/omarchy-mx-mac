@@ -123,6 +123,16 @@ asahi_migration_disposition() {
     1787568759.sh) printf 'run\treviewed as architecture-neutral\n' ;;
     1787580187.sh) printf 'run\treviewed architecture-neutral Docker group hardening\n' ;;
     1787618700.sh) printf 'run\treviewed safe Hyprland input-device state migration\n' ;;
+    1787515927.sh) printf 'run\treviewed architecture-neutral browser policy hardening\n' ;;
+    1787589206.sh) printf 'run\treviewed no-op: the Apple Silicon omarchy repository already requires signed packages\n' ;;
+    1787691200.sh) printf 'run\treviewed architecture-neutral Chromium first-run seed\n' ;;
+    1787815267.sh) printf 'run\treviewed CUPS privilege separation; cups-pk-helper resolves in the Asahi channels\n' ;;
+    1787865477.sh) printf 'run\treviewed input-group hardening; Apple input devices do not use the blanket grant\n' ;;
+    1788009111.sh) printf 'run\treviewed printer-discovery removal; self-gating package drop\n' ;;
+    1788025225.sh) printf 'run\treviewed architecture-neutral retired-installer artifact removal\n' ;;
+    1788102906.sh) printf 'run\treviewed architecture-neutral XCompose and legacy udev rule repair\n' ;;
+    1788112314.sh) printf 'run\treviewed no-op: Asahi installs do not use the rc mirror pairing\n' ;;
+    1788124236.sh) printf 'run\treviewed sshd hardening; self-gating on an enabled or active sshd\n' ;;
     *) return 1 ;;
   esac
 }
@@ -184,7 +194,7 @@ wait_for_pacman_transaction
 mkdir -p "$STATE_DIR"
 [[ -d $MIGRATIONS_DIR ]] || exit 0
 
-while IFS=$'\t' read -r name file marker; do
+while IFS=$'\t' read -r name file marker <&3; do
   [[ -n $name ]] || continue
 
   migration_settled "$marker" && continue
@@ -204,10 +214,10 @@ while IFS=$'\t' read -r name file marker; do
   fi
 
   echo -e "\e[32m\nRunning migration (${name%.sh})\e[0m"
-  OMARCHY_PATH="$OMARCHY_PATH" bash -euo pipefail "$file"
+  OMARCHY_PATH="$OMARCHY_PATH" bash -euo pipefail "$file" 3<&-
   mkdir -p "$(dirname "$marker")"
   touch "$marker"
-done < <(migration_entries)
+done 3< <(migration_entries)
 
 # Clear a login-time notification the user left sitting there and then resolved
 # by running migrations some other way. The substring matches both the current
