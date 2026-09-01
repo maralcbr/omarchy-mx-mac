@@ -97,6 +97,9 @@ fi
 release_sequence=${OMARCHY_ASAHI_RELEASE_SEQUENCE:?Missing release sequence}
 release_tag=${OMARCHY_ASAHI_RELEASE_TAG:?Missing release tag}
 release_source=${OMARCHY_ASAHI_RELEASE_SOURCE:?Missing release source}
+[[ $release_sequence =~ ^[1-9][0-9]*$ ]] || fail "Invalid signed Asahi release sequence"
+[[ $release_tag == asahi-quattro-* && $release_tag != */* ]] || fail "Invalid signed Asahi release tag"
+[[ $release_source =~ ^[0-9a-f]{40}$ ]] || fail "Invalid signed Asahi release source"
 expected_state=$(printf '%s\n' \
   "user=$target_user" \
   "sequence=$release_sequence" \
@@ -309,6 +312,7 @@ runuser -u "$build_user" -- git -C "$package_repo" clean -ffdx
 resolved_package_source=$(runuser -u "$build_user" -- git -C "$package_repo" rev-parse HEAD)
 [[ $resolved_package_source == "$OMARCHY_ASAHI_PACKAGE_SOURCE" ]] || fail "Package source checkout mismatch"
 
+# omarchy:heredoc-expands paths=none -- $build_user is a fixed literal and $owner_token is validated 64-hex from /dev/urandom or root-owned state
 install -Dm440 /dev/stdin "$build_sudoers" <<EOF
 # owner-token=$owner_token
 $build_user ALL=(root) NOPASSWD: /usr/bin/pacman
@@ -339,6 +343,7 @@ passwd "$target_user" </dev/tty
 # succeeds, and the omarchy theme then passes an empty user to PAM, which
 # rejects every password as "user unknown".
 install -d -m 0755 -o sddm -g sddm /var/lib/sddm 2>/dev/null || install -d -m 0755 /var/lib/sddm
+# omarchy:heredoc-expands paths=none -- $target_user is validated against a strict username pattern above
 cat > /var/lib/sddm/state.conf <<EOF
 [Last]
 Session=omarchy.desktop
@@ -381,6 +386,7 @@ if [[ $target_user != "alarm" ]] && getent passwd alarm >/dev/null 2>&1; then
 fi
 
 install -d -m 0755 /var/lib/omarchy
+# omarchy:heredoc-expands paths=none -- the release identity values are pattern-validated at startup
 cat >"$state_dir/asahi-quattro-release.tmp" <<EOF
 format=1
 sequence=$release_sequence

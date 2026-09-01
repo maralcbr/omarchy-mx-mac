@@ -26,9 +26,8 @@ chromium
 clang
 cliamp
 cups
-cups-browsed
 cups-filters
-cups-pdf
+cups-pk-helper
 ddcutil
 docker
 docker-buildx

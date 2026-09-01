@@ -4,6 +4,22 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
+## [4.0.2-mac.1] - 2026-08-31
+
+- Integrated upstream Omarchy 4.0.2 while preserving the Apple Silicon install,
+  update, boot, and package safety gates.
+- Added upstream security hardening for SSH password logins, the desktop
+  input-group grant, browser policy directories, web app definitions, printer
+  services, Plymouth theme publication, Windows VM mounts, and retired
+  installer artifacts.
+- Reviewed all ten new upstream migrations for Apple Silicon; every one runs,
+  with the signed-repository and rc-channel repairs verified as no-ops on the
+  already hardened Apple Silicon package setup.
+- Aligned the Apple Silicon base packages with the upstream CUPS privilege
+  separation after confirming `cups-pk-helper` resolves for aarch64.
+
+[Release notes](docs/releases/v4.0.2-mac.1.md) | [Full diff](https://github.com/maralcbr/omarchy-mx-mac/compare/v4.0.1-mac.2...v4.0.2-mac.1)
+
 ## [4.0.1-mac.2] - 2026-08-26
 
 - Corrected numbered Mac release handling in the signed Quattro upgrade path.
