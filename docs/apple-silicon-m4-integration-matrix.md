@@ -1,6 +1,6 @@
 # Apple Silicon M4 selective integration matrix
 
-Status: S6 installer execution chain implemented locally; no installed-user or physical qualification
+Status: S6 stage one completed and read back on the approved M1; 1TR reached Omarchy's initramfs but the `.5` root selector failed Switch Root; the local repair remains unqualified on hardware
 Created: 2026-08-27
 Destination branch: `feature/m4-handoff-integration`
 Destination base: `origin/main` at `f2943bab5345029c4f82f24a198e9a5bff26634c`
@@ -16,9 +16,7 @@ current `omarchy-mx-mac` main. Do not merge, rebase, or cherry-pick the handoff
 branch wholesale. The historical `omarchy-mac` fork is reference material only
 and is not an integration source or synchronization target.
 
-This document does not authorize a push, pull request, merge, release, package
-publication, channel change, deployment, privileged installer run, physical
-disk mutation, or user-default change.
+This document does not authorize a push, pull request, merge, release, package publication, channel change, deployment to existing users, or user-default change. The owner separately authorized destructive private canary validation on the named physical `MacBookPro18,3` (`apple,j314s`) only; that exception does not extend to the M4, other devices, production signing, or publication.
 
 ## Existing-user safety boundary
 
@@ -32,12 +30,11 @@ Work may proceed only while all of these conditions remain true:
 - the Apple application is not installed in `/Applications`, registered as a
   login item, or connected to an existing Omarchy installation path; a local
   debug build may be opened only for blocked-state inspection;
-- the privileged helper remains unregistered and no helper request is sent;
+- privileged helper registration or invocation remains forbidden except on the approved named M1 canary; the current local repair and qualification work must not contact it;
 - the physical support allowlist remains empty and public release authorization
   remains false;
 - the M4 model `apple,j614s` remains rejected before authorization or mutation;
-- no APFS, GPT, System ESP, Apple boot policy, firmware, m1n1, U-Boot, package
-  database, or user configuration mutation is executed; and
+- no APFS, GPT, System ESP, Apple boot policy, firmware, m1n1, U-Boot, package database, or user configuration mutation is executed outside the approved named M1 canary;
 - validation is limited to pure/unit tests, non-privileged read-only probes,
   source builds, and explicitly disposable environments.
 
@@ -65,57 +62,39 @@ statements about which source modules were still missing.
 
 ### Standards
 
-1. The Python engine follows conventional four-space Python indentation under
-   the scoped `apps/omarchy-apple-installer/AGENTS.md`; shell entry points now
-   follow the root Bash conditional rules.
-2. One validated `SHA256Digest` module now owns prefixed and unprefixed digest
-   validation, byte formatting, and length-prefixed hashing across the package.
-3. Header, step navigation, and engine inspection now live in focused modules.
-   `OmarchyAppleInstallerApp.swift` still combines state coordination with the
-   detail screen and should be split once more before an upstream pull request.
-4. Running-UI inspection has verified the unsupported M4 locked state, but the
-   physical supported-M1 flow remains unverified.
+1. The Python engine follows conventional four-space Python indentation under the scoped `apps/omarchy-apple-installer/AGENTS.md`; shell entry points now follow the root Bash conditional rules.
+2. One validated `SHA256Digest` module now owns prefixed and unprefixed digest validation, byte formatting, and length-prefixed hashing across the package.
+3. Header, step navigation, engine inspection, authorization, execution, and plan-review behavior now live behind focused modules. A further mechanical split of `OmarchyAppleInstallerApp.swift` is deliberately deferred to a separate non-functional follow-up: it is not required for correctness, and changing the qualified `.5` UI/state composition here would enlarge this port and invalidate binary identity without improving the Recovery gate.
+4. Running-UI inspection verified the unsupported M4 locked state. On the supported M1, the exact approved `.5` plan completed authenticated stage-one execution, consumed only its approved extent, and passed installed-content read-back. The owner then completed 1TR and reached the installed initramfs, where the `.5` image failed Switch Root; the corrected root-selector candidate is local-only and not physical proof.
 
 ### Specification
 
-- The source now contains the root helper, authenticated XPC bridge, pinned
-  engine executor, resumable mutation backend, app packaging, and notarization
-  workflow. They remain unreachable to users because no production trust root,
-  signed catalog, Developer ID artifact, notary ticket, helper registration, or
-  physical release authorization exists.
-- One Apple-target ISO has passed the recorded disposable static build/layout
-  and read-only-media checks. No candidate has passed a physical
-  Asahi-prepared m1n1/U-Boot boot test or the two-clean-build reproducibility
-  gate.
-- No exact-model physical acceptance or release authorization exists; the
-  empty public allowlist correctly prevents user exposure.
+- The source now contains the root helper, authenticated XPC bridge, pinned engine executor, resumable mutation backend, app packaging, and notarization workflow. They remain unreachable to public users because no production trust root, Developer ID artifact, notary ticket, public model allowlist, or release authorization exists. The one private helper execution was limited to the exact owner-approved M1 plan.
+- One validation-only Apple-target ISO has passed the recorded disposable static build/layout and read-only-media checks but has not been physically booted. Separately, the installed `.5` full-OS package passed stage-one read-back and booted through m1n1, the kernel, and initramfs before its incorrect builder-local root selector caused Switch Root to fail.
+- The pinned `.5` stage-one engine fixes the root-helper extraction mismatch exposed by the first physical attempt, passed two clean same-host reproducibility builds, and completed the exact approved M1 stage-one plan with partition and installed-content read-back. The next local package candidate requires `root=UUID=<installed-root-uuid>` and rejects builder-local root paths before sealing; that repair, installed-system verification, macOS coexistence, and public release authorization remain unqualified. The empty public allowlist prevents user exposure.
 - The scrolling and ChatGPT commits are scope creep for Apple Silicon work and
   remain excluded even though current main already contains independently
   integrated equivalents.
 
 ## Evidence at this checkpoint
 
-- Current local feature HEAD is `a9d6c7a3fd190307acd5bc1778504e7f78cf73ee`
-  on fork base `f2943bab5345029c4f82f24a198e9a5bff26634c`.
-- A synthetic three-way port of only the 38 feature commits onto Basecamp
-  Quattro `83881e979b35468c3e7d60b171e319ede61a88fd` completed without conflicts.
-  Merging the entire long-lived fork is not the upstream strategy and has six
-  conflicts in unrelated shared paths.
-- In the synthetic upstream tree, XcodeBuildMCP 2.7.0 passed all 106 Swift tests
-  in debug and all 106 in release with no failures, skips, warnings, or errors.
-  All 39 focused Python engine tests, every shell syntax check, and strict
-  whole-package Swift formatting also passed.
-- An ad-hoc release bundle has passed strict deep code-signature verification.
-  Its helper refuses non-root execution. No Developer ID distribution identity
-  or notarization credential is available on this host.
+- Current local feature HEAD is `dff6311446439e1f29f0f2e6c0cf82a9a190e5bc` on fork base `f2943bab5345029c4f82f24a198e9a5bff26634c`.
+- A synthetic port of the 39 feature commits plus the current tracked patch onto Basecamp Quattro `83881e979b35468c3e7d60b171e319ede61a88fd` completed without conflicts. The active and synthetic tracked patches are byte-identical; proof patches are retained under `/private/tmp`.
+- In the active and synthetic upstream trees, XcodeBuildMCP passed all 122 Swift tests in debug and all 122 in release with no failures or skips. All 56 focused Python engine tests, the three archive-mode verifier tests, every shell syntax check, and strict whole-package Swift formatting also passed.
+- The exact-upstream Quattro shell suite passed all 209 test files under the retained pinned ARM64 builder with Bash 5.3 and an advancing `EPOCHREALTIME`; the focused sleep-lock lane passed separately. Their source, builder, command, result, and elapsed-time records remain separated under `/private/tmp/omarchy-bash5-shell-evidence-20260828T070157Z/`.
+- The immutable `v0.9.0-omarchy.5` engine reproduced byte-for-byte across two clean builds: 22,069,312 bytes, SHA-256 `992f4c7b6090b3f6eb71876d151336f29becc0c2a97a871c4cba04910d98cb99`. Its release verifier accepts 1,104 archive entries and rejects any group/world-writable regular file or directory.
+- A separate private Apple Development-signed `0.5.0` canary embeds catalog sequence `1787910668`, the `.5` engine, and the unchanged qualified full-OS payload. Its deep/reciprocal signatures, embedded catalog signature and assets, transfer ZIP, and fresh extraction all verify. Local M4 review shows `Verified • unsupported` and keeps download, helper, and disk mutation blocked. The owner approved one exact M1 plan for this canary; stage one ran once and completed without engine/helper failure. After the owner completed 1TR, this preserved `.5` payload failed Switch Root and is disqualified from another execution. This does not authorize another Start action or public use.
+- The prior private Apple Development-signed `.4` canary app passed strict deep code-signature verification, Team ID and reciprocal helper requirement checks, and embedded catalog/engine/full-OS payload byte checks. It is not notarized or publicly distributable and must not be executed again.
 - The app binds its app-owned trust-root fingerprint, signed catalog identity,
   exact plan, device, store, candidate extent, and engine payload digests, then
   revalidates them immediately before authenticated XPC submission.
 - The live host is `apple,j614s`; the app remains locked before download,
   helper registration, authorization, or mutation. The helper service is absent
   from `launchctl` and no helper journal directory exists under `/var/db`.
-- Running-UI inspection confirmed the unsupported-host lock and disabled Start
-  and disk-mutation controls. No privileged request or disk operation ran.
+- Running-UI inspection confirmed the unsupported M4 lock. On the physical M1, `.2` plan preparation exposed APFS minimum-bound drift in layout identity. That superseded local transcript produced no privileged request or disk operation and is intentionally excluded from the upstream patch because it contains transient device-state detail.
+- The reviewed `.4` M1 plan `0c0323c809e6996e7f38075a9f06aa9401c556b9d74597d667438afdde53551e` entered the supported app/helper flow once. The helper accepted one XPC run, then returned `PinnedAsahiEngineExecutionError` code 8 before spawning the Python engine; two post-failure disk snapshots retained the exact normalized pre-execution identity. Direct Swift bridging proves code 8 maps to `invalidBundle`.
+- Unified-log timing and a root-equivalent extraction replay identified the exact predicate: macOS `bsdtar` preserves archive permissions when the helper runs as root, while the executor allowed that default and then rejected 1,045 group-writable extracted files/directories. User-context inspect and plan runs did not preserve those modes, which is why the defect escaped local qualification. The `.5` executor now explicitly passes `--no-same-permissions` and retains the same post-extraction fail-closed validator; a root-style regression test failed before and passes after the change. The build recipe also normalizes staged modes and verifies archive headers so the release artifact is independently safe.
+- The approved `.5` plan, artifact identities, exact extent containment, partition layout, installed ESP read-back, and subsequent Switch Root failure are captured in the sanitized, repository-owned [`2026-08-28-m1-v5-stage1` evidence](../evidence/apple-silicon/2026-08-28-m1-v5-stage1/README.md). It contains no credential, account name, network address, process ID, private temporary path, or reusable authorization.
 - The read-only related-repository refresh is recorded in
   [`related-repositories-refresh-2026-08-27.md`](related-repositories-refresh-2026-08-27.md).
   The package-signing handoff is superseded on `origin/asahi-quattro`; the ISO
@@ -176,23 +155,27 @@ This sequence is a proposal, not authorization to execute later gates.
    hardened-runtime app/helper bundle; keep notarization separate and gated.
 7. **S6 — supported-host flow (completed in source):** inspect, download,
    prepare, review, confirm, execute once, and map recovery/manual next actions.
-8. **Upstream shaping (in progress):** digest consolidation and the initial
-   view/runtime split are complete. Extract root state coordination from the
-   detail screen, then rerun the synthetic Quattro port tests.
-9. **Physical M1 qualification (owner-gated):** begin with a private read-only
-   development-signed build. Register the helper, execute mutation, enter 1TR,
-   boot, recover, and verify macOS coexistence only through separate explicit
-   gates with retained evidence.
+8. **Upstream shaping (completed for this port):** digest consolidation and focused workflow modules are complete. A further mechanical view/state file split is deferred as a separate non-functional follow-up so it cannot invalidate the qualified `.5` binary or obscure the Recovery evidence.
+9. **Physical M1 qualification (owner-approved, repair pending):** the exact `.5` plan completed stage one and installed-content read-back. The owner completed 1TR, and boot reached the installed initramfs before the incorrect `.5` root selector failed Switch Root. The local repair requires a new reproducible full-OS package, engine/app/catalog qualification, fresh signed-plan review, and separate owner approval before any further physical mutation. No additional helper invocation or disk action is authorized by this text.
 10. **Distribution (owner-gated):** use Developer ID signing, notarization,
     stapling, exact release inputs, and model-specific acceptance before any
     publication or user integration.
 
+## Uncommitted upstream review slices
+
+No commit is authorized or created here. The retained patch is organized for review into these coherent slices:
+
+1. pinned engine, full-OS metadata, stage-one execution, and Python tests;
+2. macOS trust, authorization, helper handoff, workflow, and Swift tests;
+3. catalog-aware packaging and immutable release inputs;
+4. Bash 5 test-harness and legacy Apple hardware compatibility;
+5. safety policy, qualification evidence, and upstream integration record.
+
+Each slice must remain byte-identical between the active and exact-Quattro trees. Any eventual commit ordering is a later owner-authorized Git action.
+
 ## Next decision
 
-The next physical step is a private, development-signed M1 build and read-only
-host inspection. It must prove the supported model, APFS inventory, release
-identity, engine transcript, and exact candidate plan before helper registration
-or disk mutation is considered.
+The next physical action must wait for a newly qualified root-selector/authentication/retry/branding candidate, a fresh signed-plan review, and explicit owner approval. Local work must not contact, wake, monitor, or alter the M1. The consumed `.5` Start approval does not authorize another execution.
 
 Any removable-media write, Asahi preparation, boot, publication, channel
 change, or physical-device work remains a separate owner gate. Existing-user

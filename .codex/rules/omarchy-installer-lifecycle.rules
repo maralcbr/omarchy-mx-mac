@@ -1,0 +1,27 @@
+# The packaged app and its in-process lease provide the primary protection.
+# These project-local rules also stop the most common automation mistake before
+# a second launch is attempted.
+prefix_rule(
+    pattern = ["open", "-n"],
+    decision = "forbidden",
+    justification = "Use the managed single-instance installer review flow; never launch a duplicate with `open -n`.",
+    match = [
+        "open -n 'Omarchy MX Mac Installer.app'",
+        "open -n -a 'Omarchy MX Mac Installer'",
+    ],
+    not_match = [
+        "open 'Omarchy MX Mac Installer.app'",
+    ],
+)
+
+prefix_rule(
+    pattern = ["/usr/bin/open", "-n"],
+    decision = "forbidden",
+    justification = "Use the managed single-instance installer review flow; never launch a duplicate with `/usr/bin/open -n`.",
+    match = [
+        "/usr/bin/open -n 'Omarchy MX Mac Installer.app'",
+    ],
+    not_match = [
+        "/usr/bin/open 'Omarchy MX Mac Installer.app'",
+    ],
+)
