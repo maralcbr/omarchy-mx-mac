@@ -53,4 +53,8 @@ struct EngineInspectionResult: Sendable {
 enum InstallerAppError: Error {
   case hostChanged
   case workspaceUnavailable
+  case inspectionRequired
+  case approvalUnavailable
+  case previewFixtureUnavailable
+  case existingInstallUnavailable
 }
