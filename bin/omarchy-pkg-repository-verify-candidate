@@ -133,7 +133,7 @@ done <"$descriptor"
 [[ $source_commit == ${expected_tag#asahi-packages-candidate-} ]] || fail "source commit does not match the release tag"
 [[ $workflow_run =~ ^[1-9][0-9]*$ && $runner_arch == "aarch64" ]] || fail "invalid build identity"
 [[ $signing_fingerprint == $expected_signing_fingerprint ]] || fail "signing fingerprint does not match the descriptor"
-[[ $package_count == "21" && $package_records == 21 ]] || fail "candidate does not contain exactly 21 packages"
+[[ $package_count == "33" && $package_records == 33 ]] || fail "candidate does not contain exactly 33 packages"
 
 required_assets=(
   omarchy.db
@@ -154,6 +154,28 @@ verify_signature "$repository/omarchy.files" "$repository/omarchy.files.sig"
 described_files[CANDIDATE]=1
 described_files[CANDIDATE.sig]=1
 described_files[SHA256SUMS]=1
+described_files[PLAN.json]=1
+described_files[PROVENANCE.json]=1
+
+if [[ -s $repository/RUNTIME-SHA256SUMS ]]; then
+  [[ -s $repository/asahi-quattro-bundle.manifest && -s $repository/asahi-quattro-bundle.manifest.sig ]] ||
+    fail "runtime bundle metadata is incomplete"
+  verify_signature "$repository/asahi-quattro-bundle.manifest" "$repository/asahi-quattro-bundle.manifest.sig"
+  (
+    cd "$repository"
+    sha256sum --check --strict RUNTIME-SHA256SUMS >/dev/null
+  ) || fail "RUNTIME-SHA256SUMS verification failed"
+  described_files[RUNTIME-SHA256SUMS]=1
+  while IFS= read -r runtime_file; do
+    [[ $runtime_file =~ ^[A-Za-z0-9._+-]+$ && $runtime_file != */* ]] ||
+      fail "unsafe runtime bundle entry: $runtime_file"
+    described_files[$runtime_file]=1
+    if [[ $runtime_file == *.pkg.tar.* && $runtime_file != *.sig ]]; then
+      verify_signature "$repository/$runtime_file" "$repository/$runtime_file.sig"
+    fi
+  done < <(awk '{print $2}' "$repository/RUNTIME-SHA256SUMS")
+fi
+
 while IFS= read -r -d '' file; do
   filename=${file##*/}
   [[ -n ${described_files[$filename]:-} ]] || fail "unexpected release asset: $filename"
