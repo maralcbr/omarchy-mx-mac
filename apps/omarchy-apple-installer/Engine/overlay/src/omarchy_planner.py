@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Asahi-native inventory and candidate-bound planning."""
 
+import hashlib
 import json
 import os
 import stat
@@ -9,8 +10,11 @@ import osinstall
 from util import align_down
 
 
-TARGET = "apple-silicon-uefi"
+TARGET = "apple-silicon-full-os"
 MAX_INPUT_BYTES = 65_536
+REPLACE_ESP_LABEL = "EFI - OMARC"
+LINUX_PARTITION_TYPE = "Linux Filesystem"
+APPLE_RESERVED_TYPES = ("Apple_APFS_Recovery", "Apple_APFS_ISC")
 PLAN_REQUEST_KEYS = {
     "schema_version",
     "layout_digest",
@@ -25,10 +29,14 @@ ENGINE_IDENTITY_KEYS = {
     "metadata_digest",
     "payload_digest",
 }
+REPAIR_ENGINE_IDENTITY_KEYS = ENGINE_IDENTITY_KEYS | {
+    "repair_manifest_digest"
+}
 REQUIRED_HUMAN_STEPS = [
     "enterOneTrueRecovery",
     "authenticateMachineOwner",
 ]
+REPAIR_REQUIRED_HUMAN_STEPS = ["authenticateMachineOwner"]
 
 
 class PlanningError(ValueError):
@@ -49,7 +57,7 @@ def collect_inventory(
     ]
     if len(templates) != 1:
         raise PlanningError(
-            "metadata must contain exactly one Omarchy Apple UEFI target"
+            "metadata must contain exactly one Omarchy Apple full-OS target"
         )
 
     os_installer = osinstall.OSInstaller(
@@ -87,6 +95,14 @@ def collect_inventory(
                     ],
                 }
             )
+    candidates.extend(
+        collect_existing_installs(
+            installer,
+            templates[0].get("default_os_name"),
+            minimum_install,
+            part_align,
+        )
+    )
     candidates.sort(
         key=lambda candidate: (
             candidate["offset_bytes"],
@@ -97,6 +113,92 @@ def collect_inventory(
         "system_store_identifier": installer.sys_disk,
         "candidates": candidates,
     }
+
+
+def collect_existing_installs(installer, os_label, minimum_install, part_align):
+    """Detect complete existing Omarchy installs as replace candidates.
+
+    A complete install is exactly four consecutive partitions: the Omarchy
+    APFS stub (holding a stub macOS whose volume label is the Omarchy OS
+    name), the Omarchy ESP, and the boot and root Linux partitions. Free
+    rows immediately before the stub or after the root are absorbed into
+    the candidate extent so that removal leaves one free extent starting at
+    the approved offset. Anything partial, reordered, or ambiguous is not
+    offered for replacement.
+    """
+    if not isinstance(os_label, str) or not os_label:
+        return []
+    parts = list(getattr(installer, "parts", None) or [])
+    candidates = []
+    for index, part in enumerate(parts):
+        if part.free or not (part.type or "").startswith("Apple_APFS"):
+            continue
+        if part.type in APPLE_RESERVED_TYPES:
+            continue
+        stubs = [
+            os_info
+            for os_info in (part.os or [])
+            if getattr(os_info, "stub", False)
+            and getattr(os_info, "label", None) == os_label
+        ]
+        if len(stubs) != 1:
+            continue
+        members = parts[index : index + 4]
+        if len(members) != 4 or any(member.free for member in members):
+            continue
+        esp, boot, root = members[1:]
+        if (
+            (esp.label or "") != REPLACE_ESP_LABEL
+            or boot.type != LINUX_PARTITION_TYPE
+            or root.type != LINUX_PARTITION_TYPE
+            or any(not member.uuid for member in members)
+        ):
+            continue
+        start = part.offset
+        if index > 0 and parts[index - 1].free:
+            start = parts[index - 1].offset
+        end = root.offset + root.size
+        if index + 4 < len(parts) and parts[index + 4].free:
+            following = parts[index + 4]
+            end = following.offset + following.size
+        length = align_down(end - start, part_align)
+        if length < minimum_install:
+            continue
+        candidates.append(
+            {
+                "kind": "replace",
+                "source_identifier": part.name,
+                "offset_bytes": start,
+                "length_bytes": length,
+                "minimum_install_bytes": minimum_install,
+                "minimum_container_bytes": 0,
+                "identity_digest": replace_identity_digest(
+                    members,
+                    os_label,
+                    getattr(stubs[0], "vgid", None),
+                ),
+            }
+        )
+    return candidates
+
+
+def replace_identity_digest(members, os_label, vgid):
+    """Digest binding the exact partitions an approved replace may remove."""
+    fields = ["omarchy.apple.replace-identity", "1", os_label, vgid or ""]
+    for part in members:
+        fields.extend(
+            (
+                part.name,
+                part.type or "",
+                part.uuid or "",
+                str(part.offset),
+                str(part.size),
+            )
+        )
+    canonical = "|".join(
+        f"{len(field.encode('utf-8'))}:{field}" for field in fields
+    )
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def emit_inventory(
@@ -133,9 +235,14 @@ def emit_plan(
         PLAN_REQUEST_KEYS,
         "planning request",
     )
+    identity_keys = (
+        REPAIR_ENGINE_IDENTITY_KEYS
+        if request["candidate_kind"] == "repair"
+        else ENGINE_IDENTITY_KEYS
+    )
     identity = _load_exact_json(
         identity_path,
-        ENGINE_IDENTITY_KEYS,
+        identity_keys,
         "planning identity",
     )
     requested = request["requested_length_bytes"]
@@ -148,6 +255,11 @@ def emit_plan(
         raise PlanningError(
             "requested length must be a positive aligned integer"
         )
+    required_human_steps = (
+        REPAIR_REQUIRED_HUMAN_STEPS
+        if request["candidate_kind"] == "repair"
+        else REQUIRED_HUMAN_STEPS
+    )
     return journal.plan(
         device_identifier=device_identifier,
         layout_digest=request["layout_digest"],
@@ -158,7 +270,8 @@ def emit_plan(
         engine_digest=identity["engine_digest"],
         metadata_digest=identity["metadata_digest"],
         payload_digest=identity["payload_digest"],
-        required_human_steps=REQUIRED_HUMAN_STEPS,
+        repair_manifest_digest=identity.get("repair_manifest_digest"),
+        required_human_steps=required_human_steps,
     )
 
 

@@ -15,6 +15,7 @@ from omarchy_contract import Journal  # noqa: E402
 from omarchy_stage1 import (  # noqa: E402
     AmbiguousMutationState,
     Stage1Error,
+    retry_recovery_authorization,
     run_stage1,
     validate_stage1_resume,
 )
@@ -95,6 +96,73 @@ class Stage1CoordinatorTests(unittest.TestCase):
             resumed.checkpoints,
         )
 
+    def test_recovery_handoff_can_retry_after_authentication_failure(self):
+        crashing = RecordingStage1Adapter(
+            failure="prepare_recovery_handoff",
+        )
+        with self.assertRaisesRegex(RuntimeError, "synthetic crash"):
+            run_stage1(self.plan, self.journal, crashing)
+        resumed = Journal(str(self.path))
+        retry = RecordingStage1Adapter()
+
+        outcome = run_stage1(self.plan, resumed, retry)
+
+        self.assertEqual(outcome, "awaiting_recovery")
+        self.assertEqual(retry.calls, ["prepare_recovery_handoff"])
+        self.assertEqual(
+            resumed.completion_outcome,
+            "awaiting_recovery",
+        )
+
+    def test_explicit_recovery_retry_validates_checkpoint_then_runs_bless_only(self):
+        target_evidence = b'{"partition_identifier":"disk0s4"}'
+        installed_evidence = b'{"populated_partitions":["disk0s5"]}'
+        self.journal.event("apfs_preparation_started")
+        self.journal.checkpoint(
+            "apfs-target-prepared",
+            "apfs_preparation",
+            target_evidence,
+        )
+        self.journal.event("stub_and_esp_started")
+        self.journal.checkpoint(
+            "stub-and-esp-installed",
+            "stub_and_esp",
+            installed_evidence,
+        )
+        self.journal.event("recovery_handoff_started")
+        adapter = RecordingStage1Adapter()
+
+        outcome = retry_recovery_authorization(
+            self.plan,
+            self.journal,
+            adapter,
+        )
+
+        self.assertEqual(outcome, "awaiting_recovery")
+        self.assertEqual(
+            adapter.calls,
+            ["validate_installed_checkpoint", "prepare_recovery_handoff"],
+        )
+        self.assertEqual(
+            adapter.validated_evidence,
+            (target_evidence, installed_evidence),
+        )
+
+    def test_explicit_recovery_retry_rejects_incomplete_stage_one(self):
+        adapter = RecordingStage1Adapter()
+
+        with self.assertRaisesRegex(
+            Stage1Error,
+            "Recovery retry requires completed stage-one read-back",
+        ):
+            retry_recovery_authorization(
+                self.plan,
+                self.journal,
+                adapter,
+            )
+
+        self.assertEqual(adapter.calls, [])
+
     def test_invalid_adapter_evidence_stops_before_checkpoint(self):
         adapter = RecordingStage1Adapter(
             invalid_evidence="prepare_target",
@@ -166,6 +234,7 @@ class RecordingStage1Adapter:
         self.failure = failure
         self.invalid_evidence = invalid_evidence
         self.calls = []
+        self.validated_evidence = None
 
     def prepare_target(self, plan):
         return self._record("prepare_target", plan)
@@ -175,6 +244,15 @@ class RecordingStage1Adapter:
 
     def prepare_recovery_handoff(self, plan):
         return self._record("prepare_recovery_handoff", plan)
+
+    def validate_installed_checkpoint(
+        self,
+        plan,
+        target_evidence,
+        installed_evidence,
+    ):
+        self.calls.append("validate_installed_checkpoint")
+        self.validated_evidence = (target_evidence, installed_evidence)
 
     def _record(self, name, plan):
         self.calls.append(name)

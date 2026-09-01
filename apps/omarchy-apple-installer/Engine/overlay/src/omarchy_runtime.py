@@ -7,6 +7,7 @@ import omarchy_asahi
 import omarchy_contract
 import omarchy_execution
 import omarchy_planner
+import omarchy_repair
 import omarchy_stage1
 
 
@@ -17,8 +18,12 @@ ENVIRONMENT_KEYS = {
     "OMARCHY_ENGINE_IDENTITY",
     "OMARCHY_ENGINE_METADATA",
     "OMARCHY_ENGINE_PAYLOAD",
+    "OMARCHY_ENGINE_REPAIR_MANIFEST",
     "OMARCHY_ENGINE_BINDING_DIGEST",
     "OMARCHY_ENGINE_PLAN_DIGEST",
+    "OMARCHY_MACHINE_OWNER",
+    "DISTRO",
+    "DISTRO_DOCS",
 }
 
 
@@ -48,7 +53,12 @@ class EngineRuntime:
             if values:
                 raise EngineRuntimeError("engine mode is missing")
             return None
-        if mode not in ("inspect", "plan", "install"):
+        if mode not in (
+            "inspect",
+            "plan",
+            "install",
+            "retry-recovery-authorization",
+        ):
             raise EngineRuntimeError("unsupported engine mode")
         if environment.get("EXPERT"):
             raise EngineRuntimeError("expert mode is forbidden")
@@ -60,7 +70,16 @@ class EngineRuntime:
                 "OMARCHY_ENGINE_REQUEST",
                 "OMARCHY_ENGINE_IDENTITY",
             },
-            "install": ENVIRONMENT_KEYS - {"OMARCHY_ENGINE_MODE"},
+            "install": ENVIRONMENT_KEYS
+            - {
+                "OMARCHY_ENGINE_MODE",
+                "OMARCHY_ENGINE_REPAIR_MANIFEST",
+            },
+            "retry-recovery-authorization": ENVIRONMENT_KEYS
+            - {
+                "OMARCHY_ENGINE_MODE",
+                "OMARCHY_ENGINE_REPAIR_MANIFEST",
+            },
         }[mode]
         missing = sorted(required - set(values))
         if missing:
@@ -70,7 +89,10 @@ class EngineRuntime:
         return cls(mode=mode, values=values)
 
     def metadata(self, bundled_metadata):
-        if self.mode != "install":
+        if self.mode not in (
+            "install",
+            "retry-recovery-authorization",
+        ):
             return bundled_metadata
         return omarchy_asahi.load_metadata(
             self.values["OMARCHY_ENGINE_METADATA"]
@@ -102,19 +124,47 @@ class EngineRuntime:
         if self.journal.inspection_payload["support"] != "supported":
             raise EngineRuntimeError("unsupported device has no layout")
 
-        live = omarchy_planner.collect_inventory(
-            installer,
-            free_parts,
-            resizable_parts,
-            stub_size,
-            part_align,
+        repair_manifest = None
+        repair_manifest_path = self.values.get(
+            "OMARCHY_ENGINE_REPAIR_MANIFEST"
+        )
+        if repair_manifest_path is not None:
+            repair_manifest = omarchy_repair.load_repair_manifest(
+                repair_manifest_path
+            )
+            if repair_manifest["device_identifier"] != self.device_identifier:
+                raise EngineRuntimeError("repair device changed")
+            collected = omarchy_repair.collect_repair_inventory(
+                installer,
+                repair_manifest,
+                disk_identity_reader=(
+                    omarchy_repair.read_normalized_disk_identity
+                ),
+                filesystem_identity_reader=(
+                    omarchy_repair.inspect_filesystem_identity
+                ),
+            )
+        else:
+            collected = omarchy_planner.collect_inventory(
+                installer,
+                free_parts,
+                resizable_parts,
+                stub_size,
+                part_align,
+            )
+        live = omarchy_contract.normalized_inventory(
+            collected["system_store_identifier"],
+            collected["candidates"],
         )
         if self.journal.inventory_payload is None:
             self.journal.inventory(
                 live["system_store_identifier"],
                 live["candidates"],
             )
-        elif self.journal.plan_payload is None or self.mode != "install":
+        elif self.journal.plan_payload is None or self.mode not in (
+            "install",
+            "retry-recovery-authorization",
+        ):
             self.journal.inventory(
                 live["system_store_identifier"],
                 live["candidates"],
@@ -137,10 +187,19 @@ class EngineRuntime:
             )
             return "planned"
 
+        admission_inventory = self.journal.inventory_payload
+        if (
+            self.journal.plan_payload is not None
+            and not self.journal.events
+            and not self.journal.checkpoints
+            and self.journal.completion_outcome is None
+        ):
+            admission_inventory = live
+
         plan = omarchy_execution.admit_execution(
             request_path=self.values["OMARCHY_ENGINE_REQUEST"],
             identity_path=self.values["OMARCHY_ENGINE_IDENTITY"],
-            live_inventory=self.journal.inventory_payload,
+            live_inventory=admission_inventory,
             expected_binding_digest=self.values[
                 "OMARCHY_ENGINE_BINDING_DIGEST"
             ],
@@ -149,11 +208,34 @@ class EngineRuntime:
             ],
         )
         self._record_execution_plan(plan)
+        if getattr(plan, "operation", "install") == omarchy_repair.REPAIR_OPERATION:
+            if repair_manifest is None:
+                raise EngineRuntimeError("repair manifest is required")
+            adapter = omarchy_asahi.AsahiInPlaceRepairAdapter(
+                installer=installer,
+                manifest=repair_manifest,
+                metadata_path=self.values["OMARCHY_ENGINE_METADATA"],
+                payload_path=self.values["OMARCHY_ENGINE_PAYLOAD"],
+            )
+            executor = omarchy_repair.RepairExecutor(adapter)
+            if self.mode == "retry-recovery-authorization":
+                return executor.retry_boot_policy(
+                    plan,
+                    self.journal,
+                )
+            return executor.apply(
+                plan,
+                self.journal,
+            )
         completed = omarchy_stage1.validate_stage1_resume(
             plan,
             self.journal,
         )
         if completed is not None:
+            if self.mode == "retry-recovery-authorization":
+                raise EngineRuntimeError(
+                    "Recovery authorization is already complete"
+                )
             return completed
 
         adapter = omarchy_asahi.AsahiStage1Adapter(
@@ -163,6 +245,12 @@ class EngineRuntime:
             stub_size=stub_size,
         )
         adapter.preflight(plan)
+        if self.mode == "retry-recovery-authorization":
+            return omarchy_stage1.retry_recovery_authorization(
+                plan,
+                self.journal,
+                adapter,
+            )
         return omarchy_stage1.run_stage1(
             plan,
             self.journal,
@@ -180,6 +268,11 @@ class EngineRuntime:
             engine_digest=plan.engine_digest,
             metadata_digest=plan.metadata_digest,
             payload_digest=plan.payload_digest,
+            repair_manifest_digest=getattr(
+                plan,
+                "repair_manifest_digest",
+                None,
+            ),
             required_human_steps=list(plan.required_human_steps),
         )
         if digest != plan.plan_digest:

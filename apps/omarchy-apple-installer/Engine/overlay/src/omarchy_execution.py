@@ -51,12 +51,13 @@ IDENTITY_KEYS = {
     "metadata_digest",
     "payload_digest",
 }
+REPAIR_IDENTITY_KEYS = IDENTITY_KEYS | {"repair_manifest_digest"}
 INVENTORY_KEYS = {
     "layout_digest",
     "system_store_identifier",
     "candidates",
 }
-CANDIDATE_KEYS = {
+COMMON_CANDIDATE_KEYS = {
     "kind",
     "source_identifier",
     "offset_bytes",
@@ -73,6 +74,7 @@ class ExecutionAdmissionError(ValueError):
 @dataclass(frozen=True)
 class ExecutionPlan:
     binding_digest: str
+    operation: str
     plan_digest: str
     device_identifier: str
     store_identifier: str
@@ -83,10 +85,12 @@ class ExecutionPlan:
     length_bytes: int
     minimum_install_bytes: int
     minimum_container_bytes: int
+    candidate_identity_digest: str | None
     engine_version: str
     engine_digest: str
     metadata_digest: str
     payload_digest: str
+    repair_manifest_digest: str | None
     required_human_steps: tuple
 
 
@@ -100,8 +104,13 @@ def admit_execution(
 ):
     """Return one immutable plan or raise before the first mutation."""
     request = _load_exact_json(request_path, REQUEST_KEYS, "request")
-    identity = _load_exact_json(identity_path, IDENTITY_KEYS, "identity")
     _validate_request(request)
+    identity_keys = (
+        REPAIR_IDENTITY_KEYS
+        if request["operation"] == "repair-installed-system"
+        else IDENTITY_KEYS
+    )
+    identity = _load_exact_json(identity_path, identity_keys, "identity")
     _validate_identity(identity)
     _validate_environment_binding(
         identity,
@@ -125,6 +134,7 @@ def admit_execution(
 
     return ExecutionPlan(
         binding_digest=identity["binding_digest"],
+        operation=request["operation"],
         plan_digest=request["plan_digest"],
         device_identifier=request["device_identifier"],
         store_identifier=request["store_identifier"],
@@ -135,10 +145,12 @@ def admit_execution(
         length_bytes=request["length_bytes"],
         minimum_install_bytes=candidate["minimum_install_bytes"],
         minimum_container_bytes=candidate["minimum_container_bytes"],
+        candidate_identity_digest=candidate.get("identity_digest"),
         engine_version=request["engine_version"],
         engine_digest=identity["engine_digest"],
         metadata_digest=identity["metadata_digest"],
         payload_digest=identity["payload_digest"],
+        repair_manifest_digest=identity.get("repair_manifest_digest"),
         required_human_steps=tuple(request["required_human_steps"]),
     )
 
@@ -179,20 +191,32 @@ def _load_exact_json(path, keys, role):
 
 
 def _validate_request(request):
+    operation_matches_candidate = (
+        request["operation"] == "install"
+        and request["candidate_kind"] in ("free", "resize", "replace")
+    ) or (
+        request["operation"] == "repair-installed-system"
+        and request["candidate_kind"] == "repair"
+    )
+    required_steps = (
+        ["authenticateMachineOwner"]
+        if request["candidate_kind"] == "repair"
+        else list(REQUIRED_HUMAN_STEPS)
+    )
     integers = ("offset_bytes", "length_bytes")
     if (
         request["format"] != 1
-        or request["operation"] != "install"
+        or not operation_matches_candidate
         or not LOWER_HEX_64.fullmatch(request["plan_digest"])
         or not DEVICE_IDENTIFIER.fullmatch(request["device_identifier"])
         or not STORE_IDENTIFIER.fullmatch(request["store_identifier"])
         or not SHA256_DIGEST.fullmatch(request["layout_digest"])
-        or request["candidate_kind"] not in ("free", "resize")
+        or request["candidate_kind"] not in ("free", "resize", "repair", "replace")
         or not PARTITION_IDENTIFIER.fullmatch(request["source_identifier"])
         or not isinstance(request["engine_version"], str)
         or not request["engine_version"]
         or len(request["engine_version"].encode("utf-8")) > 128
-        or request["required_human_steps"] != list(REQUIRED_HUMAN_STEPS)
+        or request["required_human_steps"] != required_steps
     ):
         raise ExecutionAdmissionError("invalid request")
     if any(not _is_uint64(request[key]) for key in integers):
@@ -215,6 +239,12 @@ def _validate_identity(identity):
         or not SHA256_DIGEST.fullmatch(identity["engine_digest"])
         or not SHA256_DIGEST.fullmatch(identity["metadata_digest"])
         or not SHA256_DIGEST.fullmatch(identity["payload_digest"])
+        or (
+            "repair_manifest_digest" in identity
+            and not SHA256_DIGEST.fullmatch(
+                identity["repair_manifest_digest"]
+            )
+        )
     ):
         raise ExecutionAdmissionError("invalid identity")
 
@@ -254,22 +284,19 @@ def _validate_inventory(inventory):
         identities.add(identity)
         candidates.append(candidate)
     candidates.sort(key=lambda item: (item["offset_bytes"], item["kind"]))
-    computed = _length_prefixed_digest(
-        [inventory["system_store_identifier"]]
-        + [
-            field
-            for candidate in candidates
-            for field in (
+    fields = [inventory["system_store_identifier"]]
+    for candidate in candidates:
+        fields.extend(
+            (
                 candidate["kind"],
                 candidate["source_identifier"],
                 str(candidate["offset_bytes"]),
                 str(candidate["length_bytes"]),
-                str(candidate["minimum_install_bytes"]),
-                str(candidate["minimum_container_bytes"]),
             )
-        ],
-        prefix="sha256:",
-    )
+        )
+        if candidate["kind"] in ("repair", "replace"):
+            fields.append(candidate["identity_digest"])
+    computed = _length_prefixed_digest(fields, prefix="sha256:")
     if inventory["layout_digest"] != computed:
         raise ExecutionAdmissionError("invalid live layout digest")
     return {
@@ -280,10 +307,16 @@ def _validate_inventory(inventory):
 
 
 def _validate_candidate(candidate):
-    if not isinstance(candidate, dict) or set(candidate) != CANDIDATE_KEYS:
+    keys = set(COMMON_CANDIDATE_KEYS)
+    if isinstance(candidate, dict) and candidate.get("kind") in (
+        "repair",
+        "replace",
+    ):
+        keys.add("identity_digest")
+    if not isinstance(candidate, dict) or set(candidate) != keys:
         raise ExecutionAdmissionError("invalid live candidate")
     if (
-        candidate["kind"] not in ("free", "resize")
+        candidate["kind"] not in ("free", "resize", "repair", "replace")
         or not PARTITION_IDENTIFIER.fullmatch(candidate["source_identifier"])
     ):
         raise ExecutionAdmissionError("invalid live candidate")
@@ -309,6 +342,18 @@ def _validate_candidate(candidate):
         )
     ):
         raise ExecutionAdmissionError("invalid live candidate extent")
+    if candidate["kind"] == "repair" and (
+        not SHA256_DIGEST.fullmatch(candidate["identity_digest"])
+        or candidate["minimum_container_bytes"] != 0
+        or candidate["minimum_install_bytes"] != candidate["length_bytes"]
+    ):
+        raise ExecutionAdmissionError("invalid live repair identity")
+    if candidate["kind"] == "replace" and (
+        not SHA256_DIGEST.fullmatch(candidate["identity_digest"])
+        or candidate["minimum_container_bytes"] != 0
+        or candidate["minimum_install_bytes"] > candidate["length_bytes"]
+    ):
+        raise ExecutionAdmissionError("invalid live replace identity")
     return dict(candidate)
 
 
@@ -325,7 +370,7 @@ def _select_candidate(request, candidates):
     requested = request["length_bytes"]
     if requested < candidate["minimum_install_bytes"]:
         raise ExecutionAdmissionError("approved extent is too small")
-    if candidate["kind"] == "free":
+    if candidate["kind"] in ("free", "repair", "replace"):
         expected_offset = candidate["offset_bytes"]
         available = candidate["length_bytes"]
     else:
@@ -335,14 +380,20 @@ def _select_candidate(request, candidates):
         expected_offset = (
             candidate["offset_bytes"] + candidate["length_bytes"] - requested
         )
-    if requested > available or request["offset_bytes"] != expected_offset:
+    if (
+        requested > available
+        or request["offset_bytes"] != expected_offset
+        or (
+            candidate["kind"] in ("repair", "replace")
+            and requested != candidate["length_bytes"]
+        )
+    ):
         raise ExecutionAdmissionError("approved extent changed")
     return candidate
 
 
 def _canonical_plan_digest(request, identity):
-    return _length_prefixed_digest(
-        (
+    fields = [
             request["device_identifier"],
             request["store_identifier"],
             request["layout_digest"],
@@ -354,9 +405,11 @@ def _canonical_plan_digest(request, identity):
             identity["engine_digest"],
             identity["metadata_digest"],
             identity["payload_digest"],
-            ",".join(request["required_human_steps"]),
-        )
-    )
+    ]
+    if request["operation"] == "repair-installed-system":
+        fields.append(identity["repair_manifest_digest"])
+    fields.append(",".join(request["required_human_steps"]))
+    return _length_prefixed_digest(fields)
 
 
 def _length_prefixed_digest(fields, prefix=""):

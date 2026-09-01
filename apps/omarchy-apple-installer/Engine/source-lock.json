@@ -105,19 +105,44 @@
       }
     }
   },
-  "uefi_payload": {
-    "filename": "uefi-only-20260810-asahi-7.1.6-1.zip",
-    "url": "https://cdn.asahilinux.org/os/uefi-only-20260810-asahi-7.1.6-1.zip",
-    "size_bytes": 1005310,
-    "sha256": "80e3826665ba92380c32fbab3a0f8e4b5e738941d4baecb7a3d91b1894e4f699",
-    "contents": [
-      "esp/m1n1/boot.bin"
+  "full_os_payload": {
+    "filename": "omarchy-2026.09.01-aarch64-apple-silicon-asahi-os-package.zip",
+    "admission": "sealed-catalog-signature-plus-exact-size-and-sha256",
+    "size_bytes": 3638034944,
+    "sha256": "ccd48c3ce69962cae6a574f630feca32072f18f610a2b5b84b07993fd2cc18e9",
+    "images": [
+      {
+        "path": "esp/",
+        "partition": "EFI",
+        "size_bytes": 524288000
+      },
+      {
+        "path": "boot.img",
+        "partition": "Linux filesystem",
+        "size_bytes": 2147483648
+      },
+      {
+        "path": "root.img",
+        "partition": "Linux filesystem",
+        "size_bytes": 34359738368,
+        "expand": true
+      }
     ],
-    "firmware_copy_is_installer_managed": true
+    "installed_content_evidence": "required",
+    "uefi_source": {
+      "filename": "uefi-only-20260810-asahi-7.1.6-1.zip",
+      "url": "https://cdn.asahilinux.org/os/uefi-only-20260810-asahi-7.1.6-1.zip",
+      "size_bytes": 1005310,
+      "sha256": "80e3826665ba92380c32fbab3a0f8e4b5e738941d4baecb7a3d91b1894e4f699",
+      "contents": [
+        "esp/m1n1/boot.bin"
+      ],
+      "firmware_copy_is_installer_managed": true
+    }
   },
   "downstream_overlay": {
-    "version": "v0.9.0-omarchy.2",
-    "capability": "candidate_bound_resumable_stage_one",
+    "version": "v0.9.0-omarchy.6",
+    "capability": "candidate_bound_full_os_stage_one_authenticated_recovery",
     "engine_modes": [
       "inspect",
       "plan",
@@ -129,85 +154,104 @@
     },
     "metadata": {
       "path": "installer_data.json",
-      "sha256": "af7aea805b5fcf9d130f622985a58f9f2bcea94a6a05db048bbab82bf10cf01e"
+      "sha256": "34fc87e269bece044c19d9e8f5bb1cf495f2c35541e373d6308c604e9adc58ba"
     },
     "files": [
       {
+        "path": "overlay/m1n1/data/bootlogo_48.bin",
+        "destination": "m1n1/data/bootlogo_48.bin",
+        "sha256": "6668050653645711ad7523fe2abeb4cbe85a92c875f3eec754b6db23cea2191c"
+      },
+      {
+        "path": "overlay/m1n1/data/bootlogo_128.bin",
+        "destination": "m1n1/data/bootlogo_128.bin",
+        "sha256": "b19cb017645c7a9068ea0be9b6bb394131d7ca11b28093cf6caa1ffca74b0a4e"
+      },
+      {
+        "path": "overlay/m1n1/data/bootlogo_256.bin",
+        "destination": "m1n1/data/bootlogo_256.bin",
+        "sha256": "9c659b392aacfa31c62c638003d2257abfdbe17919b5c90cde4c4e62f87addab"
+      },
+      {
         "path": "overlay/src/omarchy_asahi.py",
         "destination": "src/omarchy_asahi.py",
-        "sha256": "c26253d7eb58c0c34a7c018e679919d045d9edd82f7bd6b4b19535829db5138c"
+        "sha256": "6da5c83b9224cefbb1baf2352aaf11f7a55e1bf02845f2418bde80c07e57e523"
       },
       {
         "path": "overlay/src/omarchy_contract.py",
         "destination": "src/omarchy_contract.py",
-        "sha256": "817d7481debf9968a054706f646bdacd5ae0dc79f71cdd86748db18d79a42db7"
+        "sha256": "39d31589b306f8eb00830f786bf6e048018fea5dc31f12e504b3f6afc23b4723"
       },
       {
         "path": "overlay/src/omarchy_execution.py",
         "destination": "src/omarchy_execution.py",
-        "sha256": "ff89992aeff5f15b4520f541b936039a68094b64a5400053b2c451705a1b19f7"
+        "sha256": "ceb7b8fe072224224a39591968fab51aee768680e20409204704b03a92a1de04"
       },
       {
         "path": "overlay/src/omarchy_planner.py",
         "destination": "src/omarchy_planner.py",
-        "sha256": "4c1b164cef9b770a1c7604e21a46202c723a97b0f5b4870b822753f170f7545a"
+        "sha256": "6bf8eb6b026f43c329fce6d8f226b7c844155e90b35ecac78bebce36b15b653c"
       },
       {
         "path": "overlay/src/omarchy_runtime.py",
         "destination": "src/omarchy_runtime.py",
-        "sha256": "3884f8cca37f2a15587a235b316ee166b3d294201b4a1206bb7dae470863d557"
+        "sha256": "a34ad5c15025b1307cb9f114153b4218cf586bf8bf88ee5d22e02febab3702f5"
       },
       {
         "path": "overlay/src/omarchy_stage1.py",
         "destination": "src/omarchy_stage1.py",
-        "sha256": "04222cb0aba4a8dc06c2cba117918f3225f587e09172407fa632b9becfe8a1d5"
+        "sha256": "3b5ca1426944f8c260e0ccb52df5ff1a4456d26a09473680876c7747ef9922ac"
       },
       {
         "path": "overlay/tests/test_omarchy_asahi.py",
         "destination": "tests/test_omarchy_asahi.py",
-        "sha256": "b4a9c0bcf90354fda03f38f3c5300f68467c08f988f4f9f1802f8dce36bbf08e"
+        "sha256": "c6713a92dbc10eb2e0b21b697dced3b71cb3d9a04cadb0a611c3d3979bc6e595"
       },
       {
         "path": "overlay/tests/test_omarchy_contract.py",
         "destination": "tests/test_omarchy_contract.py",
-        "sha256": "c7ced11b0c6ed38a7da224bb458a453fa62eef7007feed4af4ef1e1785c58faf"
+        "sha256": "de6423d243946a3b4d95f3c06eb72ad3bca4f2a1754d544f375cd9183fc41c53"
       },
       {
         "path": "overlay/tests/test_omarchy_execution.py",
         "destination": "tests/test_omarchy_execution.py",
-        "sha256": "94af38a8171efa85d1638dd39057ea89777822b10ce05b792a50871688bd7408"
+        "sha256": "5f6d009385e77e54b52f834f57201674da5b54618b3111307b7aecd87ffdcfb4"
       },
       {
         "path": "overlay/tests/test_omarchy_planner.py",
         "destination": "tests/test_omarchy_planner.py",
-        "sha256": "85de2e802eae37a43b75a4136a86bcb902ebee5b6c6dfdc22fa170732ff6cd19"
+        "sha256": "a384316bf086d19813433a27914052e3909d2aef7606715a1b66c3efaa7fe1bb"
       },
       {
         "path": "overlay/tests/test_omarchy_runtime.py",
         "destination": "tests/test_omarchy_runtime.py",
-        "sha256": "68d351952b028686a349985fe5ca67669da4dee6aa4ba33b151c70b2d135723f"
+        "sha256": "5ceb472f794c242606eb08388ba984047bc0c71ecb39ad7ca641e3ff5e302cbb"
       },
       {
         "path": "overlay/tests/test_omarchy_stage1.py",
         "destination": "tests/test_omarchy_stage1.py",
-        "sha256": "775994bf451f1619bafc18e8eef1fb3cf2414fd9ec3f9e00d01092a9241243a9"
+        "sha256": "dd7d4b909a9ee57863fb9c4f5f731ab51086e1a16bbf787447477bbe6d0bffb3"
       }
     ]
   },
   "build_recipe": [
     {
       "path": "build-locked-engine.sh",
-      "sha256": "4dd603ede8d0ac509a1f3be66579fd3e92ca7ebfb7e373e37569638baa1aa3a0"
+      "sha256": "1c1618fcf4a3d162d50f7560cc245be96c56d2ae4b68a0ef64fd3afbd07214c6"
+    },
+    {
+      "path": "verify-archive-modes.py",
+      "sha256": "bcbff0ab5a123c2c90548a4b5b0ebe6ec59cae20daf4a5bb0d649884dd232cc2"
     },
     {
       "path": "verify-source-lock.py",
-      "sha256": "1ffc82b9a76eef32211fe9068222bd34d6f0254bb59e42e876251f0d052d3516"
+      "sha256": "875284f3219a831deceb9b4b0b07ce0a064e1c53f40242903835589e89bd06e0"
     }
   ],
   "validation_artifact": {
-    "filename": "installer-v0.9.0-omarchy.2.tar.gz",
-    "size_bytes": 22064004,
-    "sha256": "09eefcb25ba434f084a3b1e0700c3277629f67f1d3514f59bddd6107a39dfde5",
+    "filename": "installer-v0.9.0-omarchy.7.tar.gz",
+    "size_bytes": 17904504,
+    "sha256": "063fd0765fb2057384d9653f7bf547b0471af31fc764e039d578d4fef6dce4d5",
     "reproducibility_scope": "two-clean-builds-same-host-pinned-toolchain",
     "signature": "absent"
   }

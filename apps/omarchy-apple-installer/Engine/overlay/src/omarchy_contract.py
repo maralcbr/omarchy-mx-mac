@@ -11,19 +11,22 @@ import stat
 SCHEMA_VERSION = 1
 MAX_RECORD_BYTES = 65_536
 MAX_JOURNAL_BYTES = 8_388_608
+MAX_CHECKPOINT_EVIDENCE_BYTES = 1_048_576
 DEVICE_IDENTIFIER = re.compile(r"^apple,[a-z0-9]+$")
 STORE_IDENTIFIER = re.compile(r"^disk[0-9]+$")
 PARTITION_IDENTIFIER = re.compile(r"^disk[0-9]+(?:s[0-9]+)?$")
 LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+CHECKPOINT_IDENTIFIER = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 PHASE_ORDER = {
     "preflight": 0,
-    "apfs_preparation": 1,
-    "stub_and_esp": 2,
-    "awaiting_recovery": 3,
-    "boot_policy": 4,
-    "media_handoff": 5,
-    "omarchy_install": 6,
+    "existing_removal": 1,
+    "apfs_preparation": 2,
+    "stub_and_esp": 3,
+    "awaiting_recovery": 4,
+    "boot_policy": 5,
+    "media_handoff": 6,
+    "omarchy_install": 7,
 }
 COMPLETION_OUTCOMES = {
     "awaiting_recovery",
@@ -88,9 +91,46 @@ class Journal:
     def inventory(self, system_store_identifier, candidates):
         payload = _inventory_payload(system_store_identifier, candidates)
         if self.inventory_payload is not None:
-            if self.inventory_payload != payload:
+            if self.inventory_payload == payload:
+                return payload["layout_digest"]
+            if (
+                self.plan_payload is not None
+                or self.inventory_payload["layout_digest"]
+                != payload["layout_digest"]
+            ):
                 raise ContractError("inventory changed during resume")
-            return payload["layout_digest"]
+            merged = []
+            for recorded, current in zip(
+                self.inventory_payload["candidates"],
+                payload["candidates"],
+                strict=True,
+            ):
+                geometry_keys = (
+                    "kind",
+                    "source_identifier",
+                    "offset_bytes",
+                    "length_bytes",
+                )
+                if any(
+                    recorded[key] != current[key]
+                    for key in geometry_keys
+                ):
+                    raise ContractError("inventory changed during resume")
+                candidate = dict(current)
+                candidate["minimum_install_bytes"] = max(
+                    recorded["minimum_install_bytes"],
+                    current["minimum_install_bytes"],
+                )
+                candidate["minimum_container_bytes"] = max(
+                    recorded["minimum_container_bytes"],
+                    current["minimum_container_bytes"],
+                )
+                merged.append(candidate)
+            self.inventory_payload = _inventory_payload(
+                system_store_identifier,
+                merged,
+            )
+            return self.inventory_payload["layout_digest"]
         if self.sequence != 1 or self.inspection_payload is None:
             raise ContractError("inventory must follow inspection")
         self._append("inventory", payload)
@@ -110,6 +150,7 @@ class Journal:
         metadata_digest,
         payload_digest,
         required_human_steps,
+        repair_manifest_digest=None,
     ):
         payload = _plan_payload(
             inventory=self.inventory_payload,
@@ -122,6 +163,7 @@ class Journal:
             engine_digest=engine_digest,
             metadata_digest=metadata_digest,
             payload_digest=payload_digest,
+            repair_manifest_digest=repair_manifest_digest,
             required_human_steps=required_human_steps,
         )
         if self.plan_payload is not None:
@@ -150,7 +192,7 @@ class Journal:
     def checkpoint(self, identifier, phase, evidence):
         if (
             not isinstance(identifier, str)
-            or not identifier
+            or CHECKPOINT_IDENTIFIER.fullmatch(identifier) is None
             or phase not in PHASE_ORDER
             or not isinstance(evidence, bytes)
             or not evidence
@@ -166,6 +208,7 @@ class Journal:
         if existing is not None:
             if existing != payload:
                 raise ContractError("checkpoint changed during resume")
+            self._store_checkpoint_evidence(identifier, evidence)
             return
         self._require_open_plan()
         highest = max(
@@ -177,8 +220,75 @@ class Journal:
         )
         if PHASE_ORDER[phase] < highest:
             raise ContractError("checkpoint phase regressed")
+        self._store_checkpoint_evidence(identifier, evidence)
         self._append("checkpoint", payload)
         self.checkpoints[identifier] = payload
+
+    def checkpoint_evidence(self, identifier):
+        checkpoint = self.checkpoints.get(identifier)
+        if checkpoint is None:
+            raise ContractError("checkpoint evidence is unavailable")
+        evidence = self._read_checkpoint_evidence(identifier)
+        if sha256_digest(evidence) != checkpoint["evidence_digest"]:
+            raise ContractError("checkpoint evidence changed")
+        return evidence
+
+    def _store_checkpoint_evidence(self, identifier, evidence):
+        path = self._checkpoint_evidence_path(identifier)
+        try:
+            descriptor = os.open(
+                path,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | os.O_CLOEXEC
+                | os.O_NOFOLLOW,
+                0o600,
+            )
+        except FileExistsError:
+            if self._read_checkpoint_evidence(identifier) != evidence:
+                raise ContractError("checkpoint evidence changed")
+            return
+        try:
+            written = 0
+            while written < len(evidence):
+                count = os.write(descriptor, evidence[written:])
+                if count <= 0:
+                    raise ContractError("short checkpoint evidence write")
+                written += count
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _read_checkpoint_evidence(self, identifier):
+        descriptor = os.open(
+            self._checkpoint_evidence_path(identifier),
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        try:
+            details = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(details.st_mode)
+                or details.st_mode & 0o077
+                or details.st_uid != os.geteuid()
+                or details.st_size <= 0
+                or details.st_size > MAX_CHECKPOINT_EVIDENCE_BYTES
+            ):
+                raise ContractError("unsafe checkpoint evidence")
+            evidence = os.read(
+                descriptor,
+                MAX_CHECKPOINT_EVIDENCE_BYTES + 1,
+            )
+            if len(evidence) != details.st_size:
+                raise ContractError("short checkpoint evidence read")
+            return evidence
+        finally:
+            os.close(descriptor)
+
+    def _checkpoint_evidence_path(self, identifier):
+        if CHECKPOINT_IDENTIFIER.fullmatch(identifier) is None:
+            raise ContractError("invalid checkpoint identifier")
+        return f"{self.path}.{identifier}.evidence"
 
     def completion(self, outcome):
         if self.plan_payload is None:
@@ -294,7 +404,10 @@ class Journal:
             self._require_resumed_plan_digest(payload)
             if (
                 not isinstance(payload["identifier"], str)
-                or not payload["identifier"]
+                or CHECKPOINT_IDENTIFIER.fullmatch(
+                    payload["identifier"]
+                )
+                is None
                 or payload["identifier"] in self.checkpoints
                 or payload["phase"] not in PHASE_ORDER
                 or not SHA256_DIGEST.fullmatch(payload["evidence_digest"])
@@ -399,6 +512,10 @@ def _validate_inspection(payload):
         raise ContractError("invalid inspection")
 
 
+def normalized_inventory(system_store_identifier, candidates):
+    return _inventory_payload(system_store_identifier, candidates)
+
+
 def _inventory_payload(system_store_identifier, candidates):
     if (
         not STORE_IDENTIFIER.fullmatch(system_store_identifier or "")
@@ -423,10 +540,10 @@ def _inventory_payload(system_store_identifier, candidates):
                 candidate["source_identifier"],
                 str(candidate["offset_bytes"]),
                 str(candidate["length_bytes"]),
-                str(candidate["minimum_install_bytes"]),
-                str(candidate["minimum_container_bytes"]),
             )
         )
+        if candidate["kind"] in ("repair", "replace"):
+            fields.append(candidate["identity_digest"])
     return {
         "layout_digest": _length_prefixed_digest(
             fields,
@@ -438,7 +555,7 @@ def _inventory_payload(system_store_identifier, candidates):
 
 
 def _validate_candidate(candidate):
-    keys = {
+    common_keys = {
         "kind",
         "source_identifier",
         "offset_bytes",
@@ -446,17 +563,27 @@ def _validate_candidate(candidate):
         "minimum_install_bytes",
         "minimum_container_bytes",
     }
+    keys = set(common_keys)
+    if isinstance(candidate, dict) and candidate.get("kind") in (
+        "repair",
+        "replace",
+    ):
+        keys.add("identity_digest")
     _require_exact_keys(candidate, keys)
     if (
-        candidate["kind"] not in ("free", "resize")
+        candidate["kind"] not in ("free", "resize", "repair", "replace")
         or not PARTITION_IDENTIFIER.fullmatch(
             candidate["source_identifier"]
         )
     ):
         raise ContractError("invalid candidate")
-    for key in keys - {"kind", "source_identifier"}:
+    for key in common_keys - {"kind", "source_identifier"}:
         if not _is_uint64(candidate[key]):
             raise ContractError("invalid candidate extent")
+    if candidate["kind"] in ("repair", "replace") and not SHA256_DIGEST.fullmatch(
+        candidate["identity_digest"]
+    ):
+        raise ContractError("invalid repair identity")
     if (
         candidate["length_bytes"] == 0
         or candidate["minimum_install_bytes"] == 0
@@ -468,6 +595,22 @@ def _validate_candidate(candidate):
         or (
             candidate["kind"] == "resize"
             and candidate["minimum_container_bytes"] == 0
+        )
+        or (
+            candidate["kind"] == "repair"
+            and (
+                candidate["minimum_container_bytes"] != 0
+                or candidate["minimum_install_bytes"]
+                != candidate["length_bytes"]
+            )
+        )
+        or (
+            candidate["kind"] == "replace"
+            and (
+                candidate["minimum_container_bytes"] != 0
+                or candidate["minimum_install_bytes"]
+                > candidate["length_bytes"]
+            )
         )
     ):
         raise ContractError("invalid candidate extent")
@@ -486,6 +629,7 @@ def _plan_payload(
     engine_digest,
     metadata_digest,
     payload_digest,
+    repair_manifest_digest,
     required_human_steps,
 ):
     if inventory is None:
@@ -510,6 +654,16 @@ def _plan_payload(
             not isinstance(item, str) or not item
             for item in required_human_steps
         )
+        or (
+            candidate_kind == "repair"
+            and not SHA256_DIGEST.fullmatch(
+                repair_manifest_digest or ""
+            )
+        )
+        or (
+            candidate_kind != "repair"
+            and repair_manifest_digest is not None
+        )
         or any(
             not SHA256_DIGEST.fullmatch(value or "")
             for value in (
@@ -523,7 +677,7 @@ def _plan_payload(
     candidate = matches[0]
     if requested_length_bytes < candidate["minimum_install_bytes"]:
         raise ContractError("requested extent is too small")
-    if candidate_kind == "free":
+    if candidate_kind in ("free", "repair", "replace"):
         available = candidate["length_bytes"]
         offset = candidate["offset_bytes"]
     else:
@@ -537,6 +691,11 @@ def _plan_payload(
         )
     if requested_length_bytes > available:
         raise ContractError("requested extent exceeds candidate")
+    if (
+        candidate_kind == "replace"
+        and requested_length_bytes != candidate["length_bytes"]
+    ):
+        raise ContractError("replace requires the exact existing extent")
     payload = {
         "plan_digest": "",
         "device_identifier": device_identifier,
@@ -552,6 +711,8 @@ def _plan_payload(
         "payload_digest": payload_digest,
         "required_human_steps": list(required_human_steps),
     }
+    if candidate_kind == "repair":
+        payload["repair_manifest_digest"] = repair_manifest_digest
     payload["plan_digest"] = _canonical_plan_digest(payload)
     return payload
 
@@ -572,6 +733,8 @@ def _plan_payload_from_record(payload, inventory):
         "payload_digest",
         "required_human_steps",
     }
+    if isinstance(payload, dict) and payload.get("candidate_kind") == "repair":
+        keys.add("repair_manifest_digest")
     _require_exact_keys(payload, keys)
     validated = _plan_payload(
         inventory=inventory,
@@ -584,6 +747,7 @@ def _plan_payload_from_record(payload, inventory):
         engine_digest=payload["engine_digest"],
         metadata_digest=payload["metadata_digest"],
         payload_digest=payload["payload_digest"],
+        repair_manifest_digest=payload.get("repair_manifest_digest"),
         required_human_steps=payload["required_human_steps"],
     )
     if payload["store_identifier"] != validated["store_identifier"]:
@@ -592,8 +756,7 @@ def _plan_payload_from_record(payload, inventory):
 
 
 def _canonical_plan_digest(plan):
-    return _length_prefixed_digest(
-        (
+    fields = [
             plan["device_identifier"],
             plan["store_identifier"],
             plan["layout_digest"],
@@ -605,9 +768,11 @@ def _canonical_plan_digest(plan):
             plan["engine_digest"],
             plan["metadata_digest"],
             plan["payload_digest"],
-            ",".join(plan["required_human_steps"]),
-        )
-    )
+    ]
+    if plan["candidate_kind"] == "repair":
+        fields.append(plan["repair_manifest_digest"])
+    fields.append(",".join(plan["required_human_steps"]))
+    return _length_prefixed_digest(fields)
 
 
 def _length_prefixed_digest(fields, prefix=""):

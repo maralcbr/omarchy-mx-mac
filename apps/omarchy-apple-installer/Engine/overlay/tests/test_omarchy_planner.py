@@ -162,6 +162,60 @@ class PlannerTests(unittest.TestCase):
                 1024**2,
             )
 
+    def test_repair_plan_uses_exact_extent_and_no_reinstall_recovery_step(self):
+        candidate = {
+            "kind": "repair",
+            "source_identifier": "disk0s2",
+            "offset_bytes": 857_747_943_424,
+            "length_bytes": 137_438_953_472,
+            "minimum_install_bytes": 137_438_953_472,
+            "minimum_container_bytes": 0,
+            "identity_digest": "sha256:" + "9" * 64,
+        }
+        inventory = self.journal.inventory("disk0", [candidate])
+        request_path = self._write(
+            "repair-request.json",
+            {
+                "schema_version": 1,
+                "layout_digest": inventory,
+                "candidate_kind": "repair",
+                "source_identifier": "disk0s2",
+                "requested_length_bytes": 137_438_953_472,
+            },
+        )
+        identity_path = self._write(
+            "repair-identity.json",
+            {
+                "schema_version": 1,
+                "engine_version": "v0.9.0-omarchy.7",
+                "engine_digest": "sha256:" + "d" * 64,
+                "metadata_digest": "sha256:" + "e" * 64,
+                "payload_digest": "sha256:" + "f" * 64,
+                "repair_manifest_digest": "sha256:" + "7" * 64,
+            },
+        )
+
+        emit_plan(
+            self.journal,
+            str(request_path),
+            str(identity_path),
+            "apple,j314s",
+            1024**2,
+        )
+
+        self.assertEqual(
+            self.journal.plan_payload["required_human_steps"],
+            ["authenticateMachineOwner"],
+        )
+        self.assertEqual(
+            self.journal.plan_payload["offset_bytes"],
+            857_747_943_424,
+        )
+        self.assertEqual(
+            self.journal.plan_payload["repair_manifest_digest"],
+            "sha256:" + "7" * 64,
+        )
+
     def test_multiple_omarchy_targets_are_rejected(self):
         self.installer.data["os_list"].append(
             dict(self.installer.data["os_list"][0])
@@ -169,7 +223,7 @@ class PlannerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             PlanningError,
-            "exactly one Omarchy Apple UEFI target",
+            "exactly one Omarchy Apple full-OS target",
         ):
             collect_inventory(
                 self.installer,
@@ -194,7 +248,7 @@ class FakeInstaller:
         self.data = {
             "os_list": [
                 {
-                    "omarchy_target": "apple-silicon-uefi",
+                    "omarchy_target": "apple-silicon-full-os",
                     "minimum_size": 64 * 1024**3,
                 }
             ]

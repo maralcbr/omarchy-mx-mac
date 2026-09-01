@@ -13,6 +13,20 @@ import subprocess
 
 COMMIT = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
+M1N1_BRANDING_OVERLAY = {
+    "m1n1/data/bootlogo_48.bin": (
+        "overlay/m1n1/data/bootlogo_48.bin",
+        "6668050653645711ad7523fe2abeb4cbe85a92c875f3eec754b6db23cea2191c",
+    ),
+    "m1n1/data/bootlogo_128.bin": (
+        "overlay/m1n1/data/bootlogo_128.bin",
+        "b19cb017645c7a9068ea0be9b6bb394131d7ca11b28093cf6caa1ffca74b0a4e",
+    ),
+    "m1n1/data/bootlogo_256.bin": (
+        "overlay/m1n1/data/bootlogo_256.bin",
+        "9c659b392aacfa31c62c638003d2257abfdbe17919b5c90cde4c4e62f87addab",
+    ),
+}
 
 
 def run(checkout: Path, *arguments: str) -> str:
@@ -41,6 +55,43 @@ def require_digest(engine_root: Path, record: dict, role: str) -> None:
         raise ValueError(f"{role} digest does not match source lock: {path}")
 
 
+def require_validation_artifact(record: dict) -> None:
+    required = {
+        "filename",
+        "size_bytes",
+        "sha256",
+        "reproducibility_scope",
+        "signature",
+    }
+    if set(record) != required:
+        raise ValueError("invalid validation artifact lock record")
+    if not isinstance(record["filename"], str) or not record["filename"]:
+        raise ValueError("invalid validation artifact filename")
+    if not isinstance(record["size_bytes"], int) or record["size_bytes"] <= 0:
+        raise ValueError("invalid validation artifact size")
+    if not SHA256.fullmatch(record["sha256"]):
+        raise ValueError("invalid validation artifact SHA-256")
+    if (
+        record["reproducibility_scope"]
+        != "two-clean-builds-same-host-pinned-toolchain"
+    ):
+        raise ValueError("invalid validation artifact reproducibility scope")
+    if record["signature"] != "absent":
+        raise ValueError("invalid validation artifact signature declaration")
+
+
+def require_m1n1_branding_overlay(records: list[dict]) -> None:
+    observed = {}
+    for record in records:
+        destination = record.get("destination")
+        if destination in M1N1_BRANDING_OVERLAY:
+            if destination in observed:
+                raise ValueError("invalid m1n1 branding overlay")
+            observed[destination] = (record.get("path"), record.get("sha256"))
+    if observed != M1N1_BRANDING_OVERLAY:
+        raise ValueError("invalid m1n1 branding overlay")
+
+
 def verify(engine_root: Path, checkout: Path) -> None:
     lock = json.loads(
         (engine_root / "source-lock.json").read_text(encoding="utf-8")
@@ -49,6 +100,7 @@ def verify(engine_root: Path, checkout: Path) -> None:
         raise ValueError("unsupported source lock schema")
     if lock.get("source_acquisition") != "verified-git-object-graph":
         raise ValueError("source lock must require verified Git objects")
+    require_validation_artifact(lock.get("validation_artifact", {}))
 
     upstream = lock["upstream_installer"]
     expected_head = upstream["commit"]
@@ -86,6 +138,7 @@ def verify(engine_root: Path, checkout: Path) -> None:
     overlay = lock["downstream_overlay"]
     require_digest(engine_root, overlay["patch"], "downstream patch")
     require_digest(engine_root, overlay["metadata"], "downstream metadata")
+    require_m1n1_branding_overlay(overlay["files"])
     for item in overlay["files"]:
         require_digest(engine_root, item, "overlay file")
         destination = item.get("destination")

@@ -82,6 +82,95 @@ class ExecutionAdmissionTests(unittest.TestCase):
             320 * 1024**3,
         )
 
+    def test_valid_repair_requires_exact_identity_extent_and_operation(self):
+        self.inventory = self._inventory(kind="repair")
+        self.request = self._request(
+            kind="repair",
+            source_identifier="disk0s2",
+            offset_bytes=857_747_943_424,
+            length_bytes=137_438_953_472,
+            operation="repair-installed-system",
+        )
+        self.identity = self._identity()
+        self._write_inputs()
+
+        plan = self._admit()
+
+        self.assertEqual(plan.candidate_kind, "repair")
+        self.assertEqual(
+            plan.candidate_identity_digest,
+            "sha256:" + "9" * 64,
+        )
+        self.assertEqual(
+            plan.repair_manifest_digest,
+            self.identity["repair_manifest_digest"],
+        )
+
+        self.request["operation"] = "install"
+        self._write_inputs()
+        self._assert_rejected("invalid request")
+
+    def test_repair_manifest_substitution_is_rejected_by_plan_digest(self):
+        self.inventory = self._inventory(kind="repair")
+        self.request = self._request(
+            kind="repair",
+            source_identifier="disk0s2",
+            offset_bytes=857_747_943_424,
+            length_bytes=137_438_953_472,
+            operation="repair-installed-system",
+        )
+        self.identity = self._identity()
+        self.identity["repair_manifest_digest"] = self._sha256(b"changed")
+        self._write_inputs()
+
+        self._assert_rejected("plan digest mismatch")
+
+    def test_resize_admission_accepts_safe_dynamic_bound_drift(self):
+        self.inventory = self._inventory(kind="resize")
+        candidate = self.inventory["candidates"][0]
+        requested = 80 * 1024**3
+        self.request = self._request(
+            kind="resize",
+            source_identifier="disk0s2",
+            offset_bytes=(
+                candidate["offset_bytes"]
+                + candidate["length_bytes"]
+                - requested
+            ),
+            length_bytes=requested,
+        )
+        self.identity = self._identity()
+        self._write_inputs()
+        candidate["minimum_install_bytes"] += 1024**2
+        candidate["minimum_container_bytes"] += 1024**2
+
+        plan = self._admit()
+
+        self.assertEqual(
+            plan.minimum_container_bytes,
+            320 * 1024**3 + 1024**2,
+        )
+
+    def test_resize_admission_rejects_bound_drift_that_removes_space(self):
+        self.inventory = self._inventory(kind="resize")
+        candidate = self.inventory["candidates"][0]
+        requested = 80 * 1024**3
+        self.request = self._request(
+            kind="resize",
+            source_identifier="disk0s2",
+            offset_bytes=(
+                candidate["offset_bytes"]
+                + candidate["length_bytes"]
+                - requested
+            ),
+            length_bytes=requested,
+        )
+        self.identity = self._identity()
+        self._write_inputs()
+        candidate["minimum_container_bytes"] = 421 * 1024**3
+
+        self._assert_rejected("approved extent changed")
+
     def test_m4_is_rejected_even_with_otherwise_valid_binding(self):
         self.request = self._request(device_identifier="apple,j614s")
         self.identity = self._identity()
@@ -187,7 +276,7 @@ class ExecutionAdmissionTests(unittest.TestCase):
                     "minimum_container_bytes": 0,
                 }
             ]
-        else:
+        elif kind == "resize":
             candidates = [
                 {
                     "kind": "resize",
@@ -196,6 +285,18 @@ class ExecutionAdmissionTests(unittest.TestCase):
                     "length_bytes": 500 * 1024**3,
                     "minimum_install_bytes": 64 * 1024**3,
                     "minimum_container_bytes": 320 * 1024**3,
+                }
+            ]
+        else:
+            candidates = [
+                {
+                    "kind": "repair",
+                    "source_identifier": "disk0s2",
+                    "offset_bytes": 857_747_943_424,
+                    "length_bytes": 137_438_953_472,
+                    "minimum_install_bytes": 137_438_953_472,
+                    "minimum_container_bytes": 0,
+                    "identity_digest": "sha256:" + "9" * 64,
                 }
             ]
         return {
@@ -212,10 +313,11 @@ class ExecutionAdmissionTests(unittest.TestCase):
         source_identifier="disk0s3",
         offset_bytes=447_750_000_000,
         length_bytes=80 * 1024**3,
+        operation="install",
     ):
         request = {
             "format": 1,
-            "operation": "install",
+            "operation": operation,
             "plan_digest": "",
             "device_identifier": device_identifier,
             "store_identifier": "disk0",
@@ -225,16 +327,20 @@ class ExecutionAdmissionTests(unittest.TestCase):
             "offset_bytes": offset_bytes,
             "length_bytes": length_bytes,
             "engine_version": "v0.9.0-omarchy.2",
-            "required_human_steps": [
-                "enterOneTrueRecovery",
-                "authenticateMachineOwner",
-            ],
+            "required_human_steps": (
+                ["authenticateMachineOwner"]
+                if operation == "repair-installed-system"
+                else [
+                    "enterOneTrueRecovery",
+                    "authenticateMachineOwner",
+                ]
+            ),
         }
         request["plan_digest"] = self._plan_digest(request)
         return request
 
     def _identity(self):
-        return {
+        identity = {
             "format": 1,
             "binding_digest": self.binding_digest,
             "trust_root_fingerprint": self._sha256(b"root"),
@@ -245,10 +351,14 @@ class ExecutionAdmissionTests(unittest.TestCase):
             "metadata_digest": self.metadata_digest,
             "payload_digest": self.payload_digest,
         }
+        if self.request["operation"] == "repair-installed-system":
+            identity["repair_manifest_digest"] = self._sha256(
+                b"repair-manifest"
+            )
+        return identity
 
     def _plan_digest(self, request):
-        return self._length_prefixed(
-            (
+        fields = [
                 request["device_identifier"],
                 request["store_identifier"],
                 request["layout_digest"],
@@ -260,9 +370,11 @@ class ExecutionAdmissionTests(unittest.TestCase):
                 self.engine_digest,
                 self.metadata_digest,
                 self.payload_digest,
-                ",".join(request["required_human_steps"]),
-            )
-        )
+        ]
+        if request["operation"] == "repair-installed-system":
+            fields.append(self._sha256(b"repair-manifest"))
+        fields.append(",".join(request["required_human_steps"]))
+        return self._length_prefixed(fields)
 
     def _layout_digest(self, store, candidates):
         fields = [store]
@@ -276,10 +388,10 @@ class ExecutionAdmissionTests(unittest.TestCase):
                     candidate["source_identifier"],
                     str(candidate["offset_bytes"]),
                     str(candidate["length_bytes"]),
-                    str(candidate["minimum_install_bytes"]),
-                    str(candidate["minimum_container_bytes"]),
                 )
             )
+            if candidate["kind"] == "repair":
+                fields.append(candidate["identity_digest"])
         return self._length_prefixed(fields, prefix="sha256:")
 
     def _length_prefixed(self, fields, prefix=""):

@@ -1,32 +1,41 @@
 {
   "os_list": [
     {
-      "name": "Omarchy Apple Silicon installer environment",
-      "default_os_name": "Omarchy",
-      "omarchy_target": "apple-silicon-uefi",
       "boot_object": "m1n1.bin",
+      "default_os_name": "Omarchy",
+      "icon": "omarchy-volume.icns",
+      "name": "Omarchy MX Mac",
       "next_object": "m1n1/boot.bin",
-      "package": "uefi-only-20260810-asahi-7.1.6-1.zip",
+      "omarchy_target": "apple-silicon-full-os",
+      "package": "omarchy-2026.09.01-aarch64-apple-silicon-asahi-os-package.zip",
+      "partitions": [
+        {
+          "copy_firmware": true,
+          "copy_installer_data": true,
+          "format": "fat",
+          "name": "EFI",
+          "size": "524288000B",
+          "source": "esp",
+          "type": "EFI",
+          "volume_id": "0x4f4d5801"
+        },
+        {
+          "image": "boot.img",
+          "name": "Boot",
+          "size": "2147483648B",
+          "type": "Linux"
+        },
+        {
+          "expand": true,
+          "image": "root.img",
+          "name": "Root",
+          "size": "34359738368B",
+          "type": "Linux"
+        }
+      ],
       "supported_fw": [
         "13.5",
         "14.8.3"
-      ],
-      "partitions": [
-        {
-          "name": "EFI",
-          "type": "EFI",
-          "size": "500MB",
-          "format": "fat",
-          "copy_firmware": true,
-          "copy_installer_data": true,
-          "source": "esp"
-        },
-        {
-          "name": "Omarchy target",
-          "type": "Linux",
-          "size": "32GB",
-          "expand": true
-        }
       ]
     }
   ]
