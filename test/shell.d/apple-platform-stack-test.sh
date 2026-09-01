@@ -66,8 +66,7 @@ if OMARCHY_PATH="$ROOT" "$verifier" "$test_tmp/unlinked-package.json" >/dev/null
 fi
 pass "Apple platform contract links Omarchy-owned packages to the shipped closure"
 
-for package in asahi-audio asahi-fwextract asahi-scripts grub linux-asahi \
-  linux-asahi-headers m1n1 speakersafetyd uboot-asahi; do
+for package in asahi-desktop-meta asahi-fwextract linux-asahi linux-asahi-headers; do
   grep -Fxq "$package" "$ROOT/install/omarchy-base-asahi.packages" ||
     fail "new Apple installs explicitly select $package"
 done

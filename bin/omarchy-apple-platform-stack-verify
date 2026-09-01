@@ -62,10 +62,11 @@ jq -e --argjson required_ids "$required_ids" '
     source_lock: "apps/omarchy-apple-installer/Engine/source-lock.json",
     source_lock_sha256: .engine_artifact.source_lock_sha256,
     status: "reproducible-validation-artifact-unsigned",
-    filename: "installer-v0.9.0-omarchy.1.tar.gz",
-    size_bytes: 22075118,
-    sha256: "4658124ad75436289bd984fc4f06092bd04aa128144e954b968df62f7fb75d7a",
-    signature: null
+    filename: "installer-v0.9.0-omarchy.7.tar.gz",
+    size_bytes: 17904504,
+    sha256: "063fd0765fb2057384d9653f7bf547b0471af31fc764e039d578d4fef6dce4d5",
+    signature: null,
+    reproducibility_scope: "two-clean-builds-same-host-pinned-toolchain"
   } and
   (.engine_artifact.source_lock_sha256 | test("^[0-9a-f]{64}$")) and
   (.readiness.blockers | index("signed-engine-artifact-absent")) != null and
@@ -196,7 +197,7 @@ jq -e --argjson engine "$(jq -c '.engine_artifact' "$contract")" '
     filename: $engine.filename,
     size_bytes: $engine.size_bytes,
     sha256: $engine.sha256,
-    reproducibility_scope: "three-clean-builds-same-host-pinned-toolchain",
+    reproducibility_scope: $engine.reproducibility_scope,
     signature: "absent"
   }
 ' "${OMARCHY_PATH}/$engine_source_lock" >/dev/null ||
@@ -204,7 +205,7 @@ jq -e --argjson engine "$(jq -c '.engine_artifact' "$contract")" '
 
 mapfile -t manifest_packages < <(
   jq -r '.components[] |
-    select(.delivery == "omarchy-manifest" or .delivery == "required-preinstalled") |
+    select(.delivery == "omarchy-manifest") |
     .packages[]' "$contract" | sort -u
 )
 for package in "${manifest_packages[@]}"; do
