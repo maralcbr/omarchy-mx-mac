@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #4E8A22; } a:hover { color: #3D6E1A; }
+    .win.light { --window:#F1F3EC; --sidebar:#EAEDE2; --content:#F5F7F1; --card:#FFFFFF;
+      --text:#1C2117; --text2:#6A7261; --sep:#DDE2D2; --track:#E3E7D9;
+      --accent:#4E8A22; --accent-text:#FFFFFF; --danger:#C4372B; --caution:#8A6D1B;
+      --accent-soft:rgba(78,138,34,0.14); --btn-bg:#FFFFFF; --btn-border:rgba(28,33,23,0.18);
+      color: var(--text); }
+    .win { --window:#23261E; --sidebar:#272B21; --content:#191C14; --card:#242820;
+      --text:#E8EBE2; --text2:#A3AB97; --sep:#343A2B; --track:#2E3326;
+      --accent:#90D05A; --accent-text:#0A0C08; --danger:#FF6B5E; --caution:#F3C96B;
+      --accent-soft:rgba(144,208,90,0.16); --btn-bg:#2E3326; --btn-border:rgba(232,235,226,0.16); color: var(--text); }
+    .win * { box-sizing: border-box; }
+    .rail { width: 208px; flex: none; background: var(--sidebar); padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+    .rrow { display: flex; align-items: center; gap: 11px; padding: 8px 12px; border-radius: 10px; }
+    .rrow.cur { background: var(--accent-soft); }
+    .stepnum { width: 27px; height: 27px; border-radius: 50%; background: var(--track); color: var(--text2); font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex: none; }
+    .cur .stepnum, .done .stepnum { background: var(--accent); color: var(--accent-text); }
+    .steplbl { font-size: 19.5px; color: var(--text); }
+    .cur .steplbl { font-weight: 600; }
+    .done .steplbl { color: var(--text2); }
+    .railfoot { margin-top: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+    .panel { background: var(--card); border: 1px solid var(--sep); border-radius: 10px; padding: 13px 14px; display: flex; flex-direction: column; gap: 10px; }
+    .details { background: var(--card); border: 1px solid var(--sep); border-radius: 10px; display: flex; flex-direction: column; }
+    .btn { font-size: 16px; height: 42px; padding: 0 21px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+    .btn.primary { background: var(--accent); color: var(--accent-text); font-weight: 500; box-shadow: 0 0.5px 1.5px rgba(0,0,0,0.18); }
+    .btn.secondary { background: var(--btn-bg); color: var(--text); border: 1px solid var(--btn-border); box-shadow: 0 0.5px 1px rgba(0,0,0,0.06); }
+    .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  </style>
+</helmet>
+<div class="win {{theme}}" style="width: 1000px; height: 700px; display: flex; background: var(--window)">
+  <div class="rail">
+    <div style="padding: 10px 6px 28px 12px"><div style="width: 126px; height: 126px; border-radius: 28px; background: #0A0D08; border: 1px solid var(--sep); display: flex; align-items: center; justify-content: center"><img src="icon.png" alt="Omarchy" style="width: 76px; height: 76px"></div></div>
+    <div class="rrow done"><span class="stepnum"><svg width="13" height="13" viewBox="0 0 10 10"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="steplbl">Check</span></div>
+    <div class="rrow done"><span class="stepnum"><svg width="13" height="13" viewBox="0 0 10 10"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="steplbl">Plan</span></div>
+    <div class="rrow cur"><span class="stepnum">3</span><span class="steplbl">Authorize</span></div>
+    <div class="rrow"><span class="stepnum">4</span><span class="steplbl">Install</span></div>
+    <div class="rrow"><span class="stepnum">5</span><span class="steplbl">Recovery</span></div>
+    <div class="rrow"><span class="stepnum">6</span><span class="steplbl">Boot</span></div>
+    <div class="railfoot">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent)"></span>
+        <span style="font-size: 11px; font-weight: 500">Safety active</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text2)">Bound to the reviewed plan</div>
+    </div>
+  </div>
+  <div style="width: 1px; background: var(--sep); flex: none"></div>
+  <div style="flex: 1; background: var(--content); padding: 28px; display: flex; flex-direction: column; overflow: hidden">
+    <div style="max-width: 640px; width: 100%; display: flex; flex-direction: column; flex: 1; min-height: 0">
+      <div style="font-size: 22px; font-weight: 600; margin-bottom: 6px">300 GB for Omarchy</div>
+      <div style="font-size: 13px; color: var(--text2); margin-bottom: 20px">macOS keeps the rest, untouched.</div>
+      <div style="display: flex; flex-direction: column; gap: 14px">
+        <div class="panel">
+          <div style="font-size: 11px; font-weight: 600; color: var(--text2)">Disk · 994.66 GB</div>
+          <div style="display: flex; height: 24px; border-radius: 8px; overflow: hidden">
+            <div style="width: 70%; background: var(--track); display: flex; align-items: center; justify-content: center">
+              <span style="font-size: 10.5px; font-weight: 600; color: var(--text2)">macOS · 694.66 GB</span>
+            </div>
+            <div style="width: 30%; background: var(--accent); display: flex; align-items: center; justify-content: center">
+              <span style="font-size: 10.5px; font-weight: 600; color: var(--accent-text)">Omarchy · 300 GB</span>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div style="display: flex; align-items: baseline; gap: 8px">
+            <span style="font-size: 11px; font-weight: 600; color: var(--text2)">Downloaded</span>
+            <span class="mono" style="margin-left: auto; font-size: 11px; font-weight: 600; color: var(--accent)">Verified ✓</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 3px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <svg width="9" height="9" viewBox="0 0 10 10" style="color: var(--accent); flex: none"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span style="font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">omarchy-2026.08.29-aarch64-apple-silicon.zip</span>
+              <span class="mono" style="margin-left: auto; flex: none; font-size: 11px; color: var(--text2)">4.6 GB</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <svg width="9" height="9" viewBox="0 0 10 10" style="color: var(--accent); flex: none"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span style="font-size: 12.5px">installer_data.json</span>
+              <span class="mono" style="margin-left: auto; flex: none; font-size: 11px; color: var(--text2)">34 MB</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <svg width="9" height="9" viewBox="0 0 10 10" style="color: var(--accent); flex: none"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span style="font-size: 12.5px">installer-v0.9.0-omarchy.7.tar.gz</span>
+              <span class="mono" style="margin-left: auto; flex: none; font-size: 11px; color: var(--text2)">22 MB</span>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <svg width="16" height="16" viewBox="0 0 16 16" style="color: var(--accent); flex: none"><path d="M8 1.5 13 3.2 V7.5 C13 11 10.8 13.4 8 14.5 C5.2 13.4 3 11 3 7.5 V3.2 Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.8 8 7.3 9.5 10.2 6.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div style="display: flex; flex-direction: column; gap: 2px">
+              <span style="font-size: 13px; font-weight: 600">Privileged helper</span>
+              <span style="font-size: 11px; color: var(--text2)">Approved</span>
+            </div>
+            <svg width="12" height="12" viewBox="0 0 12 12" style="color: var(--text2); flex: none; margin-left: auto"><circle cx="6" cy="6" r="5.4" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="6" cy="3.6" r="0.7" fill="currentColor"/><rect x="5.45" y="5.2" width="1.1" height="3.4" rx="0.55" fill="currentColor"/></svg>
+          </div>
+        </div>
+        <div class="details">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px">
+            <svg width="9" height="9" viewBox="0 0 10 10" style="color: var(--accent)"><path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span style="font-size: 12px; font-weight: 500; color: var(--text2)">Exact plan</span>
+          </div>
+        </div>
+      </div>
+      <div style="flex: 1; min-height: 16px"></div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding-top: 16px">
+        <div style="margin-left: auto; display: flex; gap: 8px">
+          <span class="btn secondary">Back</span>
+          <span class="btn primary">Install…</span>
+        </div>
+      </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Appearance"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: (this.props.dark ?? true) ? 'dark' : 'light' };
+  }
+}
+</script>
+</body>
+</html>

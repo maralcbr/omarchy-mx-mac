@@ -1,0 +1,73 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1000,
+      "h": 700,
+      "title": "1 · Check"
+    },
+    {
+      "file": "Preparing.dc.html",
+      "x": 1100,
+      "y": 0,
+      "w": 1000,
+      "h": 700,
+      "title": "2 · Plan — preparing"
+    },
+    {
+      "file": "Plan.dc.html",
+      "x": 2200,
+      "y": 0,
+      "w": 1000,
+      "h": 760,
+      "title": "2 · Plan — review",
+      "is_interactive": true
+    },
+    {
+      "file": "Authorize.dc.html",
+      "x": 3300,
+      "y": 0,
+      "w": 1000,
+      "h": 700,
+      "title": "3 · Authorize"
+    },
+    {
+      "file": "Installing.dc.html",
+      "x": 0,
+      "y": 880,
+      "w": 1000,
+      "h": 700,
+      "title": "4 · Install"
+    },
+    {
+      "file": "Recovery.dc.html",
+      "x": 1100,
+      "y": 880,
+      "w": 1000,
+      "h": 700,
+      "title": "5 · Recovery"
+    },
+    {
+      "file": "CredentialSheet.dc.html",
+      "x": 3300,
+      "y": 880,
+      "w": 380,
+      "h": 470,
+      "title": "Authorize sheet"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "about-this-canvas",
+      "x": 0,
+      "y": -180,
+      "w": 340,
+      "text": "The installer's six-step flow, drawn with the app's own colors, type, and spacing (InstallerTheme.swift).\nDark mode by default — turn off a screen's Dark switch above it to preview light mode.\nThe Plan screen's disk bar is a working control: drag the slider to resize Omarchy's share (minimum 120 GB)."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

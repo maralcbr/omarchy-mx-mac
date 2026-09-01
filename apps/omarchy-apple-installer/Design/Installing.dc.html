@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #4E8A22; } a:hover { color: #3D6E1A; }
+    .win.light { --window:#F1F3EC; --sidebar:#EAEDE2; --content:#F5F7F1; --card:#FFFFFF;
+      --text:#1C2117; --text2:#6A7261; --sep:#DDE2D2; --track:#E3E7D9;
+      --accent:#4E8A22; --accent-text:#FFFFFF; --danger:#C4372B; --caution:#8A6D1B;
+      --accent-soft:rgba(78,138,34,0.14); --btn-bg:#FFFFFF; --btn-border:rgba(28,33,23,0.18);
+      color: var(--text); }
+    .win { --window:#23261E; --sidebar:#272B21; --content:#191C14; --card:#242820;
+      --text:#E8EBE2; --text2:#A3AB97; --sep:#343A2B; --track:#2E3326;
+      --accent:#90D05A; --accent-text:#0A0C08; --danger:#FF6B5E; --caution:#F3C96B;
+      --accent-soft:rgba(144,208,90,0.16); --btn-bg:#2E3326; --btn-border:rgba(232,235,226,0.16); color: var(--text); }
+    .win * { box-sizing: border-box; }
+    .rail { width: 208px; flex: none; background: var(--sidebar); padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+    .rrow { display: flex; align-items: center; gap: 11px; padding: 8px 12px; border-radius: 10px; }
+    .rrow.cur { background: var(--accent-soft); }
+    .stepnum { width: 27px; height: 27px; border-radius: 50%; background: var(--track); color: var(--text2); font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex: none; }
+    .cur .stepnum, .done .stepnum { background: var(--accent); color: var(--accent-text); }
+    .steplbl { font-size: 19.5px; color: var(--text); }
+    .cur .steplbl { font-weight: 600; }
+    .done .steplbl { color: var(--text2); }
+    .railfoot { margin-top: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+    .details { background: var(--card); border: 1px solid var(--sep); border-radius: 10px; display: flex; flex-direction: column; }
+    .track { height: 12px; border-radius: 6px; background: var(--track); overflow: hidden; }
+    .fill { height: 100%; border-radius: 3px; background: var(--accent); }
+    .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  </style>
+</helmet>
+<div class="win {{theme}}" style="width: 1000px; height: 700px; display: flex; background: var(--window)">
+  <div class="rail">
+    <div style="padding: 10px 6px 28px 12px"><div style="width: 126px; height: 126px; border-radius: 28px; background: #0A0D08; border: 1px solid var(--sep); display: flex; align-items: center; justify-content: center"><img src="icon.png" alt="Omarchy" style="width: 76px; height: 76px"></div></div>
+    <div class="rrow done"><span class="stepnum"><svg width="13" height="13" viewBox="0 0 10 10"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="steplbl">Check</span></div>
+    <div class="rrow done"><span class="stepnum"><svg width="13" height="13" viewBox="0 0 10 10"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="steplbl">Plan</span></div>
+    <div class="rrow done"><span class="stepnum"><svg width="13" height="13" viewBox="0 0 10 10"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="steplbl">Authorize</span></div>
+    <div class="rrow cur"><span class="stepnum">4</span><span class="steplbl">Install</span></div>
+    <div class="rrow"><span class="stepnum">5</span><span class="steplbl">Recovery</span></div>
+    <div class="rrow"><span class="stepnum">6</span><span class="steplbl">Boot</span></div>
+    <div class="railfoot">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent)"></span>
+        <span style="font-size: 11px; font-weight: 500">Safety active</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text2)">Bound to the reviewed plan</div>
+    </div>
+  </div>
+  <div style="width: 1px; background: var(--sep); flex: none"></div>
+  <div style="flex: 1; background: var(--content); padding: 28px; display: flex; flex-direction: column; overflow: hidden">
+    <div style="max-width: 640px; width: 100%; display: flex; flex-direction: column; flex: 1; min-height: 0">
+      <div style="font-size: 22px; font-weight: 600; margin-bottom: 20px">Writing boot files…</div>
+      <div style="display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; align-items: baseline; gap: 8px">
+          <svg width="12" height="12" viewBox="0 0 12 12" style="color: var(--text2); flex: none; align-self: center"><circle cx="6" cy="6" r="5.4" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="6" cy="3.6" r="0.7" fill="currentColor"/><rect x="5.45" y="5.2" width="1.1" height="3.4" rx="0.55" fill="currentColor"/></svg>
+          <span class="mono" style="margin-left: auto; font-size: 11px; color: var(--text2)">04:12</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <div style="display: flex; gap: 2px">
+            <div class="track" style="flex: 1"><div class="fill" style="width: 100%"></div></div>
+            <div class="track" style="flex: 1"><div class="fill" style="width: 45%"></div></div>
+            <div class="track" style="flex: 1"></div>
+          </div>
+          <div style="display: flex; gap: 2px">
+            <span style="flex: 1; font-size: 10.5px; color: var(--text2)">Prepare space</span>
+            <span style="flex: 1; font-size: 10.5px; font-weight: 600; color: var(--accent)">Boot files</span>
+            <span style="flex: 1; font-size: 10.5px; color: var(--text2)">Recovery handoff</span>
+          </div>
+        </div>
+        <div style="font-size: 12.5px; font-weight: 500; color: var(--caution); margin-top: 6px">Keep the lid open and power connected.</div>
+        <div class="details">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px">
+            <svg width="9" height="9" viewBox="0 0 10 10" style="color: var(--accent)"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span style="font-size: 12px; font-weight: 500; color: var(--text2)">Live journal</span>
+          </div>
+          <div style="height: 1px; background: var(--sep)"></div>
+          <div style="display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 12px">
+            <span class="mono" style="font-size: 10.5px; color: var(--text2)">Started preparing space</span>
+            <span class="mono" style="font-size: 10.5px; color: var(--accent)">Space for Omarchy is reserved</span>
+            <span class="mono" style="font-size: 10.5px; color: var(--text2)">Started writing boot files</span>
+          </div>
+        </div>
+      </div>
+      <div style="flex: 1; min-height: 16px"></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Appearance"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: (this.props.dark ?? true) ? 'dark' : 'light' };
+  }
+}
+</script>
+</body>
+</html>

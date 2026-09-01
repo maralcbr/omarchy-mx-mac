@@ -1,0 +1,38 @@
+#!/bin/bash
+# Runs as root during package install. Loads the pre-installed privileged helper
+# as a system LaunchDaemon so the app can reach it immediately — no Login Items,
+# no reboot, no per-user approval.
+set -u
+PLIST=/Library/LaunchDaemons/com.omarchy.mx.installer.helper.plist
+LABEL=com.omarchy.mx.installer.helper
+
+if [[ -f "$PLIST" ]]; then
+  /usr/sbin/chown root:wheel "$PLIST"
+  /bin/chmod 0644 "$PLIST"
+  # Replace any stale registration, then load fresh.
+  /bin/launchctl bootout system/"$LABEL" 2>/dev/null || true
+  /bin/launchctl bootstrap system "$PLIST" 2>/dev/null || \
+    /bin/launchctl load -w "$PLIST" 2>/dev/null || true
+fi
+
+APP="/Applications/Omarchy MX Mac Installer.app"
+
+# Pre-run Gatekeeper's one-time inspection of the new app now, while the
+# installer's own progress UI is still on screen. Without this, the first
+# open sits invisibly for a minute or more while macOS scans the app.
+if [[ -d "$APP" && -x /usr/bin/gktool ]]; then
+  /usr/bin/gktool scan "$APP" 2>/dev/null || true
+fi
+
+# Open the installer app for whoever is at the screen, so finishing the
+# package flows straight into the app. Root context: resolve the console
+# user; skip silently for headless installs, and never fail the package.
+console_user="$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)"
+if [[ -d "$APP" && -n "$console_user" && "$console_user" != "root" ]]; then
+  console_uid="$(/usr/bin/id -u "$console_user" 2>/dev/null || true)"
+  if [[ -n "$console_uid" ]]; then
+    /bin/launchctl asuser "$console_uid" \
+      /usr/bin/sudo -u "$console_user" /usr/bin/open "$APP" 2>/dev/null || true
+  fi
+fi
+exit 0

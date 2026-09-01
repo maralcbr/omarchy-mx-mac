@@ -121,15 +121,25 @@ implementation.
 created and maintained according to Asahi’s distribution contract.
 
 **Outputs.** An installer-owned Apple backend; an Omarchy-branded Asahi bridge;
-safe space selection; preservation of APFS and the paired System ESP; firmware
-handoff; recovery behavior; and integration with the complete Apple boot chain.
+a signed and notarized macOS `Omarchy Installer.app` with a guided welcome,
+compatibility and storage checks, backup and partitioning explanations, and a
+clear handoff to the required RecoveryOS authorization; safe space selection;
+preservation of APFS and the paired System ESP; firmware handoff; recovery
+behavior; and integration with the complete Apple boot chain. The macOS app
+must use Asahi's supported bootstrap interfaces and verified Omarchy release
+assets. It is not a conventional ISO launcher, and must not imply that Apple's
+physical shutdown, Startup Options, or volume-owner authorization can be
+bypassed.
 
 **Dependencies.** Official ARM packages, generic ARM media, Asahi policy and
 installer interfaces, and explicit review of Apple boot semantics.
 
-**Evidence required to advance.** Repeatable install, reboot, recovery, and
-macOS-coexistence tests on named devices; proof that Asahi-created state is
-preserved; and failure-safe behavior for unsupported layouts.
+**Evidence required to advance.** Repeatable guided installs from the macOS app,
+including cancellation and resumption across the RecoveryOS handoff; repeatable
+reboot, recovery, and macOS-coexistence tests on named devices; proof that
+Asahi-created state is preserved; and failure-safe behavior for unsupported
+layouts. The app must verify the signed payload identity before installation
+and display the exact manual steps required after shutdown.
 
 **Exit gate.** The Apple path can install and recover without overwriting macOS,
 Asahi repositories, firmware, boot policy, or the paired System ESP.

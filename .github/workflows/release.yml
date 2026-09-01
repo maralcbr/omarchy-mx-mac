@@ -36,7 +36,7 @@ jobs:
           bash test/shell.d/asahi-bundle-update-test.sh
           bash test/shell.d/asahi-fresh-install-test.sh
           bash test/shell.d/fastfetch-branding-migration-test.sh
-          bash tests/stable-release-test.sh
+          bash test/shell.d/stable-release-test.sh
       - name: Validate release inputs
         env:
           RELEASE_TAG: ${{ inputs.tag }}

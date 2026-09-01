@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #4E8A22; } a:hover { color: #3D6E1A; }
+    .win.light { --window:#F1F3EC; --sidebar:#EAEDE2; --content:#F5F7F1; --card:#FFFFFF;
+      --text:#1C2117; --text2:#6A7261; --sep:#DDE2D2; --track:#E3E7D9;
+      --accent:#4E8A22; --accent-text:#FFFFFF; --danger:#C4372B; --caution:#8A6D1B;
+      --accent-soft:rgba(78,138,34,0.14); --btn-bg:#FFFFFF; --btn-border:rgba(28,33,23,0.18);
+      color: var(--text); }
+    .win { --window:#23261E; --sidebar:#272B21; --content:#191C14; --card:#242820;
+      --text:#E8EBE2; --text2:#A3AB97; --sep:#343A2B; --track:#2E3326;
+      --accent:#90D05A; --accent-text:#0A0C08; --danger:#FF6B5E; --caution:#F3C96B;
+      --accent-soft:rgba(144,208,90,0.16); --btn-bg:#2E3326; --btn-border:rgba(232,235,226,0.16); color: var(--text); }
+    .win * { box-sizing: border-box; }
+    .rail { width: 208px; flex: none; background: var(--sidebar); padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+    .rrow { display: flex; align-items: center; gap: 11px; padding: 8px 12px; border-radius: 10px; }
+    .rrow.cur { background: var(--accent-soft); }
+    .stepnum { width: 27px; height: 27px; border-radius: 50%; background: var(--track); color: var(--text2); font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex: none; }
+    .cur .stepnum, .done .stepnum { background: var(--accent); color: var(--accent-text); }
+    .steplbl { font-size: 19.5px; color: var(--text); }
+    .cur .steplbl { font-weight: 600; }
+    .done .steplbl { color: var(--text2); }
+    .railfoot { margin-top: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+    .panel { background: var(--card); border: 1px solid var(--sep); border-radius: 10px; padding: 13px 14px; display: flex; flex-direction: column; gap: 10px; }
+    .details { background: var(--card); border: 1px solid var(--sep); border-radius: 10px; display: flex; flex-direction: column; }
+    .btn { font-size: 16px; height: 42px; padding: 0 21px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+    .btn.primary { background: var(--accent); color: var(--accent-text); font-weight: 500; box-shadow: 0 0.5px 1.5px rgba(0,0,0,0.18); }
+    .btn.secondary { background: var(--btn-bg); color: var(--text); border: 1px solid var(--btn-border); box-shadow: 0 0.5px 1px rgba(0,0,0,0.06); }
+    .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+    .factrow { display: flex; align-items: baseline; gap: 12px; }
+    .factlbl { width: 104px; flex: none; font-size: 12.5px; color: var(--text2); }
+    .factval { font-size: 12.5px; }
+  </style>
+</helmet>
+<div class="win {{theme}}" style="width: 1000px; height: 760px; display: flex; background: var(--window)">
+  <div class="rail">
+    <div style="padding: 10px 6px 28px 12px"><div style="width: 126px; height: 126px; border-radius: 28px; background: #0A0D08; border: 1px solid var(--sep); display: flex; align-items: center; justify-content: center"><img src="icon.png" alt="Omarchy" style="width: 76px; height: 76px"></div></div>
+    <div class="rrow done"><span class="stepnum"><svg width="13" height="13" viewBox="0 0 10 10"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="steplbl">Check</span></div>
+    <div class="rrow cur"><span class="stepnum">2</span><span class="steplbl">Plan</span></div>
+    <div class="rrow"><span class="stepnum">3</span><span class="steplbl">Authorize</span></div>
+    <div class="rrow"><span class="stepnum">4</span><span class="steplbl">Install</span></div>
+    <div class="rrow"><span class="stepnum">5</span><span class="steplbl">Recovery</span></div>
+    <div class="rrow"><span class="stepnum">6</span><span class="steplbl">Boot</span></div>
+    <div class="railfoot">
+      <div style="display: flex; align-items: center; gap: 6px">
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent)"></span>
+        <span style="font-size: 11px; font-weight: 500">Safety active</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text2)">Bound to the reviewed plan</div>
+    </div>
+  </div>
+  <div style="width: 1px; background: var(--sep); flex: none"></div>
+  <div style="flex: 1; background: var(--content); padding: 28px; display: flex; flex-direction: column; overflow: hidden">
+    <div style="max-width: 640px; width: 100%; display: flex; flex-direction: column; flex: 1; min-height: 0">
+      <div style="font-size: 22px; font-weight: 600; margin-bottom: 6px">{{headline}}</div>
+      <div style="font-size: 13px; color: var(--text2); margin-bottom: 20px">macOS keeps the rest, untouched.</div>
+      <div style="display: flex; flex-direction: column; gap: 14px">
+        <div class="panel">
+          <div style="font-size: 11px; font-weight: 600; color: var(--text2)">Disk · 994.66 GB</div>
+          <div style="display: flex; height: 24px; border-radius: 8px; overflow: hidden">
+            <div style="width: {{macWidth}}; background: var(--track); display: flex; align-items: center; justify-content: center; overflow: hidden">
+              <span style="font-size: 10.5px; font-weight: 600; color: var(--text2); white-space: nowrap">{{macLabel}}</span>
+            </div>
+            <div style="width: {{omarchyWidth}}; background: var(--accent); display: flex; align-items: center; justify-content: center; overflow: hidden">
+              <span style="font-size: 10.5px; font-weight: 600; color: var(--accent-text); white-space: nowrap">{{omarchyLabel}}</span>
+            </div>
+          </div>
+          <input type="range" min="120" max="800" step="10" value="{{omarchyGB}}" onChange="{{pickSize}}" style="width: 100%; accent-color: var(--accent); margin: 0; height: 18px">
+          <div style="display: flex; align-items: baseline; gap: 8px">
+            <span style="font-size: 11px; color: var(--text2)">Drag to choose how much space Omarchy gets · minimum 120 GB</span>
+            <span class="mono" style="margin-left: auto; font-size: 11px; font-weight: 600; color: var(--accent)"><span>{{omarchyGB}}</span> GB</span>
+          </div>
+        </div>
+        <div class="panel">
+          <div style="display: flex; align-items: baseline; gap: 8px">
+            <span style="font-size: 11px; font-weight: 600; color: var(--text2)">Downloaded</span>
+            <span class="mono" style="margin-left: auto; font-size: 11px; font-weight: 600; color: var(--accent)">Verified ✓</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 3px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <svg width="9" height="9" viewBox="0 0 10 10" style="color: var(--accent); flex: none"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span style="font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">omarchy-2026.08.29-aarch64-apple-silicon.zip</span>
+              <span class="mono" style="margin-left: auto; flex: none; font-size: 11px; color: var(--text2)">4.6 GB</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <svg width="9" height="9" viewBox="0 0 10 10" style="color: var(--accent); flex: none"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span style="font-size: 12.5px">installer_data.json</span>
+              <span class="mono" style="margin-left: auto; flex: none; font-size: 11px; color: var(--text2)">34 MB</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px">
+              <svg width="9" height="9" viewBox="0 0 10 10" style="color: var(--accent); flex: none"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span style="font-size: 12.5px">installer-v0.9.0-omarchy.7.tar.gz</span>
+              <span class="mono" style="margin-left: auto; flex: none; font-size: 11px; color: var(--text2)">22 MB</span>
+            </div>
+          </div>
+        </div>
+        <div class="details">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px">
+            <svg width="9" height="9" viewBox="0 0 10 10" style="color: var(--accent)"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span style="font-size: 12px; font-weight: 500; color: var(--text2)">Exact plan</span>
+          </div>
+          <div style="height: 1px; background: var(--sep)"></div>
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px 12px 14px">
+            <div class="factrow"><span class="factlbl">Device</span><span class="factval">apple,j314s</span></div>
+            <div class="factrow"><span class="factlbl">Store</span><span class="factval">disk0 · resize disk0s2</span></div>
+            <div class="factrow"><span class="factlbl">Offset</span><span class="factval">694,662,584,320 bytes</span></div>
+            <div class="factrow"><span class="factlbl">Length</span><span class="factval">300,000,000,000 bytes (300 GB)</span></div>
+            <div class="factrow"><span class="factlbl">Engine</span><span class="factval">installer-v0.9.0-omarchy.7</span></div>
+            <div class="factrow"><span class="factlbl">Plan digest</span><span class="factval mono" style="font-size: 10.5px">9f31c2ab…c47d21e8</span></div>
+            <div class="factrow"><span class="factlbl">Rollback</span><span class="factval">macOS untouched until approval; every write is checkpointed and journaled</span></div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 11px; padding-top: 2px">
+          <span style="width: 14px; height: 14px; border-radius: 3.5px; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; flex: none; margin-top: 1px">
+            <svg width="8" height="8" viewBox="0 0 10 10" style="color: var(--accent-text)"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span style="font-size: 12.5px">I reviewed the plan and the Recovery steps.</span>
+          <svg width="12" height="12" viewBox="0 0 12 12" style="color: var(--text2); flex: none; margin-top: 2px"><circle cx="6" cy="6" r="5.4" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="6" cy="3.6" r="0.7" fill="currentColor"/><rect x="5.45" y="5.2" width="1.1" height="3.4" rx="0.55" fill="currentColor"/></svg>
+        </div>
+      </div>
+      <div style="flex: 1; min-height: 16px"></div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding-top: 16px">
+      <div style="margin-left: auto; display: flex; gap: 8px">
+        <span class="btn secondary">Re-prepare plan</span>
+        <span class="btn primary">Approve exact plan</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Appearance"}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { omarchyGB: 300 };
+  }
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const totalGB = 994.66;
+    const gb = Math.max(120, Math.min(800, this.state.omarchyGB));
+    const macGB = Math.round((totalGB - gb) * 100) / 100;
+    const pct = Math.round((gb / totalGB) * 1000) / 10;
+    const macPct = Math.round((100 - pct) * 10) / 10;
+    return {
+      theme: dark ? 'dark' : 'light',
+      headline: gb + ' GB for Omarchy',
+      omarchyGB: gb,
+      omarchyWidth: pct + '%',
+      macWidth: macPct + '%',
+      omarchyLabel: pct < 15 ? gb + ' GB' : 'Omarchy · ' + gb + ' GB',
+      macLabel: macPct < 15 ? macGB + ' GB' : 'macOS · ' + macGB + ' GB',
+      pickSize: (event) => {
+        const value = parseInt(event && event.target ? event.target.value : gb, 10);
+        if (!isNaN(value)) {
+          this.setState({ omarchyGB: value });
+        }
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>
