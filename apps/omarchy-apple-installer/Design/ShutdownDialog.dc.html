@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #4E8A22; } a:hover { color: #3D6E1A; }
+    .win.light { --window:#F1F3EC; --card:#FFFFFF; --text:#1C2117; --text2:#6A7261; --sep:#DDE2D2;
+      --accent:#4E8A22; --accent-text:#FFFFFF;
+      --btn-bg:#FFFFFF; --btn-border:rgba(28,33,23,0.18); color: var(--text); }
+    .win { --window:#23261E; --card:#242820; --text:#E8EBE2; --text2:#A3AB97; --sep:#343A2B;
+      --accent:#90D05A; --accent-text:#0A0C08;
+      --btn-bg:#2E3326; --btn-border:rgba(232,235,226,0.16); color: var(--text); }
+    .win * { box-sizing: border-box; }
+    .btn { font-size: 13px; height: 24px; padding: 0 12px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+    .btn.primary { background: var(--accent); color: var(--accent-text); font-weight: 500; box-shadow: 0 0.5px 1.5px rgba(0,0,0,0.18); }
+    .btn.secondary { background: var(--btn-bg); color: var(--text); border: 1px solid var(--btn-border); box-shadow: 0 0.5px 1px rgba(0,0,0,0.06); }
+  </style>
+</helmet>
+<div class="win {{theme}}" style="width: 420px; padding: 24px; background: var(--window); display: flex; flex-direction: column; align-items: center">
+  <div style="width: 64px; height: 64px; border-radius: 15px; background: #0A0D08; border: 1px solid var(--sep); display: flex; align-items: center; justify-content: center; margin-bottom: 12px">
+    <img src="icon.png" alt="Omarchy" style="width: 39px; height: 39px">
+  </div>
+  <div style="font-size: 13px; font-weight: 700; text-align: center; margin-bottom: 8px">Shut down this Mac now?</div>
+  <div style="font-size: 11px; color: var(--text2); text-align: center; margin-bottom: 18px; max-width: 340px">After it turns off: hold the power button until “Loading startup options” appears, then pick Omarchy → Finish Installation and sign in.</div>
+  <div style="width: 100%; display: flex; justify-content: flex-end; gap: 8px">
+    <span class="btn secondary">Cancel</span>
+    <span class="btn primary">Shut Down</span>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":true,"section":"Appearance"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: (this.props.dark ?? true) ? 'dark' : 'light' };
+  }
+}
+</script>
+</body>
+</html>

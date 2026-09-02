@@ -47,8 +47,7 @@
     <div class="rrow cur"><span class="stepnum">2</span><span class="steplbl">Plan</span></div>
     <div class="rrow"><span class="stepnum">3</span><span class="steplbl">Authorize</span></div>
     <div class="rrow"><span class="stepnum">4</span><span class="steplbl">Install</span></div>
-    <div class="rrow"><span class="stepnum">5</span><span class="steplbl">Recovery</span></div>
-    <div class="rrow"><span class="stepnum">6</span><span class="steplbl">Boot</span></div>
+    <div class="rrow"><span class="stepnum">5</span><span class="steplbl">Finish</span></div>
     <div class="railfoot">
       <div style="display: flex; align-items: center; gap: 6px">
         <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent)"></span>
@@ -65,17 +64,17 @@
       <div style="display: flex; flex-direction: column; gap: 14px">
         <div class="panel">
           <div style="font-size: 11px; font-weight: 600; color: var(--text2)">Disk · 994.66 GB</div>
-          <div style="display: flex; height: 24px; border-radius: 8px; overflow: hidden">
+          <div style="display: flex; height: 24px; border-radius: 8px; overflow: hidden; position: relative; cursor: col-resize" onPointerDown="{{startDrag}}" onPointerMove="{{moveDrag}}" onPointerUp="{{endDrag}}" onPointerCancel="{{endDrag}}">
             <div style="width: {{macWidth}}; background: var(--track); display: flex; align-items: center; justify-content: center; overflow: hidden">
               <span style="font-size: 10.5px; font-weight: 600; color: var(--text2); white-space: nowrap">{{macLabel}}</span>
             </div>
             <div style="width: {{omarchyWidth}}; background: var(--accent); display: flex; align-items: center; justify-content: center; overflow: hidden">
               <span style="font-size: 10.5px; font-weight: 600; color: var(--accent-text); white-space: nowrap">{{omarchyLabel}}</span>
             </div>
+            <div style="position: absolute; top: 3px; left: {{macWidth}}; margin-left: -3px; width: 6px; height: 18px; border-radius: 3px; background: #FFFFFF; border: 1px solid rgba(0,0,0,0.25); box-shadow: 0 0 2px rgba(0,0,0,0.4)"></div>
           </div>
-          <input type="range" min="120" max="800" step="10" value="{{omarchyGB}}" onChange="{{pickSize}}" style="width: 100%; accent-color: var(--accent); margin: 0; height: 18px">
           <div style="display: flex; align-items: baseline; gap: 8px">
-            <span style="font-size: 11px; color: var(--text2)">Drag to choose how much space Omarchy gets · minimum 120 GB</span>
+            <span style="font-size: 11px; color: var(--text2)">Drag the divider to choose how much space Omarchy gets · minimum 120 GB</span>
             <span class="mono" style="margin-left: auto; font-size: 11px; font-weight: 600; color: var(--accent)"><span>{{omarchyGB}}</span> GB</span>
           </div>
         </div>
@@ -118,11 +117,11 @@
             <div class="factrow"><span class="factlbl">Rollback</span><span class="factval">macOS untouched until approval; every write is checkpointed and journaled</span></div>
           </div>
         </div>
-        <div style="display: flex; align-items: flex-start; gap: 11px; padding-top: 2px">
-          <span style="width: 14px; height: 14px; border-radius: 3.5px; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; flex: none; margin-top: 1px">
+        <div style="display: flex; align-items: flex-start; gap: 11px; padding-top: 14px">
+          <span style="width: 16px; height: 16px; border-radius: 4px; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; flex: none; margin-top: 2px">
             <svg width="8" height="8" viewBox="0 0 10 10" style="color: var(--accent-text)"><path d="M1.5 5.5 4 8 8.5 2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </span>
-          <span style="font-size: 12.5px">I reviewed the plan and the Recovery steps.</span>
+          <span style="font-size: 14.5px">I reviewed the plan and the Recovery steps.</span>
           <svg width="12" height="12" viewBox="0 0 12 12" style="color: var(--text2); flex: none; margin-top: 2px"><circle cx="6" cy="6" r="5.4" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="6" cy="3.6" r="0.7" fill="currentColor"/><rect x="5.45" y="5.2" width="1.1" height="3.4" rx="0.55" fill="currentColor"/></svg>
         </div>
       </div>
@@ -150,6 +149,12 @@ class Component extends DCLogic {
     const macGB = Math.round((totalGB - gb) * 100) / 100;
     const pct = Math.round((gb / totalGB) * 1000) / 10;
     const macPct = Math.round((100 - pct) * 10) / 10;
+    const setShare = (event) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const fraction = 1 - (event.clientX - rect.left) / Math.max(1, rect.width);
+      const value = Math.round((totalGB * fraction) / 10) * 10;
+      this.setState({ omarchyGB: Math.max(120, Math.min(800, value)) });
+    };
     return {
       theme: dark ? 'dark' : 'light',
       headline: gb + ' GB for Omarchy',
@@ -158,11 +163,18 @@ class Component extends DCLogic {
       macWidth: macPct + '%',
       omarchyLabel: pct < 15 ? gb + ' GB' : 'Omarchy · ' + gb + ' GB',
       macLabel: macPct < 15 ? macGB + ' GB' : 'macOS · ' + macGB + ' GB',
-      pickSize: (event) => {
-        const value = parseInt(event && event.target ? event.target.value : gb, 10);
-        if (!isNaN(value)) {
-          this.setState({ omarchyGB: value });
+      startDrag: (event) => {
+        try { event.currentTarget.setPointerCapture(event.pointerId); } catch (error) {}
+        this.dragging = true;
+        setShare(event);
+      },
+      moveDrag: (event) => {
+        if (this.dragging) {
+          setShare(event);
         }
+      },
+      endDrag: () => {
+        this.dragging = false;
       }
     };
   }

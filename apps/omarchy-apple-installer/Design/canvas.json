@@ -6,7 +6,7 @@
       "y": 0,
       "w": 1000,
       "h": 700,
-      "title": "1 · Check"
+      "title": "1 \u00b7 Check"
     },
     {
       "file": "Preparing.dc.html",
@@ -14,7 +14,7 @@
       "y": 0,
       "w": 1000,
       "h": 700,
-      "title": "2 · Plan — preparing"
+      "title": "2 \u00b7 Plan \u2014 preparing"
     },
     {
       "file": "Plan.dc.html",
@@ -22,7 +22,7 @@
       "y": 0,
       "w": 1000,
       "h": 760,
-      "title": "2 · Plan — review",
+      "title": "2 \u00b7 Plan \u2014 review",
       "is_interactive": true
     },
     {
@@ -31,7 +31,7 @@
       "y": 0,
       "w": 1000,
       "h": 700,
-      "title": "3 · Authorize"
+      "title": "3 \u00b7 Authorize"
     },
     {
       "file": "Installing.dc.html",
@@ -39,7 +39,7 @@
       "y": 880,
       "w": 1000,
       "h": 700,
-      "title": "4 · Install"
+      "title": "4 \u00b7 Install"
     },
     {
       "file": "Recovery.dc.html",
@@ -47,7 +47,7 @@
       "y": 880,
       "w": 1000,
       "h": 700,
-      "title": "5 · Recovery"
+      "title": "5 \u00b7 Finish"
     },
     {
       "file": "CredentialSheet.dc.html",
@@ -56,6 +56,14 @@
       "w": 380,
       "h": 470,
       "title": "Authorize sheet"
+    },
+    {
+      "file": "ShutdownDialog.dc.html",
+      "title": "Finish \u00b7 Shut Down dialog",
+      "x": 3780,
+      "y": 880,
+      "w": 420,
+      "h": 260
     }
   ],
   "annotations": [
@@ -64,7 +72,7 @@
       "x": 0,
       "y": -180,
       "w": 340,
-      "text": "The installer's six-step flow, drawn with the app's own colors, type, and spacing (InstallerTheme.swift).\nDark mode by default — turn off a screen's Dark switch above it to preview light mode.\nThe Plan screen's disk bar is a working control: drag the slider to resize Omarchy's share (minimum 120 GB)."
+      "text": "The installer's five-step flow, drawn with the app's own colors, type, and spacing (InstallerTheme.swift).\nDark mode by default \u2014 turn off a screen's Dark switch above it to preview light mode.\nThe Plan screen's disk bar is a working control: drag the divider inside it to resize Omarchy's share (minimum 120 GB).\nFinish ends with Shut Down: the app quits after asking macOS to shut down (dialog shown beside the sheet)."
     }
   ],
   "launch": {

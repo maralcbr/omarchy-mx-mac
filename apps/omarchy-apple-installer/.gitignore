@@ -5,3 +5,5 @@ Engine/artifacts/*.tar.gz
 dist/
 build/
 __pycache__/
+Design/omarchy-installer-app.html
+Design/from-live-*/
