@@ -2,23 +2,26 @@ import AppKit
 import SwiftUI
 
 /// Design tokens for the approved installer look: native macOS shapes and
-/// spacing, Omarchy green accent, light and dark palettes that follow the
-/// system appearance.
+/// spacing, omarchy.org's Tokyo Night colours (blue accent), light and dark
+/// palettes that follow the system appearance.
 enum OmarchyTheme {
   // MARK: Palette
 
-  static let window = dynamic(light: 0xF1_F3EC, dark: 0x23_261E)
-  static let sidebar = dynamic(light: 0xEA_EDE2, dark: 0x27_2B21)
-  static let content = dynamic(light: 0xF5_F7F1, dark: 0x19_1C14)
-  static let card = dynamic(light: 0xFF_FFFF, dark: 0x24_2820)
-  static let text = dynamic(light: 0x1C_2117, dark: 0xE8_EBE2)
-  static let secondaryText = dynamic(light: 0x6A_7261, dark: 0xA3_AB97)
-  static let separator = dynamic(light: 0xDD_E2D2, dark: 0x34_3A2B)
-  static let track = dynamic(light: 0xE3_E7D9, dark: 0x2E_3326)
-  static let accent = dynamic(light: 0x4E_8A22, dark: 0x90_D05A)
-  static let accentText = dynamic(light: 0xFF_FFFF, dark: 0x0A_0C08)
-  static let danger = dynamic(light: 0xC4_372B, dark: 0xFF_6B5E)
-  static let caution = dynamic(light: 0x8A_6D1B, dark: 0xF3_C96B)
+  // Dark palette: omarchy.org's Tokyo Night tokens (background night/storm,
+  // terminal white/blue/black, red and yellow from the same scheme). Light
+  // palette: the Tokyo Night "Day" counterparts.
+  static let window = dynamic(light: 0xE1_E2E7, dark: 0x1A_1B26)
+  static let sidebar = dynamic(light: 0xD0_D5E3, dark: 0x24_283B)
+  static let content = dynamic(light: 0xE9_EAF0, dark: 0x1A_1B26)
+  static let card = dynamic(light: 0xFF_FFFF, dark: 0x24_283B)
+  static let text = dynamic(light: 0x24_283B, dark: 0xC0_CAF5)
+  static let secondaryText = dynamic(light: 0x61_72B0, dark: 0x9A_A5CE)
+  static let separator = dynamic(light: 0xC4_C8DA, dark: 0x41_4868)
+  static let track = dynamic(light: 0xD0_D5E3, dark: 0x2F_334D)
+  static let accent = dynamic(light: 0x2E_7DE9, dark: 0x7A_A2F7)
+  static let accentText = dynamic(light: 0xFF_FFFF, dark: 0x1A_1B26)
+  static let danger = dynamic(light: 0xF5_2A65, dark: 0xF7_768E)
+  static let caution = dynamic(light: 0x8C_6C3E, dark: 0xE0_AF68)
 
   static var accentSoft: Color { accent.opacity(0.14) }
 
