@@ -4,134 +4,127 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
+# omarchy-update-keyring fetches the Omarchy key from a keyserver when it is
+# missing and refreshes archlinux-keyring. Apple Silicon differs on both counts:
+# the key ships with the installed system, so a missing or mismatched key is a
+# hard failure rather than a fetch, and packages are signed with Arch Linux
+# ARM's keys, so it is archlinuxarm-keyring that needs refreshing.
+
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 
 stub_bin="$test_tmp/bin"
-log_file="$test_tmp/keyring.log"
 mkdir -p "$stub_bin"
+calls="$test_tmp/calls"
 
-# Behavior is driven by env vars so each case can pick its failure point:
-# KEYRING_TEST_PKG_MISSING     exit status of omarchy-pkg-missing (default 1: installed)
-# KEYRING_TEST_LIST_FAIL_ON    which --list-keys call fails, counted per run (default: none)
-# KEYRING_TEST_RECV_STATUS     exit status of --recv-keys (default 0)
-# KEYRING_TEST_REINSTALL_STATUS exit status of the archlinux-keyring reinstall (default 0)
-cat >"$stub_bin/sudo" <<'SH'
+cat >"$stub_bin/sudo" <<'STUB'
 #!/bin/bash
+exec "$@"
+STUB
 
-printf 'sudo' >>"$KEYRING_TEST_LOG"
-for arg in "$@"; do
-  printf '\t%s' "$arg" >>"$KEYRING_TEST_LOG"
+# Every privileged tool logs its argv so the cases can assert what ran.
+for tool in pacman-key pacman omarchy-pkg-add; do
+  cat >"$stub_bin/$tool" <<STUB
+#!/bin/bash
+printf '%s %s\\n' "$tool" "\$*" >>"\$CALLS"
+if [[ $tool == pacman-key && \$1 == --list-keys ]]; then
+  [[ \${KEY_IN_PACMAN_KEYRING:-0} == 1 ]]
+fi
+STUB
 done
-printf '\n' >>"$KEYRING_TEST_LOG"
 
-if [[ $1 == "pacman-key" && $2 == "--list-keys" ]]; then
-  calls_file="$KEYRING_TEST_DIR/list-calls"
-  calls=$(( $(cat "$calls_file" 2>/dev/null || echo 0) + 1 ))
-  echo "$calls" >"$calls_file"
-  if [[ ${KEYRING_TEST_LIST_FAIL_ON:-} == "$calls" ]]; then
-    exit 1
-  fi
-  exit 0
-fi
-
-if [[ $1 == "pacman-key" && $2 == "--recv-keys" ]]; then
-  exit "${KEYRING_TEST_RECV_STATUS:-0}"
-fi
-
-if [[ $1 == "pacman-key" && $2 == "--lsign-key" ]]; then
-  exit 0
-fi
-
-if [[ $1 == "pacman" && $* == *archlinux-keyring* ]]; then
-  exit "${KEYRING_TEST_REINSTALL_STATUS:-0}"
-fi
-
-exit 0
-SH
-chmod +x "$stub_bin/sudo"
-
-cat >"$stub_bin/omarchy-pkg-missing" <<'SH'
+# gpg answers the Apple Silicon fingerprint check with whatever the case says
+# the installed keyring holds, in the --with-colons format the script parses.
+cat >"$stub_bin/gpg" <<'STUB'
 #!/bin/bash
+printf 'gpg %s\n' "$*" >>"$CALLS"
+[[ -n ${INSTALLED_FINGERPRINT:-} ]] || exit 2
+printf 'pub:u:4096:1:%s::::::::\n' "${INSTALLED_FINGERPRINT: -16}"
+printf 'fpr:::::::::%s:\n' "$INSTALLED_FINGERPRINT"
+STUB
 
-exit "${KEYRING_TEST_PKG_MISSING:-1}"
-SH
-chmod +x "$stub_bin/omarchy-pkg-missing"
-
-cat >"$stub_bin/omarchy-pkg-add" <<'SH'
+cat >"$stub_bin/omarchy-pkg-missing" <<'STUB'
 #!/bin/bash
+[[ ${KEYRING_PKG_MISSING:-0} == 1 ]]
+STUB
 
-printf 'pkg-add\t%s\n' "$1" >>"$KEYRING_TEST_LOG"
-exit 0
-SH
-chmod +x "$stub_bin/omarchy-pkg-add"
+cat >"$stub_bin/omarchy-hw-apple-silicon" <<'STUB'
+#!/bin/bash
+[[ ${APPLE_SILICON:-0} == 1 ]]
+STUB
+
+chmod +x "$stub_bin"/*
+
+trusted_key=40DFB630FF42BCFFB047046CF0134EE680CAC571
 
 run_keyring() {
-  KEYRING_TEST_LOG="$log_file" \
-    KEYRING_TEST_DIR="$test_tmp" \
+  : >"$calls"
+  CALLS="$calls" \
+    APPLE_SILICON="${APPLE_SILICON:-0}" \
+    INSTALLED_FINGERPRINT="${INSTALLED_FINGERPRINT:-}" \
+    KEY_IN_PACMAN_KEYRING="${KEY_IN_PACMAN_KEYRING:-0}" \
+    KEYRING_PKG_MISSING="${KEYRING_PKG_MISSING:-0}" \
     PATH="$stub_bin:$PATH" \
-    "$ROOT/bin/omarchy-update-keyring" "$@"
+    bash "$ROOT/bin/omarchy-update-keyring"
 }
 
-# Everything healthy: the key and package are present, the reinstall works.
-: >"$log_file"
-rm -f "$test_tmp/list-calls"
-run_keyring >"$test_tmp/ok.out"
+# Apple Silicon with the shipped key in place: nothing fetched, ARM keyring refreshed.
+APPLE_SILICON=1 INSTALLED_FINGERPRINT="$trusted_key" run_keyring >"$test_tmp/out" 2>"$test_tmp/err" ||
+  fail "an Apple Silicon system with the shipped key fails the keyring update" "$(<"$test_tmp/err")"
+grep -q '^pacman -Sy --noconfirm archlinuxarm-keyring$' "$calls" ||
+  fail "Apple Silicon does not refresh archlinuxarm-keyring"
+grep -q 'archlinux-keyring$' "$calls" &&
+  fail "Apple Silicon refreshes archlinux-keyring, which does not sign its packages"
+grep -q -- '--recv-keys' "$calls" &&
+  fail "Apple Silicon fetches the Omarchy key from a keyserver"
+pass "Apple Silicon verifies the shipped key and refreshes archlinuxarm-keyring"
 
-grep -F "Keys are correct" "$test_tmp/ok.out" >/dev/null ||
-  fail "update-keyring reports success when the keyring is healthy" "$(cat "$test_tmp/ok.out")"
-pass "update-keyring reports success when the keyring is healthy"
+# A mismatched fingerprint on Apple Silicon is not something to paper over
+# with a keyserver fetch: stop, and say where the key is supposed to come from.
+if APPLE_SILICON=1 INSTALLED_FINGERPRINT=0000000000000000000000000000000000000000 \
+  run_keyring >"$test_tmp/out" 2>"$test_tmp/err"; then
+  fail "a wrong Omarchy key on Apple Silicon is accepted"
+fi
+grep -q -- '--recv-keys' "$calls" &&
+  fail "a wrong Omarchy key on Apple Silicon is replaced from a keyserver"
+grep -q 'archlinuxarm-keyring' "$calls" &&
+  fail "a wrong Omarchy key on Apple Silicon still proceeds to the keyring refresh"
+grep -q 'omarchy-keyring' "$test_tmp/err" ||
+  fail "a wrong Omarchy key on Apple Silicon does not point at omarchy-keyring"
+pass "a wrong Omarchy key on Apple Silicon fails loudly instead of fetching"
 
-grep -Eq $'^sudo\tpacman\t-Sy\t--noconfirm\tarchlinux-keyring$' "$log_file" ||
-  fail "update-keyring still reinstalls archlinux-keyring" "$(cat "$log_file")"
-pass "update-keyring still reinstalls archlinux-keyring"
+# The same for the key being absent entirely.
+if APPLE_SILICON=1 run_keyring >"$test_tmp/out" 2>"$test_tmp/err"; then
+  fail "a missing Omarchy key on Apple Silicon is accepted"
+fi
+grep -q -- '--recv-keys' "$calls" &&
+  fail "a missing Omarchy key on Apple Silicon is fetched from a keyserver"
+pass "a missing Omarchy key on Apple Silicon fails loudly instead of fetching"
 
-# Key and package missing: the full populate path runs and verifies at the end.
-: >"$log_file"
-rm -f "$test_tmp/list-calls"
-KEYRING_TEST_PKG_MISSING=0 run_keyring >"$test_tmp/populate.out"
+# A missing omarchy-keyring package is caught even when the key itself checks out.
+if APPLE_SILICON=1 INSTALLED_FINGERPRINT="$trusted_key" KEYRING_PKG_MISSING=1 \
+  run_keyring >"$test_tmp/out" 2>"$test_tmp/err"; then
+  fail "a missing omarchy-keyring package on Apple Silicon is accepted"
+fi
+pass "a missing omarchy-keyring package on Apple Silicon fails loudly"
 
-grep -F "Keys are correct" "$test_tmp/populate.out" >/dev/null ||
-  fail "update-keyring populates a missing keyring and reports success" "$(cat "$test_tmp/populate.out")"
-for expected in 'recv-keys' 'lsign-key' $'pkg-add\tomarchy-keyring'; do
-  grep -Eq "$expected" "$log_file" ||
-    fail "update-keyring populates a missing keyring and reports success" "$(cat "$log_file")"
-done
-pass "update-keyring populates a missing keyring and reports success"
+# Other hardware keeps the keyserver path and archlinux-keyring.
+KEY_IN_PACMAN_KEYRING=1 run_keyring >"$test_tmp/out" 2>"$test_tmp/err" ||
+  fail "a system with the Omarchy key fails the keyring update" "$(<"$test_tmp/err")"
+grep -q '^pacman -Sy --noconfirm archlinux-keyring$' "$calls" ||
+  fail "other hardware does not refresh archlinux-keyring"
+grep -q -- '--recv-keys' "$calls" &&
+  fail "other hardware fetches a key it already has"
+grep -q '^gpg ' "$calls" &&
+  fail "other hardware runs the Apple Silicon fingerprint check"
+pass "other hardware refreshes archlinux-keyring without fetching a present key"
 
-# recv-keys failing must stop the script, not end in "Keys are correct".
-: >"$log_file"
-rm -f "$test_tmp/list-calls"
-if KEYRING_TEST_PKG_MISSING=0 KEYRING_TEST_RECV_STATUS=1 run_keyring >"$test_tmp/recv.out" 2>&1; then
-  fail "update-keyring fails when recv-keys fails"
-fi
-if grep -F "Keys are correct" "$test_tmp/recv.out" >/dev/null; then
-  fail "update-keyring fails when recv-keys fails" "$(cat "$test_tmp/recv.out")"
-fi
-if grep -q 'lsign-key' "$log_file"; then
-  fail "update-keyring stops at the failed recv instead of signing anyway" "$(cat "$log_file")"
-fi
-pass "update-keyring fails when recv-keys fails"
-
-# A failed archlinux-keyring reinstall must not end in success either.
-: >"$log_file"
-rm -f "$test_tmp/list-calls"
-if KEYRING_TEST_REINSTALL_STATUS=1 run_keyring >"$test_tmp/reinstall.out" 2>&1; then
-  fail "update-keyring fails when the archlinux-keyring reinstall fails"
-fi
-if grep -F "Keys are correct" "$test_tmp/reinstall.out" >/dev/null; then
-  fail "update-keyring fails when the archlinux-keyring reinstall fails" "$(cat "$test_tmp/reinstall.out")"
-fi
-pass "update-keyring fails when the archlinux-keyring reinstall fails"
-
-# The closing check is what backs the success line: the first --list-keys
-# passes (key present, populate skipped), the verifying one fails.
-: >"$log_file"
-rm -f "$test_tmp/list-calls"
-if KEYRING_TEST_LIST_FAIL_ON=2 run_keyring >"$test_tmp/verify.out" 2>&1; then
-  fail "update-keyring fails when the final key check fails"
-fi
-if grep -F "Keys are correct" "$test_tmp/verify.out" >/dev/null; then
-  fail "update-keyring fails when the final key check fails" "$(cat "$test_tmp/verify.out")"
-fi
-pass "update-keyring fails when the final key check fails"
+run_keyring >"$test_tmp/out" 2>"$test_tmp/err" ||
+  fail "a system without the Omarchy key fails the keyring update" "$(<"$test_tmp/err")"
+grep -q "^pacman-key --recv-keys $trusted_key --keyserver keys.openpgp.org$" "$calls" ||
+  fail "other hardware does not fetch a missing Omarchy key from the keyserver"
+grep -q "^pacman-key --lsign-key $trusted_key$" "$calls" ||
+  fail "other hardware does not locally sign the fetched Omarchy key"
+grep -q '^omarchy-pkg-add omarchy-keyring$' "$calls" ||
+  fail "other hardware does not install omarchy-keyring after fetching the key"
+pass "other hardware still fetches a missing Omarchy key from the keyserver"
