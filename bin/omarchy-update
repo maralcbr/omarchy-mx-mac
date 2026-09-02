@@ -57,6 +57,18 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
     elif (( bundle_status != 0 )); then
       exit "$bundle_status"
     fi
+    # The [omarchy] repository the ISO pinned stays on its install-time snapshot
+    # otherwise; move it to the newest promoted snapshot before the package sync
+    # so the system upgrade below reads current packages.
+    set +e
+    omarchy-update-asahi-repository --yes
+    repository_status=$?
+    set -e
+    if (( repository_status == 3 )); then
+      echo "Apple Silicon package repository update deferred because its release listing is unavailable." >&2
+    elif (( repository_status != 0 )); then
+      exit "$repository_status"
+    fi
   fi
   omarchy-update-keyring
 
