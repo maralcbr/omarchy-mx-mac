@@ -25,7 +25,7 @@ from pathlib import Path
 
 ENGINE_NAME = "installer-v0.9.0-omarchy.7.tar.gz"
 METADATA_NAME = "installer_data.json"
-PAYLOAD_NAME = "omarchy-2026.09.01-aarch64-apple-silicon-asahi-os-package.zip"
+PAYLOAD_NAME = "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip"
 
 DEVICE_IDENTIFIER = "apple,j314s"
 ASAHI_INSTALLER_TAG = "v0.9.0"
@@ -33,7 +33,7 @@ ASAHI_INSTALLER_REVISION = "f0469cea0899f3efed8efead604174c7a53c4451"
 ASAHI_INSTALLER_DATA_REVISION = "42648e71423eba308d2e3e6228253eff679b068b"
 DOWNSTREAM_REVISION = "dff6311446439e1f29f0f2e6c0cf82a9a190e5bc"
 ENGINE_VERSION = "v0.9.0-omarchy.7"
-EVIDENCE_REVISION = "4.0.1-mac.2.9.090126"
+EVIDENCE_REVISION = "4.0.2-mac.1.10.090226"
 
 MAXIMUM_PART_COUNT = 16
 PART_PATTERN = re.compile(r"\.part(\d{2})$")
