@@ -3,7 +3,22 @@
 set -euo pipefail
 
 package_repo="${OMARCHY_PACKAGE_REPO:-maralcbr/omarchy-pkgs}"
-release_base_url="${OMARCHY_PACKAGE_RELEASE_BASE_URL:-https://github.com/$package_repo/releases/download/asahi-quattro-channel}"
+resolve_channel_release_tag() {
+  # The un-numbered asahi-quattro-channel release is an immutable legacy
+  # pointer; the live channel is the highest-numbered asahi-quattro-channel-N.
+  curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --silent \
+    "https://api.github.com/repos/$package_repo/releases?per_page=100" |
+    grep -oE '"tag_name": *"asahi-quattro-channel-[1-9][0-9]*"' |
+    grep -oE 'asahi-quattro-channel-[0-9]+' | sort -t- -k4,4n | tail -1
+}
+if [[ -n ${OMARCHY_PACKAGE_RELEASE_BASE_URL:-} ]]; then
+  release_base_url=$OMARCHY_PACKAGE_RELEASE_BASE_URL
+else
+  channel_release_tag=$(resolve_channel_release_tag)
+  [[ $channel_release_tag =~ ^asahi-quattro-channel-[1-9][0-9]*$ ]] ||
+    channel_release_tag=asahi-quattro-channel
+  release_base_url="https://github.com/$package_repo/releases/download/$channel_release_tag"
+fi
 fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
 key_url="${OMARCHY_RELEASE_KEY_URL:-https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/default/omarchy-release.gpg}"
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-mx-mac-install.XXXXXXXX")
