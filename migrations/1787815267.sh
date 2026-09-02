@@ -36,6 +36,14 @@ if omarchy-pkg-present cups; then
   omarchy-pkg-add cups-pk-helper
 fi
 
+# The hardened cups-files.conf names the cups-browsed group, which the shipped
+# /etc/sysusers.d entry creates. Pacman only triggers systemd-sysusers for
+# /usr/lib/sysusers.d, so on an upgrade the account does not exist until the
+# next boot and cupsd refuses its configuration. Create it now, idempotently.
+if omarchy-pkg-present cups && [[ -f /etc/sysusers.d/omarchy-cups-browsed.conf ]]; then
+  sudo systemd-sysusers /etc/sysusers.d/omarchy-cups-browsed.conf
+fi
+
 # Stop the root-running daemon before changing the authorization it relies on.
 if systemctl is-active --quiet cups-browsed.service 2>/dev/null; then
   sudo systemctl stop cups-browsed.service
