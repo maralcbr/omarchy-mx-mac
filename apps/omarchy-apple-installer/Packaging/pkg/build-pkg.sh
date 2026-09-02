@@ -5,14 +5,21 @@
 # postinstall — so the recipient enters one admin password (the macOS installer
 # prompt) and never touches Login Items.
 #
-# Usage: build-pkg.sh --app <signed .app> --plist <helper-launchdaemon.plist> \
-#          --version <x.y.z> --out <output.pkg>
+# Usage: build-pkg.sh --app <signed .app> --version <x.y.z> --out <output.pkg> \
+#          [--plist <daemon plist>]
+#
+# The system daemon plist is derived from the plist the app embeds
+# (Contents/Library/LaunchDaemons), rewriting its bundle-relative BundleProgram
+# into an absolute Program under /Applications. Pass --plist only to supply a
+# daemon plist that already carries an absolute Program; it is validated the
+# same way.
 set -euo pipefail
 
 APP="" PLIST="" VERSION="" OUT=""
 INSTALLER_ID="Developer ID Installer: MARCELO DE BARROS ALCANTARA (T2C384FJBD)"
 PKG_IDENTIFIER="com.omarchy.mx.installer.pkg"
-SCRIPTS="$(cd "$(dirname "$0")" && pwd)/scripts"
+PKG_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPTS="$PKG_DIR/scripts"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,10 +31,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown arg: $1" >&2; exit 64 ;;
   esac
 done
-[[ -d "$APP" && -f "$PLIST" && -n "$VERSION" && -n "$OUT" ]] || {
-  echo "usage: build-pkg.sh --app <app> --plist <plist> --version <v> --out <pkg>" >&2
+[[ -d "$APP" && -n "$VERSION" && -n "$OUT" ]] || {
+  echo "usage: build-pkg.sh --app <app> --version <v> --out <pkg> [--plist <plist>]" >&2
   exit 64
 }
+[[ -z "$PLIST" || -f "$PLIST" ]] || { echo "build-pkg.sh: --plist is not a file: $PLIST" >&2; exit 64; }
 
 work="$(mktemp -d /tmp/omarchy-pkg.XXXXXX)"
 trap 'rm -rf "$work"' EXIT
@@ -36,10 +44,27 @@ mkdir -p "$root/Applications" "$root/Library/LaunchDaemons"
 
 # Payload: the notarized app and the system daemon plist.
 /usr/bin/ditto "$APP" "$root/Applications/$(basename "$APP")"
-/usr/bin/install -m 0644 "$PLIST" "$root/Library/LaunchDaemons/com.omarchy.mx.installer.helper.plist"
 
-# Confirm the plist's Program points at where the app actually lands.
-prog="$(/usr/bin/plutil -extract Program raw -o - "$PLIST" 2>/dev/null || true)"
+# Derive the daemon plist from the app's embedded copy (absolute Program under
+# /Applications), or validate a supplied one the same way. A daemon whose
+# Program is missing, relative, or points at nothing inside the staged app
+# cannot be loaded by launchd, so that is a build failure, not a warning.
+daemon_plist="$work/com.omarchy.mx.installer.helper.plist"
+if [[ -n "$PLIST" ]]; then
+  /bin/cp "$PLIST" "$daemon_plist"
+else
+  "$PKG_DIR/derive-daemon-plist" "$APP" "$daemon_plist" /Applications >/dev/null
+fi
+prog="$(/usr/bin/plutil -extract Program raw -o - "$daemon_plist" 2>/dev/null || true)"
+[[ $prog == /Applications/* ]] || {
+  echo "build-pkg.sh: daemon Program must be an absolute path under /Applications (got '${prog:-<missing>}')" >&2
+  exit 65
+}
+[[ -f "$root$prog" ]] || {
+  echo "build-pkg.sh: daemon Program does not exist inside the staged app: $prog" >&2
+  exit 65
+}
+/usr/bin/install -m 0644 "$daemon_plist" "$root/Library/LaunchDaemons/com.omarchy.mx.installer.helper.plist"
 echo "daemon Program: $prog"
 
 # Pin the app to /Applications. Without this, PackageKit "relocates" the
