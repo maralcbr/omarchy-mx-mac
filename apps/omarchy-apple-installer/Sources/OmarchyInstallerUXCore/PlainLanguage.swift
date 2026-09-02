@@ -118,6 +118,7 @@
     public static let authorizeRetryBody =
       "Only the last step runs again. The disk is already verified."
     public static let authorizeUsernameLabel = "Username"
+    public static let authorizeChecking = "Checking your password…"
     public static let authorizePasswordLabel = "Password"
     public static let authorizeCancel = "Cancel"
     public static let authorizeInstall = "Install"

@@ -77,9 +77,17 @@ struct CredentialSheet: View {
       }
 
       HStack(spacing: 8) {
+        if context.isVerifying {
+          ProgressView()
+            .controlSize(.small)
+          Text(PlainLanguage.authorizeChecking)
+            .font(OmarchyTheme.caption)
+            .foregroundStyle(OmarchyTheme.secondaryText)
+        }
         Spacer(minLength: 0)
         Button(PlainLanguage.authorizeCancel, action: cancel)
           .keyboardShortcut(.cancelAction)
+          .disabled(context.isVerifying)
         Button(
           isRetry
             ? PlainLanguage.authorizeRetryAction : PlainLanguage.authorizeInstall,
@@ -88,15 +96,23 @@ struct CredentialSheet: View {
         .buttonStyle(.borderedProminent)
         .tint(OmarchyTheme.accent)
         .keyboardShortcut(.defaultAction)
-        .disabled(!input.isValid)
+        .disabled(!input.isValid || context.isVerifying)
       }
       .padding(.top, 14)
     }
     .padding(24)
     .frame(width: 304)
     .background(OmarchyTheme.window)
+    .disabled(context.isVerifying)
+    .animation(.easeInOut(duration: 0.2), value: context.isVerifying)
+    .animation(.easeInOut(duration: 0.2), value: context.error)
     .onAppear {
       focus = input.username.isEmpty ? .username : .password
+    }
+    .onChange(of: context.error) { _, error in
+      if error == .credentialsRejected {
+        focus = .password
+      }
     }
     .onDisappear {
       input.clearPassword()

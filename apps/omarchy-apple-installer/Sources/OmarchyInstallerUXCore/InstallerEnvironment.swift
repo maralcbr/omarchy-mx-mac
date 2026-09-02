@@ -381,15 +381,25 @@
     public let kind: InstallOperationKind
     public let bindingDigest: String
     public let error: CredentialSheetError?
+    /// True while the helper is checking the submitted credentials. The sheet
+    /// stays up (fields locked) so a rejection appears in place instead of the
+    /// sheet closing, the screen flipping, and the sheet coming back.
+    public let isVerifying: Bool
 
     public init(
       kind: InstallOperationKind,
       bindingDigest: String,
-      error: CredentialSheetError? = nil
+      error: CredentialSheetError? = nil,
+      isVerifying: Bool = false
     ) {
       self.kind = kind
       self.bindingDigest = bindingDigest
       self.error = error
+      self.isVerifying = isVerifying
+    }
+
+    public func verifying() -> CredentialSheetContext {
+      CredentialSheetContext(kind: kind, bindingDigest: bindingDigest, error: nil, isVerifying: true)
     }
   }
 

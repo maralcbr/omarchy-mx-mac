@@ -182,7 +182,7 @@
           return credentialAttempts == 1
         }
         if first, operation == .install {
-          try? await Task.sleep(for: .milliseconds(600))
+          try? await Task.sleep(for: .milliseconds(1400))
           throw EngineXPCSubmissionError.machineOwnerCredentialsRejected
         }
       }

@@ -515,11 +515,17 @@
 
       let plan = approvedPlan
       let helper = environment.helperStatus
-      dismissCredentials()
+      // The sheet stays up, locked, while the helper checks the credentials.
+      // The Install screen only appears once execution really starts (first
+      // journal chunk) or the run ends without one.
+      if context.kind == .install, let plan {
+        phase = .awaitingInstall(plan, helper: helper, sheet: .presented(context.verifying()))
+      } else {
+        retrySheet = .presented(context.verifying())
+      }
       journal.reset()
       installStartedAt = Date()
       isExecuting = true
-      phase = .installing(journal.display(startedAt: installStartedAt))
       defer { isExecuting = false }
 
       do {
@@ -533,10 +539,21 @@
           }
         )
         recoveryRetryAvailable = false
+        beginInstallingIfNeeded()
         route(completion)
       } catch {
         handleExecutionFailure(error, context: context, plan: plan, helper: helper)
       }
+    }
+
+    /// Leaves the credential sheet behind and shows the Install screen. Safe
+    /// to call more than once.
+    private func beginInstallingIfNeeded() {
+      if case .installing = phase {
+        return
+      }
+      dismissCredentials()
+      phase = .installing(journal.display(startedAt: installStartedAt))
     }
 
     private func handleExecutionFailure(
@@ -578,6 +595,7 @@
         return
       }
 
+      beginInstallingIfNeeded()
       recoveryRetryAvailable = RecoveryAuthorizationRetryPolicy.isEligible(
         after: error
       )
@@ -621,6 +639,10 @@
     }
 
     private func consumeJournal(_ chunk: Data) {
+      if credentialSheet.context?.isVerifying == true {
+        // The helper accepted the credentials and the engine has started.
+        beginInstallingIfNeeded()
+      }
       guard case .installing = phase else {
         return
       }
