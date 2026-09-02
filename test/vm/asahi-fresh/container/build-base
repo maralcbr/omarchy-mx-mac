@@ -125,6 +125,7 @@ chroot "$mount_dir" pacman -Syu --needed --noconfirm \
   gnupg \
   grub \
   iwd \
+  jq \
   linux-aarch64 \
   networkmanager \
   openssh \
