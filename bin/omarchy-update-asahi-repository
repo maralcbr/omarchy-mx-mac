@@ -1,0 +1,268 @@
+#!/bin/bash
+
+# omarchy:summary=Repoint the Apple Silicon package repository at the newest signed stable snapshot
+# omarchy:args=[--check] [--yes]
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# The ISO bakes an immutable asahi-packages-stable-<commit> snapshot into the
+# [omarchy] Server line of /etc/pacman.conf and nothing revisits it, so an
+# installed Mac keeps reading the snapshot it was installed from while newer
+# promoted snapshots accumulate. This follows the runtime bundle updater: it
+# discovers the newest promoted stable release, proves the release's signed
+# descriptor was produced by the shipped Omarchy ARM repository subkey for that
+# exact source commit, refuses rollbacks, and rewrites only the Server line of
+# the existing [omarchy] block. Every other repository, boot, GRUB, mkinitcpio,
+# and NetworkManager path stays untouched.
+
+set -euo pipefail
+
+repo="${OMARCHY_ASAHI_REPOSITORY_REPO:-maralcbr/omarchy-pkgs}"
+state_file="${OMARCHY_ASAHI_REPOSITORY_STATE:-/var/lib/omarchy/asahi-package-repository}"
+trusted_key=C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC
+trusted_subkey=CAB18E175BFB9ACCE185234474DE0C737AC186E4
+trusted_key_file="${OMARCHY_ASAHI_PACKAGE_KEY_FILE:-/usr/share/omarchy/default/omarchy-arm-repository.asc}"
+mode=update
+yes=0
+
+fail() {
+  echo "Apple Silicon package repository update: $*" >&2
+  exit 2
+}
+
+while (($#)); do
+  case "$1" in
+    --check) mode=check ;;
+    -y|--yes) yes=1 ;;
+    -h|--help)
+      echo "Usage: omarchy-update-asahi-repository [--check] [--yes]"
+      exit 0
+      ;;
+    *) fail "unknown option '$1'" ;;
+  esac
+  shift
+done
+
+omarchy-hw-apple-silicon || exit 1
+
+root_path() {
+  printf '%s%s\n' "${OMARCHY_ASAHI_ROOT:-}" "$1"
+}
+
+for command in curl gpg jq sha256sum; do
+  omarchy-cmd-present "$command" || fail "$command is required"
+done
+
+workdir=$(mktemp -d)
+trap 'rm -rf "$workdir"' EXIT
+gnupg_dir="$workdir/gnupg"
+mkdir -m 0700 "$gnupg_dir"
+[[ -r $trusted_key_file ]] || fail "trusted Omarchy ARM repository key is not installed"
+actual_fingerprint=$(gpg --batch --show-keys --with-colons "$trusted_key_file" 2>/dev/null |
+  awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $actual_fingerprint == "$trusted_key" ]] || fail "trusted Omarchy ARM repository key fingerprint does not match"
+gpg --batch --homedir "$gnupg_dir" --import "$trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy ARM repository key"
+subkey_kind=$(gpg --batch --homedir "$gnupg_dir" --with-colons --list-keys 2>/dev/null |
+  awk -F: -v wanted="$trusted_subkey" '
+    $1 == "pub" || $1 == "sub" { kind=$1; next }
+    $1 == "fpr" && $10 == wanted { print kind; exit }
+  ')
+[[ $subkey_kind == "sub" ]] || fail "trusted Omarchy ARM repository key does not carry the signing subkey"
+
+download() {
+  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" --output "$2" || {
+    echo "Apple Silicon package repository update: could not download $1" >&2
+    exit 3
+  }
+}
+
+verify_signature() {
+  local file="$1" signature="$2" status
+  [[ -s $file && -s $signature ]] || fail "missing signed asset $(basename "$file")"
+  status=$(gpg --batch --homedir "$gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
+    fail "signature verification failed for $(basename "$file")"
+  awk -v key="$trusted_subkey" '$2 == "VALIDSIG" && $3 == key { valid=1 } END { exit !valid }' <<<"$status" ||
+    fail "$(basename "$file") was not signed by the Omarchy ARM repository signing subkey"
+}
+
+# The stable snapshot is the accepted candidate promoted byte for byte, so its
+# descriptor is the candidate's CANDIDATE file, and the stable tag carries the
+# same source commit. Draft, prerelease, and mutable releases are not stable.
+releases_api_url="${OMARCHY_ASAHI_RELEASES_API_URL:-https://api.github.com/repos/$repo/releases?per_page=100}"
+download "$releases_api_url" "$workdir/releases.json"
+tag=$(jq -er '
+  [
+    .[]
+    | select(.draft == false and .prerelease == false and .immutable == true)
+    | select(.tag_name | test("^asahi-packages-stable-[0-9a-f]{40}$"))
+    | select(.published_at | type == "string")
+  ]
+  | max_by(.published_at).tag_name
+' "$workdir/releases.json" 2>/dev/null) || fail "could not discover a promoted Apple Silicon package snapshot"
+[[ $tag =~ ^asahi-packages-stable-([0-9a-f]{40})$ ]] || fail "invalid stable release tag"
+source_commit=${BASH_REMATCH[1]}
+server="https://github.com/$repo/releases/download/$tag"
+
+pacman_conf=$(root_path /etc/pacman.conf)
+[[ -r $pacman_conf ]] || fail "pacman configuration is missing"
+for repository in asahi-alarm core extra alarm aur; do
+  grep -Eq "^[[:space:]]*\[$repository\][[:space:]]*$" "$pacman_conf" || fail "required [$repository] repository is missing"
+done
+block_count=$(grep -Ec '^[[:space:]]*\[omarchy\][[:space:]]*$' "$pacman_conf" || true)
+(( block_count == 1 )) || fail "pacman configuration must contain exactly one [omarchy] repository"
+current_servers=$(awk '
+  /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; next }
+  inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
+  inside && /^[[:space:]]*Server[[:space:]]*=/ { sub(/^[[:space:]]*Server[[:space:]]*=[[:space:]]*/, ""); print }
+' "$pacman_conf")
+[[ -n $current_servers ]] || fail "[omarchy] repository must have exactly one Server"
+(( $(wc -l <<<"$current_servers") == 1 )) || fail "[omarchy] repository must have exactly one Server"
+current_server=$current_servers
+
+installed_tag="" installed_run=0 installed_source=""
+if [[ -e $state_file ]]; then
+  if [[ ${OMARCHY_ASAHI_TESTING:-0} != 1 ]]; then
+    permissions=$(stat -c '%a' "$state_file")
+    [[ $(stat -c '%u' "$state_file") == 0 ]] || fail "repository state is not root-owned"
+    (( (8#$permissions & 8#022) == 0 )) || fail "repository state is writable by non-root users"
+  fi
+  state_format="" state_descriptor=""
+  while IFS= read -r line; do
+    case "$line" in
+      format=*) state_format=${line#format=} ;;
+      tag=*) installed_tag=${line#tag=} ;;
+      source_commit=*) installed_source=${line#source_commit=} ;;
+      workflow_run=*) installed_run=${line#workflow_run=} ;;
+      descriptor_sha256=*) state_descriptor=${line#descriptor_sha256=} ;;
+      "") ;;
+      *) fail "repository state is malformed" ;;
+    esac
+  done <"$state_file"
+  [[ $state_format == "1" && $installed_tag =~ ^asahi-packages-stable-[0-9a-f]{40}$ ]] || fail "repository state is malformed"
+  [[ $installed_source =~ ^[0-9a-f]{40}$ && $installed_run =~ ^[1-9][0-9]*$ && $state_descriptor =~ ^[0-9a-f]{64}$ ]] ||
+    fail "repository state is malformed"
+fi
+
+if [[ $current_server == "$server" ]]; then
+  [[ $mode != "check" ]] || exit 1
+  echo "Apple Silicon package repository is up to date"
+  exit 0
+fi
+
+base="${OMARCHY_ASAHI_RELEASE_BASE_URL:-$server}"
+base=${base%/}
+download "$base/CANDIDATE" "$workdir/CANDIDATE"
+download "$base/CANDIDATE.sig" "$workdir/CANDIDATE.sig"
+verify_signature "$workdir/CANDIDATE" "$workdir/CANDIDATE.sig"
+descriptor_sha256=$(sha256sum "$workdir/CANDIDATE" | cut -d' ' -f1)
+
+format="" channel="" release_tag="" descriptor_source="" workflow_run="" runner_arch=""
+signing_fingerprint="" package_count="" package_records=0
+declare -A seen_headers=() assets=()
+set_header() {
+  local name=$1 value=$2
+  [[ -z ${seen_headers[$name]:-} ]] || fail "duplicate descriptor header '$name'"
+  printf -v "$name" '%s' "$value"
+  seen_headers[$name]=1
+}
+while IFS= read -r line; do
+  case "$line" in
+    format=*) set_header format "${line#format=}" ;;
+    channel=*) set_header channel "${line#channel=}" ;;
+    release_tag=*) set_header release_tag "${line#release_tag=}" ;;
+    source_commit=*) set_header descriptor_source "${line#source_commit=}" ;;
+    workflow_run=*) set_header workflow_run "${line#workflow_run=}" ;;
+    runner_arch=*) set_header runner_arch "${line#runner_arch=}" ;;
+    signing_fingerprint=*) set_header signing_fingerprint "${line#signing_fingerprint=}" ;;
+    package_count=*) set_header package_count "${line#package_count=}" ;;
+    package=*)
+      IFS='|' read -r index package version architecture filename archive_sha signature_filename signature_sha extra <<<"${line#package=}"
+      [[ -z $extra && $index =~ ^[1-9][0-9]*$ ]] || fail "invalid package record index"
+      (( index == package_records + 1 )) || fail "invalid package record index"
+      [[ $package =~ ^[a-z0-9@._+-]+$ && -n $version && $architecture =~ ^(aarch64|any)$ ]] || fail "invalid package record"
+      [[ $filename =~ ^[A-Za-z0-9._+@-]+\.pkg\.tar\.[A-Za-z0-9.]+$ && $signature_filename == "$filename.sig" ]] || fail "invalid package filename"
+      [[ $archive_sha =~ ^[0-9a-f]{64}$ && $signature_sha =~ ^[0-9a-f]{64}$ ]] || fail "invalid package checksum"
+      ((package_records += 1))
+      ;;
+    asset=*)
+      IFS='|' read -r filename asset_sha extra <<<"${line#asset=}"
+      [[ -z $extra && $filename =~ ^[A-Za-z0-9._-]+$ && $asset_sha =~ ^[0-9a-f]{64}$ ]] || fail "invalid asset record"
+      [[ -z ${assets[$filename]:-} ]] || fail "duplicate asset record"
+      assets[$filename]=$asset_sha
+      ;;
+    "") ;;
+    *) fail "unknown descriptor entry" ;;
+  esac
+done <"$workdir/CANDIDATE"
+
+[[ $format == "1" && $channel == "candidate" ]] || fail "unsupported release descriptor"
+[[ $release_tag == "asahi-packages-candidate-$source_commit" ]] || fail "release descriptor was not promoted from the candidate for $source_commit"
+[[ $descriptor_source == "$source_commit" ]] || fail "release descriptor source commit does not match the stable tag"
+[[ $workflow_run =~ ^[1-9][0-9]*$ && $runner_arch == "aarch64" ]] || fail "invalid build identity"
+[[ $signing_fingerprint == "$trusted_subkey" ]] || fail "release descriptor names a different signing subkey"
+[[ $package_count =~ ^[1-9][0-9]*$ ]] || fail "release descriptor package count is invalid"
+(( package_records == package_count )) || fail "release descriptor package count is invalid"
+for asset in omarchy.db omarchy.db.sig omarchy.files omarchy.files.sig; do
+  [[ -n ${assets[$asset]:-} ]] || fail "release descriptor is missing $asset"
+done
+
+# GitHub workflow run numbers only grow, and the descriptor signs the run that
+# built it, so a promoted snapshot with a lower run than the one already
+# installed is a rollback no matter what the release listing says.
+if [[ -n $installed_tag ]]; then
+  (( workflow_run >= installed_run )) || fail "refusing package repository rollback from $installed_tag to $tag"
+  if (( workflow_run == installed_run )); then
+    [[ $source_commit == "$installed_source" ]] || fail "build $workflow_run was reused for a different source"
+  fi
+fi
+
+if [[ $mode == "check" ]]; then
+  echo "Apple Silicon package repository $tag is available"
+  exit 0
+fi
+
+download "$base/omarchy.db" "$workdir/omarchy.db"
+download "$base/omarchy.db.sig" "$workdir/omarchy.db.sig"
+[[ $(sha256sum "$workdir/omarchy.db" | cut -d' ' -f1) == "${assets[omarchy.db]}" ]] || fail "omarchy.db does not match the signed descriptor"
+[[ $(sha256sum "$workdir/omarchy.db.sig" | cut -d' ' -f1) == "${assets[omarchy.db.sig]}" ]] || fail "omarchy.db.sig does not match the signed descriptor"
+verify_signature "$workdir/omarchy.db" "$workdir/omarchy.db.sig"
+
+if (( ! yes )); then
+  gum confirm "Switch the Apple Silicon package repository to $tag?" </dev/tty || exit 0
+fi
+
+backup="$(root_path /var/lib/omarchy/backups)/asahi-repository-$(date +%Y%m%d%H%M%S)"
+backup_tmp=$(mktemp -d)
+cp "$pacman_conf" "$backup_tmp/pacman.conf"
+config_paths=("$pacman_conf")
+[[ ! -d $(root_path /etc/pacman.d) ]] || config_paths+=("$(root_path /etc/pacman.d)")
+sudo find "${config_paths[@]}" -type f -exec sha256sum {} + >"$backup_tmp/config-sha256.txt"
+sudo install -d -o root -g root -m 0700 "$backup"
+sudo cp -a "$backup_tmp"/. "$backup/"
+rm -rf "$backup_tmp"
+
+if ! sudo pacman-key --finger "$trusted_key" >/dev/null 2>&1; then
+  sudo pacman-key --add "$trusted_key_file"
+  sudo pacman-key --lsign-key "$trusted_key"
+fi
+
+# Only the Server line inside [omarchy] changes; every other byte is copied.
+awk -v server="$server" '
+  /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; print; next }
+  inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
+  inside && /^[[:space:]]*Server[[:space:]]*=/ { print "Server = " server; next }
+  { print }
+' "$pacman_conf" >"$workdir/pacman.conf"
+sudo install -o root -g root -m 0644 "$workdir/pacman.conf" "$pacman_conf"
+
+if ! sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Sy --noconfirm; then
+  sudo install -o root -g root -m 0644 "$backup/pacman.conf" "$pacman_conf"
+  fail "pacman could not read $tag; restored the previous repository (backup: $backup)"
+fi
+
+state_tmp=$(mktemp)
+printf 'format=1\ntag=%s\nsource_commit=%s\nworkflow_run=%s\ndescriptor_sha256=%s\n' \
+  "$tag" "$source_commit" "$workflow_run" "$descriptor_sha256" >"$state_tmp"
+sudo install -D -o root -g root -m 0644 "$state_tmp" "$state_file"
+rm -f "$state_tmp"
+echo "Switched the Apple Silicon package repository to $tag (backup: $backup)"

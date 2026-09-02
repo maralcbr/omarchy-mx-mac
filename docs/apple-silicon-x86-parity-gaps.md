@@ -112,6 +112,18 @@ at the new stable tag and rebuild the image.
 **Priority: highest.** Everything else in this document is a robustness
 improvement; this one is the actual parity difference.
 
+**Installed systems no longer wait for a rebuilt image.** `omarchy update`
+now runs `omarchy-update-asahi-repository` on Apple Silicon, right after the
+runtime bundle and before the package sync. It reads the `omarchy-pkgs`
+release listing, picks the newest non-draft, non-prerelease, immutable
+`asahi-packages-stable-<commit>` release, verifies that release's signed
+`CANDIDATE` descriptor against the shipped
+`default/omarchy-arm-repository.asc` signing subkey and the tag's own source
+commit, refuses to move to a lower signed workflow run, and then rewrites only
+the `Server` line of the existing `[omarchy]` block after backing the file up
+under `/var/lib/omarchy/backups/`. The ISO pin above is still worth updating so
+fresh installs start current, but it is no longer the only way forward.
+
 ---
 
 ## Gap 2 — a long build outlives the sudo credential cache
