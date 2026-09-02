@@ -22,7 +22,8 @@ struct InstallerRootView: View {
       InstallerRail(
         current: session.railStep,
         completed: session.completedRailSteps,
-        blocked: session.installationBlocked
+        blocked: session.installationBlocked,
+        onSelect: { step in session.navigate(to: step) }
       )
       Divider().overlay(OmarchyTheme.separator)
       screen
@@ -38,42 +39,39 @@ struct InstallerRootView: View {
         session.refreshHelperStatus()
       }
     }
-    .confirmationDialog(
-      PlainLanguage.recoveryRetryConfirmationTitle,
-      isPresented: $showsRecoveryRetryConfirmation,
-      titleVisibility: .visible
-    ) {
-      Button(PlainLanguage.recoveryRetryConfirmationAction) {
-        session.presentRecoveryRetryCredentials()
-      }
-      Button(PlainLanguage.cancel, role: .cancel) {}
-    } message: {
-      Text(PlainLanguage.recoveryRetryConfirmationBody)
+    .sheet(isPresented: $showsRecoveryRetryConfirmation) {
+      ConfirmationSheet(
+        title: PlainLanguage.recoveryRetryConfirmationTitle,
+        body_: PlainLanguage.recoveryRetryConfirmationBody,
+        action: PlainLanguage.recoveryRetryConfirmationAction,
+        onConfirm: {
+          showsRecoveryRetryConfirmation = false
+          session.presentRecoveryRetryCredentials()
+        },
+        onCancel: { showsRecoveryRetryConfirmation = false }
+      )
     }
-    .confirmationDialog(
-      PlainLanguage.executionConfirmationTitle,
-      isPresented: $showsExecutionConfirmation,
-      titleVisibility: .visible
-    ) {
-      Button(PlainLanguage.executionConfirmationAction, role: .destructive) {
-        session.presentInstallCredentials()
-      }
-      Button(PlainLanguage.cancel, role: .cancel) {}
-    } message: {
-      Text(PlainLanguage.executionConfirmationBody)
+    .sheet(isPresented: $showsExecutionConfirmation) {
+      ExecutionConfirmationSheet(
+        onConfirm: {
+          showsExecutionConfirmation = false
+          session.presentInstallCredentials()
+        },
+        onCancel: { showsExecutionConfirmation = false }
+      )
     }
-    .confirmationDialog(
-      PlainLanguage.shutdownConfirmationTitle,
-      isPresented: $showsShutdownConfirmation,
-      titleVisibility: .visible
-    ) {
-      Button(PlainLanguage.shutdownConfirmationAction) {
-        session.shutDown()
-        NSApplication.shared.terminate(nil)
-      }
-      Button(PlainLanguage.cancel, role: .cancel) {}
-    } message: {
-      Text(PlainLanguage.shutdownConfirmationBody)
+    .sheet(isPresented: $showsShutdownConfirmation) {
+      ConfirmationSheet(
+        title: PlainLanguage.shutdownConfirmationTitle,
+        body_: PlainLanguage.shutdownConfirmationBody,
+        action: PlainLanguage.shutdownConfirmationAction,
+        onConfirm: {
+          showsShutdownConfirmation = false
+          session.shutDown()
+          NSApplication.shared.terminate(nil)
+        },
+        onCancel: { showsShutdownConfirmation = false }
+      )
     }
     .sheet(isPresented: sheetBinding) {
       if let context = session.credentialSheet.context {
@@ -134,14 +132,24 @@ struct InstallerRootView: View {
     case .preparingPlan(let update):
       PreparingScreen(update: update)
 
+    case .planPrepared(_, let update):
+      PreparingScreen(
+        update: update,
+        isReady: true,
+        onContinue: { session.continueToPlanReview() },
+        onBack: { session.goBack() }
+      )
+
     case .planReview(let plan, let acknowledged):
       PlanScreen(
         plan: plan,
         mode: .review(acknowledged: acknowledged),
         canStartInstallation: false,
+        isBusy: session.isBusy,
         onAcknowledge: { session.setAcknowledged($0) },
         onApprove: { session.approve() },
-        onBack: { Task { await session.reprepare() } },
+        onBack: { session.goBack() },
+        onSizeChosen: { bytes in Task { await session.replan(omarchyBytes: bytes) } },
         onRequestInstall: {}
       )
 
@@ -150,9 +158,11 @@ struct InstallerRootView: View {
         plan: plan,
         mode: .approved(helper),
         canStartInstallation: session.canStartInstallation,
+        isBusy: session.isBusy,
         onAcknowledge: { _ in },
         onApprove: {},
-        onBack: { session.back() },
+        onBack: { session.goBack() },
+        onSizeChosen: { _ in },
         onRequestInstall: { showsExecutionConfirmation = true }
       )
 

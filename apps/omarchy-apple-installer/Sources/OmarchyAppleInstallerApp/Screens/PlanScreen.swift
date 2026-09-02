@@ -13,9 +13,13 @@ struct PlanScreen: View {
   let plan: PlanDisplay
   let mode: Mode
   let canStartInstallation: Bool
+  var isBusy = false
   let onAcknowledge: (Bool) -> Void
   let onApprove: () -> Void
   let onBack: () -> Void
+  /// The person let go of the divider on a different size; the session
+  /// re-plans with it so every later step carries the chosen split.
+  let onSizeChosen: (UInt64) -> Void
   let onRequestInstall: () -> Void
 
   /// Display-level exploration of the split. The approved plan still carries
@@ -33,13 +37,16 @@ struct PlanScreen: View {
     ) {
       Panel {
         PanelHeader(
-          title: "Disk · " + PlainLanguage.bytes(plan.diskTotalBytes)
+          title: "Disk " + PlainLanguage.bytes(plan.diskTotalBytes)
         )
         DiskBar(
           macOSBytes: plan.diskTotalBytes - displayedOmarchyBytes,
           omarchyBytes: displayedOmarchyBytes,
-          onAdjustOmarchyFraction: adjustHandler
+          onAdjustOmarchyFraction: adjustHandler,
+          onCommitOmarchyFraction: commitHandler,
+          isFrozen: isBusy
         )
+        .transaction { $0.animation = nil }
         if isReview {
           sizeCaption
         }
@@ -51,7 +58,7 @@ struct PlanScreen: View {
           accessory: PlainLanguage.downloadVerified
         )
         VStack(alignment: .leading, spacing: 3) {
-          ForEach(plan.artifacts) { artifact in
+          ForEach(shownArtifacts) { artifact in
             HStack(spacing: 8) {
               Image(systemName: "checkmark")
                 .font(.system(size: 9, weight: .bold))
@@ -81,17 +88,15 @@ struct PlanScreen: View {
         acknowledgement(acknowledged)
       }
     } actions: {
-      Button(
-        isReview ? PlainLanguage.planReapprove : PlainLanguage.planBack,
-        action: onBack
-      )
-      .omarchySecondaryButton()
+      Button(PlainLanguage.planBack, action: onBack)
+        .omarchySecondaryButton()
+        .disabled(isBusy)
 
       switch mode {
       case .review(let acknowledged):
         Button(PlainLanguage.planApprove, action: onApprove)
           .omarchyPrimaryButton()
-          .disabled(!acknowledged)
+          .disabled(!acknowledged || isBusy)
           .keyboardShortcut(.defaultAction)
       case .approved:
         Button(PlainLanguage.planInstall, action: onRequestInstall)
@@ -100,6 +105,17 @@ struct PlanScreen: View {
           .keyboardShortcut(.defaultAction)
       }
     }
+    .onChange(of: plan.omarchyBytes) { _, _ in
+      exploredOmarchyGB = nil
+    }
+  }
+
+  /// The list shows the OS package the person is installing; the pinned
+  /// engine and its metadata are still downloaded and verified, but they are
+  /// tooling, not something to review.
+  private var shownArtifacts: [PlanArtifactDisplay] {
+    let packages = plan.artifacts.filter { $0.role == "payload" }
+    return packages.isEmpty ? plan.artifacts : packages
   }
 
   private var isReview: Bool {
@@ -123,6 +139,11 @@ struct PlanScreen: View {
     return "\(PlainLanguage.bytes(displayedOmarchyBytes)) for Omarchy"
   }
 
+  private var maximumOmarchyGB: Double {
+    let totalGB = Double(plan.diskTotalBytes) / 1_000_000_000
+    return max(Self.minimumOmarchyGB + 10, min(800, (totalGB - 120) / 10 * 10).rounded(.down))
+  }
+
   private var adjustHandler: ((Double) -> Void)? {
     guard isReview else {
       return nil
@@ -130,9 +151,23 @@ struct PlanScreen: View {
     return { fraction in adjustOmarchyShare(fraction) }
   }
 
-  private var maximumOmarchyGB: Double {
-    let totalGB = Double(plan.diskTotalBytes) / 1_000_000_000
-    return max(Self.minimumOmarchyGB + 10, min(800, totalGB - 120))
+  /// Letting go of the divider on a new size re-plans, so every later step
+  /// carries the chosen split.
+  private var commitHandler: ((Double) -> Void)? {
+    guard isReview else {
+      return nil
+    }
+    return { fraction in
+      adjustOmarchyShare(fraction)
+      let chosen = displayedOmarchyBytes
+      if chosen != plan.omarchyBytes {
+        // Keep showing the chosen split until the re-planned size arrives;
+        // snapping back to the old plan in between is what looked glitchy.
+        onSizeChosen(chosen)
+      } else {
+        exploredOmarchyGB = nil
+      }
+    }
   }
 
   private func adjustOmarchyShare(_ fraction: Double) {
@@ -146,43 +181,56 @@ struct PlanScreen: View {
 
   private var sizeCaption: some View {
     HStack(alignment: .firstTextBaseline, spacing: 8) {
-      Text(
-        "Drag the divider to choose how much space Omarchy gets · minimum "
-          + PlainLanguage.bytes(UInt64(Self.minimumOmarchyGB * 1_000_000_000))
-      )
-      .font(OmarchyTheme.caption)
-      .foregroundStyle(OmarchyTheme.secondaryText)
+      Text("Drag the divider to choose how much space Omarchy gets (minimum \(Int(Self.minimumOmarchyGB)) GB)")
+        .font(OmarchyTheme.caption)
+        .foregroundStyle(OmarchyTheme.secondaryText)
       Spacer(minLength: 0)
       Text(PlainLanguage.bytes(displayedOmarchyBytes))
-        .font(OmarchyTheme.caption.monospacedDigit().weight(.semibold))
+        .font(.system(size: 15, weight: .semibold).monospacedDigit())
         .foregroundStyle(OmarchyTheme.accent)
     }
+    .padding(.top, 4)
   }
 
   private var hint: String? {
     switch mode {
-    case .review(let acknowledged):
-      return acknowledged ? nil : PlainLanguage.planConfirmHint
+    case .review:
+      return nil
     case .approved(let helper):
       return helper.isEnabled ? nil : PlainLanguage.helperNotInstalled
     }
   }
 
   private func acknowledgement(_ acknowledged: Bool) -> some View {
-    HStack(alignment: .top, spacing: 11) {
+    HStack(alignment: .center, spacing: 14) {
       Toggle(
+        "",
         isOn: Binding(get: { acknowledged }, set: { onAcknowledge($0) })
-      ) {
-        Text(PlainLanguage.planAcknowledgement)
-          .font(.system(size: 14.5))
-      }
+      )
+      .labelsHidden()
       .toggleStyle(.checkbox)
       .controlSize(.large)
+      .scaleEffect(1.3)
       .tint(OmarchyTheme.accent)
-      InfoTip(text: PlainLanguage.planAcknowledgementTooltip)
+      .accessibilityLabel(PlainLanguage.planAcknowledgement)
+      Text(PlainLanguage.planAcknowledgement)
+        .font(.system(size: 16.5, weight: .medium))
+        .fixedSize(horizontal: false, vertical: true)
+        .onTapGesture { onAcknowledge(!acknowledged) }
       Spacer(minLength: 0)
+      InfoTip(text: PlainLanguage.planAcknowledgementTooltip)
     }
-    .padding(.top, 14)
+    .padding(.horizontal, 18)
+    .padding(.vertical, 16)
+    .background(
+      RoundedRectangle(cornerRadius: OmarchyTheme.cardRadius)
+        .fill(acknowledged ? OmarchyTheme.accentSoft : OmarchyTheme.card)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: OmarchyTheme.cardRadius)
+        .strokeBorder(acknowledged ? OmarchyTheme.accent : OmarchyTheme.separator, lineWidth: 1.5)
+    )
+    .padding(.top, 24)
   }
 
   private func helperPanel(_ helper: HelperDisplay) -> some View {

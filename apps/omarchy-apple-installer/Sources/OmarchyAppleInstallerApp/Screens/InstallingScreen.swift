@@ -13,26 +13,60 @@ struct InstallingScreen: View {
   private let ticker = Timer.publish(every: 1, on: .main, in: .common)
     .autoconnect()
 
+  private var activeStageLabel: String {
+    let index = progress.stageIndex
+    if progress.stageLabels.indices.contains(index) {
+      return progress.stageLabels[index]
+    }
+    return progress.phaseTitle
+  }
+
+  private var overallFraction: Double? {
+    let count = progress.stageFractions.count
+    guard count > 0 else {
+      return nil
+    }
+    var fractions = progress.stageFractions
+    if fractions.indices.contains(progress.stageIndex) {
+      fractions[progress.stageIndex] = max(fractions[progress.stageIndex], predictedActiveFraction)
+    }
+    let total = fractions.reduce(0) { $0 + min(1, max(0, $1)) }
+    return min(1, max(0, total / Double(count)))
+  }
+
   var body: some View {
     ScreenScaffold(
       headline: progress.phaseTitle,
       subheadline: nil
     ) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
-        InfoTip(text: PlainLanguage.installProgressTooltip)
-        Spacer(minLength: 0)
-        Text(elapsedText)
-          .font(OmarchyTheme.caption.monospacedDigit())
-          .foregroundStyle(OmarchyTheme.secondaryText)
+      // One bar for the whole installation. Every stage counts equally; the
+      // active stage blends in the checkpoint-based prediction so the bar keeps
+      // moving between journal events. A degraded stream sweeps instead.
+      Panel {
+        VStack(alignment: .leading, spacing: 12) {
+          HStack(alignment: .firstTextBaseline) {
+            Text(activeStageLabel)
+              .font(.system(size: 14, weight: .semibold))
+              .lineLimit(1)
+              .truncationMode(.tail)
+            Spacer(minLength: 8)
+            Text(elapsedText)
+              .font(OmarchyTheme.caption.monospacedDigit())
+              .foregroundStyle(OmarchyTheme.secondaryText)
+            if let overallFraction {
+              Text("\(Int((overallFraction * 100).rounded()))%")
+                .font(OmarchyTheme.body.monospacedDigit())
+                .foregroundStyle(OmarchyTheme.secondaryText)
+            }
+          }
+          ProgressTrack(fraction: progress.degraded ? nil : overallFraction, height: 20)
+        }
+        .padding(.vertical, 6)
       }
-
-      SegmentedProgress(
-        fractions: progress.stageFractions,
-        activeIndex: progress.stageIndex,
-        labels: progress.stageLabels,
-        isRunning: !progress.degraded,
-        predictedActiveFraction: predictedActiveFraction
-      )
+      // A little air between the title and the progress card.
+      .padding(.top, 12)
+      // No subtitle on this page, so give the title some room to breathe.
+      .padding(.top, 14)
 
       Text(PlainLanguage.installWarning)
         .font(OmarchyTheme.body.weight(.medium))

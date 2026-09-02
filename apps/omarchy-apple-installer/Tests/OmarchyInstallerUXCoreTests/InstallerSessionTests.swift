@@ -18,6 +18,7 @@
       }
 
       await session.continueToPlan()
+      session.continueToPlanReview()
       guard case .planReview(_, let acknowledged) = session.phase else {
         return XCTFail("Expected planReview, got \(session.phase)")
       }
@@ -71,6 +72,7 @@
 
       // Locked: nothing but re-inspection moves the phase.
       await session.continueToPlan()
+      session.continueToPlanReview()
       guard case .unsupported = session.phase else {
         return XCTFail("Blocked host must stay locked")
       }
@@ -99,11 +101,118 @@
       XCTAssertEqual(failure.plainDetail, PlainLanguage.engineUnavailable)
     }
 
+    func testPreparationHoldsUntilContinue() async {
+      let environment = MockInstallerEnvironment()
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+
+      guard case .planPrepared(_, let update) = session.phase else {
+        return XCTFail("Expected planPrepared, got \(session.phase)")
+      }
+      XCTAssertTrue(update.rows.allSatisfy(\.isVerified))
+      XCTAssertEqual(session.railStep, .plan)
+      session.approve()
+      XCTAssertEqual(environment.approveCount, 0)
+
+      session.continueToPlanReview()
+      guard case .planReview(_, let acknowledged) = session.phase else {
+        return XCTFail("Expected planReview, got \(session.phase)")
+      }
+      XCTAssertFalse(acknowledged)
+    }
+
+    func testReplanCarriesTheChosenSizeAndSkipsTheHold() async {
+      let environment = MockInstallerEnvironment()
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+
+      await session.replan(omarchyBytes: 200_000_000_000)
+
+      XCTAssertEqual(environment.lastOmarchyBytes, 200_000_000_000)
+      XCTAssertEqual(environment.prepareCount, 2)
+      guard case .planReview(_, let acknowledged) = session.phase else {
+        return XCTFail("Expected planReview after replan, got \(session.phase)")
+      }
+      XCTAssertFalse(acknowledged)
+    }
+
+    func testGoBackAndRailNavigationWalkEarlierSteps() async {
+      let environment = MockInstallerEnvironment()
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setAcknowledged(true)
+      session.approve()
+      guard case .awaitingInstall = session.phase else {
+        return XCTFail("Expected awaitingInstall, got \(session.phase)")
+      }
+
+      session.navigate(to: .finish)
+      guard case .awaitingInstall = session.phase else {
+        return XCTFail("Forward navigation must be ignored")
+      }
+
+      session.goBack()
+      guard case .planReview(_, let acknowledged) = session.phase, !acknowledged else {
+        return XCTFail("Expected planReview after goBack, got \(session.phase)")
+      }
+      session.goBack()
+      guard case .planPrepared = session.phase else {
+        return XCTFail("Expected planPrepared after goBack, got \(session.phase)")
+      }
+      session.navigate(to: .check)
+      guard case .welcome = session.phase else {
+        return XCTFail("Expected welcome after rail navigation, got \(session.phase)")
+      }
+    }
+
+    func testWholeFlowWalksForwardBackAndForwardAgain() async {
+      let environment = MockInstallerEnvironment()
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      guard case .welcome = session.phase else { return XCTFail("welcome") }
+
+      await session.continueToPlan()
+      guard case .planPrepared = session.phase else { return XCTFail("planPrepared") }
+      XCTAssertEqual(session.railStep, .plan)
+
+      session.continueToPlanReview()
+      guard case .planReview = session.phase else { return XCTFail("planReview") }
+
+      // Choosing a size re-plans in place: the phase never leaves review and
+      // the new plan carries the chosen size.
+      await session.replan(omarchyBytes: 250_000_000_000)
+      XCTAssertFalse(session.isReplanning)
+      guard case .planReview(_, let acknowledged) = session.phase else { return XCTFail("planReview after replan") }
+      XCTAssertFalse(acknowledged)
+      XCTAssertEqual(environment.lastOmarchyBytes, 250_000_000_000)
+
+      session.setAcknowledged(true)
+      session.approve()
+      guard case .awaitingInstall = session.phase else { return XCTFail("awaitingInstall") }
+      XCTAssertEqual(session.railStep, .authorize)
+
+      session.goBack()
+      guard case .planReview(_, false) = session.phase else { return XCTFail("planReview after back") }
+      session.navigate(to: .check)
+      guard case .welcome = session.phase else { return XCTFail("welcome via rail") }
+      XCTAssertEqual(session.railStep, .check)
+
+      await session.continueToPlan()
+      guard case .planPrepared = session.phase else { return XCTFail("planPrepared again") }
+      XCTAssertEqual(environment.prepareCount, 3)
+    }
+
     func testApproveRequiresAcknowledgement() async {
       let environment = MockInstallerEnvironment()
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
 
       session.approve()
 
@@ -118,6 +227,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
       session.setAcknowledged(true)
       session.approve()
 
@@ -141,6 +251,7 @@
       session.presentInstallCredentials()
       session.refreshHelperStatus()
       await session.continueToPlan()
+      session.continueToPlanReview()
 
       XCTAssertEqual(environment.approveCount, 0)
       XCTAssertEqual(environment.prepareCount, 0)
@@ -158,6 +269,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
       session.setAcknowledged(true)
       session.approve()
       session.presentInstallCredentials()
@@ -188,6 +300,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
       session.setAcknowledged(true)
       session.approve()
       session.presentInstallCredentials()
@@ -211,6 +324,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
       session.setAcknowledged(true)
       session.approve()
       session.presentInstallCredentials()
@@ -243,6 +357,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
       session.setAcknowledged(true)
       session.approve()
       session.presentInstallCredentials()
@@ -263,6 +378,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
       session.setAcknowledged(true)
       session.approve()
 
@@ -286,6 +402,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
       session.setAcknowledged(true)
       session.approve()
       session.presentInstallCredentials()
@@ -340,6 +457,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
 
       XCTAssertEqual(session.stagingProgress["payload"]?.phase, .verified)
       XCTAssertEqual(session.stagingProgress["payload"]?.bytesCompleted, 100)
@@ -354,6 +472,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
       session.setAcknowledged(true)
       session.approve()
       session.presentInstallCredentials()
@@ -384,6 +503,7 @@
       await session.inspect()
 
       await session.continueToPlan()
+      session.continueToPlanReview()
 
       guard case .failed(let failure) = session.phase else {
         return XCTFail("Expected failed, got \(session.phase)")
@@ -412,6 +532,7 @@
       await session.inspect()
 
       await session.continueToPlan()
+      session.continueToPlanReview()
 
       guard case .existingInstallChoice(let options, let host) = session.phase
       else {
@@ -423,6 +544,7 @@
       XCTAssertEqual(environment.lastSelection, .automatic)
 
       await session.chooseReplaceExistingInstall(install)
+      session.continueToPlanReview()
 
       guard case .planReview = session.phase else {
         return XCTFail("Expected planReview, got \(session.phase)")
@@ -445,8 +567,10 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
 
       await session.chooseInstallAlongsideExistingInstall()
+      session.continueToPlanReview()
 
       guard case .planReview = session.phase else {
         return XCTFail("Expected planReview, got \(session.phase)")
@@ -465,6 +589,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
 
       session.cancelExistingInstallChoice()
 
@@ -484,6 +609,7 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
+      session.continueToPlanReview()
       let prepared = environment.prepareCount
 
       await session.chooseReplaceExistingInstall(
@@ -511,6 +637,7 @@
         )
       )
       await session.chooseInstallAlongsideExistingInstall()
+      session.continueToPlanReview()
       session.cancelExistingInstallChoice()
 
       guard case .welcome = session.phase else {
@@ -557,12 +684,16 @@
       return host
     }
 
+    var lastOmarchyBytes: UInt64?
+
     func preparePlan(
       selection: InstallTargetSelection,
+      omarchyBytes: UInt64?,
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay {
       prepareCount += 1
       lastSelection = selection
+      lastOmarchyBytes = omarchyBytes
       approved = false
       for update in progressUpdates {
         progress(update)

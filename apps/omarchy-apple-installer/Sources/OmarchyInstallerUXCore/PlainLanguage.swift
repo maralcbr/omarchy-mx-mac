@@ -18,7 +18,7 @@
     public var title: String {
       switch self {
       case .check: "Check"
-      case .plan: "Plan"
+      case .plan: "Prepare"
       case .authorize: "Authorize"
       case .install: "Install"
       case .finish: "Finish"
@@ -41,14 +41,14 @@
 
     public static let checkHeadline = "Install Omarchy"
     public static let checkSubheadline =
-      "macOS stays. Omarchy gets its own space and its own place in the boot menu."
+      "Omarchy gets its own space and its own place in the boot menu. MacOS stays intact."
     public static let checkDetailsTitle = "What was checked"
     public static let checkHint = "Nothing has been changed."
     public static let checkContinue = "Continue"
     public static let checkAgain = "Check again"
     public static let inspectingHeadline = "Checking this Mac"
     public static let inspectingSubheadline =
-      "Reading the model, macOS version, power, FileVault, and free space. Nothing is changed."
+      "Reading the model, MacOS version, power, FileVault, and free space. Nothing is changed."
 
     // MARK: Screen A2 — Existing install
 
@@ -69,12 +69,12 @@
     public static func existingInstallRow(
       _ install: ExistingInstallDisplay
     ) -> String {
-      "Omarchy at \(install.sourceIdentifier) · \(install.sizeDescription)"
+      "Omarchy at \(install.sourceIdentifier), \(install.sizeDescription)"
     }
 
     // MARK: Screen B — Plan
 
-    public static let planSubheadline = "macOS keeps the rest, untouched."
+    public static let planSubheadline = "Let\u{2019}s separate a partition for Omarchy. MacOS keeps the rest, untouched."
     public static let planDetailsTitle = "Exact plan"
     public static let planAcknowledgement =
       "I reviewed the plan and the Recovery steps."
@@ -83,15 +83,20 @@
     public static let planWaitingHint = "Waiting for downloads…"
     public static let planConfirmHint = "Confirm to continue."
     public static let planBack = "Back"
-    public static let planInstall = "Install…"
-    public static let planApprove = "Approve exact plan"
+    public static let planInstall = "Install"
+    public static let planApprove = "Approve plan"
     public static let planReapprove = "Re-prepare plan"
     public static let downloadingTitle = "Downloading"
     public static let downloadedTitle = "Downloaded"
     public static let downloadVerified = "Verified ✓"
     public static let preparingHeadline = "Getting everything ready"
+    public static let downloadingPackagesTitle = "Downloading the Omarchy packages"
+    public static let preparedHeadline = "Everything is ready"
+    public static let preparedSubheadline =
+      "Continue to review the plan."
+    public static let preparedContinue = "Continue"
     public static let preparingSubheadline =
-      "Fetching the signed catalog, downloading the verified files, and asking the pinned engine for a plan."
+      "Downloading the Omarchy packages."
 
     public static func preparingStageTitle(
       _ stage: AssetProgressUpdate.Stage
@@ -112,7 +117,7 @@
     public static let authorizeRetryTitle = "Retry Recovery authorization."
     public static let authorizeRetryBody =
       "Only the last step runs again. The disk is already verified."
-    public static let authorizeUsernameLabel = "User Name"
+    public static let authorizeUsernameLabel = "Username"
     public static let authorizePasswordLabel = "Password"
     public static let authorizeCancel = "Cancel"
     public static let authorizeInstall = "Install"
@@ -201,15 +206,15 @@
 
     public static let recoveryHeadline = "One step left, in Recovery"
     public static let recoverySubheadline =
-      "Apple asks you to approve the new system in person. About two minutes."
+      "Follow the steps below to complete the recovery process and get Omarchy started."
     public static let recoveryDetailsTitle = "What happens in Recovery"
     public static let recoveryExplainer =
-      "This is Apple’s “One True Recovery”. Finish Installation sets the boot policy for the new volume — the same mechanism Asahi Linux uses. macOS keeps full security. Skipping changes nothing; you can return any time."
+      "Your Mac only starts systems it has been told to trust. In Recovery you give Omarchy that permission: choose Finish Installation and sign in with your MacOS password. This unlocks the new Omarchy volume so it can boot, and nothing else. MacOS and its security stay exactly as they are, and you can come back to it at any time."
     public static let recoveryHint = "No rush — these steps stay here."
-    public static let recoveryShutDown = "Shut Down…"
+    public static let recoveryShutDown = "Shut Down"
     public static let shutdownConfirmationTitle = "Shut down this Mac now?"
     public static let shutdownConfirmationBody =
-      "After it turns off: hold the power button until “Loading startup options” appears, then pick Omarchy → Finish Installation and sign in."
+      "After it turns off, hold the power button until “Loading startup options” appears, then pick Omarchy → Finish Installation and sign in."
     public static let shutdownConfirmationAction = "Shut Down"
     public static let mediaHeadline = "Attach the installation media"
     public static let mediaSubheadline =
@@ -261,7 +266,7 @@
 
     public static let doneHeadline = "Omarchy is installed"
     public static let doneSubheadline =
-      "Hold the power button at startup to choose Omarchy or macOS."
+      "Hold the power button at startup to choose Omarchy or MacOS."
     public static let doneDetailsTitle = "What was verified"
     public static let startOver = "Start over"
     public static let doneVerifiedRows = [
@@ -270,7 +275,7 @@
         label: "Read-back",
         value: "installed files re-hashed and matched"
       ),
-      PlanFactRow(label: "macOS", value: "untouched, full security"),
+      PlanFactRow(label: "MacOS", value: "untouched, full security"),
       PlanFactRow(label: "Recovery", value: "partition intact"),
     ]
 
@@ -354,7 +359,7 @@
         return FailureDisplay(
           headline: "Recovery authorization didn’t complete",
           plainDetail:
-            "The disk work finished and was verified. macOS still boots. Retry the last step.",
+            "The disk work finished and was verified. MacOS still boots. Retry the last step.",
           technicalDetail: technical,
           remedy:
             "Re-enter the machine-owner password to retry only the checkpoint-bound boot-policy handoff.",
@@ -370,13 +375,13 @@
             plainDetail:
               "Nothing was changed. The helper checks the password before any disk work starts.",
             technicalDetail: technical,
-            remedy: "Enter the machine owner’s macOS user name and password again."
+            remedy: "Enter the machine owner’s MacOS user name and password again."
           )
         case .recoveryAuthorizationFailed:
           return FailureDisplay(
             headline: "Recovery authorization didn’t complete",
             plainDetail:
-              "The disk work finished and was verified. macOS still boots.",
+              "The disk work finished and was verified. MacOS still boots.",
             technicalDetail: technical,
             remedy: "Retry only the Recovery authorization step."
           )
@@ -465,7 +470,7 @@
             plainDetail:
               "Nothing was downloaded or changed beyond verified files. The pinned engine did not offer a usable place for Omarchy.",
             technicalDetail: technical,
-            remedy: "Free up space in macOS, then check again."
+            remedy: "Free up space in MacOS, then check again."
           )
         }
       }
@@ -522,11 +527,17 @@
 
     // MARK: Formatting
 
+    /// Whole-number sizes: "137 GB", "18 MB". Decimal places only add noise
+    /// at the scale people choose disk space in.
     public static func bytes(_ value: UInt64) -> String {
-      ByteCountFormatter.string(
-        fromByteCount: Int64(clamping: value),
-        countStyle: .file
-      )
+      let gb: Double = 1_000_000_000
+      let mb: Double = 1_000_000
+      let kb: Double = 1_000
+      let count = Double(value)
+      if count >= gb { return "\(Int((count / gb).rounded())) GB" }
+      if count >= mb { return "\(Int((count / mb).rounded())) MB" }
+      if count >= kb { return "\(Int((count / kb).rounded())) KB" }
+      return "\(value) bytes"
     }
 
     public static func exactBytes(_ value: UInt64) -> String {

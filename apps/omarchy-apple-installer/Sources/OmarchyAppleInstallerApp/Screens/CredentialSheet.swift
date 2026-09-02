@@ -93,7 +93,7 @@ struct CredentialSheet: View {
       .padding(.top, 14)
     }
     .padding(24)
-    .frame(width: 380)
+    .frame(width: 304)
     .background(OmarchyTheme.window)
     .onAppear {
       focus = input.username.isEmpty ? .username : .password

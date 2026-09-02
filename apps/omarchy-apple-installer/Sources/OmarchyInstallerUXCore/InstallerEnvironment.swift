@@ -411,8 +411,12 @@
   /// replays a recorded journal. Neither ever hands a credential back.
   public protocol InstallerEnvironment: Sendable {
     func inspect() async throws -> HostDisplay
+    /// `omarchyBytes` asks the planner for that much space for Omarchy; nil
+    /// keeps the balanced default. The engine still clamps the request to the
+    /// candidate's real minimum and maximum.
     func preparePlan(
       selection: InstallTargetSelection,
+      omarchyBytes: UInt64?,
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay
     func approve() throws

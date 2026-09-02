@@ -10,7 +10,7 @@ struct RecoveryHandoffScreen: View {
     ScreenScaffold(
       headline: handoff.headline,
       subheadline: handoff.subheadline,
-      hint: handoff.hint
+      hint: handoff.hint.isEmpty ? nil : handoff.hint
     ) {
       VStack(alignment: .leading, spacing: 10) {
         ForEach(handoff.steps) { step in

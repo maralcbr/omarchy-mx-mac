@@ -27,7 +27,35 @@ ENGINE_NAME = "installer-v0.9.0-omarchy.7.tar.gz"
 METADATA_NAME = "installer_data.json"
 PAYLOAD_NAME = "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip"
 
-DEVICE_IDENTIFIER = "apple,j314s"
+# Every Mac Asahi Linux supports today (M1 and M2 families). The 14-inch M1 Pro
+# stays first: it is the qualified reference machine. The Mac Pro (2023) and
+# all M3/M4 Macs are still work in progress upstream and are deliberately
+# absent, so the app keeps refusing them.
+DEVICE_IDENTIFIERS = [
+    "apple,j314s",  # MacBook Pro 14" M1 Pro (reference)
+    "apple,j314c",  # MacBook Pro 14" M1 Max
+    "apple,j316s",  # MacBook Pro 16" M1 Pro
+    "apple,j316c",  # MacBook Pro 16" M1 Max
+    "apple,j274",   # Mac mini M1
+    "apple,j293",   # MacBook Pro 13" M1
+    "apple,j313",   # MacBook Air M1
+    "apple,j456",   # iMac 24" M1 (4 ports)
+    "apple,j457",   # iMac 24" M1 (2 ports)
+    "apple,j375c",  # Mac Studio M1 Max
+    "apple,j375d",  # Mac Studio M1 Ultra
+    "apple,j413",   # MacBook Air 13" M2
+    "apple,j415",   # MacBook Air 15" M2
+    "apple,j493",   # MacBook Pro 13" M2
+    "apple,j473",   # Mac mini M2
+    "apple,j474s",  # Mac mini M2 Pro
+    "apple,j414s",  # MacBook Pro 14" M2 Pro
+    "apple,j414c",  # MacBook Pro 14" M2 Max
+    "apple,j416s",  # MacBook Pro 16" M2 Pro
+    "apple,j416c",  # MacBook Pro 16" M2 Max
+    "apple,j475c",  # Mac Studio M2 Max
+    "apple,j475d",  # Mac Studio M2 Ultra
+]
+DEVICE_IDENTIFIER = DEVICE_IDENTIFIERS[0]
 ASAHI_INSTALLER_TAG = "v0.9.0"
 ASAHI_INSTALLER_REVISION = "f0469cea0899f3efed8efead604174c7a53c4451"
 ASAHI_INSTALLER_DATA_REVISION = "42648e71423eba308d2e3e6228253eff679b068b"
@@ -196,7 +224,7 @@ def main() -> None:
         "expiresAt": expires.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "models": [
             {
-                "deviceIdentifier": DEVICE_IDENTIFIER,
+                "deviceIdentifier": device_identifier,
                 "status": "enabled",
                 "asahiInstallerTag": ASAHI_INSTALLER_TAG,
                 "asahiInstallerRevision": ASAHI_INSTALLER_REVISION,
@@ -211,6 +239,7 @@ def main() -> None:
                 "metadataArtifact": artifact(metadata, arguments.base_url),
                 "payloadArtifact": payload_artifact,
             }
+            for device_identifier in DEVICE_IDENTIFIERS
         ],
     }
 

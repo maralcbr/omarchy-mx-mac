@@ -9,6 +9,9 @@
     case welcome(HostDisplay)
     case existingInstallChoice([ExistingInstallDisplay], host: HostDisplay)
     case preparingPlan(AssetProgressUpdate)
+    /// Everything is downloaded and verified; the plan waits for the person to
+    /// continue instead of replacing the download screen on its own.
+    case planPrepared(PlanDisplay, AssetProgressUpdate)
     case planReview(PlanDisplay, acknowledged: Bool)
     case awaitingInstall(
       PlanDisplay,
@@ -53,6 +56,13 @@
     /// The last successfully inspected host, kept so a re-prepare that
     /// surfaces the existing-install choice can still return to Welcome.
     private var lastHost: HostDisplay?
+    private var lastSelection: InstallTargetSelection = .automatic
+    private var lastOmarchyBytes: UInt64?
+    private var lastPrepared: (plan: PlanDisplay, update: AssetProgressUpdate)?
+    /// True while a chosen size is being re-planned; the Plan screen stays
+    /// visible with its controls disabled instead of showing the download
+    /// screen again.
+    public private(set) var isReplanning = false
 
     public init(environment: any InstallerEnvironment) {
       self.environment = environment
@@ -77,7 +87,7 @@
     public var railStep: InstallerRailStep {
       switch phase {
       case .inspecting, .welcome, .unsupported: .check
-      case .existingInstallChoice, .preparingPlan, .planReview: .plan
+      case .existingInstallChoice, .preparingPlan, .planPrepared, .planReview: .plan
       case .awaitingInstall: .authorize
       case .installing, .failed: .install
       case .awaitingRecovery, .done: .finish
@@ -171,6 +181,63 @@
       }
     }
 
+    /// Re-plan with a chosen amount of space for Omarchy. The verified files
+    /// are reused, so this lands straight back in review with the new plan.
+    public func replan(omarchyBytes: UInt64) async {
+      switch phase {
+      case .planReview, .planPrepared:
+        isReplanning = true
+        defer { isReplanning = false }
+        await preparePlan(
+          selection: lastSelection, host: lastHost, omarchyBytes: omarchyBytes, hold: false)
+      default:
+        return
+      }
+    }
+
+    // MARK: Navigation
+
+    /// One step back from wherever the person is, without losing prepared
+    /// work. Nothing here changes the disk; leaving the authorize step
+    /// discards the approval so it must be given again.
+    public func goBack() {
+      switch phase {
+      case .existingInstallChoice:
+        cancelExistingInstallChoice()
+      case .planPrepared:
+        if let host = lastHost { phase = .welcome(host) }
+      case .planReview(let plan, _):
+        if let prepared = lastPrepared, prepared.plan == plan {
+          phase = .planPrepared(prepared.plan, prepared.update)
+        } else if let host = lastHost {
+          phase = .welcome(host)
+        }
+      case .awaitingInstall:
+        back()
+      default:
+        return
+      }
+    }
+
+    /// Jump to an earlier step from the rail. Only steps already passed are
+    /// reachable; the current and future steps are ignored.
+    public func navigate(to step: InstallerRailStep) {
+      guard completedRailSteps.contains(step) else {
+        return
+      }
+      switch (step, phase) {
+      case (.check, .existingInstallChoice), (.check, .planPrepared), (.check, .planReview):
+        if let host = lastHost { phase = .welcome(host) }
+      case (.check, .awaitingInstall):
+        back()
+        if let host = lastHost { phase = .welcome(host) }
+      case (.plan, .awaitingInstall):
+        back()
+      default:
+        return
+      }
+    }
+
     // MARK: Existing-install choice
 
     /// Plans the removal-and-reuse of one detected install. Only the
@@ -209,15 +276,23 @@
 
     private func preparePlan(
       selection: InstallTargetSelection,
-      host: HostDisplay?
+      host: HostDisplay?,
+      omarchyBytes: UInt64? = nil,
+      hold: Bool = true
     ) async {
       resetForPlanPreparation()
-      phase = .preparingPlan(AssetProgressUpdate(stage: .fetchingCatalog))
+      lastSelection = selection
+      lastOmarchyBytes = omarchyBytes
+      if !isReplanning {
+        phase = .preparingPlan(AssetProgressUpdate(stage: .fetchingCatalog))
+      }
       isBusy = true
       defer { isBusy = false }
 
       do {
-        let outcome = try await environment.preparePlan(selection: selection) {
+        let outcome = try await environment.preparePlan(
+          selection: selection, omarchyBytes: omarchyBytes
+        ) {
           [weak self] update in
           Task { @MainActor in
             self?.applyPreparation(update)
@@ -225,7 +300,14 @@
         }
         switch outcome {
         case .plan(let plan):
-          phase = .planReview(plan, acknowledged: false)
+          let lastUpdate: AssetProgressUpdate =
+            if case .preparingPlan(let update) = phase {
+              update
+            } else {
+              lastPrepared?.update ?? AssetProgressUpdate(stage: .planning)
+            }
+          lastPrepared = (plan, lastUpdate)
+          phase = hold ? .planPrepared(plan, lastUpdate) : .planReview(plan, acknowledged: false)
         case .existingInstallChoice(let options):
           guard let host, !options.isEmpty else {
             // A choice without the host context (or without options) has no
@@ -288,6 +370,15 @@
     }
 
     // MARK: Review and approval
+
+    /// Leave the finished download screen for the plan review. Only valid once
+    /// preparation has completed; a no-op in every other phase.
+    public func continueToPlanReview() {
+      guard case .planPrepared(let plan, _) = phase else {
+        return
+      }
+      phase = .planReview(plan, acknowledged: false)
+    }
 
     public func setAcknowledged(_ value: Bool) {
       guard case .planReview(let plan, _) = phase else {

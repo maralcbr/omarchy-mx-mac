@@ -43,10 +43,10 @@ struct OmarchyAppleInstallerApp: App {
   var body: some Scene {
     WindowGroup(PlainLanguage.windowTitle) {
       InstallerRootView(environment: InstallerEnvironmentFactory.make())
-        .frame(minWidth: 900, minHeight: 620)
+        .frame(minWidth: 720, minHeight: 496)
         .tint(OmarchyTheme.accent)
     }
-    .defaultSize(width: 1000, height: 700)
+    .defaultSize(width: 800, height: 560)
     .windowResizability(.contentMinSize)
   }
 }

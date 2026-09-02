@@ -8,36 +8,20 @@ struct InstallerRail: View {
   let current: InstallerRailStep
   let completed: Set<InstallerRailStep>
   let blocked: Bool
+  /// Completed steps are clickable so the person can walk back through the
+  /// flow; the current and future steps are not.
+  var onSelect: (InstallerRailStep) -> Void = { _ in }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      AppMark(size: 126)
-        .padding(.leading, 12)
-        .padding(.top, 2)
-        .padding(.bottom, 20)
+      AppMark(size: 156)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.top, 6)
+        .padding(.bottom, 22)
       ForEach(InstallerRailStep.allCases) { step in
         railRow(step)
       }
       Spacer(minLength: 12)
-      VStack(alignment: .leading, spacing: 2) {
-        HStack(spacing: 6) {
-          Circle()
-            .fill(blocked ? OmarchyTheme.danger : OmarchyTheme.accent)
-            .frame(width: 7, height: 7)
-          Text(blocked ? PlainLanguage.safetyLocked : PlainLanguage.safetyActive)
-            .font(OmarchyTheme.caption.weight(.medium))
-        }
-        Text(
-          blocked
-            ? PlainLanguage.safetyLockedDetail
-            : PlainLanguage.safetyActiveDetail
-        )
-        .font(OmarchyTheme.caption)
-        .foregroundStyle(OmarchyTheme.secondaryText)
-        .fixedSize(horizontal: false, vertical: true)
-      }
-      .padding(.horizontal, 10)
-      .padding(.bottom, 10)
     }
     .padding(8)
     .frame(width: OmarchyTheme.railWidth, alignment: .leading)
@@ -49,24 +33,33 @@ struct InstallerRail: View {
   private func railRow(_ step: InstallerRailStep) -> some View {
     let isCurrent = step == current
     let isDone = completed.contains(step)
-    return HStack(spacing: 11) {
+    return Button {
+      if isDone {
+        onSelect(step)
+      }
+    } label: {
+      railRowLabel(step, isCurrent: isCurrent, isDone: isDone)
+    }
+    .buttonStyle(.plain)
+    .focusable(false)
+    .focusEffectDisabled()
+    .disabled(!isDone && !isCurrent)
+    .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
+  }
+
+  private func railRowLabel(_ step: InstallerRailStep, isCurrent: Bool, isDone: Bool) -> some View {
+    HStack(spacing: 11) {
       ZStack {
         Circle()
           .fill(
             isCurrent || isDone ? OmarchyTheme.accent : OmarchyTheme.track
           )
           .frame(width: 27, height: 27)
-        if isDone {
-          Image(systemName: "checkmark")
-            .font(.system(size: 13, weight: .bold))
-            .foregroundStyle(OmarchyTheme.accentText)
-        } else {
-          Text("\(step.number)")
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(
-              isCurrent ? OmarchyTheme.accentText : OmarchyTheme.secondaryText
-            )
-        }
+        Text("\(step.number)")
+          .font(.system(size: 15, weight: .semibold))
+          .foregroundStyle(
+            isCurrent || isDone ? OmarchyTheme.accentText : OmarchyTheme.secondaryText
+          )
       }
       Text(step.title)
         .font(.system(size: 19.5, weight: isCurrent ? .semibold : .regular))
@@ -81,8 +74,8 @@ struct InstallerRail: View {
       RoundedRectangle(cornerRadius: 10)
         .fill(isCurrent ? OmarchyTheme.accentSoft : Color.clear)
     )
+    .contentShape(RoundedRectangle(cornerRadius: 10))
     .accessibilityElement(children: .combine)
-    .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
   }
 }
 
@@ -95,7 +88,7 @@ struct AppMark: View {
         Image(nsImage: image)
           .resizable()
           .interpolation(.high)
-          .padding(size * 0.19)
+          .padding(size * 0.06)
       } else {
         Text("OM")
           .font(.system(size: size * 0.3, weight: .black))
@@ -103,12 +96,6 @@ struct AppMark: View {
       }
     }
     .frame(width: size, height: size)
-    .background(Color(nsColor: NSColor(srgbRed: 0.04, green: 0.05, blue: 0.03, alpha: 1)))
-    .clipShape(RoundedRectangle(cornerRadius: size * 0.23, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: size * 0.23, style: .continuous)
-        .strokeBorder(OmarchyTheme.separator, lineWidth: 1)
-    )
     .accessibilityLabel("Omarchy")
   }
 
@@ -371,7 +358,7 @@ struct DeviceRow: View {
 
   var body: some View {
     HStack(spacing: 14) {
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: 6) {
         Text(name)
           .font(.system(size: 14, weight: .semibold))
         Text(meta)
@@ -380,6 +367,7 @@ struct DeviceRow: View {
       }
       Spacer(minLength: 8)
       badge
+        .padding(.trailing, 12)
     }
   }
 }
@@ -390,6 +378,11 @@ struct DiskBar: View {
   /// When set, the divider between the segments is draggable and reports the
   /// Omarchy share of the disk (0...1) as it moves.
   var onAdjustOmarchyFraction: ((Double) -> Void)?
+  /// Called once when the drag ends, with the final Omarchy share.
+  var onCommitOmarchyFraction: ((Double) -> Void)?
+  /// While set, the divider is drawn but drags are ignored (a re-plan is in
+  /// flight). Keeping the handle on screen avoids it flashing off and on.
+  var isFrozen = false
 
   var body: some View {
     GeometryReader { geometry in
@@ -399,7 +392,7 @@ struct DiskBar: View {
       ZStack(alignment: .leading) {
         HStack(spacing: 0) {
           segment(
-            name: "macOS",
+            name: "MacOS",
             bytes: macOSBytes,
             width: width - omarchyWidth,
             background: OmarchyTheme.track,
@@ -429,8 +422,14 @@ struct DiskBar: View {
       .gesture(
         DragGesture(minimumDistance: 0)
           .onChanged { value in
+            guard !isFrozen else { return }
             let x = min(max(0, value.location.x), width)
             onAdjustOmarchyFraction?(1 - x / max(1, width))
+          }
+          .onEnded { value in
+            guard !isFrozen else { return }
+            let x = min(max(0, value.location.x), width)
+            onCommitOmarchyFraction?(1 - x / max(1, width))
           },
         including: onAdjustOmarchyFraction == nil ? .none : .all
       )
@@ -449,12 +448,9 @@ struct DiskBar: View {
   ) -> some View {
     ZStack {
       background
-      // A narrow segment drops its name so the size never gets crushed.
-      Text(
-        width < 90
-          ? PlainLanguage.bytes(bytes)
-          : name + " · " + PlainLanguage.bytes(bytes)
-      )
+      // Just the amount of space; the colour says which side is which.
+      Text(PlainLanguage.bytes(bytes))
+        .accessibilityLabel(name + " " + PlainLanguage.bytes(bytes))
       .font(.system(size: 10.5, weight: .semibold))
       .foregroundStyle(foreground)
       .lineLimit(1)
@@ -594,7 +590,7 @@ struct ScreenScaffold<Content: View, Actions: View>: View {
         Spacer(minLength: 16)
       }
       .frame(maxWidth: OmarchyTheme.contentMaxWidth, alignment: .leading)
-      HStack(spacing: 8) {
+      HStack(spacing: 16) {
         if let hint {
           Text(hint)
             .font(OmarchyTheme.caption)

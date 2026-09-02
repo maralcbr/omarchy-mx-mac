@@ -10,8 +10,7 @@ struct WelcomeScreen: View {
   var body: some View {
     ScreenScaffold(
       headline: PlainLanguage.checkHeadline,
-      subheadline: PlainLanguage.checkSubheadline,
-      hint: PlainLanguage.checkHint
+      subheadline: PlainLanguage.checkSubheadline
     ) {
       Panel {
         DeviceRow(
@@ -19,14 +18,14 @@ struct WelcomeScreen: View {
           meta: host.chipAndSpace,
           badge: StatusBadge(text: PlainLanguage.supportedBadge, kind: .ok)
         )
+        .padding(.vertical, 6)
       }
+      .padding(.top, 8)
       DetailsPanel(title: PlainLanguage.checkDetailsTitle) {
         PreflightGrid(checks: host.checks)
       }
+      .padding(.top, 10)
     } actions: {
-      Button(PlainLanguage.checkAgain, action: onReinspect)
-        .omarchySecondaryButton()
-        .disabled(isBusy)
       Button(PlainLanguage.checkContinue, action: onContinue)
         .omarchyPrimaryButton()
         .disabled(isBusy)

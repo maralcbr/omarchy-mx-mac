@@ -60,6 +60,7 @@
 
     func preparePlan(
       selection: InstallTargetSelection,
+      omarchyBytes: UInt64?,
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay {
       if scenario == .existingInstall, selection == .automatic {
@@ -77,10 +78,19 @@
         throw InstallerAppError.inspectionRequired
       }
 
+      let artifacts = Self.previewArtifacts
+      if omarchyBytes != nil {
+        // A size change re-plans against already verified files.
+        try? await Task.sleep(for: .milliseconds(250))
+        let total: UInt64 = 994_662_584_320
+        let unit: UInt64 = 1_000_000_000
+        let length = min(total - 120 * unit, max(120 * unit, omarchyBytes ?? plan.lengthBytes))
+        return .plan(planDisplay(plan: plan, length: length, total: total, artifacts: artifacts))
+      }
+
       progress(AssetProgressUpdate(stage: .fetchingCatalog))
       try? await Task.sleep(for: .milliseconds(500))
 
-      let artifacts = Self.previewArtifacts
       for step in 1...12 {
         let fraction = Double(step) / 12
         let rows = artifacts.map { artifact in
@@ -101,8 +111,9 @@
       progress(AssetProgressUpdate(stage: .planning))
       try? await Task.sleep(for: .milliseconds(400))
 
-      let length = plan.lengthBytes
       let total: UInt64 = 994_662_584_320
+      let unit: UInt64 = 1_000_000_000
+      let length = min(total - 120 * unit, max(120 * unit, omarchyBytes ?? plan.lengthBytes))
       return .plan(planDisplay(plan: plan, length: length, total: total, artifacts: artifacts))
     }
 
@@ -146,7 +157,7 @@
           PlanFactRow(
             label: "Rollback",
             value:
-              "macOS untouched until approval; every write is checkpointed and journaled"
+              "MacOS untouched until approval; every write is checkpointed and journaled"
           ),
         ]
       )
@@ -210,7 +221,7 @@
           subheadline: PlainLanguage.recoverySubheadline,
           steps: PlainLanguage.recoverySteps(for: steps),
           explainer: PlainLanguage.recoveryExplainer,
-          hint: PlainLanguage.recoveryHint
+          hint: ""
         )
       )
     }
@@ -220,8 +231,8 @@
     private static let previewArtifacts = [
       PlanArtifactDisplay(
         role: "payload",
-        fileName: "omarchy-2026.08.29-aarch64-apple-silicon.zip",
-        expectedBytes: 4_600_000_000
+        fileName: "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+        expectedBytes: 3_638_729_568
       ),
       PlanArtifactDisplay(
         role: "metadata",
@@ -250,10 +261,10 @@
         ),
         PreflightCheck(
           id: "macos",
-          label: "macOS",
+          label: "MacOS",
           value: "Preview replay",
           satisfied: true,
-          tooltip: "A current macOS is required for the Recovery handoff."
+          tooltip: "A current MacOS is required for the Recovery handoff."
         ),
         PreflightCheck(
           id: "power",
@@ -268,7 +279,7 @@
           label: "FileVault",
           value: "On, stays on",
           satisfied: true,
-          tooltip: "Read only. Your macOS data stays encrypted."
+          tooltip: "Read only. Your MacOS data stays encrypted."
         ),
         PreflightCheck(
           id: "space",

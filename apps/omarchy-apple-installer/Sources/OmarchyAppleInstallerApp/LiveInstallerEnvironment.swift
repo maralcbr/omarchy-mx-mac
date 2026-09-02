@@ -108,6 +108,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
   func preparePlan(
     selection: InstallTargetSelection,
+    omarchyBytes: UInt64?,
     progress: @escaping @Sendable (AssetProgressUpdate) -> Void
   ) async throws -> PlanPreparationDisplay {
     let (host, hasTranscript) = lock.withLock {
@@ -200,7 +201,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       requestedLengthBytes = replace.lengthBytes
     case .automatic, .installAlongside:
       let recommendation = try InstallerAllocationRecommendation(
-        inventory: inventory
+        inventory: inventory,
+        targetBytes: omarchyBytes ?? InstallerAllocationRecommendation.balancedTargetBytes
       )
       candidate = recommendation.candidate
       requestedLengthBytes = recommendation.requestedLengthBytes
@@ -380,10 +382,10 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       ),
       PreflightCheck(
         id: "macos",
-        label: "macOS",
+        label: "MacOS",
         value: host.macOSVersion,
         satisfied: true,
-        tooltip: "A current macOS is required for the Recovery handoff."
+        tooltip: "A current MacOS is required for the Recovery handoff."
       ),
       PreflightCheck(
         id: "power",
@@ -398,7 +400,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         label: "FileVault",
         value: host.fileVaultEnabled ? "On, stays on" : "Off",
         satisfied: true,
-        tooltip: "Read only. Your macOS data stays encrypted."
+        tooltip: "Read only. Your MacOS data stays encrypted."
       ),
       PreflightCheck(
         id: "space",
@@ -532,7 +534,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       PlanFactRow(
         label: "Rollback",
         value:
-          "macOS untouched until approval; every write is checkpointed and journaled"
+          "MacOS untouched until approval; every write is checkpointed and journaled"
       ),
     ]
 
@@ -560,7 +562,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         subheadline: PlainLanguage.recoverySubheadline,
         steps: PlainLanguage.recoverySteps(for: progress.requiredHumanSteps),
         explainer: PlainLanguage.recoveryExplainer,
-        hint: PlainLanguage.recoveryHint
+        hint: ""
       )
     case .attachInstallationMedia:
       handoff = HandoffDisplay(
@@ -568,7 +570,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         subheadline: PlainLanguage.mediaSubheadline,
         steps: PlainLanguage.recoverySteps(for: progress.requiredHumanSteps),
         explainer: PlainLanguage.recoveryExplainer,
-        hint: PlainLanguage.recoveryHint
+        hint: ""
       )
     default:
       handoff = nil
