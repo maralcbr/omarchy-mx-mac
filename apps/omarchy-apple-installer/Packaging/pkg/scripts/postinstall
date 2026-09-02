@@ -9,10 +9,23 @@ LABEL=com.omarchy.mx.installer.helper
 if [[ -f "$PLIST" ]]; then
   /usr/sbin/chown root:wheel "$PLIST"
   /bin/chmod 0644 "$PLIST"
-  # Replace any stale registration, then load fresh.
+  # Replace any stale registration, then load fresh. A daemon that fails to
+  # load leaves the app unable to reach its privileged helper, so surface the
+  # failure through the installer instead of hiding it: PackageKit records
+  # this script's output in /var/log/install.log and fails the package.
   /bin/launchctl bootout system/"$LABEL" 2>/dev/null || true
-  /bin/launchctl bootstrap system "$PLIST" 2>/dev/null || \
-    /bin/launchctl load -w "$PLIST" 2>/dev/null || true
+  if ! bootstrap_error="$(/bin/launchctl bootstrap system "$PLIST" 2>&1)"; then
+    echo "postinstall: failed to load $LABEL from $PLIST: $bootstrap_error" >&2
+    /usr/bin/logger -t omarchy-installer-pkg "failed to load $LABEL: $bootstrap_error" || true
+    exit 1
+  fi
+  if ! /bin/launchctl print system/"$LABEL" >/dev/null 2>&1; then
+    echo "postinstall: $LABEL did not register with launchd" >&2
+    exit 1
+  fi
+else
+  echo "postinstall: daemon plist is missing: $PLIST" >&2
+  exit 1
 fi
 
 APP="/Applications/Omarchy MX Mac Installer.app"

@@ -1,0 +1,56 @@
+#!/bin/bash
+# Derive the system LaunchDaemon plist that build-pkg.sh installs into
+# /Library/LaunchDaemons from the plist the app embeds under
+# Contents/Library/LaunchDaemons. The embedded copy uses BundleProgram (a path
+# relative to the bundle, the SMAppService form); a daemon in
+# /Library/LaunchDaemons needs an absolute Program path, or launchd cannot load
+# it and the app reports the privileged helper as unreachable.
+#
+# Usage: derive-daemon-plist <app bundle> <output plist> [install location]
+#   install location defaults to /Applications.
+set -euo pipefail
+
+app=${1:-}
+output=${2:-}
+install_location=${3:-/Applications}
+[[ -d $app && -n $output ]] || {
+  echo "usage: derive-daemon-plist <app bundle> <output plist> [install location]" >&2
+  exit 64
+}
+[[ $install_location == /* ]] || {
+  echo "derive-daemon-plist: install location must be absolute: $install_location" >&2
+  exit 65
+}
+
+embedded="$app/Contents/Library/LaunchDaemons/com.omarchy.mx.installer.helper.plist"
+[[ -f $embedded ]] || {
+  echo "derive-daemon-plist: embedded daemon plist is missing: $embedded" >&2
+  exit 66
+}
+
+app_name=$(basename "$app")
+python3 - "$embedded" "$output" "$app" "$install_location/$app_name" <<'PY'
+import plistlib, sys, os
+embedded, output, app, installed_app = sys.argv[1:5]
+with open(embedded, "rb") as handle:
+    plist = plistlib.load(handle)
+relative = plist.pop("BundleProgram", None)
+program = plist.get("Program")
+if relative:
+    if os.path.isabs(relative) or relative.startswith(".."):
+        sys.exit("derive-daemon-plist: BundleProgram must be a bundle-relative path: %s" % relative)
+    program = os.path.join(installed_app, relative)
+    if not os.path.isfile(os.path.join(app, relative)):
+        sys.exit("derive-daemon-plist: helper is missing inside the app: %s" % relative)
+if not program or not os.path.isabs(program):
+    sys.exit("derive-daemon-plist: daemon Program must be an absolute path (got %r)" % program)
+if not program.startswith(installed_app + "/"):
+    sys.exit("derive-daemon-plist: daemon Program must live inside the installed app: %s" % program)
+plist["Program"] = program
+for key in ("Label", "MachServices", "UserName"):
+    if key not in plist:
+        sys.exit("derive-daemon-plist: embedded plist lacks %s" % key)
+with open(output, "wb") as handle:
+    plistlib.dump(plist, handle, sort_keys=True)
+print(program)
+PY
