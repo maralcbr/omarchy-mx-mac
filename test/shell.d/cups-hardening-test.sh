@@ -134,6 +134,10 @@ cat >"$mock_bin/sudo" <<'SH'
 printf 'sudo\t%s\n' "$*" >>"$OMARCHY_CUPS_TEST_LOG"
 exec "$@"
 SH
+cat >"$mock_bin/systemd-sysusers" <<'SH'
+#!/bin/bash
+printf 'systemd-sysusers\t%s\n' "$*" >>"$OMARCHY_CUPS_TEST_LOG"
+SH
 chmod +x "$mock_bin"/*
 
 log="$test_tmp/actions.log"
@@ -171,8 +175,11 @@ marker="$test_tmp/var/lib/omarchy/migrations/1787815267"
 PATH="$mock_bin:$PATH" \
   OMARCHY_PATH="$ROOT" \
   OMARCHY_CUPS_MIGRATION_MARKER="$marker" \
+  OMARCHY_CUPS_SYSUSERS_CONF="$sysusers_conf" \
   bash -euo pipefail "$ROOT/migrations/1787815267.sh"
 
+grep -qxF $'systemd-sysusers\t'"$sysusers_conf" "$log" ||
+  fail "the migration creates the cups-browsed account before hardening CUPS"
 grep -qxF $'omarchy-pkg-drop\tcups-pdf' "$log" ||
   fail "the migration removes CUPS-PDF"
 grep -qxF $'omarchy-pkg-add\tcups-pk-helper' "$log" ||
