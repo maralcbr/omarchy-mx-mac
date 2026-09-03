@@ -67,9 +67,10 @@ Reconciled on 2026-09-01:
 - `scripts/make-unsigned-catalog.py` pins the `2026.09.01` payload and
   `evidenceRevision 4.0.1-mac.2.9.090126`.
 
-Still open (block only the *next engine* rebuild, not this release):
-1. `source-lock.json` `downstream_overlay.version` still says
-   `v0.9.0-omarchy.6` while the shipped artifact is `.7`; the replace-install
-   feature additionally needs a rekey to `.8` with the new overlay files.
-2. `Packaging/Info.plist` template still carries `0.6.0`/build `6`; harmless
-   (`build-app.sh` overwrites both) but update it with the next app build.
+Resolved for v4.0.2-mac.1.11.090226 (engine `v0.9.0-omarchy.8` locked, `.9` shipped):
+1. `source-lock.json` was rekeyed to `v0.9.0-omarchy.8` with the replace and
+   repair overlay files and their tests; two clean builds reproduce it.
+2. The shipped `.9` comes from `scripts/resign-engine.sh` (the reusable form of
+   the `.6` → `.7` procedure): prune the GUI and static-link components, drop
+   dangling symlinks, re-sign every Mach-O, re-seal the Python framework.
+3. `Packaging/Info.plist` now carries the current version and build number.

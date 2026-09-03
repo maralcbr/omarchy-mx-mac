@@ -8,19 +8,19 @@
     func testCandidateSixIdentityIsPinnedExactly() {
       XCTAssertEqual(
         ValidationEngineArtifactLocator.version,
-        "v0.9.0-omarchy.7"
+        "v0.9.0-omarchy.9"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.fileName,
-        "installer-v0.9.0-omarchy.7.tar.gz"
+        "installer-v0.9.0-omarchy.9.tar.gz"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.expectedDigest,
-        "sha256:063fd0765fb2057384d9653f7bf547b0471af31fc764e039d578d4fef6dce4d5"
+        "sha256:355f74cfdc457c837541282220fc8540baacdbe9d2b6e0f9da12db5ba0e8ea93"
       )
       XCTAssertEqual(
         ValidationEngineArtifactLocator.expectedSizeBytes,
-        17_904_504
+        17_915_770
       )
     }
 
