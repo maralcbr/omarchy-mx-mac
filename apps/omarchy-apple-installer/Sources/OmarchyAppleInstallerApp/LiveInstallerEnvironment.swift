@@ -447,7 +447,28 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       checks: checks,
       helper: helper,
       blockingReason: blockingReason(host: host, engineFailure: engineFailure)
+    ,
+      existingInstalls: Self.existingInstalls(in: engine)
     )
+  }
+
+  /// Existing Omarchy installs the bundled engine's inventory reports as
+  /// replace candidates. Read at the welcome stage, so the installer can
+  /// refuse before it fetches the catalog or downloads anything.
+  static func existingInstalls(
+    in engine: ValidatedEngineTranscript?
+  ) -> [ExistingInstallDisplay] {
+    guard let inventory = engine?.inventory else {
+      return []
+    }
+    return inventory.candidates
+      .filter { $0.kind == "replace" }
+      .map { existing in
+        ExistingInstallDisplay(
+          sourceIdentifier: existing.sourceIdentifier,
+          sizeDescription: PlainLanguage.bytes(existing.lengthBytes)
+        )
+      }
   }
 
   private func blockingReason(

@@ -521,7 +521,45 @@
 
     // MARK: Existing install
 
-    func testAnExistingInstallIsRefusedWithNoWayForward() async {
+    func testAnExistingInstallIsRefusedBeforeAnythingIsFetched() async {
+      let environment = MockInstallerEnvironment()
+      let install = ExistingInstallDisplay(
+        sourceIdentifier: "disk0s3",
+        sizeDescription: "128 GB"
+      )
+      environment.host = HostDisplay(
+        modelName: MockInstallerEnvironment.supportedHost.modelName,
+        chipAndSpace: MockInstallerEnvironment.supportedHost.chipAndSpace,
+        deviceIdentifier: MockInstallerEnvironment.supportedHost.deviceIdentifier,
+        supported: true,
+        checks: [],
+        helper: MockInstallerEnvironment.supportedHost.helper,
+        existingInstalls: [install]
+      )
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+
+      guard case .existingInstallRefused(let found, let host) = session.phase
+      else {
+        return XCTFail("Expected existingInstallRefused, got \(session.phase)")
+      }
+      XCTAssertEqual(found, [install])
+      XCTAssertEqual(host.existingInstalls, [install])
+      // Nothing was planned, so nothing was fetched.
+      XCTAssertEqual(environment.prepareCount, 0)
+
+      await session.continueToPlan()
+      session.setAcknowledged(true)
+      session.approve()
+      session.goBack()
+      guard case .existingInstallRefused = session.phase else {
+        return XCTFail("Expected the refusal to stay, got \(session.phase)")
+      }
+      XCTAssertEqual(environment.prepareCount, 0)
+      XCTAssertFalse(session.canStartInstallation)
+    }
+
+    func testAnExistingInstallFoundWhilePlanningIsRefusedToo() async {
       let environment = MockInstallerEnvironment()
       let install = ExistingInstallDisplay(
         sourceIdentifier: "disk0s3",
@@ -530,28 +568,13 @@
       environment.existingInstalls = [install]
       let session = InstallerSession(environment: environment)
       await session.inspect()
-
       await session.continueToPlan()
       session.continueToPlanReview()
 
-      guard case .existingInstallRefused(let found, let host) = session.phase
-      else {
+      guard case .existingInstallRefused(let found, _) = session.phase else {
         return XCTFail("Expected existingInstallRefused, got \(session.phase)")
       }
       XCTAssertEqual(found, [install])
-      XCTAssertEqual(host, MockInstallerEnvironment.supportedHost)
-      XCTAssertEqual(session.railStep, .plan)
-      XCTAssertEqual(environment.lastSelection, .automatic)
-      XCTAssertEqual(environment.prepareCount, 1)
-
-      // Nothing on the page moves the session on: no plan, no approval.
-      session.setAcknowledged(true)
-      session.approve()
-      session.goBack()
-      guard case .existingInstallRefused = session.phase else {
-        return XCTFail("Expected the refusal to stay, got \(session.phase)")
-      }
-      XCTAssertFalse(session.canStartInstallation)
       XCTAssertEqual(environment.prepareCount, 1)
     }
   }

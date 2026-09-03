@@ -139,7 +139,11 @@
 
       do {
         let host = try await environment.inspect()
-        if host.supported, !environment.installationBlocked {
+        if !host.existingInstalls.isEmpty {
+          // Refuse before anything is fetched: no catalog, no download.
+          lastHost = host
+          phase = .existingInstallRefused(host.existingInstalls, host: host)
+        } else if host.supported, !environment.installationBlocked {
           lastHost = host
           phase = .welcome(host)
         } else {

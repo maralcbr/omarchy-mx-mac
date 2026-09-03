@@ -36,6 +36,10 @@
     public let helper: HelperDisplay
     /// Why this Mac cannot install right now, when `supported` is false.
     public let blockingReason: String?
+    /// Omarchy installs the inspection found on the disk. Known before any
+    /// download, from the bundled validation engine's inventory; the session
+    /// refuses to go further when this is not empty.
+    public let existingInstalls: [ExistingInstallDisplay]
 
     public init(
       modelName: String,
@@ -44,7 +48,8 @@
       supported: Bool,
       checks: [PreflightCheck],
       helper: HelperDisplay,
-      blockingReason: String? = nil
+      blockingReason: String? = nil,
+      existingInstalls: [ExistingInstallDisplay] = []
     ) {
       self.modelName = modelName
       self.chipAndSpace = chipAndSpace
@@ -53,6 +58,7 @@
       self.checks = checks
       self.helper = helper
       self.blockingReason = blockingReason
+      self.existingInstalls = existingInstalls
     }
   }
 

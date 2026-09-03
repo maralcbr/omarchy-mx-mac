@@ -54,7 +54,10 @@
         deviceIdentifier: device,
         supported: !blocked,
         checks: blocked ? [] : previewChecks(free: free, required: required),
-        helper: helperStatus
+        helper: helperStatus,
+        existingInstalls: scenario == .existingInstall
+          ? [ExistingInstallDisplay(sourceIdentifier: "disk0s3", sizeDescription: "128 GB")]
+          : []
       )
     }
 
