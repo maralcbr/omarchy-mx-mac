@@ -2,30 +2,6 @@
   import Foundation
   import OmarchyAppleInstallerTrustCore
 
-  public enum InstallerRailStep: String, CaseIterable, Sendable, Identifiable {
-    case check
-    case plan
-    case authorize
-    case install
-    case finish
-
-    public var id: String { rawValue }
-
-    public var number: Int {
-      (Self.allCases.firstIndex(of: self) ?? 0) + 1
-    }
-
-    public var title: String {
-      switch self {
-      case .check: "Check"
-      case .plan: "Prepare"
-      case .authorize: "Authorize"
-      case .install: "Install"
-      case .finish: "Finish"
-      }
-    }
-  }
-
   /// Every user-visible string in the installer. Screens read from here so the
   /// wording can be reviewed in one place and unit-tested for completeness.
   public enum PlainLanguage {

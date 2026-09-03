@@ -180,8 +180,8 @@ struct OnePageInstallerView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
 
-    case .existingInstallRefused(let installs, _):
-      existingInstallRefusedPanel(installs)
+    case .existingInstallRefused:
+      existingInstallRefusedPanel()
 
     case .preparingPlan(let update), .planPrepared(_, let update):
       DownloadPanel(update: update)
@@ -335,7 +335,7 @@ struct OnePageInstallerView: View {
     }
   }
 
-  private func existingInstallRefusedPanel(_ installs: [ExistingInstallDisplay]) -> some View {
+  private func existingInstallRefusedPanel() -> some View {
     Panel {
       Text(PlainLanguage.existingInstallHeadline)
         .font(.system(size: 16, weight: .semibold))
@@ -430,7 +430,7 @@ struct OnePageInstallerView: View {
     switch phase {
     case .welcome(let seen):
       host = seen
-    case .existingInstallRefused(_, let seen):
+    case .existingInstallRefused(let seen):
       host = seen
     case .unsupported(let failure):
       host = failure.device

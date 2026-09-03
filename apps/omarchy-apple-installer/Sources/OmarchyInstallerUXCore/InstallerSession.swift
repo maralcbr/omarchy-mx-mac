@@ -9,7 +9,7 @@
     case welcome(HostDisplay)
     /// Omarchy is already on this Mac. The installer never replaces or adds
     /// to an existing install; this is a terminal page with a Close button.
-    case existingInstallRefused([ExistingInstallDisplay], host: HostDisplay)
+    case existingInstallRefused(host: HostDisplay)
     case preparingPlan(AssetProgressUpdate)
     /// Everything is downloaded and verified; the plan waits for the person to
     /// continue instead of replacing the download screen on its own.
@@ -43,7 +43,7 @@
     public private(set) var stagingProgress = [String: ArtifactStagingProgress]()
     public private(set) var journal = LiveInstallJournalModel()
     public private(set) var isBusy = false
-    public private(set) var isExecuting = false
+    private var isExecuting = false
 
     /// One-shot latch: an approved plan may be submitted for execution once.
     /// Cleared only by the re-inspect / re-prepare reset cascades, plus the one
@@ -55,8 +55,8 @@
     private let environment: any InstallerEnvironment
     private var retrySheet = CredentialSheetState.hidden
     private var installStartedAt = Date()
-    /// The last successfully inspected host, kept so a re-prepare that
-    /// surfaces the existing-install choice can still return to Welcome.
+    /// The last successfully inspected host, kept so a re-plan that surfaces
+    /// an existing install can still name the Mac it refused.
     private var lastHost: HostDisplay?
     private var lastSelection: InstallTargetSelection = .automatic
     private var lastOmarchyBytes: UInt64?
@@ -64,7 +64,7 @@
     /// True while a chosen size is being re-planned; the Plan screen stays
     /// visible with its controls disabled instead of showing the download
     /// screen again.
-    public private(set) var isReplanning = false
+    private var isReplanning = false
 
     public init(environment: any InstallerEnvironment) {
       self.environment = environment
@@ -84,24 +84,6 @@
         return sheet
       }
       return retrySheet
-    }
-
-    public var railStep: InstallerRailStep {
-      switch phase {
-      case .inspecting, .welcome, .unsupported: .check
-      case .existingInstallRefused, .preparingPlan, .planPrepared, .planReview: .plan
-      case .awaitingInstall: .authorize
-      case .installing, .failed: .install
-      case .awaitingRecovery, .done: .finish
-      }
-    }
-
-    public var completedRailSteps: Set<InstallerRailStep> {
-      let all = InstallerRailStep.allCases
-      guard let index = all.firstIndex(of: railStep) else {
-        return []
-      }
-      return Set(all.prefix(index))
     }
 
     /// Preserved verbatim from `canStartInstallation`: every conjunct still has
@@ -142,7 +124,7 @@
         if !host.existingInstalls.isEmpty {
           // Refuse before anything is fetched: no catalog, no download.
           lastHost = host
-          phase = .existingInstallRefused(host.existingInstalls, host: host)
+          phase = .existingInstallRefused(host: host)
         } else if host.supported, !environment.installationBlocked {
           lastHost = host
           phase = .welcome(host)
@@ -178,15 +160,6 @@
       await preparePlan(selection: .automatic, host: host)
     }
 
-    public func reprepare() async {
-      switch phase {
-      case .planReview, .failed:
-        await preparePlan(selection: .automatic, host: lastHost)
-      default:
-        return
-      }
-    }
-
     /// Re-plan with a chosen amount of space for Omarchy. The verified files
     /// are reused, so this lands straight back in review with the new plan.
     /// Re-plan for a chosen size. The acknowledgement survives: it says the
@@ -208,47 +181,6 @@
         selection: lastSelection, host: lastHost, omarchyBytes: omarchyBytes, hold: false)
       if acknowledged, case .planReview(let plan, _) = phase {
         phase = .planReview(plan, acknowledged: true)
-      }
-    }
-
-    // MARK: Navigation
-
-    /// One step back from wherever the person is, without losing prepared
-    /// work. Nothing here changes the disk; leaving the authorize step
-    /// discards the approval so it must be given again.
-    public func goBack() {
-      switch phase {
-      case .planPrepared:
-        if let host = lastHost { phase = .welcome(host) }
-      case .planReview(let plan, _):
-        if let prepared = lastPrepared, prepared.plan == plan {
-          phase = .planPrepared(prepared.plan, prepared.update)
-        } else if let host = lastHost {
-          phase = .welcome(host)
-        }
-      case .awaitingInstall:
-        back()
-      default:
-        return
-      }
-    }
-
-    /// Jump to an earlier step from the rail. Only steps already passed are
-    /// reachable; the current and future steps are ignored.
-    public func navigate(to step: InstallerRailStep) {
-      guard completedRailSteps.contains(step) else {
-        return
-      }
-      switch (step, phase) {
-      case (.check, .planPrepared), (.check, .planReview):
-        if let host = lastHost { phase = .welcome(host) }
-      case (.check, .awaitingInstall):
-        back()
-        if let host = lastHost { phase = .welcome(host) }
-      case (.plan, .awaitingInstall):
-        back()
-      default:
-        return
       }
     }
 
@@ -302,7 +234,7 @@
             )
             return
           }
-          phase = .existingInstallRefused(options, host: host)
+          phase = .existingInstallRefused(host: host)
         }
       } catch {
         phase = .failed(PlainLanguage.failure(for: error))
@@ -392,15 +324,6 @@
           )
         )
       }
-    }
-
-    public func back() {
-      guard case .awaitingInstall(let plan, _, _) = phase else {
-        return
-      }
-      environment.discardApproval()
-      retrySheet = .hidden
-      phase = .planReview(plan, acknowledged: false)
     }
 
     // MARK: Helper

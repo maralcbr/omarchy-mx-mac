@@ -12,7 +12,6 @@
       let session = InstallerSession(environment: environment)
 
       await session.inspect()
-      XCTAssertEqual(session.railStep, .check)
       guard case .welcome = session.phase else {
         return XCTFail("Expected welcome, got \(session.phase)")
       }
@@ -23,7 +22,6 @@
         return XCTFail("Expected planReview, got \(session.phase)")
       }
       XCTAssertFalse(acknowledged)
-      XCTAssertEqual(session.railStep, .plan)
 
       session.setAcknowledged(true)
       session.approve()
@@ -31,7 +29,6 @@
         return XCTFail("Expected awaitingInstall, got \(session.phase)")
       }
       XCTAssertEqual(environment.approveCount, 1)
-      XCTAssertEqual(session.railStep, .authorize)
       XCTAssertTrue(session.canStartInstallation)
 
       session.presentInstallCredentials()
@@ -41,7 +38,6 @@
       guard case .awaitingRecovery = session.phase else {
         return XCTFail("Expected awaitingRecovery, got \(session.phase)")
       }
-      XCTAssertEqual(session.railStep, .finish)
       XCTAssertTrue(session.hasExecutionStarted)
       XCTAssertEqual(environment.executeCount, 1)
       XCTAssertEqual(environment.lastOperation, .install)
@@ -52,7 +48,6 @@
       guard case .awaitingRecovery = session.phase else {
         return XCTFail("Expected awaitingRecovery, got \(session.phase)")
       }
-      XCTAssertEqual(session.railStep, .finish)
     }
 
     func testBlockedHostLocksToUnsupported() async {
@@ -111,7 +106,6 @@
         return XCTFail("Expected planPrepared, got \(session.phase)")
       }
       XCTAssertTrue(update.rows.allSatisfy(\.isVerified))
-      XCTAssertEqual(session.railStep, .plan)
       session.approve()
       XCTAssertEqual(environment.approveCount, 0)
 
@@ -157,74 +151,6 @@
       XCTAssertEqual(environment.approveCount, 1)
     }
 
-    func testGoBackAndRailNavigationWalkEarlierSteps() async {
-      let environment = MockInstallerEnvironment()
-      let session = InstallerSession(environment: environment)
-      await session.inspect()
-      await session.continueToPlan()
-      session.continueToPlanReview()
-      session.setAcknowledged(true)
-      session.approve()
-      guard case .awaitingInstall = session.phase else {
-        return XCTFail("Expected awaitingInstall, got \(session.phase)")
-      }
-
-      session.navigate(to: .finish)
-      guard case .awaitingInstall = session.phase else {
-        return XCTFail("Forward navigation must be ignored")
-      }
-
-      session.goBack()
-      guard case .planReview(_, let acknowledged) = session.phase, !acknowledged else {
-        return XCTFail("Expected planReview after goBack, got \(session.phase)")
-      }
-      session.goBack()
-      guard case .planPrepared = session.phase else {
-        return XCTFail("Expected planPrepared after goBack, got \(session.phase)")
-      }
-      session.navigate(to: .check)
-      guard case .welcome = session.phase else {
-        return XCTFail("Expected welcome after rail navigation, got \(session.phase)")
-      }
-    }
-
-    func testWholeFlowWalksForwardBackAndForwardAgain() async {
-      let environment = MockInstallerEnvironment()
-      let session = InstallerSession(environment: environment)
-      await session.inspect()
-      guard case .welcome = session.phase else { return XCTFail("welcome") }
-
-      await session.continueToPlan()
-      guard case .planPrepared = session.phase else { return XCTFail("planPrepared") }
-      XCTAssertEqual(session.railStep, .plan)
-
-      session.continueToPlanReview()
-      guard case .planReview = session.phase else { return XCTFail("planReview") }
-
-      // Choosing a size re-plans in place: the phase never leaves review and
-      // the new plan carries the chosen size.
-      await session.replan(omarchyBytes: 250_000_000_000)
-      XCTAssertFalse(session.isReplanning)
-      guard case .planReview(_, let acknowledged) = session.phase else { return XCTFail("planReview after replan") }
-      XCTAssertFalse(acknowledged)
-      XCTAssertEqual(environment.lastOmarchyBytes, 250_000_000_000)
-
-      session.setAcknowledged(true)
-      session.approve()
-      guard case .awaitingInstall = session.phase else { return XCTFail("awaitingInstall") }
-      XCTAssertEqual(session.railStep, .authorize)
-
-      session.goBack()
-      guard case .planReview(_, false) = session.phase else { return XCTFail("planReview after back") }
-      session.navigate(to: .check)
-      guard case .welcome = session.phase else { return XCTFail("welcome via rail") }
-      XCTAssertEqual(session.railStep, .check)
-
-      await session.continueToPlan()
-      guard case .planPrepared = session.phase else { return XCTFail("planPrepared again") }
-      XCTAssertEqual(environment.prepareCount, 3)
-    }
-
     func testApproveRequiresAcknowledgement() async {
       let environment = MockInstallerEnvironment()
       let session = InstallerSession(environment: environment)
@@ -238,25 +164,6 @@
       guard case .planReview = session.phase else {
         return XCTFail("Expected to stay in planReview")
       }
-    }
-
-    func testBackDiscardsApprovalAndReturnsToReview() async {
-      let environment = MockInstallerEnvironment()
-      let session = InstallerSession(environment: environment)
-      await session.inspect()
-      await session.continueToPlan()
-      session.continueToPlanReview()
-      session.setAcknowledged(true)
-      session.approve()
-
-      session.back()
-
-      XCTAssertGreaterThanOrEqual(environment.discardCount, 1)
-      guard case .planReview(_, let acknowledged) = session.phase else {
-        return XCTFail("Expected planReview, got \(session.phase)")
-      }
-      XCTAssertFalse(acknowledged)
-      XCTAssertFalse(session.canStartInstallation)
     }
 
     func testIllegalTransitionsAreNoOps() async {
@@ -557,11 +464,9 @@
       let session = InstallerSession(environment: environment)
       await session.inspect()
 
-      guard case .existingInstallRefused(let found, let host) = session.phase
-      else {
+      guard case .existingInstallRefused(let host) = session.phase else {
         return XCTFail("Expected existingInstallRefused, got \(session.phase)")
       }
-      XCTAssertEqual(found, [install])
       XCTAssertEqual(host.existingInstalls, [install])
       // Nothing was planned, so nothing was fetched.
       XCTAssertEqual(environment.prepareCount, 0)
@@ -569,7 +474,6 @@
       await session.continueToPlan()
       session.setAcknowledged(true)
       session.approve()
-      session.goBack()
       guard case .existingInstallRefused = session.phase else {
         return XCTFail("Expected the refusal to stay, got \(session.phase)")
       }
@@ -589,10 +493,9 @@
       await session.continueToPlan()
       session.continueToPlanReview()
 
-      guard case .existingInstallRefused(let found, _) = session.phase else {
+      guard case .existingInstallRefused = session.phase else {
         return XCTFail("Expected existingInstallRefused, got \(session.phase)")
       }
-      XCTAssertEqual(found, [install])
       XCTAssertEqual(environment.prepareCount, 1)
     }
   }
