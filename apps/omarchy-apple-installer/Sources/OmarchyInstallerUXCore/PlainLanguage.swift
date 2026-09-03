@@ -8,18 +8,11 @@
     // MARK: Chrome
 
     public static let windowTitle = "Omarchy Installer"
-    public static let safetyActive = "Safety active"
-    public static let safetyActiveDetail = "Bound to the reviewed plan"
-    public static let safetyLocked = "Locked"
-    public static let safetyLockedDetail = "This model is not supported"
 
     // MARK: Screen A — Check
 
-    public static let checkHeadline = "Install Omarchy"
     public static let checkSubheadline =
       "After the installation you will be able to boot start Omarchy or MacOS."
-    public static let checkDetailsTitle = "What was checked"
-    public static let checkHint = "Nothing has been changed."
     public static let checkContinue = "Continue"
     public static let checkAgain = "Check again"
     public static let inspectingHeadline = "Checking this Mac"
@@ -31,37 +24,13 @@
     public static let existingInstallHeadline = "Omarchy is already installed on this Mac."
     public static let closeInstaller = "Close"
 
-    public static func existingInstallRow(
-      _ install: ExistingInstallDisplay
-    ) -> String {
-      "Omarchy at \(install.sourceIdentifier), \(install.sizeDescription)"
-    }
-
     // MARK: Screen B — Plan
 
     public static let planSubheadline = "Let\u{2019}s separate a partition for Omarchy. MacOS keeps the rest, untouched."
-    public static let planDetailsTitle = "Exact plan"
     public static let planAcknowledgement =
       "I am ready to partition my ssd and install."
-    public static let planAcknowledgementTooltip =
-      "Only this exact plan can run. If the disk changes first, the plan is rejected and rebuilt."
-    public static let planWaitingHint = "Waiting for downloads…"
-    public static let planConfirmHint = "Confirm to continue."
-    public static let planBack = "Back"
     public static let planInstall = "Install"
-    public static let planApprove = "Approve plan"
-    public static let planReapprove = "Re-prepare plan"
-    public static let downloadingTitle = "Downloading"
-    public static let downloadedTitle = "Downloaded"
-    public static let downloadVerified = "Verified ✓"
-    public static let preparingHeadline = "Getting everything ready"
     public static let downloadingPackagesTitle = "Downloading the Omarchy packages"
-    public static let preparedHeadline = "Everything is ready"
-    public static let preparedSubheadline =
-      "Continue to review the plan."
-    public static let preparedContinue = "Continue"
-    public static let preparingSubheadline =
-      "Downloading the Omarchy packages."
 
     public static func preparingStageTitle(
       _ stage: AssetProgressUpdate.Stage
@@ -78,22 +47,14 @@
 
     public static let authorizeTitle =
       "Authorize the changes"
-    public static let authorizeBody = "Enter your password to allow this."
     public static let authorizeRetryTitle = "Retry Recovery authorization."
-    public static let authorizeRetryBody =
-      "Only the last step runs again. The disk is already verified."
     public static let authorizeUsernameLabel = "Username"
     public static let authorizeChecking = "Verifying"
     public static let authorizePasswordLabel = "Password"
     public static let authorizeCancel = "Cancel"
-    public static let authorizeInstall = "Install"
     public static let authorizeRetryAction = "Authorize"
-    public static let authorizeNote = "Used once, in memory. Never stored."
-    public static let authorizeLifecycleNote =
-      "Used only in memory to authorize Apple’s Recovery boot-policy handoff. The password is not written to the plan, handoff package, journal, environment, or logs."
     public static let authorizeRejected =
       "The user name or password is not correct."
-    public static let authorizeBindingPrefix = "binding"
 
     // MARK: Confirmation dialogs (preserved verbatim)
 
@@ -107,11 +68,8 @@
 
     // MARK: Screen D — Install
 
-    public static let installProgressTooltip =
-      "The bar advances on real checkpoints from the install engine’s journal — not an estimate."
     public static let installWarning =
       "Keep the lid open and power connected."
-    public static let installJournalTitle = "Live journal"
     public static let installDegraded =
       "Live progress is unavailable. The installation continues; the sealed journal is still verified when it finishes."
     public static let installVerifyingOwner = "Verifying machine owner…"
@@ -170,7 +128,6 @@
       "Follow the steps below to complete the recovery process and get Omarchy started."
     public static let recoveryExplainer =
       "Your Mac only starts systems it has been told to trust. In Recovery you give Omarchy that permission: choose Finish Installation and sign in with your MacOS password. This unlocks the new Omarchy volume so it can boot, and nothing else. MacOS and its security stay exactly as they are, and you can come back to it at any time."
-    public static let recoveryHint = "No rush — these steps stay here."
     public static let recoveryShutDown = "Shutdown your Mac"
     public static let shutdownConfirmationTitle = "Shut down this Mac now?"
     public static let shutdownConfirmationBody =
@@ -213,8 +170,6 @@
     // MARK: Screen F — Boot / completion
 
     public static let doneHeadline = "Omarchy is installed"
-    public static let doneSubheadline =
-      "Hold the power button at startup to choose Omarchy or MacOS."
     public static let startOver = "Start over"
     public static let doneVerifiedRows = [
       PlanFactRow(label: "Boot chain", value: "m1n1 → U-Boot → GRUB → Omarchy"),
@@ -274,8 +229,6 @@
     public static let helperNotInstalled =
       "The privileged helper is not installed. Run the Omarchy installer package again to install it, then reopen this app."
 
-    public static let inspectionFailed =
-      "Read-only inspection failed. Installation remains locked."
     public static let engineUnavailable =
       "Pinned validation engine is not available in this build. Installation remains locked."
     public static let engineIdentityMismatch =

@@ -78,7 +78,7 @@ struct CredentialSheet: View {
           .keyboardShortcut(.cancelAction)
           .disabled(context.isVerifying)
         Button(
-          isRetry ? PlainLanguage.authorizeRetryAction : PlainLanguage.authorizeInstall,
+          isRetry ? PlainLanguage.authorizeRetryAction : PlainLanguage.planInstall,
           action: submit
         )
         .omarchyPrimaryButton()

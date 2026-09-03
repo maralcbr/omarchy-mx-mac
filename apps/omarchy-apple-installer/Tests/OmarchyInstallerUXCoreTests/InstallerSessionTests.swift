@@ -648,7 +648,7 @@
           "enterOneTrueRecovery", "authenticateMachineOwner",
         ]),
         explainer: PlainLanguage.recoveryExplainer,
-        hint: PlainLanguage.recoveryHint
+        hint: ""
       )
     )
   }
