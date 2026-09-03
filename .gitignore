@@ -2,6 +2,7 @@
 # Python bytecode (orchestrator)
 __pycache__/
 *.pyc
+.pytest_cache/
 test/vm/asahi-fresh/test-runs/
 
 # macOS Finder metadata

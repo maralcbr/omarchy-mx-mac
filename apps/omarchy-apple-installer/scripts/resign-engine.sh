@@ -5,8 +5,8 @@
 # runtime whose Tk/Tcl frameworks, tkinter, idlelib, turtledemo and static
 # linking objects Apple notarization rejects (broken or absent Developer ID
 # signatures), and the console installer imports none of them. This is the
-# same procedure that produced omarchy.7 from omarchy.6
-# (scripts/resign-engine-omarchy7.sh), made reusable: prune those components,
+# same procedure that produced omarchy.7 from omarchy.6, made reusable:
+# prune those components,
 # re-sign every remaining Mach-O with the Developer ID (hardened runtime,
 # secure timestamp), and repack under a new, version-bumped name so the
 # shipped artifact is never confused with the reproducible locked one.
