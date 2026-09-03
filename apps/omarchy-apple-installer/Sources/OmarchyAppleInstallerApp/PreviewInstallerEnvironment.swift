@@ -211,12 +211,9 @@
         throw InstallerAppError.previewFixtureUnavailable
       }
       let data = try Data(contentsOf: journalURL)
-      var lines = [Data]()
-      var start = data.startIndex
-      while let newline = data[start...].firstIndex(of: 0x0A) {
-        lines.append(Data(data[start...newline]))
-        start = data.index(after: newline)
-      }
+      // Each forwarded chunk must end in a newline, or the live model treats
+      // the stream as degraded.
+      let lines = LiveInstallJournalModel.lines(in: data).map { $0 + [0x0A] }
       guard !lines.isEmpty else {
         throw InstallerAppError.previewFixtureUnavailable
       }

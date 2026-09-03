@@ -165,16 +165,9 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     // Existing installs are never replaced or joined: report them and let
     // the session refuse.
-    let replaceCandidates = inventory.candidates.filter { $0.kind == "replace" }
-    if !replaceCandidates.isEmpty {
-      return .existingInstallChoice(
-        replaceCandidates.map { existing in
-          ExistingInstallDisplay(
-            sourceIdentifier: existing.sourceIdentifier,
-            sizeDescription: PlainLanguage.bytes(existing.lengthBytes)
-          )
-        }
-      )
+    let existing = Self.existingInstalls(in: signedInspection.validated)
+    if !existing.isEmpty {
+      return .existingInstallChoice(existing)
     }
     let recommendation = try InstallerAllocationRecommendation(
       inventory: inventory,
@@ -472,28 +465,12 @@ private final class StagingProgressCollector: @unchecked Sendable {
   func record(_ event: ArtifactStagingProgress) {
     let snapshot = lock.withLock { () -> [AssetProgressRow] in
       latest[event.role] = event
-      return rowsLocked()
+      return AssetProgressRow.rows(from: latest)
     }
     publish(AssetProgressUpdate(stage: .downloading, rows: snapshot))
   }
 
   func rows() -> [AssetProgressRow] {
-    lock.withLock { rowsLocked() }
-  }
-
-  private func rowsLocked() -> [AssetProgressRow] {
-    latest.values
-      .sorted { $0.role < $1.role }
-      .map { progress in
-        AssetProgressRow(
-          role: progress.role,
-          fileName: progress.fileName,
-          bytesCompleted: progress.bytesCompleted,
-          totalBytes: progress.totalBytes,
-          phase: progress.phase,
-          partIndex: progress.partIndex,
-          partCount: progress.partCount
-        )
-      }
+    lock.withLock { AssetProgressRow.rows(from: latest) }
   }
 }

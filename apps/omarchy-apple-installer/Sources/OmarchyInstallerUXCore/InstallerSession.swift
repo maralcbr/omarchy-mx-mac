@@ -255,24 +255,11 @@
         )
       }
       phase = .preparingPlan(
-        AssetProgressUpdate(stage: update.stage, rows: mergedRows(update))
+        AssetProgressUpdate(
+          stage: update.stage,
+          rows: AssetProgressRow.rows(from: stagingProgress)
+        )
       )
-    }
-
-    private func mergedRows(_ update: AssetProgressUpdate) -> [AssetProgressRow] {
-      stagingProgress.values
-        .sorted { $0.role < $1.role }
-        .map { progress in
-          AssetProgressRow(
-            role: progress.role,
-            fileName: progress.fileName,
-            bytesCompleted: progress.bytesCompleted,
-            totalBytes: progress.totalBytes,
-            phase: progress.phase,
-            partIndex: progress.partIndex,
-            partCount: progress.partCount
-          )
-        }
     }
 
     // MARK: Review and approval

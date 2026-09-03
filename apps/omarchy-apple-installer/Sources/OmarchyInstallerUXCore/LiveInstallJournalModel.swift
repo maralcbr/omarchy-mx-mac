@@ -207,7 +207,9 @@
       return envelope.sequence == 1
     }
 
-    private static func lines(in data: Data) -> [Data] {
+    /// Newline-delimited records without their terminators. Empty lines are
+    /// skipped; a trailing record with no newline is still returned.
+    public static func lines(in data: Data) -> [Data] {
       var result = [Data]()
       var start = data.startIndex
       while let newline = data[start...].firstIndex(of: 0x0A) {

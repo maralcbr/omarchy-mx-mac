@@ -127,6 +127,27 @@
       self.partIndex = partIndex
       self.partCount = partCount
     }
+
+    public init(_ progress: ArtifactStagingProgress) {
+      self.init(
+        role: progress.role,
+        fileName: progress.fileName,
+        bytesCompleted: progress.bytesCompleted,
+        totalBytes: progress.totalBytes,
+        phase: progress.phase,
+        partIndex: progress.partIndex,
+        partCount: progress.partCount
+      )
+    }
+
+    /// The rows for a set of staging events keyed by role, in role order.
+    public static func rows(
+      from progress: [String: ArtifactStagingProgress]
+    ) -> [AssetProgressRow] {
+      progress.values
+        .sorted { $0.role < $1.role }
+        .map(AssetProgressRow.init)
+    }
   }
 
   public struct AssetProgressUpdate: Equatable, Sendable {
