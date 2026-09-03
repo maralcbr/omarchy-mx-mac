@@ -82,19 +82,6 @@ struct SupportCatalog: Equatable, Sendable {
   }
 }
 
-struct CatalogSupportPolicy: Sendable {
-  let catalog: SupportCatalog
-  let disabledDeviceIdentifiers: Set<String>
-
-  func record(for deviceIdentifier: String) -> PinnedInstallerRecord? {
-    guard !disabledDeviceIdentifiers.contains(deviceIdentifier) else {
-      return nil
-    }
-
-    return catalog.record(for: deviceIdentifier)
-  }
-}
-
 public enum SupportCatalogError: Error, Equatable, Sendable {
   case invalidPublicKey
   case invalidSignature
