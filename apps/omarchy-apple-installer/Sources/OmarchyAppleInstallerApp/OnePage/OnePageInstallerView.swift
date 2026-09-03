@@ -161,7 +161,7 @@ struct OnePageInstallerView: View {
   private var stage: some View {
     switch session.phase {
     case .inspecting:
-      statusPanel(title: PlainLanguage.inspectingSubheadline, fraction: nil)
+      statusPanel(title: PlainLanguage.inspectingSubheadline)
 
     case .unsupported(let failure):
       messagePanel(
@@ -198,7 +198,7 @@ struct OnePageInstallerView: View {
     case .awaitingInstall(let plan, let helper, _):
       DiskSplitPanel(plan: plan, editable: false, isBusy: false, onSizeChosen: { _ in })
       if !helper.isEnabled {
-        helperNote(helper)
+        helperNote
       }
 
     case .installing(let progress):
@@ -295,13 +295,13 @@ struct OnePageInstallerView: View {
 
   // MARK: Pieces
 
-  private func statusPanel(title: String, fraction: Double?) -> some View {
+  private func statusPanel(title: String) -> some View {
     Panel {
       VStack(alignment: .leading, spacing: 12) {
         Text(title)
           .font(.system(size: 13.5, weight: .medium))
           .foregroundStyle(OmarchyTheme.secondaryText)
-        ProgressTrack(fraction: fraction, height: 14)
+        ProgressTrack(fraction: nil, height: 14)
       }
       .padding(.vertical, 4)
     }
@@ -369,7 +369,7 @@ struct OnePageInstallerView: View {
     .padding(.top, 4)
   }
 
-  private func helperNote(_ helper: HelperDisplay) -> some View {
+  private var helperNote: some View {
     HStack(spacing: 10) {
       Image(systemName: "lock.shield")
         .foregroundStyle(OmarchyTheme.caution)
