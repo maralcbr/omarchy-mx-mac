@@ -149,10 +149,10 @@ struct DiskBar: View {
       // Just the amount of space; the colour says which side is which.
       Text(PlainLanguage.bytes(bytes))
         .accessibilityLabel(name + " " + PlainLanguage.bytes(bytes))
-      .font(.system(size: 10.5, weight: .semibold))
-      .foregroundStyle(foreground)
-      .lineLimit(1)
-      .padding(.horizontal, 4)
+        .font(.system(size: 10.5, weight: .semibold))
+        .foregroundStyle(foreground)
+        .lineLimit(1)
+        .padding(.horizontal, 4)
     }
     .frame(width: max(0, width))
   }

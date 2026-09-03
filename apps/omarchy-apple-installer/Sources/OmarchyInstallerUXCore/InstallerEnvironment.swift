@@ -316,7 +316,8 @@
     }
 
     public func verifying() -> CredentialSheetContext {
-      CredentialSheetContext(kind: kind, bindingDigest: bindingDigest, error: nil, isVerifying: true)
+      CredentialSheetContext(
+        kind: kind, bindingDigest: bindingDigest, error: nil, isVerifying: true)
     }
   }
 
