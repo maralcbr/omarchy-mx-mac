@@ -45,8 +45,6 @@
       return nil
     }
 
-    public var hasProgress: Bool { !feed.isEmpty }
-
     public mutating func consume(_ chunk: Data) {
       guard !chunk.isEmpty else {
         return
@@ -115,7 +113,6 @@
         stageIndex: stageIndex,
         stageFractions: stageFractions,
         stageLabels: PlainLanguage.installStageLabels,
-        completedCheckpoints: checkpoints.map(\.identifier),
         feed: feed,
         degraded: degraded,
         startedAt: startedAt

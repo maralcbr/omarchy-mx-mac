@@ -5,35 +5,10 @@
   /// Everything a screen renders, derived once by the environment from the
   /// retained trust objects. Display models are render-only: no approval,
   /// confirmation, or execution value is ever rebuilt from them.
-  public struct PreflightCheck: Equatable, Sendable, Identifiable {
-    public let id: String
-    public let label: String
-    public let value: String
-    public let satisfied: Bool
-    public let tooltip: String
-
-    public init(
-      id: String,
-      label: String,
-      value: String,
-      satisfied: Bool,
-      tooltip: String
-    ) {
-      self.id = id
-      self.label = label
-      self.value = value
-      self.satisfied = satisfied
-      self.tooltip = tooltip
-    }
-  }
-
   public struct HostDisplay: Equatable, Sendable {
-    public let modelName: String
+    /// The header line: chip and free space, e.g. "Apple M1 Pro · 464 GB free".
     public let chipAndSpace: String
-    public let deviceIdentifier: String
     public let supported: Bool
-    public let checks: [PreflightCheck]
-    public let helper: HelperDisplay
     /// Why this Mac cannot install right now, when `supported` is false.
     public let blockingReason: String?
     /// Omarchy installs the inspection found on the disk. Known before any
@@ -42,37 +17,15 @@
     public let existingInstalls: [ExistingInstallDisplay]
 
     public init(
-      modelName: String,
       chipAndSpace: String,
-      deviceIdentifier: String,
       supported: Bool,
-      checks: [PreflightCheck],
-      helper: HelperDisplay,
       blockingReason: String? = nil,
       existingInstalls: [ExistingInstallDisplay] = []
     ) {
-      self.modelName = modelName
       self.chipAndSpace = chipAndSpace
-      self.deviceIdentifier = deviceIdentifier
       self.supported = supported
-      self.checks = checks
-      self.helper = helper
       self.blockingReason = blockingReason
       self.existingInstalls = existingInstalls
-    }
-  }
-
-  public struct PlanArtifactDisplay: Equatable, Sendable, Identifiable {
-    public let role: String
-    public let fileName: String
-    public let expectedBytes: UInt64
-
-    public var id: String { role }
-
-    public init(role: String, fileName: String, expectedBytes: UInt64) {
-      self.role = role
-      self.fileName = fileName
-      self.expectedBytes = expectedBytes
     }
   }
 
@@ -90,16 +43,6 @@
     }
   }
 
-  /// Where the plan should go when this Mac already has an Omarchy install.
-  public enum InstallTargetSelection: Equatable, Sendable {
-    /// First pass: surface a choice when an existing install is present.
-    case automatic
-    /// Keep the existing install and plan a second one automatically.
-    case installAlongside
-    /// Remove the named existing install and reuse its exact space.
-    case replaceExisting(sourceIdentifier: String)
-  }
-
   /// One existing Omarchy install the pinned engine found on this Mac.
   public struct ExistingInstallDisplay: Equatable, Sendable, Identifiable {
     public let sourceIdentifier: String
@@ -113,8 +56,8 @@
     }
   }
 
-  /// Plan preparation either yields a reviewable plan or pauses for the
-  /// owner to decide what happens to an existing install. Nothing is
+  /// Plan preparation either yields a reviewable plan or reports the
+  /// existing installs it found, which the session refuses. Nothing is
   /// approved or executed from either value.
   public enum PlanPreparationDisplay: Equatable, Sendable {
     case plan(PlanDisplay)
@@ -122,58 +65,35 @@
   }
 
   public struct PlanDisplay: Equatable, Sendable {
-    public let headline: String
-    public let subheadline: String
     public let diskTotalBytes: UInt64
     public let omarchyBytes: UInt64
-    public let macOSBytes: UInt64
     public let bindingDigest: String
-    public let planDigest: String
-    public let artifacts: [PlanArtifactDisplay]
-    public let facts: [PlanFactRow]
     /// Whether the user may choose Omarchy's size. A replace plan removes an
     /// existing install and reuses its exact extent, so there is nothing to
     /// drag; showing a divider there invites a re-plan the engine refuses.
     public let isResizable: Bool
 
     public init(
-      headline: String,
-      subheadline: String,
       diskTotalBytes: UInt64,
       omarchyBytes: UInt64,
-      macOSBytes: UInt64,
       bindingDigest: String,
-      planDigest: String,
-      artifacts: [PlanArtifactDisplay],
-      facts: [PlanFactRow],
       isResizable: Bool = true
     ) {
-      self.headline = headline
-      self.subheadline = subheadline
       self.diskTotalBytes = diskTotalBytes
       self.omarchyBytes = omarchyBytes
-      self.macOSBytes = macOSBytes
       self.bindingDigest = bindingDigest
-      self.planDigest = planDigest
-      self.artifacts = artifacts
-      self.facts = facts
       self.isResizable = isResizable
     }
   }
 
   public struct HelperDisplay: Equatable, Sendable {
     public let status: InstallerHelperServiceStatus
-    public let summary: String
 
     /// The pre-installed system daemon is reachable, so installation may run.
     public var isEnabled: Bool { status == .enabled }
 
-    public init(
-      status: InstallerHelperServiceStatus,
-      summary: String
-    ) {
+    public init(status: InstallerHelperServiceStatus) {
       self.status = status
-      self.summary = summary
     }
   }
 
@@ -189,13 +109,6 @@
     public let partCount: Int?
 
     public var id: String { role }
-
-    public var isVerified: Bool { phase == .verified }
-
-    public var fraction: Double {
-      guard totalBytes > 0 else { return 0 }
-      return min(1, Double(bytesCompleted) / Double(totalBytes))
-    }
 
     public init(
       role: String,
@@ -227,16 +140,6 @@
     public let stage: Stage
     public let rows: [AssetProgressRow]
 
-    public var bytesCompleted: UInt64 {
-      rows.reduce(0) { $0 + $1.bytesCompleted }
-    }
-
-    public var totalBytes: UInt64 {
-      rows.reduce(0) { $0 + $1.totalBytes }
-    }
-
-    public var isDeterminate: Bool { stage == .downloading && totalBytes > 0 }
-
     public init(stage: Stage, rows: [AssetProgressRow] = []) {
       self.stage = stage
       self.rows = rows
@@ -266,19 +169,15 @@
     public let stageIndex: Int
     public let stageFractions: [Double]
     public let stageLabels: [String]
-    public let completedCheckpoints: [String]
     public let feed: [JournalFeedLine]
     public let degraded: Bool
     public let startedAt: Date
-
-    public var isIndeterminate: Bool { degraded || feed.isEmpty }
 
     public init(
       phaseTitle: String,
       stageIndex: Int,
       stageFractions: [Double],
       stageLabels: [String],
-      completedCheckpoints: [String],
       feed: [JournalFeedLine],
       degraded: Bool,
       startedAt: Date
@@ -287,7 +186,6 @@
       self.stageIndex = stageIndex
       self.stageFractions = stageFractions
       self.stageLabels = stageLabels
-      self.completedCheckpoints = completedCheckpoints
       self.feed = feed
       self.degraded = degraded
       self.startedAt = startedAt
@@ -308,23 +206,11 @@
 
   public struct HandoffDisplay: Equatable, Sendable {
     public let headline: String
-    public let subheadline: String
     public let steps: [RecoveryStep]
-    public let explainer: String
-    public let hint: String
 
-    public init(
-      headline: String,
-      subheadline: String,
-      steps: [RecoveryStep],
-      explainer: String,
-      hint: String
-    ) {
+    public init(headline: String, steps: [RecoveryStep]) {
       self.headline = headline
-      self.subheadline = subheadline
       self.steps = steps
-      self.explainer = explainer
-      self.hint = hint
     }
   }
 
@@ -435,7 +321,6 @@
     /// keeps the balanced default. The engine still clamps the request to the
     /// candidate's real minimum and maximum.
     func preparePlan(
-      selection: InstallTargetSelection,
       omarchyBytes: UInt64?,
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay

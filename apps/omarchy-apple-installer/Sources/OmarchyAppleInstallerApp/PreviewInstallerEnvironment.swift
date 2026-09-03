@@ -30,10 +30,7 @@
     }
 
     var helperStatus: HelperDisplay {
-      HelperDisplay(
-        status: .enabled,
-        summary: PlainLanguage.helperSummary(.enabled)
-      )
+      HelperDisplay(status: .enabled)
     }
 
     func refreshHelperStatus() -> HelperDisplay { helperStatus }
@@ -44,17 +41,12 @@
       let blocked = scenario == .unsupported
       let device = blocked ? "apple,j614s" : transcript.deviceIdentifier
       let free: UInt64 = 464_000_000_000
-      let required = InstallerAllocationRecommendation.balancedTargetBytes
 
       return HostDisplay(
-        modelName: blocked ? "MacBookPro16,1 (preview)" : "MacBookPro18,3 (preview)",
         chipAndSpace: blocked
           ? "Apple M4 · \(device)"
           : "Apple M1 Pro · \(PlainLanguage.bytes(free)) free",
-        deviceIdentifier: device,
         supported: !blocked,
-        checks: blocked ? [] : previewChecks(free: free, required: required),
-        helper: helperStatus,
         existingInstalls: scenario == .existingInstall
           ? [ExistingInstallDisplay(sourceIdentifier: "disk0s3", sizeDescription: "128 GB")]
           : []
@@ -62,11 +54,10 @@
     }
 
     func preparePlan(
-      selection: InstallTargetSelection,
       omarchyBytes: UInt64?,
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay {
-      if scenario == .existingInstall, selection == .automatic {
+      if scenario == .existingInstall {
         try? await Task.sleep(for: .milliseconds(400))
         return .existingInstallChoice([
           ExistingInstallDisplay(
@@ -88,7 +79,7 @@
         let total: UInt64 = 994_662_584_320
         let unit: UInt64 = 1_000_000_000
         let length = min(total - 120 * unit, max(30 * unit, omarchyBytes ?? plan.lengthBytes))
-        return .plan(planDisplay(plan: plan, length: length, total: total, artifacts: artifacts))
+        return .plan(Self.planDisplay(length: length, total: total))
       }
 
       progress(AssetProgressUpdate(stage: .fetchingCatalog))
@@ -117,52 +108,14 @@
       let total: UInt64 = 994_662_584_320
       let unit: UInt64 = 1_000_000_000
       let length = min(total - 120 * unit, max(30 * unit, omarchyBytes ?? plan.lengthBytes))
-      return .plan(planDisplay(plan: plan, length: length, total: total, artifacts: artifacts))
+      return .plan(Self.planDisplay(length: length, total: total))
     }
 
-    private func planDisplay(
-      plan: ValidatedEnginePlan,
-      length: UInt64,
-      total: UInt64,
-      artifacts: [PlanArtifactDisplay]
-    ) -> PlanDisplay {
+    private static func planDisplay(length: UInt64, total: UInt64) -> PlanDisplay {
       PlanDisplay(
-        headline: "\(PlainLanguage.bytes(length)) for Omarchy",
-        subheadline: PlainLanguage.planSubheadline,
         diskTotalBytes: total,
         omarchyBytes: length,
-        macOSBytes: total - length,
-        bindingDigest: "sha256:" + String(repeating: "b", count: 64),
-        planDigest: plan.planDigest,
-        artifacts: artifacts,
-        facts: [
-          PlanFactRow(label: "Device", value: plan.deviceIdentifier),
-          PlanFactRow(
-            label: "Store",
-            value:
-              "\(plan.storeIdentifier) · \(plan.candidateKind) \(plan.sourceIdentifier)"
-          ),
-          PlanFactRow(
-            label: "Offset",
-            value: PlainLanguage.exactBytes(plan.offsetBytes)
-          ),
-          PlanFactRow(
-            label: "Length",
-            value:
-              "\(PlainLanguage.exactBytes(length)) (\(PlainLanguage.bytes(length)))"
-          ),
-          PlanFactRow(label: "Engine", value: plan.engineVersion),
-          PlanFactRow(
-            label: "Plan digest",
-            value: plan.planDigest,
-            isMonospaced: true
-          ),
-          PlanFactRow(
-            label: "Rollback",
-            value:
-              "MacOS untouched until approval; every write is checkpointed and journaled"
-          ),
-        ]
+        bindingDigest: "sha256:" + String(repeating: "b", count: 64)
       )
     }
 
@@ -221,102 +174,37 @@
         verified: PlainLanguage.doneVerifiedRows,
         handoff: HandoffDisplay(
           headline: PlainLanguage.recoveryHeadline,
-          subheadline: PlainLanguage.recoverySubheadline,
-          steps: PlainLanguage.recoverySteps(for: steps),
-          explainer: PlainLanguage.recoveryExplainer,
-          hint: ""
+          steps: PlainLanguage.recoverySteps(for: steps)
         )
       )
     }
 
     // MARK: Fixture
 
+    /// The files the download bar counts through, sized like a real release.
+    private struct PreviewArtifact {
+      let role: String
+      let fileName: String
+      let expectedBytes: UInt64
+    }
+
     private static let previewArtifacts = [
-      PlanArtifactDisplay(
+      PreviewArtifact(
         role: "payload",
         fileName: "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
         expectedBytes: 3_638_729_568
       ),
-      PlanArtifactDisplay(
+      PreviewArtifact(
         role: "metadata",
         fileName: "installer_data.json",
         expectedBytes: 34_000_000
       ),
-      PlanArtifactDisplay(
+      PreviewArtifact(
         role: "engine",
         fileName: "installer-v0.9.0-omarchy.14.tar.gz",
         expectedBytes: 22_000_000
       ),
     ]
-
-    private func previewChecks(
-      free: UInt64,
-      required: UInt64
-    ) -> [PreflightCheck] {
-      [
-        PreflightCheck(
-          id: "model",
-          label: "Model",
-          value: "MacBook Pro (M1 Pro) — preview fixture",
-          satisfied: true,
-          tooltip:
-            "Support is per exact model. The list is signed and fails closed."
-        ),
-        PreflightCheck(
-          id: "macos",
-          label: "MacOS",
-          value: "Preview replay",
-          satisfied: true,
-          tooltip: "A current MacOS is required for the Recovery handoff."
-        ),
-        PreflightCheck(
-          id: "power",
-          label: "Power",
-          value: "Connected",
-          satisfied: true,
-          tooltip:
-            "The install writes many gigabytes. Wall power avoids surprises."
-        ),
-        PreflightCheck(
-          id: "filevault",
-          label: "FileVault",
-          value: "On, stays on",
-          satisfied: true,
-          tooltip: "Read only. Your MacOS data stays encrypted."
-        ),
-        PreflightCheck(
-          id: "space",
-          label: "Free space",
-          value:
-            "\(PlainLanguage.bytes(free)) · \(PlainLanguage.bytes(required)) needed",
-          satisfied: true,
-          tooltip: "Omarchy takes a fixed \(PlainLanguage.bytes(required))."
-        ),
-        PreflightCheck(
-          id: "engine",
-          label: "Engine",
-          value: "Verified • supported",
-          satisfied: true,
-          tooltip:
-            "A pinned, checksum-verified build of the Asahi installer does the disk work."
-        ),
-        PreflightCheck(
-          id: "helper",
-          label: "Helper",
-          value: PlainLanguage.helperSummary(.enabled),
-          satisfied: true,
-          tooltip:
-            "Does the privileged work. Installed as a system service by the installer package."
-        ),
-        PreflightCheck(
-          id: "downloads",
-          label: "Downloads",
-          value: "Verified, catalog 7",
-          satisfied: true,
-          tooltip: "Every file is checked against a signed catalog before use."
-        ),
-      ]
-    }
 
     private func loadJournalLines() throws -> [Data] {
       guard let journalURL else {

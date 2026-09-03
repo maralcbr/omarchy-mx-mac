@@ -26,7 +26,6 @@
 
     // MARK: Screen B — Plan
 
-    public static let planSubheadline = "Let\u{2019}s separate a partition for Omarchy. MacOS keeps the rest, untouched."
     public static let planAcknowledgement =
       "I am ready to partition my ssd and install."
     public static let planInstall = "Install"
@@ -124,18 +123,12 @@
     // MARK: Screen E — Recovery
 
     public static let recoveryHeadline = "Follow the steps below to install"
-    public static let recoverySubheadline =
-      "Follow the steps below to complete the recovery process and get Omarchy started."
-    public static let recoveryExplainer =
-      "Your Mac only starts systems it has been told to trust. In Recovery you give Omarchy that permission: choose Finish Installation and sign in with your MacOS password. This unlocks the new Omarchy volume so it can boot, and nothing else. MacOS and its security stay exactly as they are, and you can come back to it at any time."
     public static let recoveryShutDown = "Shutdown your Mac"
     public static let shutdownConfirmationTitle = "Shut down this Mac now?"
     public static let shutdownConfirmationBody =
       "After it turns off, hold the power button until “Loading startup options” appears, then pick Omarchy → Finish Installation and sign in."
     public static let shutdownConfirmationAction = "Shut Down"
     public static let mediaHeadline = "Attach the installation media"
-    public static let mediaSubheadline =
-      "Preparation finished and was verified. Connect the verified installation media to continue."
 
     /// Numbered plain-language steps for the signed `requiredHumanSteps`
     /// tokens. Unknown tokens are surfaced rather than dropped.
@@ -214,15 +207,6 @@
     // MARK: Errors
 
     public static let retry = "Retry…"
-
-    public static func helperSummary(
-      _ status: InstallerHelperServiceStatus
-    ) -> String {
-      switch status {
-      case .enabled: "Ready"
-      case .notInstalled: "Installer package required • locked"
-      }
-    }
 
     /// Shown when the pre-installed system daemon is missing. The remedy is to
     /// run the installer package again — never to open Login Items.
@@ -436,15 +420,6 @@
       if count >= mb { return "\(Int((count / mb).rounded())) MB" }
       if count >= kb { return "\(Int((count / kb).rounded())) KB" }
       return "\(value) bytes"
-    }
-
-    public static func exactBytes(_ value: UInt64) -> String {
-      let formatter = NumberFormatter()
-      formatter.numberStyle = .decimal
-      let number =
-        formatter.string(from: NSNumber(value: value))
-        ?? String(value)
-      return "\(number) bytes"
     }
 
     public static func shortDigest(_ value: String) -> String {

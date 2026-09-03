@@ -49,11 +49,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   var helperStatus: HelperDisplay {
-    let status = helperService.status
-    return HelperDisplay(
-      status: status,
-      summary: PlainLanguage.helperSummary(status)
-    )
+    HelperDisplay(status: helperService.status)
   }
 
   // MARK: Inspection
@@ -96,18 +92,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       releaseConfiguration = nil
     }
 
-    return display(
-      host: host,
-      engine: engine,
-      engineFailure: engineFailure,
-      catalogSequence: nil
-    )
+    return display(host: host, engine: engine, engineFailure: engineFailure)
   }
 
   // MARK: Plan preparation
 
   func preparePlan(
-    selection: InstallTargetSelection,
     omarchyBytes: UInt64?,
     progress: @escaping @Sendable (AssetProgressUpdate) -> Void
   ) async throws -> PlanPreparationDisplay {
@@ -173,14 +163,10 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
     progress(AssetProgressUpdate(stage: .planning, rows: collector.rows()))
 
-    // Existing installs are never replaced silently: with no explicit
-    // selection the choice goes back to the owner, and a replace plan is
-    // built only for a candidate the engine itself surfaced.
+    // Existing installs are never replaced or joined: report them and let
+    // the session refuse.
     let replaceCandidates = inventory.candidates.filter { $0.kind == "replace" }
-    let candidate: ValidatedEngineCandidate
-    let requestedLengthBytes: UInt64
-    switch selection {
-    case .automatic where !replaceCandidates.isEmpty:
+    if !replaceCandidates.isEmpty {
       return .existingInstallChoice(
         replaceCandidates.map { existing in
           ExistingInstallDisplay(
@@ -189,24 +175,13 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
           )
         }
       )
-    case .replaceExisting(let sourceIdentifier):
-      guard
-        let replace = replaceCandidates.first(where: {
-          $0.sourceIdentifier == sourceIdentifier
-        })
-      else {
-        throw InstallerAppError.existingInstallUnavailable
-      }
-      candidate = replace
-      requestedLengthBytes = replace.lengthBytes
-    case .automatic, .installAlongside:
-      let recommendation = try InstallerAllocationRecommendation(
-        inventory: inventory,
-        targetBytes: omarchyBytes ?? InstallerAllocationRecommendation.balancedTargetBytes
-      )
-      candidate = recommendation.candidate
-      requestedLengthBytes = recommendation.requestedLengthBytes
     }
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory,
+      targetBytes: omarchyBytes ?? InstallerAllocationRecommendation.balancedTargetBytes
+    )
+    let candidate = recommendation.candidate
+    let requestedLengthBytes = recommendation.requestedLengthBytes
 
     let prepared = try await InstallerPlanPreparationCoordinator()
       .prepareExecution(
@@ -351,8 +326,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private func display(
     host: AppleSiliconHostInspection,
     engine: ValidatedEngineTranscript?,
-    engineFailure: String?,
-    catalogSequence: UInt64?
+    engineFailure: String?
   ) -> HostDisplay {
     let blocked: Bool
     if case .blocked = host.eligibility {
@@ -360,94 +334,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     } else {
       blocked = false
     }
-    let required = InstallerAllocationRecommendation.balancedTargetBytes
-    let helper = helperStatus
-    let engineValue: String
-    if let engine {
-      engineValue =
-        engine.support == .supported
-        ? "Verified • supported" : "Verified • unsupported"
-    } else {
-      engineValue = engineFailure == nil ? "Pending" : "Unavailable • locked"
-    }
-
-    let checks = [
-      PreflightCheck(
-        id: "model",
-        label: "Model",
-        value: "\(host.identity.model) (\(host.identity.chip))",
-        satisfied: !blocked,
-        tooltip:
-          "Support is per exact model. The list is signed and fails closed."
-      ),
-      PreflightCheck(
-        id: "macos",
-        label: "MacOS",
-        value: host.macOSVersion,
-        satisfied: true,
-        tooltip: "A current MacOS is required for the Recovery handoff."
-      ),
-      PreflightCheck(
-        id: "power",
-        label: "Power",
-        value: host.powerSource == .ac ? "Connected" : "On battery",
-        satisfied: host.powerSource == .ac,
-        tooltip:
-          "The install writes many gigabytes. Wall power avoids surprises."
-      ),
-      PreflightCheck(
-        id: "filevault",
-        label: "FileVault",
-        value: host.fileVaultEnabled ? "On, stays on" : "Off",
-        satisfied: true,
-        tooltip: "Read only. Your MacOS data stays encrypted."
-      ),
-      PreflightCheck(
-        id: "space",
-        label: "Free space",
-        value:
-          "\(PlainLanguage.bytes(host.storage.containerFreeBytes)) · \(PlainLanguage.bytes(required)) needed",
-        satisfied: host.storage.containerFreeBytes >= required,
-        tooltip:
-          "Omarchy takes a fixed \(PlainLanguage.bytes(required)). The engine confirms the real minimum before planning."
-      ),
-      PreflightCheck(
-        id: "engine",
-        label: "Engine",
-        value: engineValue,
-        satisfied: engine?.support == .supported,
-        tooltip:
-          "A pinned, checksum-verified build of the Asahi installer does the disk work."
-      ),
-      PreflightCheck(
-        id: "helper",
-        label: "Helper",
-        value: helper.summary,
-        satisfied: helper.isEnabled,
-        tooltip:
-          "Does the privileged work. Installed as a system service by the installer package."
-      ),
-      PreflightCheck(
-        id: "downloads",
-        label: "Downloads",
-        value: catalogSequence.map { "Verified, catalog \($0)" }
-          ?? "Awaiting signed catalog",
-        satisfied: catalogSequence != nil,
-        tooltip:
-          "Every file is checked against a signed catalog before use."
-      ),
-    ]
 
     return HostDisplay(
-      modelName: host.identity.model,
       chipAndSpace:
         "\(host.identity.chip) · \(PlainLanguage.bytes(host.storage.containerFreeBytes)) free",
-      deviceIdentifier: host.identity.deviceIdentifier,
       supported: !blocked && engine?.support == .supported,
-      checks: checks,
-      helper: helper,
-      blockingReason: blockingReason(host: host, engineFailure: engineFailure)
-    ,
+      blockingReason: blockingReason(host: host, engineFailure: engineFailure),
       existingInstalls: Self.existingInstalls(in: engine)
     )
   }
@@ -487,88 +379,11 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   ) -> PlanDisplay {
     let length = review.plan.lengthBytes
     let total = max(host.storage.containerSizeBytes, length)
-    let assets = review.assets
-    var artifacts = [
-      PlanArtifactDisplay(
-        role: assets.payload.artifact.role,
-        fileName: assets.payload.artifact.fileName,
-        expectedBytes: assets.payload.artifact.expectedSizeBytes
-      ),
-      PlanArtifactDisplay(
-        role: assets.metadata.artifact.role,
-        fileName: assets.metadata.artifact.fileName,
-        expectedBytes: assets.metadata.artifact.expectedSizeBytes
-      ),
-      PlanArtifactDisplay(
-        role: assets.engine.artifact.role,
-        fileName: assets.engine.artifact.fileName,
-        expectedBytes: assets.engine.artifact.expectedSizeBytes
-      ),
-    ]
-    if let repair = assets.repairManifest {
-      artifacts.append(
-        PlanArtifactDisplay(
-          role: repair.artifact.role,
-          fileName: repair.artifact.fileName,
-          expectedBytes: repair.artifact.expectedSizeBytes
-        )
-      )
-    }
-
-    let files =
-      artifacts
-      .map { "\($0.fileName) \(PlainLanguage.bytes($0.expectedBytes))" }
-      .joined(separator: " · ")
-
-    let facts = [
-      PlanFactRow(label: "Device", value: review.plan.deviceIdentifier),
-      PlanFactRow(
-        label: "Store",
-        value:
-          "\(review.plan.storeIdentifier) · \(review.plan.candidateKind) \(review.plan.sourceIdentifier)"
-      ),
-      PlanFactRow(
-        label: "Offset",
-        value: PlainLanguage.exactBytes(review.plan.offsetBytes)
-      ),
-      PlanFactRow(
-        label: "Length",
-        value:
-          "\(PlainLanguage.exactBytes(length)) (\(PlainLanguage.bytes(length)))"
-      ),
-      PlanFactRow(label: "Engine", value: review.plan.engineVersion),
-      PlanFactRow(label: "Files", value: files + ", each verified (SHA-256)"),
-      PlanFactRow(
-        label: "Catalog",
-        value: "sequence \(assets.catalogIdentity.sequence)"
-      ),
-      PlanFactRow(
-        label: "Plan digest",
-        value: review.plan.planDigest,
-        isMonospaced: true
-      ),
-      PlanFactRow(
-        label: "Binding",
-        value: review.identity.bindingDigest,
-        isMonospaced: true
-      ),
-      PlanFactRow(
-        label: "Rollback",
-        value:
-          "MacOS untouched until approval; every write is checkpointed and journaled"
-      ),
-    ]
 
     return PlanDisplay(
-      headline: "\(PlainLanguage.bytes(length)) for Omarchy",
-      subheadline: PlainLanguage.planSubheadline,
       diskTotalBytes: total,
       omarchyBytes: length,
-      macOSBytes: total > length ? total - length : 0,
       bindingDigest: review.identity.bindingDigest,
-      planDigest: review.plan.planDigest,
-      artifacts: artifacts,
-      facts: facts,
       isResizable: review.plan.candidateKind != "replace"
     )
   }
@@ -581,18 +396,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     case .enterRecovery:
       handoff = HandoffDisplay(
         headline: PlainLanguage.recoveryHeadline,
-        subheadline: PlainLanguage.recoverySubheadline,
-        steps: PlainLanguage.recoverySteps(for: progress.requiredHumanSteps),
-        explainer: PlainLanguage.recoveryExplainer,
-        hint: ""
+        steps: PlainLanguage.recoverySteps(for: progress.requiredHumanSteps)
       )
     case .attachInstallationMedia:
       handoff = HandoffDisplay(
         headline: PlainLanguage.mediaHeadline,
-        subheadline: PlainLanguage.mediaSubheadline,
-        steps: PlainLanguage.recoverySteps(for: progress.requiredHumanSteps),
-        explainer: PlainLanguage.recoveryExplainer,
-        hint: ""
+        steps: PlainLanguage.recoverySteps(for: progress.requiredHumanSteps)
       )
     default:
       handoff = nil

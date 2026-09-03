@@ -76,12 +76,8 @@
     func testUnsupportedEngineExplainsItselfWithoutClaimingABlockedModel() async {
       let environment = MockInstallerEnvironment()
       environment.host = HostDisplay(
-        modelName: "MacBookPro18,3",
         chipAndSpace: "Apple M1 Pro · 464 GB free",
-        deviceIdentifier: "apple,j314s",
         supported: false,
-        checks: [],
-        helper: environment.helper,
         blockingReason: PlainLanguage.engineUnavailable
       )
       let session = InstallerSession(environment: environment)
@@ -105,7 +101,7 @@
       guard case .planPrepared(_, let update) = session.phase else {
         return XCTFail("Expected planPrepared, got \(session.phase)")
       }
-      XCTAssertTrue(update.rows.allSatisfy(\.isVerified))
+      XCTAssertTrue(update.rows.allSatisfy { $0.phase == .verified })
       session.approve()
       XCTAssertEqual(environment.approveCount, 0)
 
@@ -296,10 +292,7 @@
 
     func testHelperMustBeReachableBeforeInstallationCanStart() async {
       let environment = MockInstallerEnvironment()
-      environment.helper = HelperDisplay(
-        status: .notInstalled,
-        summary: PlainLanguage.helperSummary(.notInstalled)
-      )
+      environment.helper = HelperDisplay(status: .notInstalled)
       let session = InstallerSession(environment: environment)
       await session.inspect()
       await session.continueToPlan()
@@ -313,10 +306,7 @@
 
       // The installer package installs the system daemon; refreshing picks it
       // up. There is no registration or Login Items approval step.
-      environment.helper = HelperDisplay(
-        status: .enabled,
-        summary: PlainLanguage.helperSummary(.enabled)
-      )
+      environment.helper = HelperDisplay(status: .enabled)
       session.refreshHelperStatus()
       XCTAssertTrue(session.canStartInstallation)
     }
@@ -453,12 +443,8 @@
         sizeDescription: "128 GB"
       )
       environment.host = HostDisplay(
-        modelName: MockInstallerEnvironment.supportedHost.modelName,
         chipAndSpace: MockInstallerEnvironment.supportedHost.chipAndSpace,
-        deviceIdentifier: MockInstallerEnvironment.supportedHost.deviceIdentifier,
         supported: true,
-        checks: [],
-        helper: MockInstallerEnvironment.supportedHost.helper,
         existingInstalls: [install]
       )
       let session = InstallerSession(environment: environment)
@@ -503,10 +489,7 @@
   final class MockInstallerEnvironment: InstallerEnvironment, @unchecked Sendable {
     var host = MockInstallerEnvironment.supportedHost
     var plan = MockInstallerEnvironment.samplePlan
-    var helper = HelperDisplay(
-      status: .enabled,
-      summary: PlainLanguage.helperSummary(.enabled)
-    )
+    var helper = HelperDisplay(status: .enabled)
     var installationBlocked = false
     var engineSupported = true
     var requestShutdownCount = 0
@@ -523,7 +506,6 @@
     private(set) var executeCount = 0
     private(set) var prepareCount = 0
     private(set) var lastOperation: InstallOperationKind?
-    private(set) var lastSelection: InstallTargetSelection?
     private var approved = false
 
     var hasApprovedPlan: Bool { approved }
@@ -540,12 +522,10 @@
     var lastOmarchyBytes: UInt64?
 
     func preparePlan(
-      selection: InstallTargetSelection,
       omarchyBytes: UInt64?,
       progress: @escaping @Sendable (AssetProgressUpdate) -> Void
     ) async throws -> PlanPreparationDisplay {
       prepareCount += 1
-      lastSelection = selection
       lastOmarchyBytes = omarchyBytes
       approved = false
       for update in progressUpdates {
@@ -555,7 +535,7 @@
       if let prepareError {
         throw prepareError
       }
-      if case .automatic = selection, !existingInstalls.isEmpty {
+      if !existingInstalls.isEmpty {
         return .existingInstallChoice(existingInstalls)
       }
       return .plan(plan)
@@ -601,54 +581,31 @@
     }
 
     static let supportedHost = HostDisplay(
-      modelName: "MacBookPro18,3",
       chipAndSpace: "Apple M1 Pro · 464 GB free",
-      deviceIdentifier: "apple,j314s",
-      supported: true,
-      checks: [],
-      helper: HelperDisplay(
-        status: .enabled,
-        summary: PlainLanguage.helperSummary(.enabled)
-      )
+      supported: true
     )
 
     static let blockedHost = HostDisplay(
-      modelName: "MacBookPro16,1",
       chipAndSpace: "Apple M4 · apple,j614s",
-      deviceIdentifier: "apple,j614s",
-      supported: false,
-      checks: [],
-      helper: HelperDisplay(
-        status: .notInstalled,
-        summary: PlainLanguage.helperSummary(.notInstalled)
-      )
+      supported: false
     )
 
     static let samplePlan = PlanDisplay(
-      headline: "137 GB for Omarchy",
-      subheadline: PlainLanguage.planSubheadline,
       diskTotalBytes: 994_662_584_320,
       omarchyBytes: 137_438_953_472,
-      macOSBytes: 857_223_630_848,
-      bindingDigest: "sha256:" + String(repeating: "b", count: 64),
-      planDigest: String(repeating: "c", count: 64),
-      artifacts: [],
-      facts: []
+      bindingDigest: "sha256:" + String(repeating: "b", count: 64)
     )
 
     static let recoveryCompletion = CompletionDisplay(
       nextAction: .enterRecovery,
       headline: PlainLanguage.recoveryHeadline,
-      subheadline: PlainLanguage.recoverySubheadline,
+      subheadline: PlainLanguage.nextActionMessage(.enterRecovery),
       verified: PlainLanguage.doneVerifiedRows,
       handoff: HandoffDisplay(
         headline: PlainLanguage.recoveryHeadline,
-        subheadline: PlainLanguage.recoverySubheadline,
         steps: PlainLanguage.recoverySteps(for: [
           "enterOneTrueRecovery", "authenticateMachineOwner",
-        ]),
-        explainer: PlainLanguage.recoveryExplainer,
-        hint: ""
+        ])
       )
     )
   }

@@ -58,7 +58,6 @@
     /// The last successfully inspected host, kept so a re-plan that surfaces
     /// an existing install can still name the Mac it refused.
     private var lastHost: HostDisplay?
-    private var lastSelection: InstallTargetSelection = .automatic
     private var lastOmarchyBytes: UInt64?
     private var lastPrepared: (plan: PlanDisplay, update: AssetProgressUpdate)?
     /// True while a chosen size is being re-planned; the Plan screen stays
@@ -157,7 +156,7 @@
       guard case .welcome(let host) = phase else {
         return
       }
-      await preparePlan(selection: .automatic, host: host)
+      await preparePlan(host: host)
     }
 
     /// Re-plan with a chosen amount of space for Omarchy. The verified files
@@ -177,23 +176,18 @@
       }
       isReplanning = true
       defer { isReplanning = false }
-      await preparePlan(
-        selection: lastSelection, host: lastHost, omarchyBytes: omarchyBytes, hold: false)
+      await preparePlan(host: lastHost, omarchyBytes: omarchyBytes, hold: false)
       if acknowledged, case .planReview(let plan, _) = phase {
         phase = .planReview(plan, acknowledged: true)
       }
     }
 
-    // MARK: Existing-install choice
-
     private func preparePlan(
-      selection: InstallTargetSelection,
       host: HostDisplay?,
       omarchyBytes: UInt64? = nil,
       hold: Bool = true
     ) async {
       resetForPlanPreparation()
-      lastSelection = selection
       lastOmarchyBytes = omarchyBytes
       if !isReplanning {
         phase = .preparingPlan(AssetProgressUpdate(stage: .fetchingCatalog))
@@ -202,9 +196,7 @@
       defer { isBusy = false }
 
       do {
-        let outcome = try await environment.preparePlan(
-          selection: selection, omarchyBytes: omarchyBytes
-        ) {
+        let outcome = try await environment.preparePlan(omarchyBytes: omarchyBytes) {
           [weak self] update in
           Task { @MainActor in
             self?.applyPreparation(update)

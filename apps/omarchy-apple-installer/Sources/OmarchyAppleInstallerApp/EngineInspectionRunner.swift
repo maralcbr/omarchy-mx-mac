@@ -56,5 +56,4 @@ enum InstallerAppError: Error {
   case inspectionRequired
   case approvalUnavailable
   case previewFixtureUnavailable
-  case existingInstallUnavailable
 }

@@ -116,13 +116,6 @@
       XCTAssertEqual(failure.headline, PlainLanguage.blockedHeadline)
     }
 
-    func testHelperSummariesAreDistinct() {
-      let statuses: [InstallerHelperServiceStatus] = [.enabled, .notInstalled]
-      let summaries = statuses.map(PlainLanguage.helperSummary)
-
-      XCTAssertEqual(Set(summaries).count, statuses.count)
-    }
-
     func testDigestShorteningKeepsBothEnds() {
       let digest = "sha256:" + String(repeating: "a", count: 56) + "beefcafe"
 
@@ -134,15 +127,10 @@
       XCTAssertEqual(PlainLanguage.shortDigest("short"), "short")
     }
 
-    func testByteFormattingIsHumanAndExact() {
-      XCTAssertFalse(PlainLanguage.bytes(137_438_953_472).isEmpty)
-      XCTAssertTrue(
-        PlainLanguage.exactBytes(857_747_943_424).hasSuffix("bytes")
-      )
-      XCTAssertTrue(
-        PlainLanguage.exactBytes(1_000).contains("1,000")
-          || PlainLanguage.exactBytes(1_000).contains("1 000")
-      )
+    func testByteFormattingIsWholeNumbers() {
+      XCTAssertEqual(PlainLanguage.bytes(137_438_953_472), "137 GB")
+      XCTAssertEqual(PlainLanguage.bytes(18_400_000), "18 MB")
+      XCTAssertEqual(PlainLanguage.bytes(512), "512 bytes")
     }
   }
 
