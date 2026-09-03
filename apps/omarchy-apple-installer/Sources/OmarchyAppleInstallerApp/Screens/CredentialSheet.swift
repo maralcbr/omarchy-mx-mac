@@ -26,24 +26,11 @@ struct CredentialSheet: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      AppMark(size: 64)
-        .padding(.bottom, 6)
-      Image(systemName: "lock.fill")
-        .font(.system(size: 12))
-        .foregroundStyle(OmarchyTheme.secondaryText)
-        .padding(.bottom, 10)
-
       Text(isRetry ? PlainLanguage.authorizeRetryTitle : PlainLanguage.authorizeTitle)
-        .font(.system(size: 13, weight: .bold))
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(OmarchyTheme.accent)
         .multilineTextAlignment(.center)
-        .padding(.bottom, 6)
-
-      Text(isRetry ? PlainLanguage.authorizeRetryBody : PlainLanguage.authorizeBody)
-        .font(OmarchyTheme.caption)
-        .foregroundStyle(OmarchyTheme.secondaryText)
-        .multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.bottom, 8)
+        .padding(.bottom, 14)
 
       if context.error == .credentialsRejected {
         Text(PlainLanguage.authorizeRejected)
@@ -80,21 +67,22 @@ struct CredentialSheet: View {
         if context.isVerifying {
           ProgressView()
             .controlSize(.small)
-          Text(PlainLanguage.authorizeChecking)
-            .font(OmarchyTheme.caption)
-            .foregroundStyle(OmarchyTheme.secondaryText)
+            .accessibilityLabel(PlainLanguage.authorizeChecking)
         }
         Spacer(minLength: 0)
+        // fixedSize keeps both buttons at their natural width: the row is
+        // narrow, and a squeezed button truncates its label.
         Button(PlainLanguage.authorizeCancel, action: cancel)
+          .omarchySecondaryButton()
+          .fixedSize()
           .keyboardShortcut(.cancelAction)
           .disabled(context.isVerifying)
         Button(
-          isRetry
-            ? PlainLanguage.authorizeRetryAction : PlainLanguage.authorizeInstall,
+          isRetry ? PlainLanguage.authorizeRetryAction : PlainLanguage.authorizeInstall,
           action: submit
         )
-        .buttonStyle(.borderedProminent)
-        .tint(OmarchyTheme.accent)
+        .omarchyPrimaryButton()
+        .fixedSize()
         .keyboardShortcut(.defaultAction)
         .disabled(!input.isValid || context.isVerifying)
       }
@@ -102,6 +90,7 @@ struct CredentialSheet: View {
     }
     .padding(24)
     .frame(width: 304)
+    .foregroundStyle(OmarchyTheme.text)
     .background(OmarchyTheme.window)
     .disabled(context.isVerifying)
     .animation(.easeInOut(duration: 0.2), value: context.isVerifying)

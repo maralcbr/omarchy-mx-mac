@@ -42,11 +42,15 @@ struct OmarchyAppleInstallerApp: App {
 
   var body: some Scene {
     WindowGroup(PlainLanguage.windowTitle) {
-      InstallerRootView(environment: InstallerEnvironmentFactory.make())
-        .frame(minWidth: 720, minHeight: 496)
+      OnePageInstallerView(environment: InstallerEnvironmentFactory.make())
+        .frame(minWidth: 640, minHeight: 600)
         .tint(OmarchyTheme.accent)
+      // The window itself takes the theme colour, title bar included, so the
+      // translucent system title bar never tints from the wallpaper behind.
+      .containerBackground(OmarchyTheme.window, for: .window)
     }
-    .defaultSize(width: 800, height: 560)
+    .defaultSize(width: 720, height: 660)
     .windowResizability(.contentMinSize)
+    .windowStyle(.hiddenTitleBar)
   }
 }

@@ -408,7 +408,7 @@ struct DiskBar: View {
         }
         if onAdjustOmarchyFraction != nil {
           RoundedRectangle(cornerRadius: 3)
-            .fill(Color.white)
+            .fill(OmarchyTheme.handle)
             .frame(width: 6, height: 18)
             .overlay(
               RoundedRectangle(cornerRadius: 3)
@@ -528,9 +528,10 @@ struct SegmentedProgress: View {
 
 struct RecoveryStepRow: View {
   let step: RecoveryStep
+  var showsDetail = true
 
   var body: some View {
-    HStack(alignment: .top, spacing: 13) {
+    HStack(alignment: showsDetail ? .top : .center, spacing: 13) {
       Text("\(step.number)")
         .font(.system(size: 12, weight: .bold))
         .foregroundStyle(OmarchyTheme.accentText)
@@ -539,10 +540,12 @@ struct RecoveryStepRow: View {
       VStack(alignment: .leading, spacing: 2) {
         Text(step.title)
           .font(.system(size: 13, weight: .semibold))
-        Text(step.detail)
-          .font(OmarchyTheme.body)
-          .foregroundStyle(OmarchyTheme.secondaryText)
-          .fixedSize(horizontal: false, vertical: true)
+        if showsDetail {
+          Text(step.detail)
+            .font(OmarchyTheme.body)
+            .foregroundStyle(OmarchyTheme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
       Spacer(minLength: 0)
     }
@@ -614,6 +617,8 @@ struct OmarchyPrimaryButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(.system(size: 15, weight: .medium))
+      .lineLimit(1)
+      .fixedSize()
       .foregroundStyle(OmarchyTheme.accentText)
       .padding(.horizontal, 21)
       .frame(height: 42)
@@ -631,6 +636,8 @@ struct OmarchySecondaryButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(.system(size: 15))
+      .lineLimit(1)
+      .fixedSize()
       .foregroundStyle(OmarchyTheme.text)
       .padding(.horizontal, 21)
       .frame(height: 42)

@@ -84,7 +84,7 @@
         try? await Task.sleep(for: .milliseconds(250))
         let total: UInt64 = 994_662_584_320
         let unit: UInt64 = 1_000_000_000
-        let length = min(total - 120 * unit, max(120 * unit, omarchyBytes ?? plan.lengthBytes))
+        let length = min(total - 120 * unit, max(30 * unit, omarchyBytes ?? plan.lengthBytes))
         return .plan(planDisplay(plan: plan, length: length, total: total, artifacts: artifacts))
       }
 
@@ -113,7 +113,7 @@
 
       let total: UInt64 = 994_662_584_320
       let unit: UInt64 = 1_000_000_000
-      let length = min(total - 120 * unit, max(120 * unit, omarchyBytes ?? plan.lengthBytes))
+      let length = min(total - 120 * unit, max(30 * unit, omarchyBytes ?? plan.lengthBytes))
       return .plan(planDisplay(plan: plan, length: length, total: total, artifacts: artifacts))
     }
 
@@ -241,7 +241,7 @@
       ),
       PlanArtifactDisplay(
         role: "engine",
-        fileName: "installer-v0.9.0-omarchy.7.tar.gz",
+        fileName: "installer-v0.9.0-omarchy.9.tar.gz",
         expectedBytes: 22_000_000
       ),
     ]

@@ -34,6 +34,7 @@ struct ConfirmationSheet: View {
     }
     .padding(32)
     .frame(width: 520)
+    .foregroundStyle(OmarchyTheme.text)
     .background(OmarchyTheme.window)
     // No keyboard-focus ring on the buttons; the sheet's own styling is enough.
     .focusEffectDisabled()

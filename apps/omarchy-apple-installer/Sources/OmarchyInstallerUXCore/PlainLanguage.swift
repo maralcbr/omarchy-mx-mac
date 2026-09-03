@@ -41,7 +41,7 @@
 
     public static let checkHeadline = "Install Omarchy"
     public static let checkSubheadline =
-      "Omarchy gets its own space and its own place in the boot menu. MacOS stays intact."
+      "After the installation you will be able to boot start Omarchy or MacOS."
     public static let checkDetailsTitle = "What was checked"
     public static let checkHint = "Nothing has been changed."
     public static let checkContinue = "Continue"
@@ -77,7 +77,7 @@
     public static let planSubheadline = "Let\u{2019}s separate a partition for Omarchy. MacOS keeps the rest, untouched."
     public static let planDetailsTitle = "Exact plan"
     public static let planAcknowledgement =
-      "I reviewed the plan and the Recovery steps."
+      "I am ready to partition my ssd and install."
     public static let planAcknowledgementTooltip =
       "Only this exact plan can run. If the disk changes first, the plan is rejected and rebuilt."
     public static let planWaitingHint = "Waiting for downloads…"
@@ -112,13 +112,13 @@
     // MARK: Screen C — Authorize
 
     public static let authorizeTitle =
-      "Omarchy Installer wants to make changes."
+      "Authorize the changes"
     public static let authorizeBody = "Enter your password to allow this."
     public static let authorizeRetryTitle = "Retry Recovery authorization."
     public static let authorizeRetryBody =
       "Only the last step runs again. The disk is already verified."
     public static let authorizeUsernameLabel = "Username"
-    public static let authorizeChecking = "Checking your password…"
+    public static let authorizeChecking = "Verifying"
     public static let authorizePasswordLabel = "Password"
     public static let authorizeCancel = "Cancel"
     public static let authorizeInstall = "Install"
@@ -205,14 +205,14 @@
 
     // MARK: Screen E — Recovery
 
-    public static let recoveryHeadline = "One step left, in Recovery"
+    public static let recoveryHeadline = "Follow the steps below to install"
     public static let recoverySubheadline =
       "Follow the steps below to complete the recovery process and get Omarchy started."
     public static let recoveryDetailsTitle = "What happens in Recovery"
     public static let recoveryExplainer =
       "Your Mac only starts systems it has been told to trust. In Recovery you give Omarchy that permission: choose Finish Installation and sign in with your MacOS password. This unlocks the new Omarchy volume so it can boot, and nothing else. MacOS and its security stay exactly as they are, and you can come back to it at any time."
     public static let recoveryHint = "No rush — these steps stay here."
-    public static let recoveryShutDown = "Shut Down"
+    public static let recoveryShutDown = "Shutdown your Mac"
     public static let shutdownConfirmationTitle = "Shut down this Mac now?"
     public static let shutdownConfirmationBody =
       "After it turns off, hold the power button until “Loading startup options” appears, then pick Omarchy → Finish Installation and sign in."
@@ -237,7 +237,7 @@
         case "enterOneTrueRecovery":
           append("Shut down", "Apple menu → Shut Down.")
           append(
-            "Hold the power button",
+            "After the Mac is off, hold the power button until startup options appear",
             "Until “Loading startup options” appears."
           )
         case "authenticateMachineOwner":

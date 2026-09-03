@@ -14,7 +14,7 @@ enum OmarchyTheme {
   static let sidebar = dynamic(light: 0xD0_D5E3, dark: 0x24_283B)
   static let content = dynamic(light: 0xE9_EAF0, dark: 0x1A_1B26)
   static let card = dynamic(light: 0xFF_FFFF, dark: 0x24_283B)
-  static let text = dynamic(light: 0x24_283B, dark: 0xC0_CAF5)
+  static let text = dynamic(light: 0x37_60BF, dark: 0x7A_A2F7)
   static let secondaryText = dynamic(light: 0x61_72B0, dark: 0x9A_A5CE)
   static let separator = dynamic(light: 0xC4_C8DA, dark: 0x41_4868)
   static let track = dynamic(light: 0xD0_D5E3, dark: 0x2F_334D)
@@ -24,6 +24,8 @@ enum OmarchyTheme {
   static let caution = dynamic(light: 0x8C_6C3E, dark: 0xE0_AF68)
 
   static var accentSoft: Color { accent.opacity(0.14) }
+  /// One of the wordmark's purples; used for the disk divider handle.
+  static let handle = dynamic(light: 0x7C_4CAB, dark: 0x7C_4CAB)
 
   // MARK: Metrics
 
