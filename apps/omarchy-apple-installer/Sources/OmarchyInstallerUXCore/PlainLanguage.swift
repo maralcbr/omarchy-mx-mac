@@ -52,11 +52,7 @@
 
     // MARK: Screen A2 — Existing install
 
-    public static let existingInstallHeadline = "Omarchy is already on this Mac"
-    public static let existingInstallRefusedDetail =
-      "This installer does not replace an existing Omarchy, and it does not add a second one. Nothing on this Mac was changed."
-    public static let existingInstallRefusedRemedy =
-      "To install again, remove the existing Omarchy first: its four partitions (the small stub, the EFI - OMARC partition, and the two Linux partitions). Then run this installer again."
+    public static let existingInstallHeadline = "Omarchy is already installed on this Mac."
     public static let closeInstaller = "Close"
 
     public static func existingInstallRow(

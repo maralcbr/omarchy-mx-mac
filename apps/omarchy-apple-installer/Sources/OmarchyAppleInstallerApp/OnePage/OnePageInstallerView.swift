@@ -337,25 +337,10 @@ struct OnePageInstallerView: View {
 
   private func existingInstallRefusedPanel(_ installs: [ExistingInstallDisplay]) -> some View {
     Panel {
-      VStack(alignment: .leading, spacing: 8) {
-        Text(PlainLanguage.existingInstallHeadline)
-          .font(.system(size: 16, weight: .semibold))
-        ForEach(installs) { install in
-          Text(PlainLanguage.existingInstallRow(install))
-            .font(OmarchyTheme.body)
-            .foregroundStyle(OmarchyTheme.secondaryText)
-        }
-        Text(PlainLanguage.existingInstallRefusedDetail)
-          .font(OmarchyTheme.body)
-          .foregroundStyle(OmarchyTheme.secondaryText)
-          .fixedSize(horizontal: false, vertical: true)
-          .padding(.top, 2)
-        Text(PlainLanguage.existingInstallRefusedRemedy)
-          .font(OmarchyTheme.body)
-          .foregroundStyle(OmarchyTheme.secondaryText)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-      .padding(.vertical, 2)
+      Text(PlainLanguage.existingInstallHeadline)
+        .font(.system(size: 16, weight: .semibold))
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 2)
     }
   }
 
