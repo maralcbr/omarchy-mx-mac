@@ -6,11 +6,11 @@
   }
 
   public struct ValidationEngineArtifactLocator: Sendable {
-    public static let version = "v0.9.0-omarchy.10"
-    public static let fileName = "installer-v0.9.0-omarchy.10.tar.gz"
+    public static let version = "v0.9.0-omarchy.12"
+    public static let fileName = "installer-v0.9.0-omarchy.12.tar.gz"
     public static let expectedDigest =
-      "sha256:23b2aa8fb30f13721add22f1499ae31852edbddd334d5c27ade0f40a11763650"
-    public static let expectedSizeBytes: UInt64 = 17_916_189
+      "sha256:0a4cd80fec1c726a7cd563178b6f56c2b2554562dc43db29ea25000371589c2a"
+    public static let expectedSizeBytes: UInt64 = 17_916_967
 
     public init() {}
 

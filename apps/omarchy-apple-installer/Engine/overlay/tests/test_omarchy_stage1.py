@@ -33,6 +33,32 @@ class Stage1CoordinatorTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_stage1_runs_mutations_under_the_standard_umask(self):
+        # The helper starts the engine with umask 077; the stub and ESP it
+        # creates must still be world-readable or later unprivileged
+        # enumeration of the existing install fails.
+        import os
+
+        seen = {}
+
+        class UmaskAdapter:
+            def __getattr__(self, name):
+                def operation(plan):
+                    current = os.umask(0)
+                    os.umask(current)
+                    seen[name] = current
+                    return b"evidence"
+
+                return operation
+
+        previous = os.umask(0o077)
+        try:
+            run_stage1(self.plan, self.journal, UmaskAdapter())
+        finally:
+            os.umask(previous)
+        self.assertEqual(len(seen), 3)
+        self.assertEqual({0o022}, set(seen.values()))
+
     def test_fresh_stage1_runs_ordered_mutations_and_completes(self):
         adapter = RecordingStage1Adapter()
 

@@ -241,7 +241,7 @@
       ),
       PlanArtifactDisplay(
         role: "engine",
-        fileName: "installer-v0.9.0-omarchy.10.tar.gz",
+        fileName: "installer-v0.9.0-omarchy.12.tar.gz",
         expectedBytes: 22_000_000
       ),
     ]

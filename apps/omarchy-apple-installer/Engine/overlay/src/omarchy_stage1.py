@@ -1,3 +1,4 @@
+import os
 # SPDX-License-Identifier: MIT
 """Resumable sequencing for Asahi-owned stage-1 mutations."""
 
@@ -68,6 +69,16 @@ def run_stage1(plan, journal, adapter):
     completed = validate_stage1_resume(plan, journal)
     if completed is not None:
         return completed
+
+    # The privileged helper runs with umask 077 so nothing it creates is
+    # readable by other users. The stub volume and its ESP are not the
+    # helper's private state: macOS and the unprivileged inspection that
+    # precedes every later install enumerate them, and a stub whose
+    # System/Library/CoreServices is 700 makes that enumeration fail with
+    # "permission denied" (omarchy.9/.10 shipped that way and could not
+    # offer Replace). Files that must stay private are written with an
+    # explicit mode, so the standard umask is right for everything else.
+    os.umask(0o022)
 
     for stage in stages_for(plan):
         if stage.checkpoint_identifier in journal.checkpoints:
