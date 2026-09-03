@@ -67,10 +67,11 @@ Reconciled on 2026-09-01:
 - `scripts/make-unsigned-catalog.py` pins the `2026.09.01` payload and
   `evidenceRevision 4.0.1-mac.2.9.090126`.
 
-Resolved for v4.0.2-mac.1.11.090226 (engine `v0.9.0-omarchy.8` locked, `.9` shipped):
+Resolved for v4.0.2-mac.1.12.090226 (engine `v0.9.0-omarchy.8` locked, `.10` shipped; `.9` and tag 1.11 shipped an engine whose executables lost python.org's entitlements and could not launch):
 1. `source-lock.json` was rekeyed to `v0.9.0-omarchy.8` with the replace and
    repair overlay files and their tests; two clean builds reproduce it.
 2. The shipped `.9` comes from `scripts/resign-engine.sh` (the reusable form of
    the `.6` → `.7` procedure): prune the GUI and static-link components, drop
-   dangling symlinks, re-sign every Mach-O, re-seal the Python framework.
+   dangling symlinks, re-sign every Mach-O (executables keep the entitlements in
+   `Engine/python-executable.entitlements.plist`), re-seal the Python framework.
 3. `Packaging/Info.plist` now carries the current version and build number.
