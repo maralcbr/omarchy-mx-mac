@@ -547,7 +547,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       bindingDigest: review.identity.bindingDigest,
       planDigest: review.plan.planDigest,
       artifacts: artifacts,
-      facts: facts
+      facts: facts,
+      isResizable: review.plan.candidateKind != "replace"
     )
   }
 

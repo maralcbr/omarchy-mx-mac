@@ -125,6 +125,10 @@
     public let planDigest: String
     public let artifacts: [PlanArtifactDisplay]
     public let facts: [PlanFactRow]
+    /// Whether the user may choose Omarchy's size. A replace plan removes an
+    /// existing install and reuses its exact extent, so there is nothing to
+    /// drag; showing a divider there invites a re-plan the engine refuses.
+    public let isResizable: Bool
 
     public init(
       headline: String,
@@ -135,7 +139,8 @@
       bindingDigest: String,
       planDigest: String,
       artifacts: [PlanArtifactDisplay],
-      facts: [PlanFactRow]
+      facts: [PlanFactRow],
+      isResizable: Bool = true
     ) {
       self.headline = headline
       self.subheadline = subheadline
@@ -146,6 +151,7 @@
       self.planDigest = planDigest
       self.artifacts = artifacts
       self.facts = facts
+      self.isResizable = isResizable
     }
   }
 

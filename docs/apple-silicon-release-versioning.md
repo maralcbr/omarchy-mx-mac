@@ -67,7 +67,7 @@ Reconciled on 2026-09-01:
 - `scripts/make-unsigned-catalog.py` pins the `2026.09.01` payload and
   `evidenceRevision 4.0.1-mac.2.9.090126`.
 
-Resolved for v4.0.2-mac.1.13.090226 (engine `v0.9.0-omarchy.11` locked, `.12` shipped; `.10`/tag 1.12 could not enumerate an existing stub created under the helper's private umask; `.9` and tag 1.11 shipped an engine whose executables lost python.org's entitlements and could not launch):
+Resolved for v4.0.2-mac.1.14.090226 (engine `v0.9.0-omarchy.13` locked, `.14` shipped; `.12`/tag 1.13 never offered Replace because the ESP name is not a partition label; `.10`/tag 1.12 could not enumerate an existing stub created under the helper's private umask; `.9` and tag 1.11 shipped an engine whose executables lost python.org's entitlements and could not launch):
 1. `source-lock.json` was rekeyed to `v0.9.0-omarchy.8` with the replace and
    repair overlay files and their tests; two clean builds reproduce it.
 2. The shipped `.9` comes from `scripts/resign-engine.sh` (the reusable form of

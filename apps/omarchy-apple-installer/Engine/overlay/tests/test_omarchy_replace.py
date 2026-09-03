@@ -53,7 +53,7 @@ ALIGN = MIB
 
 
 def part(name, offset, size, *, type=None, label=None, uuid=None, free=False,
-         os=None, container=None):
+         os=None, container=None, info=None):
     return SimpleNamespace(
         name=name,
         offset=offset,
@@ -64,6 +64,7 @@ def part(name, offset, size, *, type=None, label=None, uuid=None, free=False,
         free=free,
         os=os,
         container=container,
+        info=info or {},
     )
 
 
@@ -78,9 +79,11 @@ def existing_install_parts(start=500 * GIB):
         os=[stub_os()],
         container={"ContainerReference": "disk4"},
     )
+    # As diskutil reports a real ESP: type EFI, no APFS label, the FAT volume
+    # name only in the raw record (the label field is filled for APFS only).
     esp = part(
         "disk0s4", stub_part.offset + stub_part.size, 500 * MIB,
-        type="Microsoft Basic Data", label="EFI - OMARC", uuid="UUID-ESP",
+        type="EFI", uuid="UUID-ESP", info={"VolumeName": "EFI - OMARC"},
     )
     boot = part(
         "disk0s5", esp.offset + esp.size, 2 * GIB,

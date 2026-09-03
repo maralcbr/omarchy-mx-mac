@@ -187,7 +187,7 @@ struct OnePageInstallerView: View {
     case .planReview(let plan, let acknowledged):
       DiskSplitPanel(
         plan: plan,
-        editable: true,
+        editable: plan.isResizable,
         isBusy: session.isBusy,
         onSizeChosen: { bytes in Task { await session.replan(omarchyBytes: bytes) } }
       )

@@ -147,8 +147,11 @@ def collect_existing_installs(installer, os_label, minimum_install, part_align):
         if len(members) != 4 or any(member.free for member in members):
             continue
         esp, boot, root = members[1:]
+        # diskutil only fills Partition.label for APFS volumes; the ESP is a
+        # FAT partition whose name arrives in the raw record as VolumeName.
+        esp_label = esp.label or (getattr(esp, "info", None) or {}).get("VolumeName") or ""
         if (
-            (esp.label or "") != REPLACE_ESP_LABEL
+            esp_label != REPLACE_ESP_LABEL
             or boot.type != LINUX_PARTITION_TYPE
             or root.type != LINUX_PARTITION_TYPE
             or any(not member.uuid for member in members)

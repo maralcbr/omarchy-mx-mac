@@ -141,7 +141,7 @@
     }
   },
   "downstream_overlay": {
-    "version": "v0.9.0-omarchy.11",
+    "version": "v0.9.0-omarchy.13",
     "capability": "candidate_bound_full_os_stage_one_authenticated_recovery",
     "engine_modes": [
       "inspect",
@@ -190,7 +190,7 @@
       {
         "path": "overlay/src/omarchy_planner.py",
         "destination": "src/omarchy_planner.py",
-        "sha256": "a9135653dd8d9e72d98e1c9a69c8f8345ff94a52b134ed841fb18b706590992c"
+        "sha256": "a3202243e26290d2dcd3cb421e922ea3c6edf36c152fe70945513c8cd3b64c88"
       },
       {
         "path": "overlay/src/omarchy_repair.py",
@@ -235,7 +235,7 @@
       {
         "path": "overlay/tests/test_omarchy_replace.py",
         "destination": "tests/test_omarchy_replace.py",
-        "sha256": "f3433aede29b44af0457b1a0a335f8ccd6b6ea8c87bdfbb21a21cf06c94e6e93"
+        "sha256": "6e7e5aab3a4dff832031f47378db660775d4b81d379273815ecb325e672ae504"
       },
       {
         "path": "overlay/tests/test_omarchy_runtime.py",
@@ -264,9 +264,9 @@
     }
   ],
   "validation_artifact": {
-    "filename": "installer-v0.9.0-omarchy.11.tar.gz",
-    "size_bytes": 22071160,
-    "sha256": "2e125fd866f1acd88c26c33351f7984303a3a930bc6578035860b95ccbd1a822",
+    "filename": "installer-v0.9.0-omarchy.13.tar.gz",
+    "size_bytes": 22071253,
+    "sha256": "8bd8e8d2b94f3717d5fcf95516c6bf01dced1db4d396a73da7962e210d2b45a5",
     "reproducibility_scope": "two-clean-builds-same-host-pinned-toolchain",
     "signature": "absent"
   }

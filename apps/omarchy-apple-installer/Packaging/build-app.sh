@@ -45,8 +45,8 @@ app_name="Omarchy MX Mac Installer.app"
 app_executable_name="OmarchyAppleInstallerApp"
 helper_executable_name="omarchy-apple-installer-helper"
 daemon_plist_name="$helper_identifier.plist"
-engine_file_name="installer-v0.9.0-omarchy.12.tar.gz"
-engine_digest="0a4cd80fec1c726a7cd563178b6f56c2b2554562dc43db29ea25000371589c2a"
+engine_file_name="installer-v0.9.0-omarchy.14.tar.gz"
+engine_digest="9e9277384b6c9e8b269cc79b1b24df7bfcdcbb898a596a677b74d1d18050aebe"
 
 if [[ $signing_identity == "-" ]]; then
   client_requirement="identifier \"$app_identifier\""
