@@ -149,17 +149,8 @@ binary_directory="$({
 
 app_binary="$binary_directory/$app_executable_name"
 helper_binary="$binary_directory/OmarchyAppleInstallerHelper"
-app_icon_source="$package_directory/Sources/OmarchyAppleInstallerApp/Resources/omarchy-icon.png"
 [[ -x $app_binary ]] || fail "app executable was not built"
 [[ -x $helper_binary ]] || fail "helper executable was not built"
-if [[ ! -f $app_icon_source || -L $app_icon_source ]]; then
-  fail "authoritative Omarchy UI asset is missing"
-fi
-if [[ $(/usr/bin/shasum -a 256 "$app_icon_source" \
-  | awk '{print $1}') != \
-  "edd69e61d711d8b423555f27a5afc64935c299f6e7f779112d2ce970ec0236e4" ]]; then
-  fail "authoritative Omarchy UI asset digest is incorrect"
-fi
 
 assembly_root="$(mktemp -d "$output_directory/.omarchy-app.XXXXXX")"
 trap 'rm -rf "$assembly_root"' EXIT
@@ -187,7 +178,6 @@ install -m 0444 "$engine_source" "$resources/Engine/artifacts/$engine_file_name"
 install -m 0444 \
   "$script_directory/OmarchyInstaller.icns" \
   "$resources/OmarchyInstaller.icns"
-install -m 0444 "$app_icon_source" "$resources/omarchy-icon.png"
 install -m 0444 "$script_directory/Info.plist" "$contents/Info.plist"
 install -m 0444 \
   "$script_directory/$daemon_plist_name" \

@@ -40,19 +40,3 @@ struct ConfirmationSheet: View {
     .focusEffectDisabled()
   }
 }
-
-/// The last stop before anything is written.
-struct ExecutionConfirmationSheet: View {
-  let onConfirm: () -> Void
-  let onCancel: () -> Void
-
-  var body: some View {
-    ConfirmationSheet(
-      title: PlainLanguage.executionConfirmationTitle,
-      message: PlainLanguage.executionConfirmationBody,
-      action: PlainLanguage.executionConfirmationAction,
-      onConfirm: onConfirm,
-      onCancel: onCancel
-    )
-  }
-}

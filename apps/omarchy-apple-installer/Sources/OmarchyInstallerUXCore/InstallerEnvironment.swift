@@ -297,14 +297,12 @@
   public struct RecoveryStep: Equatable, Sendable, Identifiable {
     public let number: Int
     public let title: String
-    public let detail: String
 
     public var id: Int { number }
 
-    public init(number: Int, title: String, detail: String) {
+    public init(number: Int, title: String) {
       self.number = number
       self.title = title
-      self.detail = detail
     }
   }
 

@@ -55,8 +55,7 @@ let package = Package(
         "OmarchyAppleInstallerTrustCore",
         "OmarchyInstallerUXCore",
       ],
-      path: "Sources/OmarchyAppleInstallerApp",
-      resources: [.copy("Resources/omarchy-icon.png")]
+      path: "Sources/OmarchyAppleInstallerApp"
     ),
     .executableTarget(
       name: "OmarchyAppleInstallerHelper",

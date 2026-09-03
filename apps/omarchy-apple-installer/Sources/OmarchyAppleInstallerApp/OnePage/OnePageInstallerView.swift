@@ -388,7 +388,7 @@ struct OnePageInstallerView: View {
         .font(.system(size: 17, weight: .semibold))
         .padding(.bottom, 4)
       ForEach(handoff.steps) { step in
-        RecoveryStepRow(step: step, showsDetail: false)
+        RecoveryStepRow(step: step)
       }
     }
   }

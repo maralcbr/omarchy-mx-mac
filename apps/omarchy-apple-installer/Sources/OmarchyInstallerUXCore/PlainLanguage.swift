@@ -127,11 +127,6 @@
       "The helper will revalidate the exact plan, artifacts, disk extent, and completed read-back checkpoint, then rerun only Apple’s boot-policy authorization. It cannot resize, repartition, or rewrite the installed system."
     public static let recoveryRetryConfirmationAction =
       "Retry Recovery authorization"
-    public static let executionConfirmationTitle =
-      "Start the exact approved installation?"
-    public static let executionConfirmationBody =
-      "This authorizes the privileged helper to apply the reviewed disk extent. Do not continue without a current backup."
-    public static let executionConfirmationAction = "Start installation"
     public static let cancel = "Cancel"
 
     // MARK: Screen D — Install
@@ -197,7 +192,6 @@
     public static let recoveryHeadline = "Follow the steps below to install"
     public static let recoverySubheadline =
       "Follow the steps below to complete the recovery process and get Omarchy started."
-    public static let recoveryDetailsTitle = "What happens in Recovery"
     public static let recoveryExplainer =
       "Your Mac only starts systems it has been told to trust. In Recovery you give Omarchy that permission: choose Finish Installation and sign in with your MacOS password. This unlocks the new Omarchy volume so it can boot, and nothing else. MacOS and its security stay exactly as they are, and you can come back to it at any time."
     public static let recoveryHint = "No rush — these steps stay here."
@@ -217,37 +211,25 @@
     ) -> [RecoveryStep] {
       var steps = [RecoveryStep]()
       var number = 1
-      func append(_ title: String, _ detail: String) {
-        steps.append(RecoveryStep(number: number, title: title, detail: detail))
+      func append(_ title: String) {
+        steps.append(RecoveryStep(number: number, title: title))
         number += 1
       }
       for token in requiredHumanSteps {
         switch token {
         case "enterOneTrueRecovery":
-          append("Shut down", "Apple menu → Shut Down.")
-          append(
-            "After the Mac is off, hold the power button until startup options appear",
-            "Until “Loading startup options” appears."
-          )
+          append("Shut down")
+          append("After the Mac is off, hold the power button until startup options appear")
         case "authenticateMachineOwner":
-          append(
-            "Pick Omarchy → Finish Installation",
-            "Sign in when asked. The Mac restarts into Omarchy."
-          )
+          append("Pick Omarchy → Finish Installation")
         default:
-          append(token, "Required by the signed plan.")
+          append(token)
         }
       }
       if steps.isEmpty {
-        append("Shut down", "Apple menu → Shut Down.")
-        append(
-          "Hold the power button",
-          "Until “Loading startup options” appears."
-        )
-        append(
-          "Pick Omarchy → Finish Installation",
-          "Sign in when asked. The Mac restarts into Omarchy."
-        )
+        append("Shut down")
+        append("Hold the power button")
+        append("Pick Omarchy → Finish Installation")
       }
       return steps
     }
@@ -257,7 +239,6 @@
     public static let doneHeadline = "Omarchy is installed"
     public static let doneSubheadline =
       "Hold the power button at startup to choose Omarchy or MacOS."
-    public static let doneDetailsTitle = "What was verified"
     public static let startOver = "Start over"
     public static let doneVerifiedRows = [
       PlanFactRow(label: "Boot chain", value: "m1n1 → U-Boot → GRUB → Omarchy"),
@@ -291,7 +272,6 @@
     public static let blockedHeadline = "This Mac isn’t supported yet"
     public static let blockedSubheadline =
       "Each model is tested and signed off individually. Nothing was downloaded or changed."
-    public static let blockedDetailsTitle = "Why blocked"
     public static let blockedExplainer =
       "The model list is signed and fails closed. Updates can remove a model, never add one. New models arrive only in a new signed release, after physical testing."
     public static let blockedBadge = "Blocked"
@@ -302,7 +282,6 @@
 
     // MARK: Errors
 
-    public static let technicalDetailsTitle = "Technical error"
     public static let retry = "Retry…"
 
     public static func helperSummary(
