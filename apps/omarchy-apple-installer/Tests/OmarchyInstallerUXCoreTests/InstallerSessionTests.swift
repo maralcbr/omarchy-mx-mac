@@ -139,6 +139,24 @@
       XCTAssertFalse(acknowledged)
     }
 
+    func testReplanKeepsAnAcknowledgementAlreadyGiven() async {
+      let environment = MockInstallerEnvironment()
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setAcknowledged(true)
+
+      await session.replan(omarchyBytes: 200_000_000_000)
+
+      guard case .planReview(_, let acknowledged) = session.phase else {
+        return XCTFail("Expected planReview after replan, got \(session.phase)")
+      }
+      XCTAssertTrue(acknowledged, "a tick given before the drag must survive the re-plan")
+      session.approve()
+      XCTAssertEqual(environment.approveCount, 1)
+    }
+
     func testGoBackAndRailNavigationWalkEarlierSteps() async {
       let environment = MockInstallerEnvironment()
       let session = InstallerSession(environment: environment)

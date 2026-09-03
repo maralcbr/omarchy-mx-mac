@@ -189,15 +189,25 @@
 
     /// Re-plan with a chosen amount of space for Omarchy. The verified files
     /// are reused, so this lands straight back in review with the new plan.
+    /// Re-plan for a chosen size. The acknowledgement survives: it says the
+    /// person is ready to partition, and the size is what they just chose, so
+    /// dropping it here only made a tick before or during the drag vanish.
     public func replan(omarchyBytes: UInt64) async {
+      let acknowledged: Bool
       switch phase {
-      case .planReview, .planPrepared:
-        isReplanning = true
-        defer { isReplanning = false }
-        await preparePlan(
-          selection: lastSelection, host: lastHost, omarchyBytes: omarchyBytes, hold: false)
+      case .planReview(_, let value):
+        acknowledged = value
+      case .planPrepared:
+        acknowledged = false
       default:
         return
+      }
+      isReplanning = true
+      defer { isReplanning = false }
+      await preparePlan(
+        selection: lastSelection, host: lastHost, omarchyBytes: omarchyBytes, hold: false)
+      if acknowledged, case .planReview(let plan, _) = phase {
+        phase = .planReview(plan, acknowledged: true)
       }
     }
 

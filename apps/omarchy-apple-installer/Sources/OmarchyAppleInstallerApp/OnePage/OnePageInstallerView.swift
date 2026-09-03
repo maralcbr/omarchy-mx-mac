@@ -344,6 +344,8 @@ struct OnePageInstallerView: View {
     }
   }
 
+  /// The tick and its text. Both are inert while a re-plan runs so a tick
+  /// cannot land between the drag and the new plan.
   private func acknowledgement(_ acknowledged: Bool) -> some View {
     HStack(alignment: .center, spacing: 12) {
       Toggle(
@@ -362,6 +364,7 @@ struct OnePageInstallerView: View {
         .onTapGesture { session.setAcknowledged(!acknowledged) }
       Spacer(minLength: 0)
     }
+    .disabled(session.isBusy)
     .padding(.horizontal, 4)
     .padding(.top, 4)
   }
