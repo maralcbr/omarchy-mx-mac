@@ -53,18 +53,11 @@
     // MARK: Screen A2 — Existing install
 
     public static let existingInstallHeadline = "Omarchy is already on this Mac"
-    public static let existingInstallSubheadline =
-      "Choose what happens to the copy that is already installed. Nothing changes until you approve an exact plan."
-    public static let existingInstallDetailsTitle = "Found on this Mac"
-    public static let existingInstallReplace = "Replace it"
-    public static let existingInstallReplaceDetail =
-      "The old copy and everything on it are erased when the approved plan runs. Its space is reused."
-    public static let existingInstallKeep = "Keep it and add another"
-    public static let existingInstallKeepDetail =
-      "The old copy stays untouched. The new one goes into other free space."
-    public static let existingInstallBack = "Go back"
-    public static let existingInstallHint =
-      "Replacing still requires the exact-plan review, your approval, and your password."
+    public static let existingInstallRefusedDetail =
+      "This installer does not replace an existing Omarchy, and it does not add a second one. Nothing on this Mac was changed."
+    public static let existingInstallRefusedRemedy =
+      "To install again, remove the existing Omarchy first: its four partitions (the small stub, the EFI - OMARC partition, and the two Linux partitions). Then run this installer again."
+    public static let closeInstaller = "Close"
 
     public static func existingInstallRow(
       _ install: ExistingInstallDisplay

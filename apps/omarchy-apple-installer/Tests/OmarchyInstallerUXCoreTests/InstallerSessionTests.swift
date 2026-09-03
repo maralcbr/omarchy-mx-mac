@@ -519,9 +519,9 @@
       )
     }
 
-    // MARK: Existing-install choice
+    // MARK: Existing install
 
-    func testExistingInstallChoicePausesBeforePlanReview() async {
+    func testAnExistingInstallIsRefusedWithNoWayForward() async {
       let environment = MockInstallerEnvironment()
       let install = ExistingInstallDisplay(
         sourceIdentifier: "disk0s3",
@@ -534,116 +534,25 @@
       await session.continueToPlan()
       session.continueToPlanReview()
 
-      guard case .existingInstallChoice(let options, let host) = session.phase
+      guard case .existingInstallRefused(let found, let host) = session.phase
       else {
-        return XCTFail("Expected existingInstallChoice, got \(session.phase)")
+        return XCTFail("Expected existingInstallRefused, got \(session.phase)")
       }
-      XCTAssertEqual(options, [install])
+      XCTAssertEqual(found, [install])
       XCTAssertEqual(host, MockInstallerEnvironment.supportedHost)
       XCTAssertEqual(session.railStep, .plan)
       XCTAssertEqual(environment.lastSelection, .automatic)
+      XCTAssertEqual(environment.prepareCount, 1)
 
-      await session.chooseReplaceExistingInstall(install)
-      session.continueToPlanReview()
-
-      guard case .planReview = session.phase else {
-        return XCTFail("Expected planReview, got \(session.phase)")
+      // Nothing on the page moves the session on: no plan, no approval.
+      session.setAcknowledged(true)
+      session.approve()
+      session.goBack()
+      guard case .existingInstallRefused = session.phase else {
+        return XCTFail("Expected the refusal to stay, got \(session.phase)")
       }
-      XCTAssertEqual(
-        environment.lastSelection,
-        .replaceExisting(sourceIdentifier: "disk0s3")
-      )
-      XCTAssertEqual(environment.prepareCount, 2)
-    }
-
-    func testKeepingTheExistingInstallPlansAlongside() async {
-      let environment = MockInstallerEnvironment()
-      environment.existingInstalls = [
-        ExistingInstallDisplay(
-          sourceIdentifier: "disk0s3",
-          sizeDescription: "128 GB"
-        )
-      ]
-      let session = InstallerSession(environment: environment)
-      await session.inspect()
-      await session.continueToPlan()
-      session.continueToPlanReview()
-
-      await session.chooseInstallAlongsideExistingInstall()
-      session.continueToPlanReview()
-
-      guard case .planReview = session.phase else {
-        return XCTFail("Expected planReview, got \(session.phase)")
-      }
-      XCTAssertEqual(environment.lastSelection, .installAlongside)
-    }
-
-    func testCancellingTheExistingInstallChoiceReturnsToWelcome() async {
-      let environment = MockInstallerEnvironment()
-      environment.existingInstalls = [
-        ExistingInstallDisplay(
-          sourceIdentifier: "disk0s3",
-          sizeDescription: "128 GB"
-        )
-      ]
-      let session = InstallerSession(environment: environment)
-      await session.inspect()
-      await session.continueToPlan()
-      session.continueToPlanReview()
-
-      session.cancelExistingInstallChoice()
-
-      guard case .welcome(let host) = session.phase else {
-        return XCTFail("Expected welcome, got \(session.phase)")
-      }
-      XCTAssertEqual(host, MockInstallerEnvironment.supportedHost)
-    }
-
-    func testForeignReplaceOptionIsARefusedNoOp() async {
-      let environment = MockInstallerEnvironment()
-      let surfaced = ExistingInstallDisplay(
-        sourceIdentifier: "disk0s3",
-        sizeDescription: "128 GB"
-      )
-      environment.existingInstalls = [surfaced]
-      let session = InstallerSession(environment: environment)
-      await session.inspect()
-      await session.continueToPlan()
-      session.continueToPlanReview()
-      let prepared = environment.prepareCount
-
-      await session.chooseReplaceExistingInstall(
-        ExistingInstallDisplay(
-          sourceIdentifier: "disk0s9",
-          sizeDescription: "1 GB"
-        )
-      )
-
-      guard case .existingInstallChoice = session.phase else {
-        return XCTFail("Expected existingInstallChoice, got \(session.phase)")
-      }
-      XCTAssertEqual(environment.prepareCount, prepared)
-    }
-
-    func testChoiceMethodsAreNoOpsOutsideTheirPhase() async {
-      let environment = MockInstallerEnvironment()
-      let session = InstallerSession(environment: environment)
-      await session.inspect()
-
-      await session.chooseReplaceExistingInstall(
-        ExistingInstallDisplay(
-          sourceIdentifier: "disk0s3",
-          sizeDescription: "128 GB"
-        )
-      )
-      await session.chooseInstallAlongsideExistingInstall()
-      session.continueToPlanReview()
-      session.cancelExistingInstallChoice()
-
-      guard case .welcome = session.phase else {
-        return XCTFail("Expected welcome, got \(session.phase)")
-      }
-      XCTAssertEqual(environment.prepareCount, 0)
+      XCTAssertFalse(session.canStartInstallation)
+      XCTAssertEqual(environment.prepareCount, 1)
     }
   }
 

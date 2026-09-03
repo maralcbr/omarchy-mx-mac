@@ -7,7 +7,9 @@
     case inspecting
     case unsupported(FailureDisplay)
     case welcome(HostDisplay)
-    case existingInstallChoice([ExistingInstallDisplay], host: HostDisplay)
+    /// Omarchy is already on this Mac. The installer never replaces or adds
+    /// to an existing install; this is a terminal page with a Close button.
+    case existingInstallRefused([ExistingInstallDisplay], host: HostDisplay)
     case preparingPlan(AssetProgressUpdate)
     /// Everything is downloaded and verified; the plan waits for the person to
     /// continue instead of replacing the download screen on its own.
@@ -87,7 +89,7 @@
     public var railStep: InstallerRailStep {
       switch phase {
       case .inspecting, .welcome, .unsupported: .check
-      case .existingInstallChoice, .preparingPlan, .planPrepared, .planReview: .plan
+      case .existingInstallRefused, .preparingPlan, .planPrepared, .planReview: .plan
       case .awaitingInstall: .authorize
       case .installing, .failed: .install
       case .awaitingRecovery, .done: .finish
@@ -202,8 +204,6 @@
     /// discards the approval so it must be given again.
     public func goBack() {
       switch phase {
-      case .existingInstallChoice:
-        cancelExistingInstallChoice()
       case .planPrepared:
         if let host = lastHost { phase = .welcome(host) }
       case .planReview(let plan, _):
@@ -226,7 +226,7 @@
         return
       }
       switch (step, phase) {
-      case (.check, .existingInstallChoice), (.check, .planPrepared), (.check, .planReview):
+      case (.check, .planPrepared), (.check, .planReview):
         if let host = lastHost { phase = .welcome(host) }
       case (.check, .awaitingInstall):
         back()
@@ -239,40 +239,6 @@
     }
 
     // MARK: Existing-install choice
-
-    /// Plans the removal-and-reuse of one detected install. Only the
-    /// options the environment itself surfaced are accepted, and nothing
-    /// is erased here: the replace plan still goes through exact-plan
-    /// review, approval, and machine-owner authorization.
-    public func chooseReplaceExistingInstall(
-      _ install: ExistingInstallDisplay
-    ) async {
-      guard case .existingInstallChoice(let options, let host) = phase,
-        options.contains(install)
-      else {
-        return
-      }
-      await preparePlan(
-        selection: .replaceExisting(
-          sourceIdentifier: install.sourceIdentifier
-        ),
-        host: host
-      )
-    }
-
-    public func chooseInstallAlongsideExistingInstall() async {
-      guard case .existingInstallChoice(_, let host) = phase else {
-        return
-      }
-      await preparePlan(selection: .installAlongside, host: host)
-    }
-
-    public func cancelExistingInstallChoice() {
-      guard case .existingInstallChoice(_, let host) = phase else {
-        return
-      }
-      phase = .welcome(host)
-    }
 
     private func preparePlan(
       selection: InstallTargetSelection,
@@ -309,6 +275,8 @@
           lastPrepared = (plan, lastUpdate)
           phase = hold ? .planPrepared(plan, lastUpdate) : .planReview(plan, acknowledged: false)
         case .existingInstallChoice(let options):
+          // Never replace, never install alongside: say what was found and
+          // stop. The only way forward is to remove the existing copy first.
           guard let host, !options.isEmpty else {
             // A choice without the host context (or without options) has no
             // safe way forward; require a fresh inspection.
@@ -320,7 +288,7 @@
             )
             return
           }
-          phase = .existingInstallChoice(options, host: host)
+          phase = .existingInstallRefused(options, host: host)
         }
       } catch {
         phase = .failed(PlainLanguage.failure(for: error))

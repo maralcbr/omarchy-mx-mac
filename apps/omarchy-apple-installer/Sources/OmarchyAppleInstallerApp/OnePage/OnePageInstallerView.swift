@@ -147,10 +147,12 @@ struct OnePageInstallerView: View {
   }
 
   private var isBlocked: Bool {
-    if case .unsupported = session.phase {
+    switch session.phase {
+    case .unsupported, .existingInstallRefused:
       return true
+    default:
+      return false
     }
-    return false
   }
 
   // MARK: The middle of the page
@@ -178,8 +180,8 @@ struct OnePageInstallerView: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
 
-    case .existingInstallChoice(let installs, _):
-      existingInstallPanel(installs)
+    case .existingInstallRefused(let installs, _):
+      existingInstallRefusedPanel(installs)
 
     case .preparingPlan(let update), .planPrepared(_, let update):
       DownloadPanel(update: update)
@@ -241,16 +243,10 @@ struct OnePageInstallerView: View {
         .disabled(session.isBusy)
         .keyboardShortcut(.defaultAction)
 
-    case .existingInstallChoice:
-      Button(PlainLanguage.existingInstallBack) { session.cancelExistingInstallChoice() }
-        .omarchySecondaryButton()
-        .disabled(session.isBusy)
-      Button(PlainLanguage.existingInstallKeep) {
-        Task { await session.chooseInstallAlongsideExistingInstall() }
-      }
-      .omarchyPrimaryButton()
-      .disabled(session.isBusy)
-      .keyboardShortcut(.defaultAction)
+    case .existingInstallRefused:
+      Button(PlainLanguage.closeInstaller) { NSApplication.shared.terminate(nil) }
+        .omarchyPrimaryButton()
+        .keyboardShortcut(.defaultAction)
 
     case .planReview(_, let acknowledged):
       Button(PlainLanguage.planInstall) {
@@ -339,28 +335,27 @@ struct OnePageInstallerView: View {
     }
   }
 
-  private func existingInstallPanel(_ installs: [ExistingInstallDisplay]) -> some View {
+  private func existingInstallRefusedPanel(_ installs: [ExistingInstallDisplay]) -> some View {
     Panel {
-      VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: 8) {
         Text(PlainLanguage.existingInstallHeadline)
-          .font(.system(size: 15, weight: .semibold))
+          .font(.system(size: 16, weight: .semibold))
         ForEach(installs) { install in
-          HStack {
-            Text(PlainLanguage.existingInstallRow(install))
-              .font(OmarchyTheme.body)
-            Spacer()
-            Button(PlainLanguage.existingInstallReplace) {
-              Task { await session.chooseReplaceExistingInstall(install) }
-            }
-            .omarchySecondaryButton()
-            .disabled(session.isBusy)
-          }
+          Text(PlainLanguage.existingInstallRow(install))
+            .font(OmarchyTheme.body)
+            .foregroundStyle(OmarchyTheme.secondaryText)
         }
-        Text(PlainLanguage.existingInstallReplaceDetail)
-          .font(OmarchyTheme.caption)
+        Text(PlainLanguage.existingInstallRefusedDetail)
+          .font(OmarchyTheme.body)
+          .foregroundStyle(OmarchyTheme.secondaryText)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.top, 2)
+        Text(PlainLanguage.existingInstallRefusedRemedy)
+          .font(OmarchyTheme.body)
           .foregroundStyle(OmarchyTheme.secondaryText)
           .fixedSize(horizontal: false, vertical: true)
       }
+      .padding(.vertical, 2)
     }
   }
 
@@ -447,7 +442,7 @@ struct OnePageInstallerView: View {
     switch phase {
     case .welcome(let seen):
       host = seen
-    case .existingInstallChoice(_, let seen):
+    case .existingInstallRefused(_, let seen):
       host = seen
     case .unsupported(let failure):
       host = failure.device
