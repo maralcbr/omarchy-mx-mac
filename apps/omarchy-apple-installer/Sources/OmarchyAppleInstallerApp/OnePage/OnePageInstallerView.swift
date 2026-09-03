@@ -89,7 +89,7 @@ struct OnePageInstallerView: View {
     .sheet(isPresented: $showsShutdownConfirmation) {
       ConfirmationSheet(
         title: PlainLanguage.shutdownConfirmationTitle,
-        body_: PlainLanguage.shutdownConfirmationBody,
+        message: PlainLanguage.shutdownConfirmationBody,
         action: PlainLanguage.shutdownConfirmationAction,
         onConfirm: {
           showsShutdownConfirmation = false
@@ -102,7 +102,7 @@ struct OnePageInstallerView: View {
     .sheet(isPresented: $showsRecoveryRetryConfirmation) {
       ConfirmationSheet(
         title: PlainLanguage.recoveryRetryConfirmationTitle,
-        body_: PlainLanguage.recoveryRetryConfirmationBody,
+        message: PlainLanguage.recoveryRetryConfirmationBody,
         action: PlainLanguage.recoveryRetryConfirmationAction,
         onConfirm: {
           showsRecoveryRetryConfirmation = false

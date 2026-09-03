@@ -6,7 +6,7 @@ import SwiftUI
 /// Every confirmation in the installer uses this so they all look alike.
 struct ConfirmationSheet: View {
   let title: String
-  let body_: String
+  let message: String
   let action: String
   let onConfirm: () -> Void
   let onCancel: () -> Void
@@ -17,7 +17,7 @@ struct ConfirmationSheet: View {
         .font(.system(size: 19, weight: .semibold))
         .fixedSize(horizontal: false, vertical: true)
         .padding(.bottom, 14)
-      Text(body_)
+      Text(message)
         .font(.system(size: 14))
         .foregroundStyle(OmarchyTheme.secondaryText)
         .fixedSize(horizontal: false, vertical: true)
@@ -49,7 +49,7 @@ struct ExecutionConfirmationSheet: View {
   var body: some View {
     ConfirmationSheet(
       title: PlainLanguage.executionConfirmationTitle,
-      body_: PlainLanguage.executionConfirmationBody,
+      message: PlainLanguage.executionConfirmationBody,
       action: PlainLanguage.executionConfirmationAction,
       onConfirm: onConfirm,
       onCancel: onCancel
