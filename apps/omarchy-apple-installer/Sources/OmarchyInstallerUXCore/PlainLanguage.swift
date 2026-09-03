@@ -17,7 +17,7 @@
     public static let checkAgain = "Check again"
     public static let inspectingHeadline = "Checking this Mac"
     public static let inspectingSubheadline =
-      "Reading the model, MacOS version, power, FileVault, and free space. Nothing is changed."
+      "Reading the model, MacOS version, power, FileVault, and free space."
 
     // MARK: Screen A2 — Existing install
 
