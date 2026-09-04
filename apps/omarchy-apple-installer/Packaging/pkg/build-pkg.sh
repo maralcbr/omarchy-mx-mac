@@ -64,7 +64,20 @@ prog="$(/usr/bin/plutil -extract Program raw -o - "$daemon_plist" 2>/dev/null ||
   echo "build-pkg.sh: daemon Program does not exist inside the staged app: $prog" >&2
   exit 65
 }
+# The helper compiles this requirement at launch and exits EX_CONFIG when it
+# cannot, and launchd then respawns it forever while the app waits on a reply
+# that never comes. The repo template carries a placeholder that build-app.sh
+# replaces in the app's embedded copy; a pkg built from the template itself
+# shipped exactly that failure once, so refuse anything but a real requirement.
+requirement="$(/usr/bin/plutil -extract EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT raw -o - "$daemon_plist" 2>/dev/null || true)"
+case "$requirement" in
+  "" | *REPLACED_DURING_PACKAGING*)
+    echo "build-pkg.sh: daemon plist has no client code-signing requirement (got '${requirement:-<missing>}'); use the app's embedded plist, not the repo template" >&2
+    exit 65
+    ;;
+esac
 /usr/bin/install -m 0644 "$daemon_plist" "$root/Library/LaunchDaemons/com.omarchy.mx.installer.helper.plist"
+echo "daemon client requirement: $requirement"
 echo "daemon Program: $prog"
 
 # Pin the app to /Applications. Without this, PackageKit "relocates" the
