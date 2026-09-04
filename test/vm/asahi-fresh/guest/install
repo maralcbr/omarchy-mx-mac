@@ -108,20 +108,15 @@ grep -Fq 'Another fresh installation is already running' "$work/lock-collision.l
 kill "$lock_pid"
 wait "$lock_pid" 2>/dev/null || true
 
-# The installer's long phase is now the single package transaction, so that is
-# where an interruption has to be survivable. Mark its start and let the killer
-# fire while pacman is still downloading, before it commits anything.
-cat >/usr/local/bin/pacman <<'EOF'
+# Interrupt the initramfs rebuild: the last long phase of an installation, by
+# which point the packages are installed, the target user exists and
+# /usr/share/omarchy is populated, so everything below can rely on them.
+cat >/usr/local/bin/mkinitcpio <<'EOF'
 #!/bin/bash
-for argument in "$@"; do
-  if [[ $argument == -Syu ]]; then
-    touch /var/tmp/omarchy-vm-transaction-active
-    break
-  fi
-done
-exec /usr/bin/pacman "$@"
+touch /var/tmp/omarchy-vm-transaction-active
+exec /usr/bin/mkinitcpio "$@"
 EOF
-chmod +x /usr/local/bin/pacman
+chmod +x /usr/local/bin/mkinitcpio
 interrupted=0
 for attempt in {1..3}; do
   rm -f /var/tmp/omarchy-vm-installer.pid /var/tmp/omarchy-vm-transaction-active
@@ -178,17 +173,12 @@ done
 [[ -f /var/lib/omarchy/fresh-install/asahi-kernel.sha256 ]]
 [[ -f /var/lib/omarchy/fresh-install/grub.sha256 ]]
 [[ -f /var/lib/omarchy/fresh-install/owner-token ]]
-# The target user is created after the package transaction, so it does not
-# exist yet at this interruption point; the target-user checkpoint and its
-# home marker are covered by the replacement scenario and by guest/verify.
+[[ -f /var/lib/omarchy/fresh-install/target-user ]]
+[[ -f /home/omarchy/.omarchy-fresh-install-owner ]]
 [[ ! -e /var/lib/omarchy/fresh-install/completing ]]
 [[ " $(id -nG alarm) " == *" wheel "* ]]
-rm -f /usr/local/bin/pacman
-# The interruption above happens before the installer creates its target user,
-# so the foreign account this scenario must refuse is created here rather than
-# borrowed from the interrupted run. It carries no owner token, so the
-# installer has to treat it as somebody else's account.
-useradd --create-home --shell /bin/bash omarchy
+rm -f /usr/local/bin/mkinitcpio
+usermod --home /home/omarchy-replaced omarchy
 expect <<EOF
 set timeout -1
 log_file $work/target-replacement.log
@@ -212,7 +202,7 @@ if {\$status == 0} { exit 1 }
 exit 0
 EOF
 grep -Fq 'The target user is not owned by this installation' "$work/target-replacement.log"
-userdel --remove omarchy
+usermod --home /home/omarchy omarchy
 
 helper=/usr/share/omarchy/bin/omarchy-hw-apple-silicon
 cp --preserve=all --dereference "$helper" omarchy-hw-apple-silicon.original
