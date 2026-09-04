@@ -14,6 +14,23 @@ channel=https://github.com/maralcbr/omarchy-pkgs/releases/download/$channel_tag
 fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
 work=/root/omarchy-fresh-vm
 
+# The VM is destroyed when the run ends, taking every scenario log with it, so
+# a failure here otherwise shows up on the host as a closed connection and
+# nothing else. Report where it failed and what the installer last said.
+report_failure() {
+  local status=$? line=$1
+  (( status == 0 )) && return 0
+  echo "=== guest/install failed at line $line with status $status" >&2
+  local log
+  for log in "$work"/*.log; do
+    [[ -f $log ]] || continue
+    echo "=== tail of ${log##*/}" >&2
+    tail -40 "$log" >&2
+  done
+  return "$status"
+}
+trap 'report_failure $LINENO' ERR
+
 [[ ${OMARCHY_VM_STABLE_VERSION:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$ ]]
 
 rm -rf "$work"
