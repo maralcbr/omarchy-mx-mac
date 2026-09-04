@@ -33,30 +33,15 @@ if (( recipes_mode )); then
   command -v bsdtar >/dev/null || die "packages-resolve --recipes requires bsdtar"
 fi
 
-# Some packages never come from pacman repositories: release-bundle archives
-# and packages makepkg-built from the omarchy-pkgs checkout during install.
-# Read both sets from the fresh installer to keep a single source of truth.
+# Release-bundle archives never come from pacman repositories. Read the set
+# from the fresh installer to keep a single source of truth.
 installer="$ROOT/bin/omarchy-install-asahi-fresh"
 [[ -r $installer ]] || die "Fresh installer is unavailable: $installer"
 bundle_line=$(sed -n 's/^expected_packages=(\(.*\))$/\1/p' "$installer")
 [[ -n $bundle_line ]] || die "Could not read the release bundle packages from $installer"
-source_names=$(awk '
-  /^source_packages=\(/ {
-    inside = 1
-    sub(/^source_packages=\(/, "")
-  }
-  inside {
-    if (sub(/\).*/, "")) {
-      done = 1
-    }
-    for (i = 1; i <= NF; i++) print $i
-    if (done) exit
-  }
-' "$installer")
-[[ -n $source_names ]] || die "Could not read the source-built packages from $installer"
 
 declare -A provided_packages=()
-for package in $bundle_line $source_names; do
+for package in $bundle_line; do
   provided_packages[$package]=1
 done
 
@@ -94,8 +79,6 @@ done <<<"$pkgs_listing"
 # manifest, which must never carry them.
 declare -A upstream_only_packages=(
   [nvim]=1
-  [omacalc]=1
-  [ttfx]=1
   [nvidia-dkms]=1
   [linux-ptl-headers]=1
   [yay-debug]=1
@@ -493,7 +476,7 @@ fi
 
 echo "Recipe audit across ${#unique_names[@]} package names:"
 printf '  %d resolved from repositories or architecture-compatible AUR recipes\n' "${#resolved_names[@]}"
-printf '  %d provided during install (release bundle or source-built)' "${#provided_hits[@]}"
+printf '  %d provided during install (release bundle)' "${#provided_hits[@]}"
 ((${#provided_hits[@]} == 0)) && printf ' --'
 printf '\n'
 

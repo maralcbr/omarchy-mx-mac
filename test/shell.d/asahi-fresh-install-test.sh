@@ -21,23 +21,20 @@ grep -Fq 'pacman -Syu --needed --noconfirm' "$installer" || fail "fresh installe
 grep -Fq -- '--ignore linux-asahi,linux-asahi-headers,m1n1' "$installer" || fail "fresh installer excludes protected Asahi boot packages from the system upgrade"
 grep -Fq '[[ $package == "linux-asahi" || $package == "linux-asahi-headers" || $package == "m1n1" ]]' "$installer" || fail "fresh installer omits protected Asahi boot packages from explicit targets"
 grep -Fq 'pacman -U --needed --noconfirm "${archives[@]}"' "$installer" || fail "fresh installer uses one exact six-package transaction"
-grep -Fq 'makepkg --syncdeps --noconfirm' "$installer" || fail "fresh installer builds missing packages from pinned sources"
-grep -Fq 'env HOME="$package_repo"' "$installer" || fail "fresh source builds use a build-owned home"
-grep -Fq 'build_user=omarchy-fresh-build' "$installer" || fail "fresh installer isolates source builds from the target user"
-grep -Fq '$build_user ALL=(root) NOPASSWD: /usr/bin/pacman' "$installer" || fail "fresh build pacman grant is limited to the isolated account"
-grep -Fq 'userdel "$build_user"' "$installer" || fail "fresh installer removes its isolated build account"
+if grep -Fq 'makepkg' "$installer"; then
+  fail "fresh installer must not compile packages on the target machine"
+fi
+if grep -Fq 'NOPASSWD: /usr/bin/pacman' "$installer"; then
+  fail "fresh installer must not grant passwordless package installation to any account"
+fi
 if grep -Fq '$target_user ALL=(root) NOPASSWD: /usr/bin/pacman' "$installer"; then
   fail "fresh installer must not grant package installation to the target user"
 fi
 pass "fresh Asahi installer installs the runtime closure and exact release bundle"
 
-build_user_line=$(grep -n -m1 'useradd --system --user-group' "$installer" | cut -d: -f1)
-build_trap_line=$(grep -n -m1 'trap cleanup_build_user EXIT' "$installer" | cut -d: -f1)
-build_created_line=$(grep -n -m1 'build_account_created=1' "$installer" | cut -d: -f1)
-build_dir_line=$(grep -n -m1 'install -d -m 0700 -o "$build_user"' "$installer" | cut -d: -f1)
-(( build_trap_line < build_user_line && build_user_line < build_created_line && build_created_line < build_dir_line )) || fail "fresh installer only cleans a build account created by the current process"
-grep -Fq 'build_comment == "$owner_token"' "$installer" || fail "fresh installer only reclaims its token-bound build account"
-grep -Fq '$(<"$build_sudoers") == "$expected_build_sudo"' "$installer" || fail "fresh installer only reclaims its token-bound sudo rule"
+if grep -Fq 'useradd --system' "$installer"; then
+  fail "fresh installer must not create a build account"
+fi
 
 runtime_line=$(grep -n -m1 'pacman -Syu --needed --noconfirm' "$installer" | cut -d: -f1)
 account_collision_line=$(grep -Fn -m1 'fail "The package build account already exists"' "$installer" | cut -d: -f1)
@@ -104,6 +101,7 @@ pass "fresh-install VM supports constrained hosts"
 grep -Fq 'candidate_tag=${OMARCHY_VM_CANDIDATE_TAG:-}' "$vm_runner" || fail "VM runner accepts an exact package candidate tag"
 grep -Fq 'candidate_sha256=${OMARCHY_VM_CANDIDATE_SHA256:-}' "$vm_runner" || fail "VM runner accepts an exact candidate descriptor checksum"
 grep -Fq 'candidate_fingerprint=${OMARCHY_VM_CANDIDATE_FINGERPRINT:-}' "$vm_runner" || fail "VM runner accepts an exact candidate signing fingerprint"
+grep -Fq 'candidate_package_count=${OMARCHY_VM_CANDIDATE_PACKAGE_COUNT:-}' "$vm_runner" || fail "VM runner accepts the exact candidate package count"
 grep -Fq 'release_tag=$tag' "$vm_candidate" || fail "VM candidate gate binds the descriptor release tag"
 grep -Fq 'valid_fingerprint == "${signing_fingerprint^^}"' "$vm_candidate" || fail "VM candidate gate binds the descriptor signature"
 grep -Fq 'pacman -Syu --needed --noconfirm "${packages[@]}"' "$vm_candidate" || fail "VM candidate gate installs all descriptor packages"

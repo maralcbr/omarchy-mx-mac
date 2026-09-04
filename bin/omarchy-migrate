@@ -83,7 +83,7 @@ asahi_migration_disposition() {
     1781043107.sh) printf 'handled\ttheme state moved by the Quattro user transition\n' ;;
     1781063758.sh) printf 'handled\tHyprland configuration replaced by the Quattro user transition\n' ;;
     1781158082.sh) printf 'handled\ttheme links rebuilt by the Quattro user transition\n' ;;
-    1781286586.sh) printf 'skipped\ttensaku is not in the Asahi package set\n' ;;
+    1781286586.sh) printf 'run\treviewed: tensaku is built for aarch64 in the Apple Silicon package repository\n' ;;
     1781485962.sh) printf 'handled\tHyprland defaults reconciled by the Quattro user transition\n' ;;
     1781793381.sh) printf 'handled\tudiskie installed by the Asahi Quattro package transition\n' ;;
     1781984677.sh) printf 'skipped\tSnapper and Limine repair is not applicable to Asahi\n' ;;
@@ -99,10 +99,10 @@ asahi_migration_disposition() {
     1785090473.sh) printf 'skipped\tfingerprint hardware is unsupported on this Apple Silicon path\n' ;;
     1785273276.sh) printf 'skipped\tT2 Limine and mkinitcpio repair is not applicable to Apple Silicon\n' ;;
     1785424256.sh) printf 'skipped\tsystemd-oomd reclaim tuning is held until validated on Asahi\n' ;;
-    1785637426.sh) printf 'skipped\tomacalc is unavailable in the Apple Silicon package repositories\n' ;;
+    1785637426.sh) printf 'run\treviewed: omacalc is built for aarch64 in the Apple Silicon package repository\n' ;;
     1785944594.sh|1786137597.sh) printf 'skipped\tT2 Limine and mkinitcpio repair is not applicable to Apple Silicon\n' ;;
-    1786273938.sh) printf 'skipped\therdr is unavailable in the Apple Silicon package repositories\n' ;;
-    1786355450.sh) printf 'skipped\tttfx is unavailable in the Apple Silicon package repositories\n' ;;
+    1786273938.sh) printf 'run\treviewed: herdr is built for aarch64 in the Apple Silicon package repository\n' ;;
+    1786355450.sh) printf 'run\treviewed: ttfx is built for aarch64 in the Apple Silicon package repository\n' ;;
     1786391100.sh) printf 'skipped\tIntel Mac Broadcom firmware quirk breaks Apple Silicon Wi-Fi\n' ;;
     1786482992.sh) printf 'skipped\tLimine boot image repair is not applicable to Asahi\n' ;;
     1786567036.sh) printf 'skipped\tNetworkManager remains on the validated Asahi iwd backend\n' ;;
@@ -133,6 +133,7 @@ asahi_migration_disposition() {
     1788102906.sh) printf 'run\treviewed architecture-neutral XCompose and legacy udev rule repair\n' ;;
     1788112314.sh) printf 'run\treviewed no-op: Asahi installs do not use the rc mirror pairing\n' ;;
     1788124236.sh) printf 'run\treviewed sshd hardening; self-gating on an enabled or active sshd\n' ;;
+    1788486400.sh) printf 'run\treviewed default package parity install; every package is built for aarch64\n' ;;
     *) return 1 ;;
   esac
 }

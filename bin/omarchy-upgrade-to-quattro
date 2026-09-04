@@ -974,7 +974,6 @@ install_asahi_quattro_packages() {
     ddcutil
     expac
     foot
-    gnome-calculator
     gnome-disk-utility
     inotify-tools
     iwd
@@ -986,7 +985,6 @@ install_asahi_quattro_packages() {
     qrencode
     ruby
     udiskie
-    wf-recorder
     wtype
   )
 
@@ -1107,7 +1105,7 @@ remove_retired_default_packages() {
   local pkg
   local installed_retired=()
   for pkg in "${retired_packages[@]}"; do
-    if (( asahi_mode )) && [[ $pkg == iwd || $pkg == wf-recorder ]]; then
+    if (( asahi_mode )) && [[ $pkg == iwd ]]; then
       continue
     fi
     if package_installed_exact "$pkg"; then

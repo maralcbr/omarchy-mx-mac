@@ -30,11 +30,13 @@ if [[ -f /var/lib/omarchy/vm-package-candidate ]]; then
   candidate=/var/lib/omarchy/vm-package-candidate
   candidate_sha256=$(< /var/lib/omarchy/vm-package-candidate.sha256)
   candidate_primary_fingerprint=$(< /var/lib/omarchy/vm-package-candidate-primary-fingerprint)
+  candidate_package_count=$(< /var/lib/omarchy/vm-package-candidate-package-count)
+  [[ $candidate_package_count =~ ^[1-9][0-9]*$ ]] || fail "candidate package count record"
   [[ $(sha256sum "$candidate" | cut -d' ' -f1) == "${candidate_sha256,,}" ]] || fail "candidate descriptor checksum"
   grep -Fxq 'channel=candidate' "$candidate" || fail "candidate channel"
   grep -Eq '^release_tag=asahi-packages-candidate-[0-9a-f]{40}$' "$candidate" || fail "candidate release tag"
-  grep -Fxq 'package_count=33' "$candidate" || fail "candidate package count"
-  (( $(grep -c '^package=' "$candidate") == 33 )) || fail "candidate package inventory"
+  grep -Fxq "package_count=$candidate_package_count" "$candidate" || fail "candidate package count"
+  (( $(grep -c '^package=' "$candidate") == candidate_package_count )) || fail "candidate package inventory"
   pacman-key --finger "$candidate_primary_fingerprint" >/dev/null || fail "candidate signing certificate"
   while IFS='|' read -r _ package version _ _ _ _ _; do
     [[ $(pacman -Q "$package" | cut -d' ' -f2) == "$version" ]] || fail "candidate package version: $package"

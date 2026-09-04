@@ -225,6 +225,41 @@ do the same.
 The other two reported commands (`omarchy-nvim-refresh`,
 `omarchy-nvim-setup`) are not ours and are unchanged.
 
+## Gap 6 — the default package list itself was short by 19 packages
+
+**What was wrong:** `install/omarchy-base-asahi.packages` was authored as a
+subset of the x86 list and never caught up. Against the x86 default set it was
+missing 22 entries, of which three are renames (`mise-bin`→`mise`,
+`nvim`→`neovim`, `quickshell`→`quickshell-git`) and 19 are real gaps:
+
+| Why it was missing | Packages | Fix |
+|---|---|---|
+| Built for ARM but never listed | omacut, omawrite | list edit |
+| In Arch Linux ARM `extra` but never listed | gpu-screen-recorder, libreoffice-fresh, moonlight-qt, qt6-imageformats | list edit |
+| PKGBUILD declared `arch=('x86_64')` although the source is arch-neutral | tzupdate, tensaku, asdcontrol, hyprland-preview-share-picker, tobi-try | `arch=` widened, added to the ARM repository |
+| PKGBUILD existed only upstream | herdr, omacalc, ttfx | ported into the fork, added to the ARM repository |
+| No aarch64 binary anywhere | obsidian (bundled Electron), obs-studio (no CEF), dotnet (AUR `dotnet-core-bin`), qemu-user-static + binfmt (Debian static build), pinta (arm64 .NET RID, self-contained SDK) | new aarch64-only PKGBUILDs in the ARM repository |
+
+Four interim substitutes are retired at the same time, because the real
+package now exists: `gnome-calculator`→`omacalc` (calculator keybinding
+restored to upstream's), `wf-recorder`→`gpu-screen-recorder`,
+`python-terminaltexteffects`→`ttfx`, and `tensaku`. The migration
+dispositions that skipped the upstream migrations for tensaku, omacalc,
+herdr and ttfx now run them, and migration `1788486400` installs the whole
+set on machines that were installed before this change (a no-op on x86).
+
+**Related install-time gap, fixed with it:** `bin/omarchy-install-asahi-fresh`
+still compiled ten packages with makepkg on the target machine, behind a
+temporary build account with a passwordless pacman grant. Every one of those
+packages has shipped as a signed binary since the 901e39bd candidate, so the
+installer now installs the whole list in one pacman transaction and the build
+account, sudoers drop-in and pkgbuild checkout are gone.
+
+**Repository inventory change:** 24 sources / 33 packages → 37 sources / 52
+packages (dotnet is a six-way split, qemu-user-static a two-way split). The
+counts are pinned in `test/asahi-package-repository` and both candidate
+workflows in omarchy-pkgs.
+
 ## Cosmetic
 
 `macsmc-battery-charge-control-end-threshold.{path,service}` ship with the

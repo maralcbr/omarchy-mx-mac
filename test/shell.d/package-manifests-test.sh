@@ -29,17 +29,17 @@ for manifest in "${manifests[@]}"; do
   pass "package manifest is well formed: $(basename "$manifest")"
 done
 
-# The resolver and transaction scripts derive their release-bundle and
-# source-built exemptions from these exact installer lines, so both must
-# survive installer edits.
+# The resolver and transaction scripts derive their release-bundle exemption
+# from this exact installer line, so it must survive installer edits.
 grep -Fq 'expected_packages=(omarchy-keyring omarchy-settings-dev omarchy-dev omarchy-nvim quickshell-git ttf-jetbrains-mono-nerd-basic)' \
   "$ROOT/bin/omarchy-install-asahi-fresh" ||
   fail "fresh installer retains the release bundle package list"
 pass "fresh installer retains the release bundle package list"
 
-grep -Fq 'source_packages=(' "$ROOT/bin/omarchy-install-asahi-fresh" ||
-  fail "fresh installer retains the source-built package list"
-pass "fresh installer retains the source-built package list"
+if grep -Fq 'source_packages=(' "$ROOT/bin/omarchy-install-asahi-fresh"; then
+  fail "fresh installer no longer builds packages from source"
+fi
+pass "fresh installer installs every package from repositories"
 
 for script in packages-resolve packages-install-transaction; do
   [[ -x $ROOT/test/$script ]] || fail "package test script is executable: $script"

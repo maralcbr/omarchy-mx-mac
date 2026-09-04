@@ -161,10 +161,6 @@ elif getent passwd "$target_user" >/dev/null; then
   fail "User already exists outside this release installation: $target_user"
 fi
 tty </dev/tty >/dev/null 2>&1 || fail "A controlling terminal is required to set the user password"
-build_user=omarchy-fresh-build
-package_checkout=/var/cache/omarchy-fresh-pkgbuilds
-package_repo=$package_checkout/repo
-build_sudoers=/etc/sudoers.d/09-omarchy-fresh-build
 
 backup_dir="/var/lib/omarchy/backups/fresh-$(date +%Y%m%d%H%M%S)"
 install -d -m 0700 "$backup_dir"
@@ -189,30 +185,6 @@ else
   printf '%s\n' "$owner_token" >"$checkpoint_tmp/owner-token"
   mv -T "$checkpoint_tmp" "$state_dir"
 fi
-build_account_owned=0
-if getent passwd "$build_user" >/dev/null; then
-  IFS=: read -r _ _ _ _ build_comment build_home build_shell < <(getent passwd "$build_user")
-  [[ $build_comment == "$owner_token" && $build_home == "$package_checkout" && $build_shell == "/usr/bin/nologin" ]] ||
-    fail "The package build account already exists"
-  build_account_owned=1
-fi
-expected_build_sudo=$(printf '%s\n' \
-  "# owner-token=$owner_token" \
-  "$build_user ALL=(root) NOPASSWD: /usr/bin/pacman")
-build_sudo_owned=0
-if [[ -e $build_sudoers ]]; then
-  [[ -f $build_sudoers && $(<"$build_sudoers") == "$expected_build_sudo" ]] || fail "The package build sudo rule already exists"
-  build_sudo_owned=1
-fi
-package_checkout_owned=0
-if [[ -e $package_checkout ]]; then
-  [[ -f $package_checkout/.omarchy-fresh-install-owner && $(<"$package_checkout/.omarchy-fresh-install-owner") == "$owner_token" ]] ||
-    fail "The package checkout is not owned by this installation"
-  package_checkout_owned=1
-fi
-(( build_sudo_owned == 0 )) || rm -f "$build_sudoers"
-(( build_account_owned == 0 )) || userdel "$build_user"
-(( package_checkout_owned == 0 )) || rm -rf "$package_checkout"
 
 omarchy_archive=${archives[2]}
 mapfile -t runtime_packages < <(
@@ -223,25 +195,15 @@ mapfile -t runtime_packages < <(
 )
 ((${#runtime_packages[@]} > 0)) || fail "Could not read the Asahi runtime package manifest"
 
-source_packages=(
-  aether
-  cliamp
-  localsend
-  mise
-  python-terminaltexteffects
-  ttf-ia-writer
-  ufw-docker
-  xdg-terminal-exec
-  yaru-icon-theme
-  yay
-)
+# Every remaining package is a repository binary: the signed [omarchy]
+# repository carries the Omarchy-built packages for aarch64, so nothing is
+# compiled on the target machine during installation.
 repo_packages=()
 for package in "${runtime_packages[@]}"; do
   if [[ $package == "linux-asahi" || $package == "linux-asahi-headers" || $package == "m1n1" ]]; then
     continue
-  elif [[ ! " ${source_packages[*]} " =~ " $package " ]]; then
-    repo_packages+=("$package")
   fi
+  repo_packages+=("$package")
 done
 
 echo "Installing the Omarchy 4 Apple Silicon package set"
@@ -276,64 +238,6 @@ install -Dm440 /dev/stdin /etc/sudoers.d/10-omarchy-wheel <<'EOF'
 EOF
 
 target_home=$(getent passwd "$target_user" | cut -d: -f6)
-cleanup_build_user() {
-  if [[ -f $build_sudoers && $(<"$build_sudoers") == "$expected_build_sudo" ]]; then
-    rm -f "$build_sudoers"
-  fi
-  if [[ -f $package_checkout/.omarchy-fresh-install-owner && $(<"$package_checkout/.omarchy-fresh-install-owner") == "$owner_token" ]]; then
-    rm -rf "$package_checkout"
-  fi
-  if (( build_account_created )); then
-    userdel "$build_user" || return 1
-  fi
-}
-build_account_created=0
-trap cleanup_build_user EXIT
-useradd --system --user-group --home-dir "$package_checkout" --shell /usr/bin/nologin --comment "$owner_token" "$build_user"
-build_account_created=1
-install -d -m 0711 "$package_checkout"
-printf '%s\n' "$owner_token" | install -Dm600 /dev/stdin "$package_checkout/.omarchy-fresh-install-owner"
-install -d -m 0700 -o "$build_user" -g "$build_user" "$package_repo"
-cloned=0
-for attempt in {1..3}; do
-  if timeout 5m runuser -u "$build_user" -- git clone --filter=blob:none --no-checkout \
-    https://github.com/maralcbr/omarchy-pkgs.git "$package_repo"; then
-    cloned=1
-    break
-  fi
-  rm -rf "$package_repo"
-  install -d -m 0700 -o "$build_user" -g "$build_user" "$package_repo"
-  sleep 5
-done
-(( cloned == 1 )) || fail "Could not clone the pinned package source"
-retry timeout 5m runuser -u "$build_user" -- git -C "$package_repo" fetch origin --no-tags "$OMARCHY_ASAHI_PACKAGE_SOURCE"
-runuser -u "$build_user" -- git -C "$package_repo" reset --hard "$OMARCHY_ASAHI_PACKAGE_SOURCE"
-runuser -u "$build_user" -- git -C "$package_repo" clean -ffdx
-resolved_package_source=$(runuser -u "$build_user" -- git -C "$package_repo" rev-parse HEAD)
-[[ $resolved_package_source == "$OMARCHY_ASAHI_PACKAGE_SOURCE" ]] || fail "Package source checkout mismatch"
-
-# omarchy:heredoc-expands paths=none -- $build_user is a fixed literal and $owner_token is validated 64-hex from /dev/urandom or root-owned state
-install -Dm440 /dev/stdin "$build_sudoers" <<EOF
-# owner-token=$owner_token
-$build_user ALL=(root) NOPASSWD: /usr/bin/pacman
-EOF
-for package in "${source_packages[@]}"; do
-  pacman -Q "$package" >/dev/null 2>&1 && continue
-  echo "Building pinned Apple Silicon package: $package"
-  runuser -u "$build_user" -- env HOME="$package_repo" \
-    bash -c 'cd "$1" && makepkg --syncdeps --noconfirm' \
-    bash "$package_repo/pkgbuilds/$package"
-  package_archives=()
-  for candidate in "$package_repo/pkgbuilds/$package"/*.pkg.tar.*; do
-    [[ -f $candidate && $candidate != *.sig ]] || continue
-    metadata=$(bsdtar -xOf "$candidate" .PKGINFO 2>/dev/null || true)
-    grep -Fxq "pkgname = $package" <<<"$metadata" && package_archives+=("$candidate")
-  done
-  ((${#package_archives[@]} == 1)) || fail "Expected one built archive for $package"
-  pacman -U --needed --noconfirm "${package_archives[0]}"
-done
-cleanup_build_user
-trap - EXIT
 
 echo "Set the password for $target_user"
 passwd "$target_user" </dev/tty

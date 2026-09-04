@@ -5,6 +5,7 @@ install.style.font.fira
 install.style.font.victor
 install.style.font.bitstream
 install.style.font.iosevka
+install.preinstalls
 install.browser.firefox
 install.service.signal
 install.service.tailscale

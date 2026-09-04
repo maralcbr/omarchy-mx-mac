@@ -45,6 +45,7 @@ provide its trusted identity explicitly:
 OMARCHY_VM_CANDIDATE_TAG=asahi-packages-candidate-<40-hex-commit> \
 OMARCHY_VM_CANDIDATE_SHA256=<64-hex-descriptor-checksum> \
 OMARCHY_VM_CANDIDATE_FINGERPRINT=<40-hex-signing-subkey> \
+OMARCHY_VM_CANDIDATE_PACKAGE_COUNT=<exact repository package count> \
 test/vm/asahi-fresh/run
 ```
 

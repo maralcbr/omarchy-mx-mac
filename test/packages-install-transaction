@@ -17,30 +17,15 @@ usage() {
 
 command -v pacman >/dev/null || die "packages-install-transaction requires pacman"
 
-# Packages that never come from this transaction: release-bundle archives and
-# packages makepkg-built from the omarchy-pkgs checkout afterwards. Read both
-# sets from the fresh installer to keep a single source of truth.
+# Release-bundle archives never come from this transaction. Read the set from
+# the fresh installer to keep a single source of truth.
 installer="$ROOT/bin/omarchy-install-asahi-fresh"
 [[ -r $installer ]] || die "Fresh installer is unavailable: $installer"
 bundle_line=$(sed -n 's/^expected_packages=(\(.*\))$/\1/p' "$installer")
 [[ -n $bundle_line ]] || die "Could not read the release bundle packages from $installer"
-source_names=$(awk '
-  /^source_packages=\(/ {
-    inside = 1
-    sub(/^source_packages=\(/, "")
-  }
-  inside {
-    if (sub(/\).*/, "")) {
-      done = 1
-    }
-    for (i = 1; i <= NF; i++) print $i
-    if (done) exit
-  }
-' "$installer")
-[[ -n $source_names ]] || die "Could not read the source-built packages from $installer"
 
 declare -A excluded_packages=()
-for package in $bundle_line $source_names; do
+for package in $bundle_line; do
   excluded_packages[$package]=1
 done
 

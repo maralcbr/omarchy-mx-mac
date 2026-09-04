@@ -110,7 +110,7 @@ grep -Fq '(( asahi_mode )) || remove_legacy_limine_configs' "$upgrade_to_quattro
 grep -Fq '(( asahi_mode )) || migrate_1password_beta_package' "$upgrade_to_quattro"
 grep -Fxq 'run_post_upgrade_migrations' "$upgrade_to_quattro"
 grep -Fq '(( asahi_mode )) || run_post_upgrade_update_steps' "$upgrade_to_quattro"
-grep -Fq 'if (( asahi_mode )) && [[ $pkg == iwd || $pkg == wf-recorder ]]' "$upgrade_to_quattro"
+grep -Fq 'if (( asahi_mode )) && [[ $pkg == iwd ]]' "$upgrade_to_quattro"
 grep -Fq "NetworkManager --print-config | grep -Fxq 'wifi.backend=iwd'" "$upgrade_to_quattro"
 pass "Omarchy 4 upgrade uses one local package transaction and excludes unsafe Asahi migrations"
 

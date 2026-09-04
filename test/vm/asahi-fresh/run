@@ -16,6 +16,7 @@ vm_memory_mb=${OMARCHY_VM_MEMORY_MB:-6144}
 candidate_tag=${OMARCHY_VM_CANDIDATE_TAG:-}
 candidate_sha256=${OMARCHY_VM_CANDIDATE_SHA256:-}
 candidate_fingerprint=${OMARCHY_VM_CANDIDATE_FINGERPRINT:-}
+candidate_package_count=${OMARCHY_VM_CANDIDATE_PACKAGE_COUNT:-}
 candidate_key=${OMARCHY_VM_CANDIDATE_KEY_FILE:-$root/default/omarchy-arm-repository.asc}
 
 [[ $vm_memory_mb =~ ^[1-9][0-9]*$ ]] || {
@@ -23,7 +24,7 @@ candidate_key=${OMARCHY_VM_CANDIDATE_KEY_FILE:-$root/default/omarchy-arm-reposit
   exit 1
 }
 
-if [[ -n $candidate_tag || -n $candidate_sha256 || -n $candidate_fingerprint ]]; then
+if [[ -n $candidate_tag || -n $candidate_sha256 || -n $candidate_fingerprint || -n $candidate_package_count ]]; then
   [[ $candidate_tag =~ ^asahi-packages-candidate-[0-9a-f]{40}$ ]] || {
     echo "OMARCHY_VM_CANDIDATE_TAG must identify an exact candidate commit" >&2
     exit 1
@@ -34,6 +35,10 @@ if [[ -n $candidate_tag || -n $candidate_sha256 || -n $candidate_fingerprint ]];
   }
   [[ $candidate_fingerprint =~ ^[0-9a-fA-F]{40}$ ]] || {
     echo "OMARCHY_VM_CANDIDATE_FINGERPRINT must be an exact signing fingerprint" >&2
+    exit 1
+  }
+  [[ $candidate_package_count =~ ^[1-9][0-9]*$ ]] || {
+    echo "OMARCHY_VM_CANDIDATE_PACKAGE_COUNT must be the exact repository package count of the candidate" >&2
     exit 1
   }
   [[ -r $candidate_key ]] || {
@@ -133,6 +138,7 @@ if [[ -n $candidate_tag ]]; then
     OMARCHY_VM_CANDIDATE_TAG="$candidate_tag" \
     OMARCHY_VM_CANDIDATE_SHA256="$candidate_sha256" \
     OMARCHY_VM_CANDIDATE_FINGERPRINT="$candidate_fingerprint" \
+    OMARCHY_VM_CANDIDATE_PACKAGE_COUNT="$candidate_package_count" \
     bash /root/omarchy-vm-candidate-repository |
     tee "$state/run/candidate-repository.log"
 fi
