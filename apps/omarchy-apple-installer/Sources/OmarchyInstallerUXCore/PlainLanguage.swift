@@ -49,6 +49,8 @@
     public static let authorizeRetryTitle = "Retry Recovery authorization."
     public static let authorizeUsernameLabel = "Username"
     public static let authorizeChecking = "Verifying"
+    public static let authorizeStillWorking =
+      "Still working. Once the password is accepted the installer package is prepared, which takes a few minutes."
     public static let authorizePasswordLabel = "Password"
     public static let authorizeCancel = "Cancel"
     public static let authorizeRetryAction = "Authorize"
@@ -266,6 +268,14 @@
               "The disk work finished and was verified. MacOS still boots.",
             technicalDetail: technical,
             remedy: "Retry only the Recovery authorization step."
+          )
+        case .helperUnresponsive:
+          return FailureDisplay(
+            headline: "The privileged helper is not responding",
+            plainDetail:
+              "Nothing was changed. The helper was asked to start but did not answer, which usually means its installation is broken.",
+            technicalDetail: technical,
+            remedy: "Reinstall the Omarchy installer package, then reopen this app."
           )
         case .connectionFailed:
           return FailureDisplay(

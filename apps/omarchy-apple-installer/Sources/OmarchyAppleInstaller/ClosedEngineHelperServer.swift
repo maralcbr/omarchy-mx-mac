@@ -143,6 +143,10 @@
       self.server = server
     }
 
+    public func ping(reply: @escaping @Sendable (Bool) -> Void) {
+      reply(true)
+    }
+
     public func submit(
       packageDirectory: FileHandle,
       operation: String,

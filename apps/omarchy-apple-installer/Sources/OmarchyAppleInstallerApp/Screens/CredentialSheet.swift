@@ -18,6 +18,7 @@ struct CredentialSheet: View {
 
   @State private var input = CredentialInput(username: NSUserName())
   @FocusState private var focus: Field?
+  @State private var showsLongWait = false
 
   private enum Field: Hashable {
     case username
@@ -63,6 +64,14 @@ struct CredentialSheet: View {
           .onSubmit(submit)
       }
 
+      if context.isVerifying, showsLongWait {
+        Text(PlainLanguage.authorizeStillWorking)
+          .font(OmarchyTheme.caption)
+          .foregroundStyle(OmarchyTheme.secondaryText)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.top, 10)
+      }
+
       HStack(spacing: 8) {
         if context.isVerifying {
           ProgressView()
@@ -97,6 +106,16 @@ struct CredentialSheet: View {
     .animation(.easeInOut(duration: 0.2), value: context.error)
     .onAppear {
       focus = input.username.isEmpty ? .username : .password
+    }
+    // The spinner alone reads as stuck once the helper moves from checking
+    // the password to preparing the package; after a few seconds say so.
+    .task(id: context.isVerifying) {
+      showsLongWait = false
+      guard context.isVerifying else { return }
+      try? await Task.sleep(for: .seconds(5))
+      if !Task.isCancelled {
+        showsLongWait = true
+      }
     }
     .onChange(of: context.error) { _, error in
       if error == .credentialsRejected {

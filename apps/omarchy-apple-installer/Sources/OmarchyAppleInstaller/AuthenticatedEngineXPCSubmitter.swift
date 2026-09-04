@@ -4,6 +4,11 @@
   import Security
 
   @objc public protocol ClosedEngineXPCService {
+    /// Answers as soon as the helper is up. The app calls this before it
+    /// sends anything, so a helper that launchd cannot keep alive fails in
+    /// seconds instead of leaving a request queued forever.
+    func ping(reply: @escaping @Sendable (Bool) -> Void)
+
     func submit(
       packageDirectory: FileHandle,
       operation: String,
@@ -18,6 +23,10 @@
     case invalidCodeSigningRequirement
     case unsafeHandoffPackage
     case connectionFailed
+    /// The helper did not answer a ping within the allowed time. Seen when
+    /// launchd respawns a helper that exits at startup: the mach message
+    /// stays queued and nothing ever replies or interrupts.
+    case helperUnresponsive
     case recoveryAuthorizationFailed
     case machineOwnerCredentialsRejected
     case helperRejected(domain: String, code: Int)
@@ -51,6 +60,60 @@
       self.journalProgress = journalProgress
     }
 
+    /// A privileged connection to the helper, pinned to its code-signing
+    /// requirement; each call gets its own so a dead one never lingers.
+    private func makeConnection() -> NSXPCConnection {
+      let connection = NSXPCConnection(
+        machServiceName: machServiceName,
+        options: .privileged
+      )
+      connection.remoteObjectInterface = NSXPCInterface(
+        with: ClosedEngineXPCService.self
+      )
+      connection.setCodeSigningRequirement(helperCodeSigningRequirement)
+      return connection
+    }
+
+    /// Confirms the helper answers before any credentials or package are
+    /// sent. A missing service fails through the connection handlers; a
+    /// service launchd cannot keep alive answers nothing at all, which is
+    /// what the timeout is for.
+    public func ping(timeout: Duration = .seconds(8)) async throws {
+      let connection = makeConnection()
+      let connectionHandle = SendableXPCConnection(connection)
+      let timer = Task {
+        try await Task.sleep(for: timeout)
+        connectionHandle.invalidate()
+      }
+      defer { timer.cancel() }
+      let answered: Bool = try await withCheckedThrowingContinuation { continuation in
+        let gate = EngineXPCPingGate(continuation: continuation)
+        connection.interruptionHandler = {
+          gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+        }
+        connection.invalidationHandler = {
+          gate.resume(throwing: EngineXPCSubmissionError.helperUnresponsive)
+        }
+        connection.activate()
+        guard
+          let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+            gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+          }) as? ClosedEngineXPCService
+        else {
+          gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+          connectionHandle.invalidate()
+          return
+        }
+        proxy.ping { answer in
+          gate.resume(returning: answer)
+          connectionHandle.invalidate()
+        }
+      }
+      guard answered else {
+        throw EngineXPCSubmissionError.helperUnresponsive
+      }
+    }
+
     public func submit(
       _ handoff: PreparedEngineHandoff,
       authorization: MachineOwnerAuthorization,
@@ -77,15 +140,8 @@
         fileDescriptor: descriptor,
         closeOnDealloc: true
       )
-      let connection = NSXPCConnection(
-        machServiceName: machServiceName,
-        options: .privileged
-      )
+      let connection = makeConnection()
       let connectionHandle = SendableXPCConnection(connection)
-      connection.remoteObjectInterface = NSXPCInterface(
-        with: ClosedEngineXPCService.self
-      )
-      connection.setCodeSigningRequirement(helperCodeSigningRequirement)
       if let journalProgress {
         connection.exportedInterface = NSXPCInterface(
           with: ClosedEngineProgressClient.self
@@ -252,6 +308,32 @@
 
     func invalidate() {
       connection.invalidate()
+    }
+  }
+
+  /// One-shot resume for `ping`, the same shape as the reply gate below.
+  private final class EngineXPCPingGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, any Error>?
+
+    init(continuation: CheckedContinuation<Bool, any Error>) {
+      self.continuation = continuation
+    }
+
+    func resume(returning value: Bool) {
+      takeContinuation()?.resume(returning: value)
+    }
+
+    func resume(throwing error: any Error) {
+      takeContinuation()?.resume(throwing: error)
+    }
+
+    private func takeContinuation() -> CheckedContinuation<Bool, any Error>? {
+      lock.lock()
+      defer { lock.unlock() }
+      let candidate = continuation
+      continuation = nil
+      return candidate
     }
   }
 

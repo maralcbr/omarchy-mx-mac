@@ -59,6 +59,8 @@
           configuration.helperCodeSigningRequirement,
         journalProgress: journalProgress
       )
+      // Nothing leaves the app until the helper has answered.
+      try await submitter.ping()
       let process = ClosedEngineHandoffProcess(
         assets: prepared.review.assets,
         handoffDirectory: handoffDirectory,
