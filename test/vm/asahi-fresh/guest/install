@@ -179,6 +179,19 @@ done
 [[ ! -e /var/lib/omarchy/fresh-install/completing ]]
 [[ " $(id -nG alarm) " == *" wheel "* ]]
 rm -f /usr/local/bin/passwd
+
+# The release bundle installs omarchy-keyring, whose hook repopulates the
+# pacman keyring and drops the local signature the candidate repository was
+# trusted by. Every later installer run then rejects the candidate database
+# and reports each of its packages as not found, so re-establish that trust.
+if [[ -r /root/omarchy-arm-repository.asc ]]; then
+  candidate_primary=$(gpg --batch --show-keys --with-colons /root/omarchy-arm-repository.asc |
+    awk -F: '$1 == "pub" { primary = 1; next } primary && $1 == "fpr" { print $10; exit }')
+  [[ $candidate_primary =~ ^[A-F0-9]{40}$ ]]
+  pacman-key --add /root/omarchy-arm-repository.asc
+  pacman-key --lsign-key "$candidate_primary"
+  pacman -Sy
+fi
 usermod --home /home/omarchy-replaced omarchy
 expect <<EOF
 set timeout -1
