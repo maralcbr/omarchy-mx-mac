@@ -108,15 +108,16 @@ grep -Fq 'Another fresh installation is already running' "$work/lock-collision.l
 kill "$lock_pid"
 wait "$lock_pid" 2>/dev/null || true
 
-# Interrupt the initramfs rebuild: the last long phase of an installation, by
-# which point the packages are installed, the target user exists and
-# /usr/share/omarchy is populated, so everything below can rely on them.
-cat >/usr/local/bin/mkinitcpio <<'EOF'
+# Interrupt at the password prompt: the packages are installed and the target
+# user and its checkpoint exist by then, while omarchy-apply-system has not run
+# yet. That last part matters, because apply-system only succeeds once the
+# Apple Silicon helper below is stubbed, which happens after this scenario.
+cat >/usr/local/bin/passwd <<'EOF'
 #!/bin/bash
 touch /var/tmp/omarchy-vm-transaction-active
-exec /usr/bin/mkinitcpio "$@"
+exec /usr/bin/passwd "$@"
 EOF
-chmod +x /usr/local/bin/mkinitcpio
+chmod +x /usr/local/bin/passwd
 interrupted=0
 for attempt in {1..3}; do
   rm -f /var/tmp/omarchy-vm-installer.pid /var/tmp/omarchy-vm-transaction-active
@@ -177,7 +178,7 @@ done
 [[ -f /home/omarchy/.omarchy-fresh-install-owner ]]
 [[ ! -e /var/lib/omarchy/fresh-install/completing ]]
 [[ " $(id -nG alarm) " == *" wheel "* ]]
-rm -f /usr/local/bin/mkinitcpio
+rm -f /usr/local/bin/passwd
 usermod --home /home/omarchy-replaced omarchy
 expect <<EOF
 set timeout -1
