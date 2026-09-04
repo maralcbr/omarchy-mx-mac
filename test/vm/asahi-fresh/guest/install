@@ -178,8 +178,10 @@ done
 [[ -f /var/lib/omarchy/fresh-install/asahi-kernel.sha256 ]]
 [[ -f /var/lib/omarchy/fresh-install/grub.sha256 ]]
 [[ -f /var/lib/omarchy/fresh-install/owner-token ]]
-[[ -f /var/lib/omarchy/fresh-install/target-user ]]
-[[ -f /home/omarchy/.omarchy-fresh-install-owner ]]
+# The target user is created after the package transaction, so it does not
+# exist yet at this interruption point; the target-user checkpoint and its
+# home marker are covered by the replacement scenario and by guest/verify.
+[[ ! -e /var/lib/omarchy/fresh-install/completing ]]
 [[ " $(id -nG alarm) " == *" wheel "* ]]
 rm -f /usr/local/bin/pacman
 usermod --home /home/omarchy-replaced omarchy
