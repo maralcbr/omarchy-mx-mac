@@ -181,13 +181,15 @@ done
 rm -f /usr/local/bin/passwd
 
 # The release bundle ships its own /etc/pacman.conf, whose [omarchy] section
-# points at the stable release the image was built against, and its
-# omarchy-keyring hook repopulates the keyring. Together those undo the
-# candidate repository this run exists to test: later installer runs sync a
-# different, smaller database, reject it as signed by an untrusted key, and
-# report all of the candidate's packages as not found. Point the repository
-# back at the candidate and trust its key again.
-if [[ -r /root/omarchy-arm-repository.asc && -f /var/lib/omarchy/vm-package-candidate ]]; then
+# points at the stable release the image was built against, and
+# omarchy-apply-system reapplies it on every installation. Both undo the
+# candidate repository this run exists to test, so restore it before each
+# installer run rather than once: otherwise the run after the first one syncs
+# a different, smaller database and reports the candidate's packages as
+# not found.
+use_candidate_repository() {
+  [[ -r /root/omarchy-arm-repository.asc && -f /var/lib/omarchy/vm-package-candidate ]] || return 0
+  local candidate_tag candidate_primary
   candidate_tag=$(sed -n 's/^release_tag=//p' /var/lib/omarchy/vm-package-candidate)
   [[ $candidate_tag =~ ^asahi-packages-candidate-[0-9a-f]{40}$ ]]
   candidate_primary=$(gpg --batch --show-keys --with-colons /root/omarchy-arm-repository.asc |
@@ -208,7 +210,9 @@ if [[ -r /root/omarchy-arm-repository.asc && -f /var/lib/omarchy/vm-package-cand
   } >/tmp/pacman.conf.candidate
   install -m 0644 /tmp/pacman.conf.candidate /etc/pacman.conf
   pacman -Sy
-fi
+}
+
+use_candidate_repository
 usermod --home /home/omarchy-replaced omarchy
 expect <<EOF
 set timeout -1
@@ -256,6 +260,7 @@ chmod +x /usr/local/bin/usermod
 
 installed=0
 for attempt in {1..3}; do
+  use_candidate_repository
   if expect <<EOF
 set timeout -1
 log_file $work/resumed-install.log
