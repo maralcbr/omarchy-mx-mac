@@ -21,8 +21,9 @@ enum OmarchyTheme {
   static let danger = dynamic(light: 0xF5_2A65, dark: 0xF7_768E)
   static let caution = dynamic(light: 0x8C_6C3E, dark: 0xE0_AF68)
 
-  /// One of the wordmark's purples; used for the disk divider handle.
-  static let handle = dynamic(light: 0x7C_4CAB, dark: 0x7C_4CAB)
+  /// The disk divider handle: a firm blue that reads on the pale Omarchy
+  /// segment in both appearances.
+  static let handle = dynamic(light: 0x1F_5FD6, dark: 0x3D_74E8)
 
   // MARK: Metrics
 

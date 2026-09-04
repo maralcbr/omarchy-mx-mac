@@ -544,7 +544,17 @@ private struct DiskSplitPanel: View {
           isFrozen: isBusy
         )
         .transaction { $0.animation = nil }
-        if editable {
+        if isBusy {
+          // A released divider re-plans through the engine, which takes a
+          // moment; say so instead of leaving the bar and the tick inert.
+          HStack(spacing: 8) {
+            ProgressView()
+              .controlSize(.small)
+            Text(PlainLanguage.replanning)
+              .font(OmarchyTheme.caption)
+              .foregroundStyle(OmarchyTheme.secondaryText)
+          }
+        } else if editable {
           Text(
             "Drag the divider to choose how much space Omarchy gets (minimum \(Int(Self.minimumOmarchyGB)) GB)"
           )

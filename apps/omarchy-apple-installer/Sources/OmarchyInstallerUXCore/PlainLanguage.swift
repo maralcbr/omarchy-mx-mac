@@ -26,6 +26,7 @@
 
     // MARK: Screen B — Plan
 
+    public static let replanning = "Updating the plan for that size…"
     public static let planAcknowledgement =
       "I am ready to partition my ssd and install."
     public static let planInstall = "Install"
