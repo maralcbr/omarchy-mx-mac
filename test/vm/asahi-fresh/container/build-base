@@ -42,6 +42,13 @@ parted -s "$raw" \
   set 1 esp on \
   mkpart root ext4 1025MiB 100%
 
+# losetup --find allocates through /dev/loop-control, which creates the node on
+# the host's devtmpfs; the container's /dev does not gain it and losetup then
+# reports ENOENT for a backing file that plainly exists. Provide the nodes
+# ourselves so allocation never has to create one.
+for index in $(seq 0 7); do
+  [[ -e /dev/loop$index ]] || mknod "/dev/loop$index" b 7 "$index"
+done
 loop=$(losetup --find --show --partscan "$raw")
 cleanup() {
   for process in /proc/[0-9]*; do
