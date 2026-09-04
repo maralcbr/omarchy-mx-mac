@@ -184,7 +184,11 @@ done
 [[ ! -e /var/lib/omarchy/fresh-install/completing ]]
 [[ " $(id -nG alarm) " == *" wheel "* ]]
 rm -f /usr/local/bin/pacman
-usermod --home /home/omarchy-replaced omarchy
+# The interruption above happens before the installer creates its target user,
+# so the foreign account this scenario must refuse is created here rather than
+# borrowed from the interrupted run. It carries no owner token, so the
+# installer has to treat it as somebody else's account.
+useradd --create-home --shell /bin/bash omarchy
 expect <<EOF
 set timeout -1
 log_file $work/target-replacement.log
@@ -208,7 +212,7 @@ if {\$status == 0} { exit 1 }
 exit 0
 EOF
 grep -Fq 'The target user is not owned by this installation' "$work/target-replacement.log"
-usermod --home /home/omarchy omarchy
+userdel --remove omarchy
 
 helper=/usr/share/omarchy/bin/omarchy-hw-apple-silicon
 cp --preserve=all --dereference "$helper" omarchy-hw-apple-silicon.original
