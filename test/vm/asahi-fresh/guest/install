@@ -180,16 +180,33 @@ done
 [[ " $(id -nG alarm) " == *" wheel "* ]]
 rm -f /usr/local/bin/passwd
 
-# The release bundle installs omarchy-keyring, whose hook repopulates the
-# pacman keyring and drops the local signature the candidate repository was
-# trusted by. Every later installer run then rejects the candidate database
-# and reports each of its packages as not found, so re-establish that trust.
-if [[ -r /root/omarchy-arm-repository.asc ]]; then
+# The release bundle ships its own /etc/pacman.conf, whose [omarchy] section
+# points at the stable release the image was built against, and its
+# omarchy-keyring hook repopulates the keyring. Together those undo the
+# candidate repository this run exists to test: later installer runs sync a
+# different, smaller database, reject it as signed by an untrusted key, and
+# report all of the candidate's packages as not found. Point the repository
+# back at the candidate and trust its key again.
+if [[ -r /root/omarchy-arm-repository.asc && -f /var/lib/omarchy/vm-package-candidate ]]; then
+  candidate_tag=$(sed -n 's/^release_tag=//p' /var/lib/omarchy/vm-package-candidate)
+  [[ $candidate_tag =~ ^asahi-packages-candidate-[0-9a-f]{40}$ ]]
   candidate_primary=$(gpg --batch --show-keys --with-colons /root/omarchy-arm-repository.asc |
     awk -F: '$1 == "pub" { primary = 1; next } primary && $1 == "fpr" { print $10; exit }')
   [[ $candidate_primary =~ ^[A-F0-9]{40}$ ]]
   pacman-key --add /root/omarchy-arm-repository.asc
   pacman-key --lsign-key "$candidate_primary"
+  awk '
+    /^\[omarchy\]$/ { skip = 1; next }
+    skip && /^\[[^]]+\]$/ { skip = 0 }
+    !skip { print }
+  ' /etc/pacman.conf >/tmp/pacman.conf.without-omarchy
+  {
+    printf '%s\n' '[omarchy]'
+    printf '%s\n' 'SigLevel = Required DatabaseOptional'
+    printf 'Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/%s\n\n' "$candidate_tag"
+    cat /tmp/pacman.conf.without-omarchy
+  } >/tmp/pacman.conf.candidate
+  install -m 0644 /tmp/pacman.conf.candidate /etc/pacman.conf
   pacman -Sy
 fi
 usermod --home /home/omarchy-replaced omarchy
