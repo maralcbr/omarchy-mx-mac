@@ -24,7 +24,14 @@ grep -Eq '^[[:space:]]*-?session[[:space:]]+.*pam_gnome_keyring\.so.*auto_start'
 pacman -Q omarchy-dev omarchy-settings-dev linux-asahi networkmanager iwd rtkit >/dev/null || fail "required packages"
 grep -Fxq '[omarchy]' /etc/pacman.conf || fail "signed Apple Silicon package repository"
 grep -Fxq 'SigLevel = Required DatabaseOptional' /etc/pacman.conf || fail "Apple Silicon package signature policy"
-grep -Fxq 'Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24' /etc/pacman.conf || fail "immutable Apple Silicon package repository"
+# A candidate run deliberately repoints this at the candidate release, which
+# is the repository whose packages it then checks version by version below.
+if [[ -f /var/lib/omarchy/vm-package-candidate ]]; then
+  expected_repository=$(sed -n 's/^release_tag=//p' /var/lib/omarchy/vm-package-candidate)
+else
+  expected_repository=asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24
+fi
+grep -Fxq "Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/$expected_repository" /etc/pacman.conf || fail "immutable Apple Silicon package repository"
 pacman-key --finger 5983B1CA32CB778F4D74D24ECFF35022CA5B5959 >/dev/null || fail "Apple Silicon package signing key"
 if [[ -f /var/lib/omarchy/vm-package-candidate ]]; then
   candidate=/var/lib/omarchy/vm-package-candidate
