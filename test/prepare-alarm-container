@@ -25,13 +25,33 @@ export GNUPGHOME
 mkdir -m 0700 "$GNUPGHOME"
 gpg --batch --import "$RUNNER_TEMP/alarm-builder.asc" >/dev/null
 gpg --batch --verify "$RUNNER_TEMP/alarm.tar.gz.sig" "$RUNNER_TEMP/alarm.tar.gz"
+# The signed Omarchy aarch64 repository: every Omarchy-built default package
+# (aether, omacalc, obsidian, …) is a binary there, exactly as the fresh
+# installer consumes it. OMARCHY_ASAHI_REPOSITORY_TAG selects the immutable
+# release to test against; the default is the tag the installed image pins.
+repository_tag=${OMARCHY_ASAHI_REPOSITORY_TAG:-asahi-packages-stable-901e39bdc0dd42a93644bce14a07eeb9bb18a12c}
+[[ $repository_tag =~ ^asahi-packages-(stable|candidate)-[0-9a-f]{40}$ ]] || {
+  echo "OMARCHY_ASAHI_REPOSITORY_TAG must name an immutable asahi-packages release" >&2
+  exit 1
+}
+repository_key="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/default/omarchy-arm-repository.asc"
+repository_primary=$(gpg --show-keys --with-colons "$repository_key" |
+  awk -F: '$1 == "pub" { primary=1; next } primary && $1 == "fpr" { print $10; exit }')
+[[ $repository_primary =~ ^[A-F0-9]{40}$ ]] || {
+  echo "Could not read the Omarchy repository signing certificate" >&2
+  exit 1
+}
+
 docker import "$RUNNER_TEMP/alarm.tar.gz" alarm:aarch64
-docker run --name alarm-keyring alarm:aarch64 /bin/bash -c \
-  'pacman-key --init && pacman-key --populate archlinuxarm'
+docker run --name alarm-keyring \
+  -v "$repository_key:/tmp/omarchy-arm-repository.asc:ro" \
+  alarm:aarch64 /bin/bash -c \
+  "pacman-key --init && pacman-key --populate archlinuxarm &&
+   pacman-key --add /tmp/omarchy-arm-repository.asc && pacman-key --lsign-key $repository_primary"
 docker commit alarm-keyring alarm:aarch64 >/dev/null
 docker rm alarm-keyring >/dev/null
 
-cat >"$RUNNER_TEMP/pacman.conf" <<'EOF'
+cat >"$RUNNER_TEMP/pacman.conf" <<EOF
 [options]
 HoldPkg = pacman glibc
 Architecture = auto
@@ -39,19 +59,23 @@ CheckSpace
 SigLevel = Required DatabaseOptional
 ParallelDownloads = 5
 
+[omarchy]
+SigLevel = Required DatabaseOptional
+Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/$repository_tag
+
 [asahi-alarm]
 SigLevel = Never
-Server = https://github.com/asahi-alarm/asahi-alarm/releases/download/$arch
+Server = https://github.com/asahi-alarm/asahi-alarm/releases/download/\$arch
 
 [core]
-Server = http://mirror.archlinuxarm.org/$arch/$repo
+Server = http://mirror.archlinuxarm.org/\$arch/\$repo
 
 [extra]
-Server = http://mirror.archlinuxarm.org/$arch/$repo
+Server = http://mirror.archlinuxarm.org/\$arch/\$repo
 
 [alarm]
-Server = http://mirror.archlinuxarm.org/$arch/$repo
+Server = http://mirror.archlinuxarm.org/\$arch/\$repo
 
 [aur]
-Server = http://mirror.archlinuxarm.org/$arch/$repo
+Server = http://mirror.archlinuxarm.org/\$arch/\$repo
 EOF

@@ -72,6 +72,29 @@ while IFS= read -r name; do
   fi
 done <<<"$pkgs_listing"
 
+# A split PKGBUILD publishes packages named differently from its directory
+# (dotnet-core builds dotnet-runtime). The aarch64 repository declares every
+# such output in pkgbuilds/asahi-source-outputs; count those as project
+# packages too. The file is optional so x86 manifests keep resolving without it.
+pkgs_outputs() {
+  local attempt
+  for attempt in 1 2 3; do
+    if curl -fsSL --max-time 60 \
+      "https://raw.githubusercontent.com/$PKGS_REPO/HEAD/pkgbuilds/asahi-source-outputs" 2>/dev/null; then
+      return 0
+    fi
+    (( attempt < 3 )) && sleep 5
+  done
+  return 1
+}
+if outputs_listing=$(pkgs_outputs); then
+  while IFS='|' read -r _ outputs; do
+    for name in $outputs; do
+      project_packages[$name]=1
+    done
+  done <<<"$outputs_listing"
+fi
+
 # x86 manifests stay byte-compatible with upstream Omarchy, which publishes a
 # few of their entries through its own infrastructure rather than any public
 # repository or the AUR. They cannot resolve here but must not block this
