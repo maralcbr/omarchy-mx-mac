@@ -58,6 +58,13 @@ if [[ -n $candidate_tag || -n $candidate_sha256 || -n $candidate_fingerprint || 
   }
 fi
 
+if [[ -n ${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-} || -n ${OMARCHY_VM_RUNTIME_SOURCE:-} ]]; then
+  [[ -n $candidate_tag && ${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-} =~ ^[0-9a-f]{64}$ && ${OMARCHY_VM_RUNTIME_SOURCE:-} =~ ^[0-9a-f]{40}$ ]] || {
+    echo 'Candidate runtime requires a package candidate, manifest checksum and source commit' >&2
+    exit 1
+  }
+fi
+
 while (($#)); do
   case "$1" in
     --keep) keep=1 ;;
@@ -159,9 +166,10 @@ fi
 scp "${scp_args[@]}" "$root/bin/omarchy-install-asahi-fresh" root@127.0.0.1:/root/omarchy-install-asahi-fresh.candidate
 scp "${scp_args[@]}" "$root/bin/omarchy-update-asahi-bundle" root@127.0.0.1:/root/omarchy-update-asahi-bundle.candidate
 scp "${scp_args[@]}" "$harness/guest/install" root@127.0.0.1:/root/omarchy-vm-install
+scp "${scp_args[@]}" "$harness/guest/candidate-runtime" root@127.0.0.1:/root/omarchy-vm-candidate-runtime
 stable_version=$(<"$root/version")
 ssh -tt "${ssh_args[@]}" root@127.0.0.1 \
-  env OMARCHY_VM_STABLE_VERSION="$stable_version" OMARCHY_VM_ALARM_MIRROR="$alarm_mirror_quoted" bash /root/omarchy-vm-install |
+  env OMARCHY_VM_RUNTIME_MANIFEST_SHA256="${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-}" OMARCHY_VM_RUNTIME_SOURCE="${OMARCHY_VM_RUNTIME_SOURCE:-}" OMARCHY_VM_STABLE_VERSION="$stable_version" OMARCHY_VM_ALARM_MIRROR="$alarm_mirror_quoted" bash /root/omarchy-vm-install |
   tee "$state/run/install.log" || exit 1
 
 boot_id=$(ssh "${ssh_args[@]}" root@127.0.0.1 cat /proc/sys/kernel/random/boot_id)

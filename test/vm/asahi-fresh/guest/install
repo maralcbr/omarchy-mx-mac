@@ -2,15 +2,6 @@
 
 set -euo pipefail
 
-stable=https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download
-# The un-numbered asahi-quattro-channel release is an immutable legacy pointer;
-# the live channel is the highest-numbered asahi-quattro-channel-N release.
-channel_tag=$(curl --fail --location --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors \
-  "https://api.github.com/repos/maralcbr/omarchy-pkgs/releases?per_page=100" |
-  grep -oE '"tag_name": *"asahi-quattro-channel-[1-9][0-9]*"' |
-  grep -oE 'asahi-quattro-channel-[0-9]+' | sort -t- -k4,4n | tail -1)
-[[ $channel_tag =~ ^asahi-quattro-channel-[1-9][0-9]*$ ]]
-channel=https://github.com/maralcbr/omarchy-pkgs/releases/download/$channel_tag
 fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
 work=/root/omarchy-fresh-vm
 
@@ -43,30 +34,43 @@ sed -i 's/^omarchy-hw-apple-silicon || exit 1$/true # VM-only hardware boundary/
 mkdir -p "$work/apple-root/proc/device-tree"
 printf 'apple,j314s\0apple,arm-platform\0' >"$work/apple-root/proc/device-tree/compatible"
 
-curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/install-omarchy-mx-mac"
-curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/install-omarchy-mx-mac.sig"
-curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-release.gpg"
-curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-mx-mac-release"
-curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-mx-mac-release.sig"
-[[ $(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }') == "$fingerprint" ]]
-gpgv --keyring ./omarchy-release.gpg install-omarchy-mx-mac.sig install-omarchy-mx-mac
-gpgv --keyring ./omarchy-release.gpg omarchy-mx-mac-release.sig omarchy-mx-mac-release
-grep -Fxq "version=$OMARCHY_VM_STABLE_VERSION" omarchy-mx-mac-release
+if [[ -n ${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-} ]]; then
+  source /root/omarchy-vm-candidate-runtime
+else
+  stable=https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download
+  # The un-numbered asahi-quattro-channel release is an immutable legacy pointer;
+  # the live channel is the highest-numbered asahi-quattro-channel-N release.
+  channel_tag=$(curl --fail --location --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors \
+    "https://api.github.com/repos/maralcbr/omarchy-pkgs/releases?per_page=100" |
+    grep -oE '"tag_name": *"asahi-quattro-channel-[1-9][0-9]*"' |
+    grep -oE 'asahi-quattro-channel-[0-9]+' | sort -t- -k4,4n | tail -1)
+  [[ $channel_tag =~ ^asahi-quattro-channel-[1-9][0-9]*$ ]]
+  channel=https://github.com/maralcbr/omarchy-pkgs/releases/download/$channel_tag
+  curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/install-omarchy-mx-mac"
+  curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/install-omarchy-mx-mac.sig"
+  curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-release.gpg"
+  curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-mx-mac-release"
+  curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/omarchy-mx-mac-release.sig"
+  [[ $(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }') == "$fingerprint" ]]
+  gpgv --keyring ./omarchy-release.gpg install-omarchy-mx-mac.sig install-omarchy-mx-mac
+  gpgv --keyring ./omarchy-release.gpg omarchy-mx-mac-release.sig omarchy-mx-mac-release
+  grep -Fxq "version=$OMARCHY_VM_STABLE_VERSION" omarchy-mx-mac-release
 
-curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro "$channel/install-asahi-quattro"
-curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro.sig "$channel/install-asahi-quattro.sig"
-gpgv --keyring ./omarchy-release.gpg install-asahi-quattro.sig install-asahi-quattro
+  curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro "$channel/install-asahi-quattro"
+  curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -o install-asahi-quattro.sig "$channel/install-asahi-quattro.sig"
+  gpgv --keyring ./omarchy-release.gpg install-asahi-quattro.sig install-asahi-quattro
 
-cp install-asahi-quattro install-asahi-quattro.vm
-sed -i \
-  -e '/^\[\[ -r \/proc\/device-tree\/compatible \]\] || fail /c\true # VM-only hardware boundary' \
-  -e "/^grep -aq 'apple,' \/proc\/device-tree\/compatible || fail /c\\true # VM-only hardware boundary" \
-  -e "s#^trap 'rm -rf \"\$work_dir\"' EXIT#trap ':' EXIT#" \
-  install-asahi-quattro.vm
-mkdir verified
-TMPDIR="$work/verified" bash install-asahi-quattro.vm --fresh --user omarchy --verify-only
-verified_dir=$(find "$work/verified" -mindepth 1 -maxdepth 1 -type d -name 'asahi-quattro.*' -print -quit)
-[[ -n $verified_dir ]]
+  cp install-asahi-quattro install-asahi-quattro.vm
+  sed -i \
+    -e '/^\[\[ -r \/proc\/device-tree\/compatible \]\] || fail /c\true # VM-only hardware boundary' \
+    -e "/^grep -aq 'apple,' \/proc\/device-tree\/compatible || fail /c\\true # VM-only hardware boundary" \
+    -e "s#^trap 'rm -rf \"\$work_dir\"' EXIT#trap ':' EXIT#" \
+    install-asahi-quattro.vm
+  mkdir verified
+  TMPDIR="$work/verified" bash install-asahi-quattro.vm --fresh --user omarchy --verify-only
+  verified_dir=$(find "$work/verified" -mindepth 1 -maxdepth 1 -type d -name 'asahi-quattro.*' -print -quit)
+  [[ -n $verified_dir ]]
+fi
 
 signed_fresh_installer="$verified_dir/omarchy-install-asahi-fresh"
 fresh_installer="$verified_dir/omarchy-install-asahi-fresh.vm"
@@ -82,9 +86,11 @@ package_source_commit=$(sed -n 's/^package_source_commit=//p' "$verified_dir/asa
 install -Dm644 "$verified_dir/asahi-quattro-release" /var/lib/omarchy/vm-expected-release
 install -Dm644 omarchy-mx-mac-release /var/lib/omarchy/vm-expected-stable-release
 {
-  sha256sum install-asahi-quattro install-asahi-quattro.vm
+  if [[ -f install-asahi-quattro ]]; then
+    sha256sum install-asahi-quattro install-asahi-quattro.vm
+  fi
   sha256sum "$signed_fresh_installer" /root/omarchy-install-asahi-fresh.candidate "$fresh_installer"
-} >vm-adapter.log
+} >>vm-adapter.log
 
 cp /boot/Image vm-kernel.before
 cp /boot/vmlinuz-linux-asahi asahi-kernel.before
@@ -125,6 +131,11 @@ grep -Fq 'Another fresh installation is already running' "$work/lock-collision.l
 [[ ! -e /var/lib/omarchy/fresh-install ]]
 kill "$lock_pid"
 wait "$lock_pid" 2>/dev/null || true
+
+# The upstream firewall defaults are applied during user setup. Preserve the
+# VM transport before that happens; rerun removes this test-only rule.
+pacman -S --needed --noconfirm ufw
+ufw allow 22/tcp
 
 # Interrupt at the password prompt: the packages are installed and the target
 # user and its checkpoint exist by then, while omarchy-apply-system has not run
