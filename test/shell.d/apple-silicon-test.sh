@@ -12,27 +12,31 @@ proc_root="$test_tmp/proc"
 mutation_log="$test_tmp/mutations.log"
 mkdir -p "$stub_bin" "$proc_root/device-tree" "$test_tmp/home"
 
-cat >"$stub_bin/uname" <<'EOF'
-#!/bin/bash
-printf '%s\n' "${OMARCHY_TEST_ARCH:-aarch64}"
-EOF
-chmod +x "$stub_bin/uname"
-
-printf 'apple,j314s\0apple,arm-platform\0' >"$proc_root/device-tree/compatible"
-OMARCHY_PROC_ROOT="$proc_root" PATH="$stub_bin:$PATH" "$ROOT/bin/omarchy-hw-apple-silicon" ||
+compatible="$proc_root/device-tree/compatible"
+printf 'apple,j314s\0apple,arm-platform\0' >"$compatible"
+OMARCHY_UNAME_M=aarch64 OMARCHY_APPLE_COMPATIBLE="$compatible" "$ROOT/bin/omarchy-hw-apple-silicon" ||
   fail "Apple Silicon detector accepts aarch64 Apple device trees"
 pass "Apple Silicon detector accepts aarch64 Apple device trees"
 
-if OMARCHY_TEST_ARCH=x86_64 OMARCHY_PROC_ROOT="$proc_root" PATH="$stub_bin:$PATH" "$ROOT/bin/omarchy-hw-apple-silicon"; then
+if OMARCHY_UNAME_M=x86_64 OMARCHY_APPLE_COMPATIBLE="$compatible" "$ROOT/bin/omarchy-hw-apple-silicon"; then
   fail "Apple Silicon detector rejects non-aarch64 systems"
 fi
 pass "Apple Silicon detector rejects non-aarch64 systems"
 
-printf 'linux,dummy-virt\0' >"$proc_root/device-tree/compatible"
-if OMARCHY_PROC_ROOT="$proc_root" PATH="$stub_bin:$PATH" "$ROOT/bin/omarchy-hw-apple-silicon"; then
+printf 'linux,dummy-virt\0' >"$compatible"
+if OMARCHY_UNAME_M=aarch64 OMARCHY_APPLE_COMPATIBLE="$compatible" "$ROOT/bin/omarchy-hw-apple-silicon"; then
   fail "Apple Silicon detector rejects non-Apple aarch64 systems"
 fi
 pass "Apple Silicon detector rejects non-Apple aarch64 systems"
+
+printf 'pineapple,board\0vendor,apple-similar\0' >"$compatible"
+if OMARCHY_UNAME_M=aarch64 OMARCHY_APPLE_COMPATIBLE="$compatible" "$ROOT/bin/omarchy-hw-apple-silicon"; then
+  fail "an Apple substring is not the Apple device-tree vendor"
+fi
+printf 'vendor,board\0apple,arm-platform\0' >"$compatible"
+OMARCHY_UNAME_M=aarch64 OMARCHY_APPLE_COMPATIBLE="$compatible" "$ROOT/bin/omarchy-hw-apple-silicon" ||
+  fail "Apple compatible identity can follow another NUL-delimited entry"
+pass "Apple detection matches vendor entries in the complete device-tree list"
 
 cat >"$stub_bin/omarchy-hw-apple-silicon" <<'EOF'
 #!/bin/bash

@@ -1,11 +1,16 @@
 #!/bin/bash
 
-# omarchy:summary=Detect whether the computer is an Apple Silicon Mac.
+# omarchy:summary=Detect Apple Silicon (Asahi) hardware.
 
-# Apple Silicon Macs have no DMI, so omarchy-hw-match cannot see them. The
-# device tree Asahi's m1n1 hands the kernel names every board "apple,<model>",
-# which is the one identifier that survives across M1 through M4.
-proc_root="${OMARCHY_PROC_ROOT:-/proc}"
-
-[[ $(uname -m) == "aarch64" ]] &&
-  grep -aq 'apple,' "$proc_root/device-tree/compatible" 2>/dev/null
+# Hardware split: notch, Asahi HID, vulkan-asahi, wf-recorder, asahi-audio.
+# aarch64 is not enough — a Raspberry Pi must not take the Apple path.
+# OMARCHY_APPLE_COMPATIBLE stubs the device-tree file for tests.
+"$(dirname -- "${BASH_SOURCE[0]}")/omarchy-hw-aarch64" || exit 1
+compatible_file="${OMARCHY_APPLE_COMPATIBLE:-/proc/device-tree/compatible}"
+[[ -r $compatible_file ]] || exit 1
+# Device-tree compatible is a NUL-separated list of vendor,model strings.
+# A vendor substring (for example pineapple,board) is not Apple identity.
+while IFS= read -r -d '' compatible || [[ -n $compatible ]]; do
+  [[ $compatible == apple,* ]] && exit 0
+done <"$compatible_file"
+exit 1
