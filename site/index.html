@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Download the signed and notarized Omarchy MX Mac app for Apple Silicon. Install from macOS with the latest signed RC image.">
+  <title>Omarchy MX Mac — Download for Apple Silicon</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; color: #eeeaf6; background: #171421; }
+    body { margin: 0; line-height: 1.65; }
+    main { max-width: 800px; margin: auto; padding: 64px 24px; }
+    .eyebrow { color: #afbdff; letter-spacing: .12em; text-transform: uppercase; font-size: .8rem; }
+    h1 { font-size: clamp(2.4rem, 7vw, 4rem); line-height: 1.08; margin: 16px 0; }
+    h2 { font-size: 1.5rem; margin-top: 0; }
+    p, li { color: #cbc6d5; }
+    a { color: #afbdff; text-underline-offset: 3px; }
+    .download { display: inline-block; background: #afbdff; color: #171421; padding: 14px 22px; border-radius: 6px; font-weight: 700; text-decoration: none; margin: 12px 0; }
+    a:focus-visible { outline: 3px solid #fff; outline-offset: 5px; }
+    section { border-top: 1px solid #494252; padding-top: 28px; margin-top: 36px; }
+    .small { font-size: .9rem; }
+    code { overflow-wrap: anywhere; }
+    footer { margin-top: 44px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">Omarchy on Apple Silicon</p>
+    <h1>Omarchy MX Mac</h1>
+    <p>A complete Omarchy desktop for your Mac, powered by Arch Linux ARM and Asahi Linux.</p>
+    <a class="download" href="https://downloads.aicodelabs.com.au/installer/previews/20260912-55064ca4f708/Omarchy-MX-Mac-Installer.zip">Download the Mac app · ZIP</a>
+    <p class="small">Developer ID signed · Apple notarized · No PKG required</p>
+  </header>
+  <section aria-labelledby="install">
+    <h2 id="install">Install from macOS</h2>
+    <ol>
+      <li>Download and extract the ZIP.</li>
+      <li>Open <strong>Omarchy MX Mac Installer.app</strong> directly from Downloads.</li>
+      <li>Review your disk allocation, authorize installation, and follow the app’s Recovery instructions.</li>
+    </ol>
+    <p>The app defaults to <strong>RC</strong> and checks the selected channel’s latest signed release. Matching cached files are verified and reused. The familiar installation screens stay the same.</p>
+    <p>Back up your data and keep your Mac connected to power. Hardware support depends on your model’s <a href="https://asahilinux.org/fedora/#device-support">Asahi Linux support</a>.</p>
+    <p class="small">End-to-end installation with the portable app was confirmed by the owner on an M2 Max. Diagnostic logs survive reboot; credentials are never logged.</p>
+  </section>
+  <section aria-labelledby="releases">
+    <h2 id="releases">Release details</h2>
+    <p><strong>RC fresh installation: Omarchy 4.0.2.</strong> The current signed image is <code>os-v4.0.2-mac.1.20260907</code>. A newer app download does not change the OS image published in a channel.</p>
+    <p><strong>Omarchy 4.0.3 runtime:</strong> accepted test candidate; public promotion is pending. The published runtime channel remains sequence 30.</p>
+    <ul>
+      <li>Upstream 4.0.3 security fixes, AI integrations, and Apple Silicon migration support.</li>
+      <li>ARM OpenClaw and Perplexity integration, with package-availability checks for unsupported applications.</li>
+      <li>Apple Silicon package, boot, and network protections retained.</li>
+    </ul>
+    <p class="small">The signed 4.0.3 runtime upgrade passed on M1 Pro; a fresh generic ARM64 VM reboot and all 23 optional application installs also passed. The final runtime pair has not been physically reboot-qualified, and no 4.0.3 fresh-install image has been published. <a href="https://github.com/maralcbr/omarchy-mx-mac/blob/main/docs/releases/v4.0.3-mac.1.md">Read the release notes</a>.</p>
+  </section>
+  <footer>
+    <a href="https://github.com/maralcbr/omarchy-mx-mac">Project &amp; installation guide</a> ·
+    <a href="https://github.com/maralcbr/omarchy-mx-mac/issues">Report an issue</a>
+  </footer>
+</main>
+</body>
+</html>
