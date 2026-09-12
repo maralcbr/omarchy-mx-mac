@@ -102,3 +102,44 @@ for (const [id, expected] of Object.entries(requiredSecondaryPackages)) {
 JS
 
 # Runtime and batch behavior is exercised in optional-availability-test.sh.
+
+test_tmp=$(mktemp -d)
+trap 'rm -rf "$test_tmp"' EXIT
+mkdir -p "$test_tmp/bin"
+
+cat >"$test_tmp/bin/pacman" <<'SH'
+#!/bin/bash
+operation=$1
+shift
+case $operation in
+  -Si)
+    [[ $1 != missing* ]]
+    ;;
+  -Sp)
+    [[ " $* " != *' broken '* ]]
+    ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$test_tmp/bin/pacman"
+cat >"$test_tmp/live.tsv" <<'EOF'
+install.good|primary secondary
+install.hidden|missing
+install.required-missing|missing-required
+install.broken|broken
+EOF
+printf '%s\n' install.good install.required-missing install.broken >"$test_tmp/required"
+
+set +e
+live_output=$(OMARCHY_OPTIONAL_PACKAGES_FILE="$test_tmp/live.tsv" \
+  OMARCHY_OPTIONAL_REQUIRED_FILE="$test_tmp/required" \
+  OMARCHY_OPTIONAL_PACKAGE_CACHE="$test_tmp/cache" \
+  PATH="$test_tmp/bin:$PATH" "$ROOT/test/optional-packages-live" 2>&1)
+live_status=$?
+set -e
+(( live_status != 0 )) || fail 'live optional package preflight fails unresolved transactions'
+[[ $live_output == *'1 resolved, 1 hidden, 2 failed'* ]] ||
+  fail 'live optional package preflight reports every transaction' "$live_output"
+[[ $live_output == *'install.required-missing lost required packages: missing-required'* ]] ||
+  fail 'live optional package preflight fails a support regression' "$live_output"
+pass 'live optional package preflight reports hidden and unresolved transactions'

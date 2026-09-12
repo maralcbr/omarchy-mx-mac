@@ -5,4 +5,5 @@
 # omarchy:hidden=true
 
 source "$OMARCHY_PATH/install/helpers/optional-packages.sh" || exit 1
+declare -F omarchy-pkg-available omarchy-install-available __omarchy_optional_load __omarchy_optional_targets >/dev/null || exit 1
 omarchy-install-available "$@"

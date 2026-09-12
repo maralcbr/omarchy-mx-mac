@@ -86,9 +86,9 @@ bash -c "$prelude"$'\n''omarchy-pkg-available primary provided; omarchy-pkg-avai
 pass 'CLI and menu agree across architectures, provides and selected dependencies'
 pass 'batch caches database, architecture and fallback lookups'
 
-# A missing helper must stop at the source error. Calling the wrapper's own
-# command name without its function would recurse through PATH until OOM.
-mkdir -p "$test_tmp/incomplete" "$test_tmp/recursion-bin"
+# Incomplete helpers must not redispatch a wrapper through PATH. The child stub
+# makes the former recursion observable without allowing it to consume memory.
+mkdir -p "$test_tmp/incomplete/install/helpers" "$test_tmp/recursion-bin"
 export RECURSION_LOG="$test_tmp/recursion"
 for helper in omarchy-pkg-available omarchy-install-available; do
   cat >"$test_tmp/recursion-bin/$helper" <<'STUB'
@@ -97,12 +97,31 @@ echo recursive-dispatch >> "$RECURSION_LOG"
 exit 42
 STUB
   chmod +x "$test_tmp/recursion-bin/$helper"
+done
+for fixture in missing error empty pkg-only install-only; do
+  helper_file="$test_tmp/incomplete/install/helpers/optional-packages.sh"
+  rm -f "$helper_file"
+  case $fixture in
+    error) echo 'return 1' >"$helper_file" ;;
+    empty) : >"$helper_file" ;;
+    pkg-only) echo 'omarchy-pkg-available() { return 0; }' >"$helper_file" ;;
+    install-only) echo 'omarchy-install-available() { return 0; }' >"$helper_file" ;;
+  esac
+  for helper in omarchy-pkg-available omarchy-install-available; do
+    status=0
+    OMARCHY_PATH="$test_tmp/incomplete" PATH="$test_tmp/recursion-bin:$PATH" \
+      "$ROOT/bin/$helper" install.browser.chrome 2>/dev/null || status=$?
+    [[ $status == 1 && ! -e $RECURSION_LOG ]] || fail "$fixture helper stops $helper before redispatch"
+  done
   status=0
   OMARCHY_PATH="$test_tmp/incomplete" PATH="$test_tmp/recursion-bin:$PATH" \
-    "$ROOT/bin/$helper" install.browser.chrome 2>/dev/null || status=$?
-  [[ $status == 1 && ! -e $RECURSION_LOG ]] || fail 'missing helper stops before recursive command dispatch'
+    bash -c "$prelude"$'\n''omarchy-install-available install.browser.chrome; echo continued >> "$RECURSION_LOG"' 2>/dev/null || status=$?
+  [[ $status == 1 && ! -e $RECURSION_LOG ]] || fail "$fixture helper stops the menu guard batch"
 done
-status=0
-OMARCHY_PATH="$test_tmp/incomplete" bash -c "$prelude"$'\n''echo continued >> "$RECURSION_LOG"' 2>/dev/null || status=$?
-[[ $status == 1 && ! -e $RECURSION_LOG ]] || fail 'missing helper stops the menu guard batch'
-pass 'missing shared helper fails safely without recursive dispatch'
+pass 'missing, failing, empty and partial helpers fail safely without redispatch'
+
+cp "$ROOT/install/helpers/optional-packages.sh" "$helper_file"
+printf 'install.empty|   \n' >"$test_tmp/incomplete/install/optional-packages.tsv"
+: >"$test_tmp/incomplete/install/optional-aur-packages.tsv"
+OMARCHY_PATH="$test_tmp/incomplete" check 1 omarchy-install-available install.empty
+pass 'whitespace-only optional targets fail closed'

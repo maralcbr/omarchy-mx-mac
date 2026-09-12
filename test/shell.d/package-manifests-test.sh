@@ -4,6 +4,10 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
+for required in omarchy-base omarchy-base-asahi omarchy-other omarchy-other-asahi; do
+  [[ -r $ROOT/install/$required.packages ]] || fail "required fork manifest exists: $required"
+done
+
 # The ISO builder and the installer read these lists one name per line, and a
 # line holding two names or a stray character installs neither. Every
 # manifest under install/ gets the same check, so an architecture-specific
@@ -46,3 +50,20 @@ malformed=$(awk '!/^#/ && NF && $0 !~ /^install\.[a-z0-9.-]+$/ { print FNR ": " 
 [[ -z $malformed ]] ||
   fail "aarch64 baseline rows are menu ids" "$malformed"
 pass "aarch64 baseline is well formed"
+
+# The resolver and transaction scripts derive their release-bundle exemption
+# from this exact installer line, so it must survive installer edits.
+grep -Fq 'expected_packages=(omarchy-keyring omarchy-settings-dev omarchy-dev omarchy-nvim quickshell-git ttf-jetbrains-mono-nerd-basic)' \
+  "$ROOT/bin/omarchy-install-asahi-fresh" ||
+  fail "fresh installer retains the release bundle package list"
+pass "fresh installer retains the release bundle package list"
+
+if grep -Fq 'source_packages=(' "$ROOT/bin/omarchy-install-asahi-fresh"; then
+  fail "fresh installer no longer builds packages from source"
+fi
+pass "fresh installer installs every package from repositories"
+
+for script in packages-resolve packages-install-transaction; do
+  [[ -x $ROOT/test/$script ]] || fail "package test script is executable: $script"
+done
+pass "package test scripts are executable"
