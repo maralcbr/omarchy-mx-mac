@@ -81,3 +81,24 @@ bash -c "$prelude"$'\n''omarchy-pkg-available primary provided; omarchy-pkg-avai
 [[ $(grep -c '^uname$' "$CALLS") == 1 ]] || fail 'one architecture probe per batch'
 pass 'CLI and menu agree across architectures, provides and selected dependencies'
 pass 'batch caches database, architecture and fallback lookups'
+
+# A missing helper must stop at the source error. Calling the wrapper's own
+# command name without its function would recurse through PATH until OOM.
+mkdir -p "$test_tmp/incomplete" "$test_tmp/recursion-bin"
+export RECURSION_LOG="$test_tmp/recursion"
+for helper in omarchy-pkg-available omarchy-install-available; do
+  cat >"$test_tmp/recursion-bin/$helper" <<'STUB'
+#!/bin/bash
+echo recursive-dispatch >> "$RECURSION_LOG"
+exit 42
+STUB
+  chmod +x "$test_tmp/recursion-bin/$helper"
+  status=0
+  OMARCHY_PATH="$test_tmp/incomplete" PATH="$test_tmp/recursion-bin:$PATH" \
+    "$ROOT/bin/$helper" install.browser.chrome 2>/dev/null || status=$?
+  [[ $status == 1 && ! -e $RECURSION_LOG ]] || fail 'missing helper stops before recursive command dispatch'
+done
+status=0
+OMARCHY_PATH="$test_tmp/incomplete" bash -c "$prelude"$'\n''echo continued >> "$RECURSION_LOG"' 2>/dev/null || status=$?
+[[ $status == 1 && ! -e $RECURSION_LOG ]] || fail 'missing helper stops the menu guard batch'
+pass 'missing shared helper fails safely without recursive dispatch'

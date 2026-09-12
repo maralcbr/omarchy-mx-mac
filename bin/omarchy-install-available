@@ -4,5 +4,5 @@
 # omarchy:args=<menu-id>
 # omarchy:hidden=true
 
-source "$OMARCHY_PATH/install/helpers/optional-packages.sh"
+source "$OMARCHY_PATH/install/helpers/optional-packages.sh" || exit 1
 omarchy-install-available "$@"
