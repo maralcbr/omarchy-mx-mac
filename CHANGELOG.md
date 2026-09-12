@@ -4,13 +4,15 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
-## [4.0.3-mac.1] - Unreleased
+## [4.0.3-mac.1] - 2026-09-12
 
 - Integrate upstream 4.0.3 security fixes, AI integrations, and migrations.
 - Retain Apple Silicon package, boot, network, and migration protections.
-- Prepare OpenClaw and Perplexity ARM packages and current Asahi platform pins.
-- Publication and physical qualification remain pending. See
-  [preparation notes](docs/releases/v4.0.3-mac.1.md).
+- Publish OpenClaw and Perplexity ARM packages, mise 2026.9.4, and shared
+  runtime channel 31 after signed M1 upgrade and native ARM64 VM acceptance.
+- The RC fresh-install OS remains 4.0.2. Final-pair physical reboot and a
+  4.0.3 OS payload remain unqualified. See
+  [release notes](docs/releases/v4.0.3-mac.1.md).
 
 ## [4.0.2-mac.1] - 2026-08-31
 
