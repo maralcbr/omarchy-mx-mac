@@ -29,9 +29,6 @@
 --       -- Use natural (inverse) scrolling.
 --       natural_scroll = true,
 --
---       -- Re-enable tap-to-click (one-finger tap = left, two-finger = right).
---       tap_to_click = true,
---
 --       -- Use two-finger clicks for right-click instead of lower-right corner.
 --       clickfinger_behavior = true,
 --
@@ -46,6 +43,9 @@
 --     },
 --   },
 -- })
+
+-- Re-enable tap-to-click on the built-in Apple touchpad.
+-- hl.device({ name = "apple-mtp-multi-touch", tap_to_click = true })
 
 -- App-specific touchpad scroll speeds.
 -- o.window("(Alacritty|kitty)", { scroll_touchpad = 1.5 })
