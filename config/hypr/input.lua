@@ -45,7 +45,9 @@
 -- })
 
 -- Re-enable tap-to-click on the built-in Apple touchpad.
+-- Find its name with `hyprctl devices` and uncomment the matching line.
 -- hl.device({ name = "apple-mtp-multi-touch", tap_to_click = true })
+-- hl.device({ name = "apple-spi-trackpad", tap_to_click = true })
 
 -- App-specific touchpad scroll speeds.
 -- o.window("(Alacritty|kitty)", { scroll_touchpad = 1.5 })
