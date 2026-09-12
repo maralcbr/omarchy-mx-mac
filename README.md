@@ -13,7 +13,7 @@ Omarchy 4 (Quattro) is the maintained release:
 
 | Version | Status | Installation |
 | --- | --- | --- |
-| Omarchy `4.0.3-mac.1` | Prepared update (unpublished) | Accepted test candidate; qualification and release details below |
+| Omarchy `4.0.3-mac.1` | Recommended stable version | Existing installations: run `omarchy update` |
 | Omarchy `4.0.2-mac.1` | Current RC fresh-install image | Install from macOS using the app below |
 | Omarchy `3.8.4-mac.4` | Legacy | Existing installations can update to Omarchy 4 |
 
@@ -118,9 +118,15 @@ files are reused only when their size and SHA-256 match that catalog.
 
 Omarchy 4.0.3 brings upstream security fixes and AI integrations, Apple Silicon
 migration support, and ARM OpenClaw/Perplexity integration while retaining Mac
-boot, package, and network protections. The signed runtime candidate passed its recorded qualification, but public
-promotion is pending. The published runtime channel remains sequence 30. A
-4.0.3 OS payload has not yet been built and qualified.
+boot, package, and network protections. The signed runtime and packages are now
+published to the shared Stable update feed. Existing Omarchy Macs receive them
+through `omarchy update`.
+
+[Stable packages](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-74b8da66fca29137b4988aac1845a2fac1e1ddd9)
+and [runtime channel 31](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-31)
+carry the accepted `4.0.3.r6941.g5e7965f-1` runtime/settings pair. A 4.0.3
+fresh-install OS payload has not yet been built and qualified; the RC image
+above remains 4.0.2.
 
 See [4.0.3 release notes](docs/releases/v4.0.3-mac.1.md).
 
