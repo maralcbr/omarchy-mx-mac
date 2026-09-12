@@ -14,11 +14,6 @@ const fs = require('fs')
 const menu = requireFromRoot('shell/plugins/menu/MenuModel.js')
 const items = menu.parseMenuJsonc(fs.readFileSync(path.join(root, 'default/omarchy/omarchy-menu.jsonc'), 'utf8'))
 
-// Names a recipe mentions but does not require unconditionally: kernel
-// headers picked by architecture at runtime, and omazed, which the Zed
-// recipe treats as an enhancement it can do without.
-const excludedNames = new Set(['omazed', 'linux-headers', 'linux-asahi-headers'])
-
 // Recipes whose package name is a variable resolved at runtime carry their
 // base package here; the menu action itself is what would drift.
 const overrides = {
@@ -70,7 +65,7 @@ function packageNamesIn(lines) {
     while ((match = pattern.exec(line))) {
       for (const token of match[1].trim().split(/\s+/)) {
         const name = token.replace(/^["']|["']$/g, '')
-        if (!name || name.includes('$') || excludedNames.has(name)) continue
+        if (!name || name.includes('$')) continue
         if (!names.includes(name)) names.push(name)
       }
     }
@@ -167,8 +162,8 @@ assert(
   `derived from the recipes:\n${wanted}\n\ncommitted in install/optional-packages.tsv:\n${actual}`
 )
 
-// Every derived row is guarded, and nothing else is: a guard without a
+// Every derived sync row and declared AUR row is guarded: a guard without a
 // transaction reports unavailable for every architecture.
 const guarded = items.filter(item => /^omarchy-install-available /.test(item.when || '')).map(item => item.id).sort()
-assertDeepEqual(guarded, [...derived.keys()].sort(), 'optional install guards cover exactly the rows with a transaction')
+assertDeepEqual(guarded, [...derived.keys(), ...aurOnly].sort(), 'optional install guards cover exactly the rows with a transaction')
 JS

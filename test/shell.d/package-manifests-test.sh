@@ -35,10 +35,11 @@ done
 # omarchy-install-available and the menu guard prelude, so a row is exactly
 # one id, one separator, and space-separated names.
 for manifest in optional-packages.tsv optional-aur-packages.tsv; do
-  malformed=$(awk '!/^#/ && NF && $0 !~ /^install\.[a-z0-9.-]+\|[a-zA-Z0-9@._+:-]+( [a-zA-Z0-9@._+:-]+)*$/ { print FNR ": " $0 }' "$ROOT/install/$manifest")
-  [[ -z $malformed ]] ||
-    fail "optional transaction rows are one id, one separator, and package names: $manifest" "$malformed"
-  pass "optional transaction manifest is well formed: $manifest"
+  columns=2
+  [[ $manifest != "optional-aur-packages.tsv" ]] || columns=3
+  malformed=$(awk -F '|' -v columns="$columns" '!/^#/ && NF { if (NF != columns || $1 !~ /^install\.[a-z0-9.-]+$/ || $2 !~ /^[a-zA-Z0-9@._+:-]+( [a-zA-Z0-9@._+:-]+)*$/ || (columns == 3 && $3 !~ /^(x86_64|aarch64)( (x86_64|aarch64))*$/)) print FNR ": " $0 }' "$ROOT/install/$manifest")
+  [[ -z $malformed ]] || fail "optional manifest fields are valid: $manifest" "$malformed"
+  pass "optional manifest fields are valid: $manifest"
 done
 
 malformed=$(awk '!/^#/ && NF && $0 !~ /^install\.[a-z0-9.-]+$/ { print FNR ": " $0 }' "$ROOT/install/optional-packages-aarch64-required")
