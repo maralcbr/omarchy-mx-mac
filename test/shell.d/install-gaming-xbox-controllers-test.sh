@@ -76,3 +76,17 @@ grep -q 'linux-headers' "$calls" &&
 grep -q 'reboot' "$calls" &&
   fail "a stubbed run reaches the reboot path"
 pass "xpadneo builds against linux-asahi-headers on Apple Silicon"
+
+# Compare actual installer requests with the independently maintained resolver.
+# Both exact lists must change together; a missing or wrong header cannot pass.
+for apple in 0 1; do
+  APPLE_SILICON=$apple run_install >/dev/null
+  selected=$(OMARCHY_PATH="$ROOT" APPLE_SILICON=$apple PATH="$stub_bin:$PATH" bash -c '
+    source "$OMARCHY_PATH/install/helpers/optional-packages.sh"
+    __omarchy_optional_targets install.gaming.xbox-controllers
+    printf "%s\n" "${__omarchy_requested_packages[*]}"
+  ')
+  grep -Fx "omarchy-pkg-add $selected" "$calls" >/dev/null ||
+    fail "availability matches the installer selected targets" "Apple=$apple; $selected; $(cat "$calls")"
+done
+pass "availability includes exactly the headers selected by the installer"

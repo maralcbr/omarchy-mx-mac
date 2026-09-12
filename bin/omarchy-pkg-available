@@ -1,11 +1,7 @@
 #!/bin/bash
 
-# omarchy:summary=Returns true if all named packages can be installed from the configured pacman repositories
+# omarchy:summary=Check whether all explicit targets are available in the configured repositories
 # omarchy:args=<packages...>
 
-(( $# > 0 )) || exit 0
-
-# -Sp resolves targets the way -S does, so a name a repository package only
-# provides (libappindicator-gtk3, from libappindicator) counts as available,
-# where -Si answers for exact package names alone.
-pacman -Sp --noconfirm -- "$@" >/dev/null 2>&1
+source "$OMARCHY_PATH/install/helpers/optional-packages.sh"
+omarchy-pkg-available "$@"
