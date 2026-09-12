@@ -44,13 +44,13 @@ __omarchy_optional_load() {
   local id packages arches extra arch
   while IFS='|' read -r id packages extra || [[ -n $id ]]; do
     [[ -z $id || $id == \#* ]] && continue
-    [[ $id =~ ^install\.[a-z0-9.-]+$ && -n $packages && -z $extra ]] || return 1
+    [[ $id =~ ^install\.[a-z0-9.-]+$ && $packages =~ [^[:space:]] && -z $extra ]] || return 1
     [[ -z ${__omarchy_optional_sync[$id]-} ]] || return 1
     __omarchy_optional_sync[$id]=$packages
   done <"$OMARCHY_PATH/install/optional-packages.tsv" || return 1
   while IFS='|' read -r id packages arches extra || [[ -n $id ]]; do
     [[ -z $id || $id == \#* ]] && continue
-    [[ $id =~ ^install\.[a-z0-9.-]+$ && -n $packages && -n $arches && -z $extra ]] || return 1
+    [[ $id =~ ^install\.[a-z0-9.-]+$ && $packages =~ [^[:space:]] && $arches =~ [^[:space:]] && -z $extra ]] || return 1
     [[ -z ${__omarchy_optional_sync[$id]-} && -z ${__omarchy_optional_aur[$id]-} ]] || return 1
     for arch in $arches; do
       [[ $arch == "x86_64" || $arch == "aarch64" ]] || return 1
