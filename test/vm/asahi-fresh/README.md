@@ -59,6 +59,21 @@ test/vm/asahi-fresh/run
 ```
 
 This opt-in path verifies the signed descriptor inside the guest, installs all
-33 candidate packages through the exact release repository, and checks their
+the declared candidate packages through the exact release repository, and checks their
 versions again after the full install and reboot. It does not alter the stable
 repository pin used by the production installer or the default VM path.
+
+When the candidate also contains a new runtime that is not yet published on the
+stable channel, additionally set `OMARCHY_VM_RUNTIME_MANIFEST_SHA256` to the
+trusted SHA-256 of `asahi-quattro-bundle.manifest` and `OMARCHY_VM_RUNTIME_SOURCE`
+to its exact runtime source commit. Both values are required together with the
+package candidate identity. The guest verifies the manifest signature and all
+six runtime package signatures/checksums, checks the product version, and binds
+the source installer to the signed package's installer bytes.
+
+This runtime-candidate path creates an explicitly named VM-only release fixture
+with sequence 1. It tests fresh installation, recovery and reboot of the exact
+candidate bytes; it does not claim to test a published runtime-channel descriptor
+or public channel promotion. Omitting the runtime pins retains the published
+stable-channel path. The VM allows SSH before applying the firewall defaults
+and removes that test-only rule in the final rerun stage.

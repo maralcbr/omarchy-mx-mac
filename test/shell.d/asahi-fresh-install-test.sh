@@ -91,7 +91,7 @@ fi
 pass "stable installer enters Quattro directly without Omarchy 3"
 
 grep -Fq 'stable_version=$(<"$root/version")' "$vm_runner" || fail "VM runner reads the candidate stable version"
-grep -Fq 'env OMARCHY_VM_STABLE_VERSION="$stable_version"' "$vm_runner" || fail "VM runner passes the candidate stable version"
+grep -Fq 'OMARCHY_VM_STABLE_VERSION="$stable_version"' "$vm_runner" || fail "VM runner passes the candidate stable version"
 grep -Fq 'grep -Fxq "version=$OMARCHY_VM_STABLE_VERSION"' "$vm_installer" || fail "VM validates the published stable version without a stale hardcode"
 pass "fresh-install VM tracks the candidate stable version"
 

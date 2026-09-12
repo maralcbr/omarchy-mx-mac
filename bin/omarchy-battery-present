@@ -5,10 +5,10 @@
 power_supply_path="${OMARCHY_POWER_SUPPLY_PATH:-/sys/class/power_supply}"
 
 for bat in "$power_supply_path"/*; do
-  [[ -r $bat/present ]] &&
-  [[ $(<"$bat/present") == "1" ]] &&
-  [[ -r $bat/type ]] &&
-  [[ $(<"$bat/type") == "Battery" ]] &&
+  [[ -r $bat/present && $(<"$bat/present") == "1" ]] || continue
+  [[ -r $bat/type && $(<"$bat/type") == "Battery" ]] || continue
+  # Peripheral batteries do not power the machine. Keep unscoped older drivers.
+  [[ -r $bat/scope && $(<"$bat/scope") == "Device" ]] && continue
   exit 0
 done
 
