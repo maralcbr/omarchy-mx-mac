@@ -107,6 +107,6 @@ grep -Fq 'candidate_fingerprint=${OMARCHY_VM_CANDIDATE_FINGERPRINT:-}' "$vm_runn
 grep -Fq 'candidate_package_count=${OMARCHY_VM_CANDIDATE_PACKAGE_COUNT:-}' "$vm_runner" || fail "VM runner accepts the exact candidate package count"
 grep -Fq 'release_tag=$tag' "$vm_candidate" || fail "VM candidate gate binds the descriptor release tag"
 grep -Fq 'valid_fingerprint == "${signing_fingerprint^^}"' "$vm_candidate" || fail "VM candidate gate binds the descriptor signature"
-grep -Fq 'pacman -Syu --needed --noconfirm "${packages[@]}"' "$vm_candidate" || fail "VM candidate gate installs all descriptor packages"
+grep -Fq -- '--ignore linux-asahi,linux-asahi-headers,m1n1,grub "${packages[@]}"' "$vm_candidate" || fail "VM candidate gate installs the descriptor packages without upgrading its boot fixture"
 grep -Fq 'candidate package version: $package' "$vm_verify" || fail "VM verifies candidate versions after reboot"
 pass "fresh-install VM can consume an exact signed package candidate"
