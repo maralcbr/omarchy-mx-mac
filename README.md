@@ -13,7 +13,7 @@ Omarchy 4 (Quattro) is the maintained release:
 
 | Version | Status | Installation |
 | --- | --- | --- |
-| Omarchy `4.0.3-mac.1` | Accepted test candidate; not publicly promoted | Qualification and release details below |
+| Omarchy `4.0.3-mac.1` | Prepared update (unpublished) | Accepted test candidate; qualification and release details below |
 | Omarchy `4.0.2-mac.1` | Current RC fresh-install image | Install from macOS using the app below |
 | Omarchy `3.8.4-mac.4` | Legacy | Existing installations can update to Omarchy 4 |
 
