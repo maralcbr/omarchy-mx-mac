@@ -3,5 +3,5 @@
 # omarchy:summary=Check whether all explicit targets are available in the configured repositories
 # omarchy:args=<packages...>
 
-source "$OMARCHY_PATH/install/helpers/optional-packages.sh"
+source "$OMARCHY_PATH/install/helpers/optional-packages.sh" || exit 1
 omarchy-pkg-available "$@"
