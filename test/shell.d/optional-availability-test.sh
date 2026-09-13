@@ -51,8 +51,11 @@ for arch in x86_64 aarch64; do
   export ARCH=$arch
   expected=0
   [[ $arch != aarch64 ]] || expected=1
+  # Edge has no arm64 build; Chrome has one upstream, but Omarchy does not
+  # build it for aarch64, so neither is offered there until that changes.
   check "$expected" omarchy-install-available install.browser.edge
-  for browser in chrome brave brave-origin zen; do
+  check "$expected" omarchy-install-available install.browser.chrome
+  for browser in brave brave-origin zen; do
     check 0 omarchy-install-available "install.browser.$browser"
   done
   check 0 omarchy-install-available install.service.nordvpn
