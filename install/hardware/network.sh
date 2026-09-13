@@ -1,14 +1,11 @@
 # NetworkManager enablement is centralized in enable-services.sh.
-#
-# Apple Silicon Wi-Fi (brcmfmac on BCM4377/4378/4387) only works through iwd:
-# wpa_supplicant cannot drive the firmware's offloaded handshake. Keep
-# NetworkManager in charge, with iwd as its backend, and leave an existing
-# choice alone.
-if omarchy-hw-apple-silicon && [[ ! -e /etc/NetworkManager/conf.d/wifi_backend.conf ]]; then
-  install -Dm644 /dev/stdin /etc/NetworkManager/conf.d/wifi_backend.conf <<'EOF'
-[device]
-wifi.backend=iwd
-EOF
+# The Apple profile installs omarchy-settings-asahi before offline setup.
+# It owns the vendor iwd default; /etc remains administrator-owned.
+if omarchy-hw-apple-silicon; then
+  pacman -Q omarchy-settings-asahi >/dev/null || {
+    echo "Error: Apple setup requires omarchy-settings-asahi in the installed package set." >&2
+    return 1
+  }
 fi
 systemctl disable iwd.service 2>/dev/null || true
 
