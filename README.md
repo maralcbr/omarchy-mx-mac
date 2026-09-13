@@ -14,16 +14,16 @@ Omarchy 4 (Quattro) is the maintained release:
 | Version | Status | Installation |
 | --- | --- | --- |
 | Omarchy `4.0.3-mac.1` | Recommended stable version | Existing installations: run `omarchy update` |
-| Omarchy `4.0.2-mac.1` | Current RC fresh-install image | Install from macOS using the app below |
+| Omarchy `4.0.3-mac.1` | Current RC fresh-install image (Asahi) | Install from macOS using the app below |
 | Omarchy `3.8.4-mac.4` | Legacy | Existing installations can update to Omarchy 4 |
 
 > [!NOTE]
-> The portable macOS app’s end-to-end installation was confirmed by the owner
-> on an M2 Max. Runtime 4.0.3 passed a signed M1 Pro upgrade and a fresh generic
-> ARM64 VM reboot with all 23 optional application installations passing. The
-> final runtime pair has not been physically reboot-qualified. These are
-> separate checks; they do not establish that a 4.0.3 fresh-install image has
-> shipped. Hardware support depends on Asahi Linux support for each model.
+> The 4.0.3 Asahi RC includes the latest runtime and greeter fixes. Its exact
+> package candidate passed a native ARM64 VM installation, recovery, reboot,
+> all 23 optional application installs, and completed-installer rerun checks.
+> The greeter fixes were also tested on an M2 Max with three displays. A fresh
+> physical installation of this final OS image has not been performed.
+> Hardware support depends on Asahi Linux support for each model.
 
 ## Download For Apple Silicon
 
@@ -112,8 +112,8 @@ available.
 
 ## Release Details
 
-The RC app currently installs signed image `os-v4.0.2-mac.1.20260907` (Omarchy
-4.0.2). It follows the latest signed catalog for the channel you select; cached
+The RC app currently installs signed image `os-v4.0.3-mac.1.20260913` (Omarchy
+4.0.3, Asahi). It follows the latest signed catalog for the channel you select; cached
 files are reused only when their size and SHA-256 match that catalog.
 
 Omarchy 4.0.3 brings upstream security fixes and AI integrations, Apple Silicon
@@ -122,11 +122,11 @@ boot, package, and network protections. The signed runtime and packages are now
 published to the shared Stable update feed. Existing Omarchy Macs receive them
 through `omarchy update`.
 
-[Stable packages](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-74b8da66fca29137b4988aac1845a2fac1e1ddd9)
-and [runtime channel 31](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-31)
-carry the accepted `4.0.3.r6941.g5e7965f-1` runtime/settings pair. A 4.0.3
-fresh-install OS payload has not yet been built and qualified; the RC image
-above remains 4.0.2.
+[Stable packages](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-83973903b7deb9b56ce75f02b432fba0561d6293)
+and [runtime channel 32](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-32)
+carry the accepted `4.0.3.r6962.ga67d7f7-1` runtime/settings pair embedded in
+this RC image. The release includes greeter password masking and focus fixes,
+Apple DRM readiness handling, and the initramfs static-device race fix.
 
 See [4.0.3 release notes](docs/releases/v4.0.3-mac.1.md).
 

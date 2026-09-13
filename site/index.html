@@ -44,14 +44,15 @@
   </section>
   <section aria-labelledby="releases">
     <h2 id="releases">Release details</h2>
-    <p><strong>RC fresh installation: Omarchy 4.0.2.</strong> The current signed image is <code>os-v4.0.2-mac.1.20260907</code>. A newer app download does not change the OS image published in a channel.</p>
-    <p><strong>Omarchy 4.0.3 runtime: Stable update available.</strong> Existing Omarchy Macs can run <code>omarchy update</code> to receive the signed runtime and packages from the shared update feed. <a href="https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-31">Runtime channel 31</a> · <a href="https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-74b8da66fca29137b4988aac1845a2fac1e1ddd9">Stable packages</a>.</p>
+    <p><strong>RC fresh installation: Omarchy 4.0.3 · Asahi.</strong> The current signed image is <code>os-v4.0.3-mac.1.20260913</code>. Select <strong>RC</strong> in the Mac app to install this release.</p>
+    <p><strong>Omarchy 4.0.3 runtime: Stable update available.</strong> Existing Omarchy Macs can run <code>omarchy update</code> to receive the signed runtime and packages from the shared update feed. <a href="https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-32">Runtime channel 32</a> · <a href="https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-83973903b7deb9b56ce75f02b432fba0561d6293">Stable packages</a>.</p>
     <ul>
       <li>Upstream 4.0.3 security fixes, AI integrations, and Apple Silicon migration support.</li>
       <li>ARM OpenClaw and Perplexity integration, with package-availability checks for unsupported applications.</li>
+      <li>Greeter password masking and focus fixes, Apple DRM readiness handling, and initramfs startup fixes.</li>
       <li>Apple Silicon package, boot, and network protections retained.</li>
     </ul>
-    <p class="small">The signed 4.0.3 runtime upgrade passed on M1 Pro; a fresh generic ARM64 VM reboot and all 23 optional application installs also passed. The final runtime pair has not been physically reboot-qualified, and no 4.0.3 fresh-install image has been published. <a href="https://github.com/maralcbr/omarchy-mx-mac/blob/main/docs/releases/v4.0.3-mac.1.md">Read the release notes</a>.</p>
+    <p class="small">The exact candidate passed a native ARM64 VM installation, recovery, reboot, all 23 optional application installs, and safe rerun checks. The greeter fixes were tested separately on an M2 Max with three displays. A fresh physical installation of this final OS image has not been performed. <a href="https://github.com/maralcbr/omarchy-mx-mac/blob/main/docs/releases/v4.0.3-mac.1.md">Read the release notes</a>.</p>
   </section>
   <footer>
     <a href="https://github.com/maralcbr/omarchy-mx-mac">Project &amp; installation guide</a> ·
