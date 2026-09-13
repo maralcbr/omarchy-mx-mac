@@ -157,6 +157,30 @@
       XCTAssertNil(failure.actionTitle)
     }
 
+    func testConfirmedSnapshotConstraintsOfferAppleGuidanceWithoutRecoveryAuthorization() {
+      for constraint: APFSSnapshotConstraint in [.timeMachine, .other] {
+        let failure = PlainLanguage.failure(
+          for: InstallerAllocationRecommendationError.snapshotConstrained(constraint)
+        )
+
+        XCTAssertEqual(
+          failure.actionURL,
+          URL(string: "https://support.apple.com/en-us/102154")
+        )
+        XCTAssertFalse(failure.retryRecoveryAvailable)
+        XCTAssertFalse(failure.isBlockedModel)
+      }
+    }
+
+    func testUnconfirmedAllocationFailureDoesNotOfferSnapshotCleanupAsTheFix() {
+      let failure = PlainLanguage.failure(
+        for: InstallerAllocationRecommendationError.noEligibleCandidate
+      )
+
+      XCTAssertNil(failure.actionURL)
+      XCTAssertFalse(failure.retryRecoveryAvailable)
+    }
+
     func testAnEmptyChannelSaysSoInsteadOfShowingAStatusCode() {
       let failure = PlainLanguage.failure(
         for: InstallerReleaseConfigurationError.unexpectedHTTPStatus(404)

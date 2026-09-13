@@ -120,6 +120,185 @@
     }
   }
 
+  final class APFSSnapshotInspectorTests: XCTestCase {
+    func testLimitingTimeMachineSnapshotSurvivesAnotherVolumeQueryFailure() {
+      let commands = snapshotRunner(
+        volumes: ["disk9s1", "disk9s5"],
+        snapshots: [
+          "disk9s5": propertyList([
+            "Snapshots": [
+              [
+                "SnapshotName": "com.apple.TimeMachine.2000-01-01-000000.local",
+                "LimitingContainerShrink": true,
+                "Purgeable": true,
+              ]
+            ]
+          ])
+        ]
+      )
+
+      XCTAssertEqual(
+        APFSSnapshotInspector(commands: commands).constraint(in: storage()),
+        .timeMachine
+      )
+    }
+
+    func testSystemConstraintDoesNotBlameUnrelatedTimeMachineSnapshot() {
+      let commands = snapshotRunner(snapshots: [
+        "disk9s5": propertyList([
+          "Snapshots": [
+            [
+              "SnapshotName": "com.apple.TimeMachine.2000-01-01-000000.local",
+              "LimitingContainerShrink": false,
+            ],
+            [
+              "SnapshotName": "com.apple.os.update-synthetic",
+              "LimitingContainerShrink": true,
+            ],
+          ]
+        ])
+      ])
+
+      XCTAssertEqual(
+        APFSSnapshotInspector(commands: commands).constraint(in: storage()),
+        .other
+      )
+    }
+
+    func testSnapshotPresenceOrMalformedLimitFlagDoesNotProveAConstraint() {
+      let commands = snapshotRunner(snapshots: [
+        "disk9s5": propertyList([
+          "Snapshots": [
+            ["SnapshotName": "com.apple.TimeMachine.2000-01-01-000000.local"],
+            [
+              "SnapshotName": "com.apple.TimeMachine.2000-01-02-000000.local",
+              "LimitingContainerShrink": 1,
+            ],
+            [
+              "SnapshotName": "com.apple.TimeMachine.2000-01-03-000000.local",
+              "LimitingContainerShrink": "true",
+            ],
+          ]
+        ])
+      ])
+
+      XCTAssertNil(APFSSnapshotInspector(commands: commands).constraint(in: storage()))
+    }
+
+    func testLimitingSnapshotWithUnknownNameUsesGeneralDiagnosis() {
+      let commands = snapshotRunner(snapshots: [
+        "disk9s5": propertyList([
+          "Snapshots": [
+            [
+              "SnapshotName": "com.apple.TimeMachine.synthetic.backup",
+              "LimitingContainerShrink": true,
+            ]
+          ]
+        ])
+      ])
+
+      XCTAssertEqual(
+        APFSSnapshotInspector(commands: commands).constraint(in: storage()),
+        .other
+      )
+    }
+
+    func testFailedOrUnsupportedQueriesLeaveDiagnosisUnknown() {
+      let runners = [
+        SnapshotCommandRunner(volumes: nil, snapshots: [:]),
+        SnapshotCommandRunner(volumes: Data("unsupported".utf8), snapshots: [:]),
+        snapshotRunner(snapshots: [:]),
+        snapshotRunner(snapshots: ["disk9s5": Data("invalid plist".utf8)]),
+        snapshotRunner(snapshots: ["disk9s5": propertyList([:])]),
+      ]
+
+      for commands in runners {
+        XCTAssertNil(APFSSnapshotInspector(commands: commands).constraint(in: storage()))
+      }
+    }
+
+    func testExternalOrDifferentContainerCannotSupplySnapshotEvidence() {
+      let snapshots = [
+        "disk9s5": propertyList([
+          "Snapshots": [["LimitingContainerShrink": true]]
+        ])
+      ]
+      let commands = snapshotRunner(snapshots: snapshots)
+      XCTAssertNil(
+        APFSSnapshotInspector(commands: commands).constraint(in: storage(isInternal: false))
+      )
+      let otherContainer = snapshotRunner(container: "disk8", snapshots: snapshots)
+      XCTAssertNil(
+        APFSSnapshotInspector(commands: otherContainer).constraint(in: storage())
+      )
+    }
+
+    func testUnsafeVolumeIdentifierIsRejectedBeforeSnapshotQuery() {
+      for unsafe in ["disk", "disk9", "disk9s", "diskss5", "disk9s5;eraseDisk"] {
+        let commands = snapshotRunner(
+          volumes: [unsafe],
+          snapshots: [
+            unsafe: propertyList(["Snapshots": [["LimitingContainerShrink": true]]])
+          ]
+        )
+
+        XCTAssertNil(APFSSnapshotInspector(commands: commands).constraint(in: storage()))
+      }
+
+    }
+
+    private func storage(isInternal: Bool = true) -> APFSStorageInspection {
+      APFSStorageInspection(
+        containerIdentifier: "disk9",
+        physicalStoreIdentifier: "disk0s2",
+        isInternal: isInternal,
+        containerSizeBytes: 1_000,
+        containerFreeBytes: 200,
+        minimumPreferredSizeBytes: 1_000
+      )
+    }
+
+    private func snapshotRunner(
+      container: String = "disk9",
+      volumes: [String] = ["disk9s5"],
+      snapshots: [String: Data]
+    ) -> SnapshotCommandRunner {
+      SnapshotCommandRunner(
+        volumes: propertyList([
+          "Containers": [
+            [
+              "ContainerReference": container,
+              "Volumes": volumes.map { ["DeviceIdentifier": $0] },
+            ]
+          ]
+        ]),
+        snapshots: snapshots
+      )
+    }
+  }
+
+  private struct SnapshotCommandRunner: ReadOnlyMacCommandRunning {
+    let volumes: Data?
+    let snapshots: [String: Data]
+
+    func run(_ command: ReadOnlyMacCommand) throws -> Data {
+      let response: Data?
+      switch command {
+      case .apfsVolumes:
+        response = volumes
+      case .apfsSnapshots(let volume):
+        response = snapshots[volume.rawValue]
+      default:
+        XCTFail("Snapshot diagnostics must use only APFS list and listSnapshots.")
+        response = nil
+      }
+      guard let response else {
+        throw AppleSiliconHostInspectionError.commandFailed(command.auditName, 1)
+      }
+      return response
+    }
+  }
+
   private struct FixtureHardwarePropertyReader: HardwarePropertyReading {
     let values: [String: String]
 
@@ -142,6 +321,8 @@
         root
       case .apfsResizeLimits:
         limits
+      case .apfsVolumes, .apfsSnapshots:
+        throw AppleSiliconHostInspectionError.commandFailed(command.auditName, 1)
       case .powerSource:
         power
       }

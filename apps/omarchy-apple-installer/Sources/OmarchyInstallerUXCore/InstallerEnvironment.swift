@@ -290,8 +290,7 @@
     public let retryRecoveryAvailable: Bool
     public let isBlockedModel: Bool
     public let device: HostDisplay?
-    /// A page the person should open to get themselves unstuck, when one
-    /// exists — today only the current installer download.
+    /// A supported guidance page or installer download for resolving this failure.
     public let actionURL: URL?
     public let actionTitle: String?
 

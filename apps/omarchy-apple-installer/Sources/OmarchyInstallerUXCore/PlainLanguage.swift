@@ -381,12 +381,37 @@
         }
       }
 
-      if error is InstallerAllocationRecommendationError {
-        return FailureDisplay(
-          headline: "There isn’t enough usable disk space",
-          plainDetail:
-            "The installer couldn’t find a disk allocation that meets its requirements. The disk has not been changed.",
-          technicalDetail: technical, remedy: "Free up space in macOS, then check again.")
+      if let allocation = error as? InstallerAllocationRecommendationError {
+        switch allocation {
+        case .snapshotConstrained(let constraint):
+          let detail =
+            constraint == .timeMachine
+            ? "macOS reports that a local Time Machine snapshot limits how far the APFS container can shrink."
+            : "macOS reports that an APFS snapshot limits how far the container can shrink. It was not identified as a local Time Machine snapshot."
+          let remedy =
+            constraint == .timeMachine
+            ? "Back up your Mac first. Local snapshots are restore points on the startup disk, separate from backups on an external disk. You can wait for automatic cleanup or follow Apple’s local-snapshot guidance. Removing local snapshots removes those local restore points. Restore your automatic backup schedule afterward, then choose Check again."
+            : "Back up your Mac first. A system, update, or other snapshot may be involved. Let any pending macOS update finish, then restart and choose Check again. Do not manually delete system or update snapshots. Apple’s local-snapshot guidance applies to Time Machine snapshots only."
+          return FailureDisplay(
+            headline: "Snapshots limit the space available for installation",
+            plainDetail:
+              "\(detail) Free space shown in macOS is not necessarily space that can be released for a new partition. The disk has not been changed.",
+            technicalDetail: technical,
+            remedy:
+              "\(remedy) Snapshot cleanup may still leave too little space to meet the installation and macOS reserve requirements. The installer does not delete snapshots.",
+            actionURL: URL(string: "https://support.apple.com/en-us/102154"),
+            actionTitle: "Apple’s local-snapshot guidance"
+          )
+        case .noEligibleCandidate:
+          return FailureDisplay(
+            headline: "There isn’t enough usable disk space",
+            plainDetail:
+              "The installer couldn’t find a disk allocation that meets its requirements. Free space shown in macOS is not necessarily space that can be released for a new partition. The disk has not been changed.",
+            technicalDetail: technical,
+            remedy:
+              "Back up your Mac first. Check available storage and any pending macOS updates, then choose Check again. Local snapshots can also limit resizing, but the installer could not confirm that cause. Freeing files alone may not make partition space available."
+          )
+        }
       }
       if error is URLError {
         return FailureDisplay(

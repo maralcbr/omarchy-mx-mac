@@ -1,4 +1,5 @@
 #if os(macOS)
+  import CoreFoundation
   import Darwin
   import Foundation
 
@@ -186,14 +187,80 @@
     }
   }
 
+  /// Diagnoses resize failures without changing snapshots or allocation limits.
+  public struct APFSSnapshotInspector: Sendable {
+    private let commands: any ReadOnlyMacCommandRunning
+
+    public init() {
+      commands = FoundationReadOnlyMacCommandRunner()
+    }
+
+    init(commands: any ReadOnlyMacCommandRunning) {
+      self.commands = commands
+    }
+
+    public func constraint(in storage: APFSStorageInspection) -> APFSSnapshotConstraint? {
+      guard storage.isInternal,
+        let container = APFSContainerIdentifier(storage.containerIdentifier),
+        let listing = dictionary(for: .apfsVolumes(container)),
+        let containers = listing["Containers"] as? [[String: Any]],
+        let current = containers.first(where: {
+          $0["ContainerReference"] as? String == container.rawValue
+        }),
+        let volumes = current["Volumes"] as? [[String: Any]]
+      else {
+        return nil
+      }
+
+      var constraint: APFSSnapshotConstraint?
+      for volume in volumes {
+        guard let name = volume["DeviceIdentifier"] as? String,
+          let identifier = APFSVolumeIdentifier(name),
+          let listing = dictionary(for: .apfsSnapshots(identifier)),
+          let snapshots = listing["Snapshots"] as? [[String: Any]]
+        else {
+          // An unmounted or locked volume must not hide evidence from other volumes.
+          continue
+        }
+        for snapshot in snapshots {
+          guard let limiting = snapshot["LimitingContainerShrink"] as? NSNumber,
+            CFGetTypeID(limiting) == CFBooleanGetTypeID(),
+            limiting.boolValue
+          else {
+            continue
+          }
+          if let name = snapshot["SnapshotName"] as? String,
+            name.hasPrefix("com.apple.TimeMachine."),
+            name.hasSuffix(".local")
+          {
+            return .timeMachine
+          }
+          constraint = .other
+        }
+      }
+      return constraint
+    }
+
+    private func dictionary(for command: ReadOnlyMacCommand) -> [String: Any]? {
+      guard let data = try? commands.run(command) else {
+        return nil
+      }
+      return try? PropertyListSerialization.propertyList(
+        from: data, options: [], format: nil
+      ) as? [String: Any]
+    }
+  }
+
   enum ReadOnlyMacCommand: Equatable, Sendable {
     case rootDiskInfo
     case apfsResizeLimits(APFSContainerIdentifier)
+    case apfsVolumes(APFSContainerIdentifier)
+    case apfsSnapshots(APFSVolumeIdentifier)
     case powerSource
 
     var executableURL: URL {
       switch self {
-      case .rootDiskInfo, .apfsResizeLimits:
+      case .rootDiskInfo, .apfsResizeLimits, .apfsVolumes, .apfsSnapshots:
         URL(fileURLWithPath: "/usr/sbin/diskutil")
       case .powerSource:
         URL(fileURLWithPath: "/usr/bin/pmset")
@@ -206,6 +273,10 @@
         ["info", "-plist", "/"]
       case .apfsResizeLimits(let container):
         ["apfs", "resizeContainer", container.rawValue, "limits", "-plist"]
+      case .apfsVolumes(let container):
+        ["apfs", "list", container.rawValue, "-plist"]
+      case .apfsSnapshots(let volume):
+        ["apfs", "listSnapshots", volume.rawValue, "-plist"]
       case .powerSource:
         ["-g", "batt"]
       }
@@ -217,6 +288,10 @@
         "diskutil-info-root"
       case .apfsResizeLimits:
         "diskutil-apfs-resize-limits"
+      case .apfsVolumes:
+        "diskutil-apfs-list"
+      case .apfsSnapshots:
+        "diskutil-apfs-list-snapshots"
       case .powerSource:
         "pmset-power"
       }
@@ -232,6 +307,28 @@
       }
       let suffix = rawValue.dropFirst(4)
       guard !suffix.isEmpty, suffix.allSatisfy(\.isNumber) else {
+        return nil
+      }
+      self.rawValue = rawValue
+    }
+  }
+
+  struct APFSVolumeIdentifier: Equatable, Sendable {
+    let rawValue: String
+
+    init?(_ rawValue: String) {
+      guard rawValue.hasPrefix("disk"),
+        let separator = rawValue.lastIndex(of: "s"),
+        separator > rawValue.index(rawValue.startIndex, offsetBy: 4)
+      else {
+        return nil
+      }
+      let disk = rawValue[rawValue.index(rawValue.startIndex, offsetBy: 4)..<separator]
+      let partition = rawValue[rawValue.index(after: separator)...]
+      guard !disk.isEmpty, !partition.isEmpty,
+        disk.allSatisfy({ $0.isASCII && $0.isNumber }),
+        partition.allSatisfy({ $0.isASCII && $0.isNumber })
+      else {
         return nil
       }
       self.rawValue = rawValue
@@ -290,7 +387,7 @@
       guard let stores = root["APFSPhysicalStores"] as? [[String: Any]],
         stores.count == 1,
         let physicalStore = stores[0]["APFSPhysicalStore"] as? String,
-        isPartitionIdentifier(physicalStore)
+        APFSVolumeIdentifier(physicalStore) != nil
       else {
         throw AppleSiliconHostInspectionError.invalidCommandResponse(
           "diskutil-info-root.APFSPhysicalStores"
@@ -379,17 +476,5 @@
       return value.boolValue
     }
 
-    private func isPartitionIdentifier(_ value: String) -> Bool {
-      guard value.hasPrefix("disk"),
-        let separator = value.lastIndex(of: "s")
-      else {
-        return false
-      }
-      let disk = value[value.index(value.startIndex, offsetBy: 4)..<separator]
-      let partition = value[value.index(after: separator)...]
-      return !disk.isEmpty && !partition.isEmpty
-        && disk.allSatisfy(\.isNumber)
-        && partition.allSatisfy(\.isNumber)
-    }
   }
 #endif

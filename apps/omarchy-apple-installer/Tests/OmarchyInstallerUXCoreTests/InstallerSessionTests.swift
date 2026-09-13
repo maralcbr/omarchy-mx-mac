@@ -549,6 +549,43 @@
       XCTAssertNotNil(failure.technicalDetail)
     }
 
+    func testSnapshotFailureAllowsRecheckingWithoutAuthorizingInstallation() async {
+      let environment = MockInstallerEnvironment()
+      environment.prepareError =
+        InstallerAllocationRecommendationError.snapshotConstrained(.timeMachine)
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+
+      guard case .failed(let failure) = session.phase else {
+        return XCTFail("Expected a snapshot preparation failure.")
+      }
+      XCTAssertEqual(
+        failure.actionURL,
+        URL(string: "https://support.apple.com/en-us/102154")
+      )
+      XCTAssertTrue(session.canInspect)
+      XCTAssertFalse(session.canStartInstallation)
+      session.approve()
+      session.presentInstallCredentials()
+      XCTAssertNil(session.credentialSheet.context)
+      XCTAssertFalse(environment.hasApprovedPlan)
+      XCTAssertFalse(session.hasExecutionStarted)
+
+      environment.prepareError = nil
+      await session.inspect()
+      guard case .welcome = session.phase else {
+        return XCTFail("Rechecking should return to the welcome step.")
+      }
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      guard case .planReview(_, let acknowledged) = session.phase else {
+        return XCTFail("A successful recheck should allow a fresh plan review.")
+      }
+      XCTAssertFalse(acknowledged)
+      XCTAssertFalse(session.canStartInstallation)
+    }
+
     private func authorization() throws -> MachineOwnerAuthorization {
       try MachineOwnerAuthorization(
         username: "owner",
