@@ -65,7 +65,10 @@ public struct InstallerAllocationRecommendation:
     }
 
     guard let selected = ranked.first else {
-      if let constraint = snapshotConstraint() {
+      // Existing installations require an explicit choice before any space diagnosis.
+      if !inventory.candidates.contains(where: { $0.kind == "repair" || $0.kind == "replace" }),
+        let constraint = snapshotConstraint()
+      {
         throw InstallerAllocationRecommendationError.snapshotConstrained(constraint)
       }
       throw InstallerAllocationRecommendationError.noEligibleCandidate

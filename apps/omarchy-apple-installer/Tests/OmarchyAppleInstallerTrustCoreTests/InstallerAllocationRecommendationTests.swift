@@ -184,12 +184,58 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
     )
 
     XCTAssertThrowsError(
-      try InstallerAllocationRecommendation(inventory: inventory([replace]))
+      try InstallerAllocationRecommendation(
+        inventory: inventory([replace]),
+        snapshotConstraint: {
+          XCTFail("A replace-only inventory must not trigger snapshot diagnostics.")
+          return .timeMachine
+        }
+      )
     ) {
       XCTAssertEqual(
         $0 as? InstallerAllocationRecommendationError,
         .noEligibleCandidate
       )
+    }
+  }
+
+  func testRepairAndMixedExistingInventoriesFailWithoutCheckingSnapshots() {
+    let free = candidate(
+      kind: "free",
+      source: "disk0s3",
+      length: 32 * gib,
+      minimumInstall: 64 * gib
+    )
+    let repair = candidate(
+      kind: "repair",
+      source: "disk0s2",
+      length: 300 * gib,
+      minimumInstall: 64 * gib,
+      identityDigest: "sha256:" + String(repeating: "9", count: 64)
+    )
+    let replace = candidate(
+      kind: "replace",
+      source: "disk0s2",
+      length: 300 * gib,
+      minimumInstall: 64 * gib,
+      identityDigest: "sha256:" + String(repeating: "9", count: 64)
+    )
+
+    for candidates in [[repair], [free, repair], [free, replace]] {
+      XCTAssertThrowsError(
+        try InstallerAllocationRecommendation(
+          inventory: inventory(candidates),
+          snapshotConstraint: {
+            XCTFail("An existing installation must not trigger snapshot diagnostics.")
+            return .timeMachine
+          }
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? InstallerAllocationRecommendationError,
+          .noEligibleCandidate
+        )
+      }
     }
   }
 
