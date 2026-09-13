@@ -278,7 +278,7 @@ validate_asahi_packages() {
     while IFS= read -r path; do
       path=${path#./}
       path=${path#/}
-      if grep -Eqi '^(boot|etc/(default/grub|grub|limine|mkinitcpio|pacman\.conf|pacman\.d|systemd/oomd\.conf\.d|tmpfiles\.d/omarchy-zswap\.conf)|etc/modprobe\.d/omarchy-usb-autosuspend\.conf|usr/lib/(initcpio|systemd/user/app\.slice\.d|systemd/zram-generator\.conf\.d))(/|$)' <<<"$path"; then
+      if grep -Eqi '^(boot|etc/(default/grub|grub|limine|mkinitcpio|pacman\.conf|pacman\.d|systemd/oomd\.conf\.d)|etc/modprobe\.d/omarchy-usb-autosuspend\.conf|usr/lib/(initcpio|systemd/user/app\.slice\.d))(/|$)' <<<"$path"; then
         fail "Package '$(basename "$archive")' contains unsafe Asahi path '$path'. No changes were made."
       fi
     done <<<"$package_paths"

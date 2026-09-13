@@ -26,6 +26,12 @@ grep -Fq '/sys/module/zswap/parameters/enabled' "$ROOT/bin/omarchy-install-asahi
   fail "fresh Asahi installs retain the zswap safety gate"
 pass "runtime zram is allowed only outside the fresh-install storage boundary"
 
+audit=$(grep -F 'grep -Eqi' "$updater")
+grep -Fq 'systemd/oomd\.conf\.d' <<<"$audit" || fail "Asahi bundle audit still rejects oomd drop-ins"
+grep -Fq 'initcpio' <<<"$audit" || fail "Asahi bundle audit still rejects initramfs changes"
+! grep -Eq 'zram-generator|omarchy-zswap' <<<"$audit" || fail "Asahi bundle audit accepts the zram drop-in and zswap tmpfile"
+pass "Asahi bundle audit accepts memory configuration but not boot or oomd changes"
+
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 stub_bin="$test_tmp/bin"
