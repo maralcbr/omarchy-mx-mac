@@ -83,6 +83,10 @@ write_stub omarchy-version-channel '#!/bin/bash
 printf "%s\n" "${OMARCHY_TEST_VERSION_CHANNEL:-unknown}"
 '
 
+write_stub omarchy-hw-apple-silicon '#!/bin/bash
+exit 1
+'
+
 write_stub pacman '#!/bin/bash
 [[ $1 == "-Q" ]] || exit 1
 shift
@@ -93,13 +97,20 @@ case "${OMARCHY_TEST_PACKAGES:-}" in
 esac
 '
 
+# Redirect only the source lookup; keep OMARCHY_PATH assertions realistic.
+sed "s|\$OMARCHY_PATH/install/helpers/pacman.sh|$ROOT/install/helpers/pacman.sh|" "$ROOT/bin/omarchy-channel-set" >"$test_tmp/channel-set"
+chmod +x "$test_tmp/channel-set"
+write_stub omarchy-hw-apple-silicon '#!/bin/bash
+[[ ${APPLE_SILICON:-0} == 1 ]]
+'
+
 run_channel() {
   : >"$log_file"
   OMARCHY_CHANNEL_TEST_LOG="$log_file" \
     OMARCHY_PATH="${OMARCHY_TEST_PATH:-/usr/share/omarchy}" \
     HOME="$test_tmp/home" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
-    "$ROOT/bin/omarchy-channel-set" "$@"
+    "$test_tmp/channel-set" "$@"
 }
 
 assert_log_line() {
@@ -191,3 +202,9 @@ pass "current channel detects package-backed edge"
 
 [[ $(current_channel edge dev "$test_tmp/dev-checkout") == "dev" ]] || fail "current channel detects dev from OMARCHY_PATH"
 pass "current channel honors a dev link outside ~/omarchy"
+
+for channel in stable rc edge dev; do
+  if APPLE_SILICON=1 run_channel "$channel"; then fail 'unqualified ARM channel must be refused'; fi
+  [[ ! -s $log_file ]] || fail 'unqualified ARM switch has no side effects'
+done
+pass 'unqualified ARM channels are refused before prompts, links or transactions'

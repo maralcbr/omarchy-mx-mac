@@ -63,12 +63,12 @@ run_guarded() {
 }
 
 run_guarded "$ROOT/bin/omarchy-refresh-pacman" stable
-grep -F "no per-channel aarch64 repository for Apple Silicon" "$test_tmp/error" >/dev/null ||
+grep -F "preserving existing repositories" "$test_tmp/error" >/dev/null ||
   fail "pacman refresh explains the Apple Silicon repository guard"
 pass "pacman refresh rejects Apple Silicon before mutation"
 
 run_guarded "$ROOT/bin/omarchy-channel-set" dev
-grep -F "no per-channel aarch64 repository for Apple Silicon" "$test_tmp/error" >/dev/null ||
+grep -F "preserving existing repositories" "$test_tmp/error" >/dev/null ||
   fail "channel setup explains the missing Apple Silicon package repository"
 pass "channel setup rejects Apple Silicon before checkout or package mutation"
 

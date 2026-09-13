@@ -41,12 +41,7 @@ link_dev_checkout() {
 
 (( $# > 0 )) || { usage; exit 1; }
 
-# Channels are pacman.conf/mirrorlist pairs, and every one of them is x86_64.
-# Until there is an aarch64 repository per channel, switching would swap the
-# Arch Linux ARM and Asahi repositories out from under the kernel.
-if omarchy-hw-apple-silicon; then
-  fail "There is no per-channel aarch64 repository for Apple Silicon yet; preserving the existing Arch Linux ARM repositories."
-fi
+source "$OMARCHY_PATH/install/helpers/pacman.sh"
 
 dev_checkout=""
 channel="$1"
@@ -66,6 +61,7 @@ case "$channel" in
     packages=(omarchy-dev omarchy-settings-dev)
     ;;
   dev)
+    omarchy_pacman_channel_qualified edge
     confirm_dev || { echo "Cancelled."; exit 0; }
     dev_checkout="$HOME/omarchy"
     validate_dev_checkout "$dev_checkout"
@@ -82,6 +78,7 @@ esac
 # A failure past this point leaves the channel switch half-applied, so say how
 # to pick it back up rather than dying silently under set -e.
 trap 'echo -e "\nThe channel switch did not complete. Review the error above, then rerun: omarchy-channel-set '"$channel"'" >&2' ERR
+omarchy_pacman_channel_qualified "$pacman_channel"
 
 if [[ -z $dev_checkout && $OMARCHY_PATH != "/usr/share/omarchy" ]]; then
   leaving_dev=1
