@@ -82,6 +82,27 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
     XCTAssertTrue(checkedSnapshots)
   }
 
+  func testEmptyInventoryStillChecksForSnapshotConstraint() {
+    // The engine omits resize candidates that cannot meet its minimum.
+    var checkedSnapshots = false
+
+    XCTAssertThrowsError(
+      try InstallerAllocationRecommendation(
+        inventory: inventory([]),
+        snapshotConstraint: {
+          checkedSnapshots = true
+          return .timeMachine
+        }
+      )
+    ) {
+      XCTAssertEqual(
+        $0 as? InstallerAllocationRecommendationError,
+        .snapshotConstrained(.timeMachine)
+      )
+    }
+    XCTAssertTrue(checkedSnapshots)
+  }
+
   func testZeroShrinkResizeReportsTimeMachineConstraint() {
     let resize = candidate(
       kind: "resize",
