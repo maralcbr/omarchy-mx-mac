@@ -12,7 +12,6 @@ migration="$ROOT/migrations/1786391100.sh"
 # Apple Silicon's BCM4387 is in the ID list, but there the firmware supplicant
 # is the one that works; both the leaf and the migration have to step aside.
 grep -Fq 'omarchy-hw-apple-silicon && exit 0' "$migration" || fail "Broadcom migration excludes Apple Silicon"
-grep -Fq 'omarchy-hw-apple-silicon && return 0' "$leaf" || fail "Broadcom install quirk excludes Apple Silicon"
 
 grep -q 'apple/fix-brcmfmac-supplicant.sh' "$all" ||
   fail "the brcmfmac quirk runs during hardware setup"

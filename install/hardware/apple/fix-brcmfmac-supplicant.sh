@@ -22,7 +22,9 @@
 # Apple Silicon is excluded even though its BCM4387 is in that list: there the
 # firmware supplicant is what works, and disabling it makes firmware commands
 # time out and breaks scanning entirely.
-omarchy-hw-apple-silicon && return 0
+if omarchy-hw-apple-silicon; then
+  return 0
+fi
 
 sys_vendor="$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null || true)"
 

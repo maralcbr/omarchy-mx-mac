@@ -1,11 +1,6 @@
 # Detect MacBook models that need SPI keyboard modules.
-# Apple Silicon has no DMI at all, and the install runs under set -e, so a
-# failed read has to land in an if rather than abort the whole hardware pass.
-if product_name=$(cat /sys/class/dmi/id/product_name 2>/dev/null); then
-  product_name=${product_name:-}
-else
-  product_name=""
-fi
+# Missing or unreadable DMI must not abort hardware setup under errexit.
+product_name=$(cat /sys/class/dmi/id/product_name 2>/dev/null) || product_name=""
 if [[ $product_name =~ MacBook[89],1|MacBook1[02],1|MacBookPro13,[123]|MacBookPro14,[123] ]]; then
   echo "Detected MacBook with SPI keyboard"
 
