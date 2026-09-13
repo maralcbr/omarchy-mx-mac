@@ -22,9 +22,9 @@ Rectangle {
   Connections {
     target: sddm
     function onLoginFailed() {
-      root.loginFailed = true
       password.text = ""
-      password.focus = true
+      root.loginFailed = true
+      password.forceActiveFocus()
     }
     function onLoginSucceeded() {
       root.loginFailed = false

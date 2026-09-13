@@ -37,6 +37,10 @@ TestCase {
     compare(input.displayText.length, 5)
     sddm.loginFailed()
     compare(input.text, "")
+    compare(theme.loginFailed, true)
+    keyClick(Qt.Key_A)
+    compare(theme.loginFailed, false)
+    input.text = ""
     input.focus = false
     mouseClick(theme, 10, 10)
     tryCompare(input, "activeFocus", true)
