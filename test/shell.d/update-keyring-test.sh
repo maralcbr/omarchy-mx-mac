@@ -1,130 +1,35 @@
 #!/bin/bash
-
 set -euo pipefail
-
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
-
-# omarchy-update-keyring fetches the Omarchy key from a keyserver when it is
-# missing and refreshes archlinux-keyring. Apple Silicon differs on both counts:
-# the key ships with the installed system, so a missing or mismatched key is a
-# hard failure rather than a fetch, and packages are signed with Arch Linux
-# ARM's keys, so it is archlinuxarm-keyring that needs refreshing.
-
-test_tmp=$(mktemp -d)
-trap 'rm -rf "$test_tmp"' EXIT
-
-stub_bin="$test_tmp/bin"
-mkdir -p "$stub_bin"
-calls="$test_tmp/calls"
-
-cat >"$stub_bin/sudo" <<'STUB'
-#!/bin/bash
-exec "$@"
-STUB
-
-# Every privileged tool logs its argv so the cases can assert what ran.
-for tool in pacman-key pacman omarchy-pkg-add; do
-  cat >"$stub_bin/$tool" <<STUB
-#!/bin/bash
-printf '%s %s\\n' "$tool" "\$*" >>"\$CALLS"
-if [[ $tool == pacman-key && \$1 == --list-keys ]]; then
-  [[ \${KEY_IN_PACMAN_KEYRING:-0} == 1 ]]
-fi
-STUB
-done
-
-# gpg answers the Apple Silicon fingerprint check with whatever the case says
-# the installed keyring holds, in the --with-colons format the script parses.
-cat >"$stub_bin/gpg" <<'STUB'
-#!/bin/bash
-printf 'gpg %s\n' "$*" >>"$CALLS"
-[[ -n ${INSTALLED_FINGERPRINT:-} ]] || exit 2
-printf 'pub:u:4096:1:%s::::::::\n' "${INSTALLED_FINGERPRINT: -16}"
-printf 'fpr:::::::::%s:\n' "$INSTALLED_FINGERPRINT"
-STUB
-
-cat >"$stub_bin/omarchy-pkg-missing" <<'STUB'
-#!/bin/bash
-[[ ${KEYRING_PKG_MISSING:-0} == 1 ]]
-STUB
-
-cat >"$stub_bin/omarchy-hw-apple-silicon" <<'STUB'
-#!/bin/bash
-[[ ${APPLE_SILICON:-0} == 1 ]]
-STUB
-
-chmod +x "$stub_bin"/*
-
-trusted_key=40DFB630FF42BCFFB047046CF0134EE680CAC571
-
-run_keyring() {
-  : >"$calls"
-  CALLS="$calls" \
-    APPLE_SILICON="${APPLE_SILICON:-0}" \
-    INSTALLED_FINGERPRINT="${INSTALLED_FINGERPRINT:-}" \
-    KEY_IN_PACMAN_KEYRING="${KEY_IN_PACMAN_KEYRING:-0}" \
-    KEYRING_PKG_MISSING="${KEYRING_PKG_MISSING:-0}" \
-    PATH="$stub_bin:$PATH" \
-    bash "$ROOT/bin/omarchy-update-keyring"
-}
-
-# Apple Silicon with the shipped key in place: nothing fetched, ARM keyring refreshed.
-APPLE_SILICON=1 INSTALLED_FINGERPRINT="$trusted_key" run_keyring >"$test_tmp/out" 2>"$test_tmp/err" ||
-  fail "an Apple Silicon system with the shipped key fails the keyring update" "$(<"$test_tmp/err")"
-grep -q '^pacman -Sy --noconfirm archlinuxarm-keyring$' "$calls" ||
-  fail "Apple Silicon does not refresh archlinuxarm-keyring"
-grep -q 'archlinux-keyring$' "$calls" &&
-  fail "Apple Silicon refreshes archlinux-keyring, which does not sign its packages"
-grep -q -- '--recv-keys' "$calls" &&
-  fail "Apple Silicon fetches the Omarchy key from a keyserver"
-pass "Apple Silicon verifies the shipped key and refreshes archlinuxarm-keyring"
-
-# A mismatched fingerprint on Apple Silicon is not something to paper over
-# with a keyserver fetch: stop, and say where the key is supposed to come from.
-if APPLE_SILICON=1 INSTALLED_FINGERPRINT=0000000000000000000000000000000000000000 \
-  run_keyring >"$test_tmp/out" 2>"$test_tmp/err"; then
-  fail "a wrong Omarchy key on Apple Silicon is accepted"
-fi
-grep -q -- '--recv-keys' "$calls" &&
-  fail "a wrong Omarchy key on Apple Silicon is replaced from a keyserver"
-grep -q 'archlinuxarm-keyring' "$calls" &&
-  fail "a wrong Omarchy key on Apple Silicon still proceeds to the keyring refresh"
-grep -q 'omarchy-keyring' "$test_tmp/err" ||
-  fail "a wrong Omarchy key on Apple Silicon does not point at omarchy-keyring"
-pass "a wrong Omarchy key on Apple Silicon fails loudly instead of fetching"
-
-# The same for the key being absent entirely.
-if APPLE_SILICON=1 run_keyring >"$test_tmp/out" 2>"$test_tmp/err"; then
-  fail "a missing Omarchy key on Apple Silicon is accepted"
-fi
-grep -q -- '--recv-keys' "$calls" &&
-  fail "a missing Omarchy key on Apple Silicon is fetched from a keyserver"
-pass "a missing Omarchy key on Apple Silicon fails loudly instead of fetching"
-
-# A missing omarchy-keyring package is caught even when the key itself checks out.
-if APPLE_SILICON=1 INSTALLED_FINGERPRINT="$trusted_key" KEYRING_PKG_MISSING=1 \
-  run_keyring >"$test_tmp/out" 2>"$test_tmp/err"; then
-  fail "a missing omarchy-keyring package on Apple Silicon is accepted"
-fi
-pass "a missing omarchy-keyring package on Apple Silicon fails loudly"
-
-# Other hardware keeps the keyserver path and archlinux-keyring.
-KEY_IN_PACMAN_KEYRING=1 run_keyring >"$test_tmp/out" 2>"$test_tmp/err" ||
-  fail "a system with the Omarchy key fails the keyring update" "$(<"$test_tmp/err")"
-grep -q '^pacman -Sy --noconfirm archlinux-keyring$' "$calls" ||
-  fail "other hardware does not refresh archlinux-keyring"
-grep -q -- '--recv-keys' "$calls" &&
-  fail "other hardware fetches a key it already has"
-grep -q '^gpg ' "$calls" &&
-  fail "other hardware runs the Apple Silicon fingerprint check"
-pass "other hardware refreshes archlinux-keyring without fetching a present key"
-
-run_keyring >"$test_tmp/out" 2>"$test_tmp/err" ||
-  fail "a system without the Omarchy key fails the keyring update" "$(<"$test_tmp/err")"
-grep -q "^pacman-key --recv-keys $trusted_key --keyserver keys.openpgp.org$" "$calls" ||
-  fail "other hardware does not fetch a missing Omarchy key from the keyserver"
-grep -q "^pacman-key --lsign-key $trusted_key$" "$calls" ||
-  fail "other hardware does not locally sign the fetched Omarchy key"
-grep -q '^omarchy-pkg-add omarchy-keyring$' "$calls" ||
-  fail "other hardware does not install omarchy-keyring after fetching the key"
-pass "other hardware still fetches a missing Omarchy key from the keyserver"
+source "$(dirname "${BASH_SOURCE[0]}")/base-test.sh"
+run_node_test <<'JS'
+const fs=require('fs'), os=require('os'), cp=require('child_process')
+const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'keyring-'))
+try {
+  const bin=path.join(tmp,'bin'), log=path.join(tmp,'calls');fs.mkdirSync(bin)
+  function stub(name, body){fs.writeFileSync(path.join(bin,name),'#!/bin/bash\n'+body+'\n',{mode:0o755})}
+  stub('sudo','"$@"')
+  stub('omarchy-hw-apple-silicon','[[ ${APPLE:-0} == 1 ]]')
+  stub('omarchy-pkg-missing','[[ ${MISSING_PACKAGE:-0} == 1 ]]')
+  stub('pacman-key','echo "key $*" >> "$CALLS"; [[ "$*" != "${FAIL_STEP:-}" ]] || exit 42; if [[ $1 == --list-keys && ${MISSING_KEY:-0} == 1 ]]; then exit 1; fi')
+  stub('pacman','echo "pacman $*" >> "$CALLS"; exit "${PACMAN_STATUS:-0}"')
+  stub('gpg','echo "pub:::::::::"; echo "fpr:::::::::${FINGERPRINT:-40DFB630FF42BCFFB047046CF0134EE680CAC571}:"')
+  const env={...process.env,PATH:bin+':'+process.env.PATH,CALLS:log}
+  function run(extra={}) {fs.writeFileSync(log,'');const result=cp.spawnSync('bash',[path.join(root,'bin/omarchy-update-keyring')],{env:{...env,...extra},encoding:'utf8'});return {...result,log:fs.readFileSync(log,'utf8')}}
+  for(const apple of ['0','1']) {
+    const ring=apple==='1'?'archlinuxarm':'archlinux'
+    for(const missing of ['0','1']) {
+      const r=run({APPLE:apple,MISSING_KEY:missing,MISSING_PACKAGE:missing})
+      assertEqual(r.status,0,'keyring update succeeds with correct trust inputs')
+      assert(r.log.includes(`pacman -Sy --noconfirm omarchy-keyring ${ring}-keyring`),'both correct keyring packages are refreshed')
+      assert(r.log.includes(`key --populate omarchy ${ring}`),'updated trust and revocations are populated')
+      assertEqual(r.log.includes('--recv-keys'),missing==='1','bootstrap fetch is limited to missing keys')
+    }
+    for(const extra of [{PACMAN_STATUS:'42'},{FAIL_STEP:`--populate ${ring}`},{FAIL_STEP:`--populate omarchy ${ring}`},{FAIL_STEP:'--lsign-key 40DFB630FF42BCFFB047046CF0134EE680CAC571'},{MISSING_KEY:'1',FAIL_STEP:'--recv-keys 40DFB630FF42BCFFB047046CF0134EE680CAC571 --keyserver keys.openpgp.org'}]) {
+      const r=run({APPLE:apple,...extra});assertEqual(r.status,42,'keyring failures propagate');assert(!r.stdout.includes('Keys are correct'),'failed update never reports success')
+    }
+  }
+  const wrong=run({FINGERPRINT:'0000000000000000000000000000000000000000'})
+  assertEqual(wrong.status,1,'wrong signing fingerprint is rejected')
+  assert(!wrong.log.includes('--lsign-key')&&!wrong.log.includes('pacman -Sy'),'wrong fingerprint cannot be trusted or used to update')
+} finally {fs.rmSync(tmp,{recursive:true,force:true})}
+JS
