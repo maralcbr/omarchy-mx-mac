@@ -25,10 +25,7 @@ const overrides = {
 }
 
 // Rows that build from the AUR instead of the sync database.
-const aurOnly = new Set(
-  fs.readFileSync(path.join(root, 'install/optional-aur-packages.tsv'), 'utf8')
-    .split('\n').filter(line => line.startsWith('install.')).map(line => line.split('|')[0])
-)
+const aurOnly = new Set(items.filter(item => (item.when || '').startsWith('[[ $(uname -m)')).map(item => item.id))
 
 // Split a menu action the way the shell would, honouring single quotes.
 function tokenize(text) {
@@ -145,11 +142,11 @@ for (const item of items) {
 }
 assert(derived.size > 0, 'optional transactions can be derived from the install recipes')
 
-const committed = new Map(
-  fs.readFileSync(path.join(root, 'install/optional-packages.tsv'), 'utf8')
-    .split('\n').filter(line => line.startsWith('install.'))
-    .map(line => [line.slice(0, line.indexOf('|')), line.slice(line.indexOf('|') + 1).split(/\s+/)])
-)
+const committed = new Map(items.filter(item => (item.when || '').startsWith('omarchy-pkg-available ')).map(item => {
+  // The Xbox header is selected at runtime and tested separately.
+  const targets = item.when.replace(/^omarchy-pkg-available /, '').replace(/"\$\(if .*?fi\)" /, '')
+  return [item.id, targets.split(/\s+/)]
+}))
 
 // Compare as sets: the manifest owns row order and comments, the recipes
 // own the contents.
@@ -158,12 +155,12 @@ const wanted = render(derived)
 const actual = render(committed)
 assert(
   wanted === actual,
-  'optional transaction manifest matches the install recipes',
-  `derived from the recipes:\n${wanted}\n\ncommitted in install/optional-packages.tsv:\n${actual}`
+  'optional menu targets matches the install recipes',
+  `derived from the recipes:\n${wanted}\n\ndeclared in menu conditions:\n${actual}`
 )
 
 // Every derived sync row and declared AUR row is guarded: a guard without a
 // transaction reports unavailable for every architecture.
-const guarded = items.filter(item => /^omarchy-install-available /.test(item.when || '')).map(item => item.id).sort()
+const guarded = items.filter(item => /^(omarchy-pkg-available |\[\[ \$\(uname -m\))/.test(item.when || '')).map(item => item.id).sort()
 assertDeepEqual(guarded, [...derived.keys(), ...aurOnly].sort(), 'optional install guards cover exactly the rows with a transaction')
 JS

@@ -1,126 +1,73 @@
 #!/bin/bash
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/base-test.sh"
-test_tmp=$(mktemp -d)
-trap 'rm -rf "$test_tmp"' EXIT
-mkdir -p "$test_tmp/bin"
-export CALLS="$test_tmp/calls" OMARCHY_PATH="$ROOT"
-cat >"$test_tmp/bin/pacman" <<'STUB'
-#!/bin/bash
-printf '%s\n' "$*" >>"$CALLS"
+run_node_test <<'JS'
+const fs = require('fs'), os = require('os'), cp = require('child_process')
+const menu = requireFromRoot('shell/plugins/menu/MenuModel.js')
+const items = menu.parseMenuJsonc(fs.readFileSync(path.join(root, 'default/omarchy/omarchy-menu.jsonc'), 'utf8'))
+const byId = Object.fromEntries(items.map(item => [item.id, item]))
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'availability-'))
+try {
+  const bin = path.join(tmp, 'bin'), calls = path.join(tmp, 'calls')
+  fs.mkdirSync(bin)
+  function stub(name, body) { fs.writeFileSync(path.join(bin, name), '#!/bin/bash\n'+body+'\n', {mode:0o755}) }
+  stub('pacman', `echo "$*" >> "$CALLS"
 case $1 in
--Slq)
-  printf '%s\n' primary secondary zed omazed xpadneo-dkms linux-headers linux-asahi-headers | while read -r p; do
-    [[ $p == "${MISSING:-}" ]] || echo "$p"
-  done ;;
--Sp)
-  [[ ${*: -1} == provided || ${*: -1} == 'provided>=1' ]] ;;
+-Slq) for p in primary secondary zed omazed xpadneo-dkms linux-headers linux-asahi-headers; do [[ $p == "\${MISSING:-}" ]] || echo "$p"; done ;;
+-Sp) [[ \${*: -1} == provided || \${*: -1} == 'provided>=1' ]] ;;
 -Qq|-Qi) exit 0 ;;
 *) exit 1 ;;
-esac
-STUB
-cat >"$test_tmp/bin/uname" <<'STUB'
-#!/bin/bash
-printf 'uname\n' >>"$CALLS"
-echo "${ARCH:-x86_64}"
-STUB
-cat >"$test_tmp/bin/omarchy-hw-apple-silicon" <<'STUB'
-#!/bin/bash
-[[ ${APPLE:-0} == 1 ]]
-STUB
-chmod +x "$test_tmp/bin/"*
-export PATH="$test_tmp/bin:$PATH"
-prelude=$(node -e 'console.log(require(process.argv[1]).guardScript({ probe: { id: "probe", when: "true" } }))' "$ROOT/shell/plugins/menu/MenuModel.js" | grep -v '^if {')
-check() {
-  local expected=$1 helper=$2 argument=$3 actual
-  for mode in cli batch; do
-    actual=0
-    : >"$CALLS"
-    if [[ $mode == cli ]]; then
-      "$ROOT/bin/$helper" "$argument" || actual=$?
-    else
-      bash -c "$prelude"$'\n''"$1" "$2"' bash "$helper" "$argument" || actual=$?
-    fi
-    [[ $actual == "$expected" ]] || fail "$mode $helper $argument" "expected=$expected actual=$actual"
-    if [[ $argument == install.browser.* || $argument == install.service.nordvpn ]]; then
-      ! grep -E -- '^-Slq|^-Sp' "$CALLS" >/dev/null || fail 'AUR availability must not query sync targets'
-    fi
-  done
-}
-for arch in x86_64 aarch64; do
-  export ARCH=$arch
-  expected=0
-  [[ $arch != aarch64 ]] || expected=1
-  # Edge has no arm64 build; Chrome has one upstream, but Omarchy does not
-  # build it for aarch64, so neither is offered there until that changes.
-  check "$expected" omarchy-install-available install.browser.edge
-  check "$expected" omarchy-install-available install.browser.chrome
-  for browser in brave brave-origin zen; do
-    check 0 omarchy-install-available "install.browser.$browser"
-  done
-  check 0 omarchy-install-available install.service.nordvpn
-  check 0 omarchy-pkg-available provided
-  check 0 omarchy-pkg-available 'provided>=1'
-  check 1 omarchy-pkg-available 'provided>=9'
-  check 1 omarchy-pkg-available missing
-  check 0 omarchy-install-available install.editor.zed
-  MISSING=omazed check 1 omarchy-install-available install.editor.zed
-  for apple in 0 1; do
-    export APPLE=$apple
-    selected=linux-headers
-    other=linux-asahi-headers
-    if [[ $apple == 1 ]]; then selected=linux-asahi-headers; other=linux-headers; fi
-    check 0 omarchy-install-available install.gaming.xbox-controllers
-    MISSING=$selected check 1 omarchy-install-available install.gaming.xbox-controllers
-    MISSING=$other check 0 omarchy-install-available install.gaming.xbox-controllers
-  done
-done
-ARCH=riscv64 check 1 omarchy-install-available install.browser.chrome
-check 1 omarchy-install-available install.unknown
-: >"$CALLS"
-bash -c "$prelude"$'\n''omarchy-pkg-available primary provided; omarchy-pkg-available secondary provided; omarchy-install-available install.browser.chrome; omarchy-install-available install.browser.brave'
-[[ $(grep -c -- '^-Slq$' "$CALLS") == 1 ]] || fail 'one sync snapshot per batch'
-[[ $(grep -c -- '^-Sp .*provided$' "$CALLS") == 1 ]] || fail 'provided results cached per batch'
-[[ $(grep -c '^uname$' "$CALLS") == 1 ]] || fail 'one architecture probe per batch'
-pass 'CLI and menu agree across architectures, provides and selected dependencies'
-pass 'batch caches database, architecture and fallback lookups'
-
-# Incomplete helpers must not redispatch a wrapper through PATH. The child stub
-# makes the former recursion observable without allowing it to consume memory.
-mkdir -p "$test_tmp/incomplete/install/helpers" "$test_tmp/recursion-bin"
-export RECURSION_LOG="$test_tmp/recursion"
-for helper in omarchy-pkg-available omarchy-install-available; do
-  cat >"$test_tmp/recursion-bin/$helper" <<'STUB'
-#!/bin/bash
-echo recursive-dispatch >> "$RECURSION_LOG"
-exit 42
-STUB
-  chmod +x "$test_tmp/recursion-bin/$helper"
-done
-for fixture in missing error empty pkg-only install-only; do
-  helper_file="$test_tmp/incomplete/install/helpers/optional-packages.sh"
-  rm -f "$helper_file"
-  case $fixture in
-    error) echo 'return 1' >"$helper_file" ;;
-    empty) : >"$helper_file" ;;
-    pkg-only) echo 'omarchy-pkg-available() { return 0; }' >"$helper_file" ;;
-    install-only) echo 'omarchy-install-available() { return 0; }' >"$helper_file" ;;
-  esac
-  for helper in omarchy-pkg-available omarchy-install-available; do
-    status=0
-    OMARCHY_PATH="$test_tmp/incomplete" PATH="$test_tmp/recursion-bin:$PATH" \
-      "$ROOT/bin/$helper" install.browser.chrome 2>/dev/null || status=$?
-    [[ $status == 1 && ! -e $RECURSION_LOG ]] || fail "$fixture helper stops $helper before redispatch"
-  done
-  status=0
-  OMARCHY_PATH="$test_tmp/incomplete" PATH="$test_tmp/recursion-bin:$PATH" \
-    bash -c "$prelude"$'\n''omarchy-install-available install.browser.chrome; echo continued >> "$RECURSION_LOG"' 2>/dev/null || status=$?
-  [[ $status == 1 && ! -e $RECURSION_LOG ]] || fail "$fixture helper stops the menu guard batch"
-done
-pass 'missing, failing, empty and partial helpers fail safely without redispatch'
-
-cp "$ROOT/install/helpers/optional-packages.sh" "$helper_file"
-printf 'install.empty|   \n' >"$test_tmp/incomplete/install/optional-packages.tsv"
-: >"$test_tmp/incomplete/install/optional-aur-packages.tsv"
-OMARCHY_PATH="$test_tmp/incomplete" check 1 omarchy-install-available install.empty
-pass 'whitespace-only optional targets fail closed'
+esac`)
+  stub('uname', 'echo uname >> "$CALLS"; echo "${ARCH:-x86_64}"')
+  stub('omarchy-hw-apple-silicon', '[[ ${APPLE:-0} == 1 ]]')
+  stub('omarchy-hw-apple-kernel', 'echo linux-asahi')
+  const env = {...process.env, OMARCHY_PATH:root, CALLS:calls, PATH:bin+':'+root+'/bin:'+process.env.PATH}
+  function run(script, extra={}) { return cp.spawnSync('bash', ['-euo','pipefail','-c',script], {env:{...env,...extra},encoding:'utf8'}) }
+  const prelude = menu.guardScript({probe:{id:'probe',when:'true'}}).split('\n').filter(l=>!l.startsWith('if {')).join('\n')
+  for (const targets of ['', 'primary secondary', 'primary missing', 'provided', "'provided>=1'", "'provided>=9'", "''"]) {
+    const expected = ['primary missing', "'provided>=9'", "''"].includes(targets)?1:0
+    for (const script of [`"${root}/bin/omarchy-pkg-available" ${targets}`, prelude+`\nomarchy-pkg-available ${targets}`]) {
+      const result=run(script); assertEqual(result.status,expected,`CLI/batch explicit targets: ${targets}`,result.stderr)
+    }
+  }
+  function checkRow(id, expected, extra={}) {
+    const item=byId[id]; assert(item,`menu row exists: ${id}`)
+    const direct=run(item.when,extra)
+    const batch=run(menu.guardScript({[id]:{...item,disabled:''}}),extra)
+    assertEqual(direct.status,expected,`direct guard ${id}`,direct.stderr)
+    assertEqual(batch.status,0,`batch evaluates ${id}`,batch.stderr)
+    assertEqual(batch.stdout.trim(),`${id}:w:${expected===0?1:0}`,`batch guard ${id}`)
+  }
+  for (const arch of ['x86_64','aarch64','riscv64']) {
+    for (const browser of ['chrome','edge']) checkRow('install.browser.'+browser, arch==='x86_64'?0:1,{ARCH:arch})
+    for (const browser of ['brave','brave-origin','zen']) checkRow('install.browser.'+browser,arch==='riscv64'?1:0,{ARCH:arch})
+  }
+  checkRow('install.editor.zed',0)
+  checkRow('install.editor.zed',1,{MISSING:'zed'})
+  for (const apple of ['0','1']) {
+    const selected=apple==='1'?'linux-asahi-headers':'linux-headers'
+    checkRow('install.gaming.xbox-controllers',0,{APPLE:apple})
+    checkRow('install.gaming.xbox-controllers',1,{APPLE:apple,MISSING:selected})
+    checkRow('install.gaming.xbox-controllers',0,{APPLE:apple,MISSING:apple==='1'?'linux-headers':'linux-asahi-headers'})
+  }
+  fs.writeFileSync(calls,'')
+  const cacheItems={}
+  for (const id of ['install.browser.chrome','install.browser.brave']) cacheItems[id]={...byId[id],disabled:''}
+  const cache=run(menu.guardScript(cacheItems)+'\nomarchy-pkg-available primary provided\nomarchy-pkg-available secondary provided')
+  assertEqual(cache.status,0,'cached batch completes',cache.stderr)
+  const lines=fs.readFileSync(calls,'utf8').trim().split('\n')
+  assertEqual(lines.filter(l=>l==='uname').length,1,'architecture is read once per batch')
+  assertEqual(lines.filter(l=>l==='-Slq').length,1,'sync database is read once per batch')
+  assertEqual(lines.filter(l=>l.startsWith('-Sp')&&l.endsWith('provided')).length,1,'provider lookup is cached')
+  const incomplete=path.join(tmp,'incomplete');fs.mkdirSync(path.join(incomplete,'bin'),{recursive:true})
+  stub('omarchy-pkg-available','echo recursive-dispatch >> "$CALLS"; exit 42')
+  const file=path.join(incomplete,'bin/omarchy-pkg-available')
+  for (const content of [null,'','return 1','omarchy-pkg-available() { return 0; }','__omarchy_pkg_available_ready=true']) {
+    fs.rmSync(file,{force:true});if(content!==null)fs.writeFileSync(file,content)
+    fs.writeFileSync(calls,'')
+    const result=run(prelude+'\nomarchy-pkg-available primary',{OMARCHY_PATH:incomplete})
+    assertEqual(result.status,1,'incomplete source aborts the batch')
+    assert(!fs.readFileSync(calls,'utf8').includes('recursive-dispatch'),'incomplete source never dispatches through PATH')
+  }
+} finally { fs.rmSync(tmp,{recursive:true,force:true}) }
+JS

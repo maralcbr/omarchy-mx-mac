@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 # The prelude reads the optional transaction manifest from $OMARCHY_PATH, as
-# omarchy-install-available does.
+# omarchy-pkg-available does.
 export OMARCHY_PATH="$ROOT"
 
 run_node_test <<'JS'
@@ -192,13 +192,6 @@ PATH="$stub_dir:$ROOT/bin:$PATH" "$ROOT/bin/omarchy-pkg-available" sh ||
 PATH="$stub_dir:$ROOT/bin:$PATH" bash -c "$guard_prelude"$'\n''omarchy-pkg-available sh' ||
   fail "guard prelude resolves a name a repository package provides"
 pass "availability resolves provided names the way pacman -S will"
-
-# helix resolves whole; lutris has secondary packages the stub does not carry,
-# so the transaction fails as a unit; an unknown id is not a transaction.
-for transaction in install.editor.helix install.gaming.lutris install.unknown; do
-  assert_helper_agrees "guard prelude resolves complete optional transactions" omarchy-install-available "$transaction"
-done
-pass "guard prelude resolves complete optional transactions as omarchy-install-available does"
 
 # cd is a shell builtin `command -v` finds and a PATH search does not.
 cmd_cases=("gvim" "cd" "absent" "gvim absent" "gvim cd" "")

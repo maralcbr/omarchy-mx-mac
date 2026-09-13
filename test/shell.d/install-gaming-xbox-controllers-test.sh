@@ -81,11 +81,11 @@ pass "xpadneo builds against linux-asahi-headers on Apple Silicon"
 # Both exact lists must change together; a missing or wrong header cannot pass.
 for apple in 0 1; do
   APPLE_SILICON=$apple run_install >/dev/null
-  selected=$(OMARCHY_PATH="$ROOT" APPLE_SILICON=$apple PATH="$stub_bin:$PATH" bash -c '
-    source "$OMARCHY_PATH/install/helpers/optional-packages.sh"
-    __omarchy_optional_targets install.gaming.xbox-controllers
-    printf "%s\n" "${__omarchy_requested_packages[*]}"
-  ')
+  guard=$(node -e 'const fs=require("fs"), m=require(process.argv[1]); console.log(m.parseMenuJsonc(fs.readFileSync(process.argv[2],"utf8")).find(i=>i.id==="install.gaming.xbox-controllers").when.replace(/ && ! omarchy-pkg-present .*/,""))' "$ROOT/shell/plugins/menu/MenuModel.js" "$ROOT/default/omarchy/omarchy-menu.jsonc")
+  selected=$(OMARCHY_PATH="$ROOT" APPLE_SILICON=$apple PATH="$stub_bin:$ROOT/bin:$PATH" bash -c '
+    omarchy-pkg-available() { printf "%s\n" "$*"; }
+    eval "$1"
+  ' bash "$guard")
   grep -Fx "omarchy-pkg-add $selected" "$calls" >/dev/null ||
     fail "availability matches the installer selected targets" "Apple=$apple; $selected; $(cat "$calls")"
 done

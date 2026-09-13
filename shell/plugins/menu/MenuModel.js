@@ -398,7 +398,8 @@ var GUARD_READERS = [
   "omarchy-default-browser",
   "omarchy-default-editor",
   "omarchy-default-terminal",
-  "omarchy-dns"
+  "omarchy-dns",
+  "uname -m"
 ]
 
 // Package and command presence account for most of what the guards ask, and
@@ -422,7 +423,7 @@ var GUARD_READERS = [
 // dropping half of what is installed.
 //
 // Optional install rows ask the sync database. `pacman -Slq` is one fork for
-// the batch, and the transaction manifest keeps secondary packages in the
+// the batch, and explicit menu targets keep secondary packages in the
 // availability decision. A name the set does not hold goes to `pacman -Sp`,
 // which resolves provides and constraints the way `-S` will when the row is
 // chosen: libappindicator-gtk3 is only ever provided, by libappindicator.
@@ -437,8 +438,11 @@ function guardHelpers() {
     + '[[ $1 == *[\\<\\>=]* ]] && { pacman -Q "$1" &>/dev/null; return; }; return 1; }\n'
     + 'omarchy-pkg-present() { local p; for p in "$@"; do __omarchy_pkg_has "$p" || return 1; done; return 0; }\n'
     + 'omarchy-pkg-missing() { local p; for p in "$@"; do __omarchy_pkg_has "$p" || return 0; done; return 1; }\n'
-    + 'source "$OMARCHY_PATH/install/helpers/optional-packages.sh" || exit 1\n'
-    + 'declare -F omarchy-pkg-available omarchy-install-available __omarchy_optional_load __omarchy_optional_targets >/dev/null || exit 1\n'
+    + 'unset __omarchy_pkg_available_ready\n'
+    + 'unset -f omarchy-pkg-available\n'
+    + 'source "$OMARCHY_PATH/bin/omarchy-pkg-available" || exit 1\n'
+    + '[[ ${__omarchy_pkg_available_ready:-} == true ]] || exit 1\n'
+    + 'declare -F omarchy-pkg-available >/dev/null || exit 1\n'
     + 'omarchy-cmd-present() { local c; for c in "$@"; do command -v "$c" &>/dev/null || return 1; done; return 0; }\n'
     + 'omarchy-cmd-missing() { local c; for c in "$@"; do command -v "$c" &>/dev/null || return 0; done; return 1; }\n'
 }
