@@ -146,6 +146,7 @@ asahi_migration_disposition() {
     1788345489.sh) printf 'run\tApple Silicon speaker pop fix gates itself to Apple Silicon hardware\n' ;;
     1788486400.sh) printf 'run\treviewed default package parity install; every package is built for aarch64\n' ;;
     1789107528.sh) printf 'run\treviewed initramfs static device node ordering; self-gating to Apple Silicon hardware\n' ;;
+    1789480988.sh) printf 'run\treviewed Touch Bar daemon install; self-gating to Touch Bar MacBook Pros\n' ;;
     *) return 1 ;;
   esac
 }
