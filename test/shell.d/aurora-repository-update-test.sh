@@ -12,14 +12,17 @@ system_packages="$ROOT/bin/omarchy-update-system-pkgs"
 shipped_pin="$ROOT/default/aurora-qualified-release"
 subkey_fingerprint=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 repo=maralcbr/omarchy-pkgs
+release_ere='aurora-packages-[0-9a-f]{40}'
 
 grep -Fq '# omarchy:hidden=true' "$updater" || fail "Aurora repository updater is hidden from command listings"
 grep -Fq '# omarchy:requires-sudo=true' "$updater" || fail "Aurora repository updater declares its sudo requirement"
 grep -Fq "trusted_subkey=$subkey_fingerprint" "$updater" || fail "Aurora repository updater pins the signing subkey"
 grep -Fq '$2 == "VALIDSIG" && $3 == key' "$updater" ||
   fail "Aurora repository updater requires the descriptor signature from the subkey itself"
-grep -Exq 'tag=aurora-packages-[0-9a-f]{40}' "$shipped_pin" || fail "the runtime pins an aurora-packages release"
+! grep -Fq '/usr/share/omarchy/default' "$updater" || fail "Aurora repository updater reads the runtime through OMARCHY_PATH"
+grep -Exq "tag=$release_ere" "$shipped_pin" || fail "the runtime pins an aurora-packages release"
 grep -Exq 'descriptor_sha256=[0-9a-f]{64}' "$shipped_pin" || fail "the runtime pins that release's descriptor digest"
+grep -Exq "predecessors=($release_ere( $release_ere)*)?" "$shipped_pin" || fail "the runtime lists the releases the pin replaces"
 (( $(grep -c '^tag=' "$shipped_pin") == 1 && $(grep -c '^descriptor_sha256=' "$shipped_pin") == 1 )) ||
   fail "the runtime pins exactly one Aurora release"
 pass "the qualified Aurora release is pinned in the runtime"
@@ -74,21 +77,25 @@ pass "omarchy-update-system-pkgs pins the Aurora repository before pacman and st
 stub_bin="$test_tmp/bin"
 assets="$test_tmp/assets"
 root="$test_tmp/root"
+omarchy_path="$test_tmp/omarchy"
+pin_file="$omarchy_path/default/aurora-qualified-release"
+key_file="$omarchy_path/default/omarchy-arm-repository.asc"
 pacman_conf="$root/etc/pacman.conf"
 marker="$root/usr/share/omarchy/apple-silicon-kernel"
 sync_dir="$root/var/lib/pacman/sync"
-pin_file="$test_tmp/aurora-qualified-release"
 calls="$test_tmp/calls"
 curl_log="$test_tmp/curl.log"
 lock_log="$test_tmp/lock.log"
-old_tag=aurora-packages-4123759c0ffee4123759c0ffee4123759c0ffee4
+oldest_tag=aurora-packages-f0af33325a071092cf7883cc0a79ae755b15b0c7
+old_tag=aurora-packages-412375933f5c94b304708576c9999c4cf5f88700
 new_tag=aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c
+candidate_tag=aurora-packages-4439238d23d28c8d3766a6dd040a9e5f9fd587e0
 old_server="https://github.com/$repo/releases/download/$old_tag"
 new_server="https://github.com/$repo/releases/download/$new_tag"
+candidate_server="https://github.com/$repo/releases/download/$candidate_tag"
 asahi_server="https://github.com/$repo/releases/download/asahi-packages-stable-83973903b7deb9b56ce75f02b432fba0561d6293"
 comment='# Aurora kernel and bootloader, kept on the qualified release by omarchy update'
-mkdir -p "$stub_bin" "$assets" "$root/etc/pacman.d" "$(dirname "$marker")" "$sync_dir"
-: >"$test_tmp/omarchy-arm-repository.asc"
+mkdir -p "$stub_bin" "$assets" "$root/etc/pacman.d" "$(dirname "$marker")" "$sync_dir" "$omarchy_path/default"
 printf 'Server = http://mirror.archlinuxarm.org/$arch/$repo\n' >"$root/etc/pacman.d/mirrorlist"
 
 write_release() {
@@ -108,7 +115,8 @@ EOF
 }
 
 write_pin() {
-  printf '# pinned for the test\ntag=%s\ndescriptor_sha256=%s\n' "$1" "$2" >"$pin_file"
+  printf '# pinned for the test\ntag=%s\ndescriptor_sha256=%s\npredecessors=%s\n' \
+    "$1" "$2" "${3-$oldest_tag $old_tag}" >"$pin_file"
 }
 
 cat >"$stub_bin/omarchy-hw-apple-silicon" <<'SH'
@@ -152,6 +160,8 @@ cat >"$stub_bin/gpg" <<'SH'
 primary=C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC
 subkey=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 if [[ " $* " == *" --show-keys "* ]]; then
+  # gpg reads nothing from a file that is not a key and exits 2.
+  [[ $(cat "${@: -1}") != "malformed" ]] || exit 2
   printf 'pub:-:255:22:%s:::::::cSC::::::::0:\nfpr:::::::::%s:\n' "${primary:24}" "$primary"
   exit 0
 fi
@@ -159,6 +169,7 @@ if [[ " $* " == *" --import "* ]]; then
   exit 0
 fi
 if [[ " $* " == *" --list-keys "* ]]; then
+  [[ ${TEST_GPG_LIST_FAIL:-0} != 1 ]] || exit 2
   printf 'pub:-:255:22:%s:::::::cSC::::::::0:\nfpr:::::::::%s:\nsub:-:255:22:%s:::::::s::::::::0:\nfpr:::::::::%s:\n' \
     "${primary:24}" "$primary" "${subkey:24}" "$subkey"
   exit 0
@@ -203,8 +214,7 @@ if [[ $1 == "-Q" ]]; then
   [[ " $TEST_INSTALLED " == *" $2 "* ]]
   exit
 fi
-printf 'pacman:%s OMARCHY_UPDATE_PACMAN=%s\n' "$*" "${OMARCHY_UPDATE_PACMAN:-}" >>"$TEST_CALLS"
-[[ ${TEST_PACMAN_FAIL:-0} != 1 ]]
+printf 'pacman:%s\n' "$*" >>"$TEST_CALLS"
 SH
 chmod +x "$stub_bin"/*
 
@@ -217,8 +227,7 @@ run_status() {
     TEST_KEY_STATE="$test_tmp/key-trusted" \
     TEST_INSTALLED="${TEST_INSTALLED-linux-aurora linux-aurora-headers m1n1-aurora}" \
     OMARCHY_AURORA_ROOT="$root" \
-    OMARCHY_AURORA_RELEASE_PIN="$pin_file" \
-    OMARCHY_AURORA_PACKAGE_KEY_FILE="$test_tmp/omarchy-arm-repository.asc" \
+    OMARCHY_PATH="${TEST_OMARCHY_PATH:-$omarchy_path}" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
     bash "$updater" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
   status=$?
@@ -231,6 +240,7 @@ reset_run() {
   : >"$lock_log"
   rm -f "$test_tmp/key-trusted"
   rm -rf "$root/var/lib/omarchy/backups"
+  printf 'fixture key\n' >"$key_file"
   printf 'stale database' >"$sync_dir/omarchy-aurora.db"
   printf 'stale signature' >"$sync_dir/omarchy-aurora.db.sig"
   cp "$pacman_conf" "$test_tmp/before"
@@ -276,6 +286,16 @@ expect_untouched() {
   cmp -s "$test_tmp/before" "$pacman_conf" || fail "$1: pacman.conf is byte-identical" "$(diff "$test_tmp/before" "$pacman_conf" || true)"
   [[ ! -s $calls ]] || fail "$1: nothing privileged runs" "$(cat "$calls")"
   [[ ! -e $root/var/lib/omarchy/backups ]] || fail "$1: no backup is taken"
+  [[ -e $sync_dir/omarchy-aurora.db && -e $sync_dir/omarchy-aurora.db.sig ]] || fail "$1: the cached Aurora database is kept"
+}
+
+# A repin writes pacman.conf, drops the cached database, and leaves syncing to
+# the package upgrade that follows.
+expect_repinned() {
+  (( status == 0 )) || fail "$1 succeeds" "status $status: $(cat "$test_tmp/err")"
+  expect_conf "$1"
+  [[ ! -e $sync_dir/omarchy-aurora.db && ! -e $sync_dir/omarchy-aurora.db.sig ]] || fail "$1: the previous release's cached database is dropped"
+  ! grep -q '^pacman:' "$calls" || fail "$1: the updater runs no pacman itself" "$(cat "$calls")"
 }
 
 write_release "$old_tag"
@@ -310,24 +330,32 @@ TEST_INSTALLED="linux-aurora linux-asahi" not_aurora "linux-aurora and linux-asa
 TEST_APPLE_SILICON=0 not_aurora "an x86 machine"
 pass "only Aurora installs are touched, and everything else is a silent no-op"
 
+# The pin that ships is one the updater accepts.
+shipped_tag=$(sed -n 's/^tag=//p' "$shipped_pin")
+{ options_conf; aurora_conf "https://github.com/$repo/releases/download/$shipped_tag"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+reset_run
+TEST_OMARCHY_PATH="$ROOT" run_status
+(( status == 0 )) || fail "the shipped pin parses" "status $status: $(cat "$test_tmp/err")"
+[[ ! -s $test_tmp/out && ! -s $test_tmp/err ]] || fail "a Mac already on the shipped pin is silent" "$(cat "$test_tmp/out" "$test_tmp/err")"
+expect_untouched "a Mac already on the shipped pin"
+pass "the shipped pin is accepted and a Mac already on it is left alone"
+
 # A missing section is added right before [omarchy], with the legacy evidence.
 { options_conf; omarchy_conf; remaining_conf; } >"$pacman_conf"
 { options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
 reset_run
 run_status
-(( status == 0 )) || fail "a missing [omarchy-aurora] is added" "status $status: $(cat "$test_tmp/err")"
-expect_conf "[omarchy-aurora] is inserted just before [omarchy] and nothing else changes"
+expect_repinned "[omarchy-aurora] is inserted just before [omarchy] and nothing else changes"
 grep -Fxq "Pinned the Aurora kernel repository to $new_tag (backup: $(ls -d "$root"/var/lib/omarchy/backups/aurora-repository-*))" "$test_tmp/out" ||
   fail "the repin names the release and the backup" "$(cat "$test_tmp/out")"
+! grep -Fq 'omarchy update will sync it' "$test_tmp/out" || fail "a repin inside omarchy update does not tell the user to run it"
 grep -Fxq "$new_server/AURORA" "$curl_log" && grep -Fxq "$new_server/AURORA.sig" "$curl_log" ||
   fail "the pinned release's descriptor and signature are downloaded" "$(cat "$curl_log")"
 cmp -s "$test_tmp/before" "$root"/var/lib/omarchy/backups/aurora-repository-*/pacman.conf || fail "the previous pacman.conf is backed up"
 [[ $(stat -c '%a' "$pacman_conf") == 644 ]] || fail "pacman.conf stays 0644"
 [[ ! -e $pacman_conf.omarchy-aurora ]] || fail "the staged pacman.conf is renamed into place"
 grep -Eq "^sudo:mv -f $pacman_conf.omarchy-aurora $pacman_conf\$" "$calls" || fail "pacman.conf is replaced by rename" "$(cat "$calls")"
-grep -Fxq "pacman-key:--add $test_tmp/omarchy-arm-repository.asc" "$calls" || fail "a missing repository key is imported into pacman"
-grep -Fxq 'pacman:-Sy --noconfirm OMARCHY_UPDATE_PACMAN=1' "$calls" || fail "the repinned repository is synced through the update guard"
-[[ ! -e $sync_dir/omarchy-aurora.db && ! -e $sync_dir/omarchy-aurora.db.sig ]] || fail "the previous release's cached database is dropped"
+grep -Fxq "pacman-key:--add $key_file" "$calls" || fail "a missing repository key is imported into pacman"
 pass "a missing [omarchy-aurora] is inserted before [omarchy] after the release is proven"
 
 reset_run
@@ -335,13 +363,13 @@ run_status
 (( status == 0 )) || fail "a current Aurora repository is a successful no-op" "status $status: $(cat "$test_tmp/err")"
 [[ ! -s $test_tmp/out && ! -s $test_tmp/err && ! -s $curl_log ]] || fail "a current Aurora repository is silent and offline"
 expect_untouched "a second run"
-pass "a second run makes no write"
+pass "a second run makes no write and keeps the cached database"
 
-# An existing section on an old release is repointed in place, marker evidence.
+# A listed predecessor is repointed in place, marker evidence.
 printf 'linux-aurora\n' >"$marker"
 {
   options_conf
-  printf '# The signed Aurora kernel.\n[omarchy-aurora]\nServer = %s\nSigLevel = Optional TrustAll\nServer = https://example.test/extra\nUsage = Sync Search\n\n' "$old_server"
+  printf '# The signed Aurora kernel.\n[omarchy-aurora]\nServer = %s\nSigLevel = Optional TrustAll\nServer = %s/\nUsage = Sync Search\n\n' "$old_server" "$old_server"
   omarchy_conf
   remaining_conf
 } >"$pacman_conf"
@@ -353,11 +381,18 @@ printf 'linux-aurora\n' >"$marker"
 } >"$test_tmp/expected"
 reset_run
 run_status
-(( status == 0 )) || fail "an old Aurora pin is repointed" "status $status: $(cat "$test_tmp/err")"
-expect_conf "the old pin gets exactly one Server on the qualified release and the required SigLevel"
-pass "an old [omarchy-aurora] pin is repointed at the qualified release"
+expect_repinned "a predecessor pin gets exactly one Server on the qualified release and the required SigLevel"
+pass "an [omarchy-aurora] on a listed predecessor is repointed at the qualified release"
 
-# A section behind [omarchy] moves in front of it, its comment with it.
+# A section already on the pin is only tidied.
+{ options_conf; printf '[omarchy-aurora]\nServer = %s\n\n' "$new_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+{ options_conf; printf '[omarchy-aurora]\nSigLevel = Required DatabaseOptional\nServer = %s\n\n' "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
+reset_run
+run_status
+expect_repinned "a section on the pin gets the required SigLevel"
+pass "an [omarchy-aurora] already on the pin is fixed up"
+
+# A predecessor behind [omarchy] moves in front of it, its comment with it.
 {
   options_conf
   omarchy_conf
@@ -372,43 +407,78 @@ pass "an old [omarchy-aurora] pin is repointed at the qualified release"
 } >"$test_tmp/expected"
 reset_run
 run_status
-(( status == 0 )) || fail "a misplaced Aurora section is moved" "status $status: $(cat "$test_tmp/err")"
-expect_conf "the misplaced section moves to just before [omarchy]"
+expect_repinned "the misplaced section moves to just before [omarchy]"
 pass "an [omarchy-aurora] section after [omarchy] is moved in front of it"
 
-# A file that ends without a newline keeps ending that way.
+# A file that ends without a newline keeps ending that way, and CRLF stays CRLF.
 { options_conf; omarchy_conf; remaining_conf; } | head -c -1 >"$pacman_conf"
 { options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } | head -c -1 >"$test_tmp/expected"
 reset_run
 run_status
-(( status == 0 )) || fail "a file without a final newline is repinned" "status $status: $(cat "$test_tmp/err")"
-expect_conf "a missing final newline is preserved"
-pass "unrelated bytes, including a missing final newline, are preserved"
+expect_repinned "a missing final newline is preserved"
+{ options_conf; omarchy_conf; remaining_conf; } | sed 's/$/\r/' >"$pacman_conf"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } | sed 's/$/\r/' >"$test_tmp/expected"
+reset_run
+run_status
+expect_repinned "CRLF line endings are kept on inserted lines"
+pass "unrelated bytes, a missing final newline, and CRLF line endings are preserved"
+
+# Sections on a release the pin does not replace are somebody's choice.
+left_alone() {
+  local description=$1 current=$2
+  reset_run
+  run_status
+  (( status == 0 )) || fail "$description does not stop the update" "status $status: $(cat "$test_tmp/err")"
+  grep -Fq "Leaving [omarchy-aurora] on $current: it is neither the runtime's qualified release $new_tag" "$test_tmp/err" ||
+    fail "$description names the current and runtime releases" "$(cat "$test_tmp/err")"
+  [[ ! -s $test_tmp/out && ! -s $curl_log ]] || fail "$description downloads nothing"
+  expect_untouched "$description"
+}
+{ options_conf; aurora_conf "$candidate_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+left_alone "a hand-pinned newer candidate" "$candidate_tag"
+{ options_conf; omarchy_conf; aurora_conf "$candidate_server"; remaining_conf; } >"$pacman_conf"
+left_alone "a hand-pinned candidate behind [omarchy]" "$candidate_tag"
+{ options_conf; aurora_conf "https://example.test/aurora"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+left_alone "a server outside the aurora-packages releases" "https://example.test/aurora"
+{ options_conf; printf '[omarchy-aurora]\nServer = %s\nServer = %s\n\n' "$old_server" "$candidate_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+left_alone "servers naming different releases" "$old_tag $candidate_tag"
+{ options_conf; printf '[omarchy-aurora]\nInclude = /etc/pacman.d/mirrorlist\n\n'; omarchy_conf; remaining_conf; } >"$pacman_conf"
+left_alone "an [omarchy-aurora] that includes a server list" "Include = /etc/pacman.d/mirrorlist"
+{ options_conf; printf '[omarchy-aurora]\nSigLevel = Required DatabaseOptional\n\n'; omarchy_conf; remaining_conf; } >"$pacman_conf"
+left_alone "an [omarchy-aurora] without a server" "no server"
+pass "a newer candidate, an unknown server, mixed releases, Include and no server are left alone with a warning"
 
 # Nothing is written unless the pinned release is proven.
 { options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+failed_closed() {
+  local description=$1 expected_status=$2 message=$3
+  (( status == expected_status )) || fail "$description fails closed" "status $status: $(cat "$test_tmp/err")"
+  grep -Fq "$message" "$test_tmp/err" || fail "$description is explained" "$(cat "$test_tmp/err")"
+  expect_untouched "$description"
+}
 reset_run
 write_pin "$new_tag" "$(printf '%064d' 0)"
 run_status
-(( status == 2 )) || fail "a descriptor digest mismatch fails closed" "status $status"
-grep -Fq "AURORA in $new_tag does not match the qualified digest" "$test_tmp/err" || fail "the digest mismatch is explained" "$(cat "$test_tmp/err")"
-expect_untouched "a digest mismatch"
+failed_closed "a digest mismatch" 2 "AURORA in $new_tag does not match the qualified digest"
 write_pin "$new_tag" "$new_digest"
 
 reset_run
 TEST_GPG_FAIL=1 run_status
-(( status == 2 )) || fail "a bad descriptor signature fails closed" "status $status"
-grep -Fq 'signature verification failed for AURORA' "$test_tmp/err" || fail "the bad signature is explained" "$(cat "$test_tmp/err")"
-expect_untouched "a bad signature"
+failed_closed "a bad descriptor signature" 2 'signature verification failed for AURORA'
 reset_run
 TEST_GPG_SIGNER=primary run_status
-(( status == 2 )) || fail "a descriptor signed by the primary key fails closed" "status $status"
-expect_untouched "a primary-key signature"
-
+failed_closed "a primary-key signature" 2 'was not signed by the Omarchy ARM repository signing subkey'
 reset_run
 TEST_CURL_OFFLINE=1 run_status
-(( status == 3 )) || fail "a download failure fails with the transport status" "status $status"
-expect_untouched "a download failure"
+failed_closed "a download failure" 3 "could not download $new_server/AURORA"
+
+reset_run
+printf 'malformed' >"$key_file"
+run_status
+failed_closed "a malformed repository key" 2 'could not read the trusted Omarchy ARM repository key'
+reset_run
+TEST_GPG_LIST_FAIL=1 run_status
+failed_closed "a key gpg cannot list" 2 'could not list the trusted Omarchy ARM repository key'
 
 # Another release's descriptor under this tag, with a pin that matches it.
 reset_run
@@ -416,20 +486,12 @@ mv "$assets/$new_tag/AURORA" "$test_tmp/new-descriptor"
 cp "$assets/$old_tag/AURORA" "$assets/$new_tag/AURORA"
 write_pin "$new_tag" "$(sha256sum "$assets/$old_tag/AURORA" | cut -d' ' -f1)"
 run_status
-(( status == 2 )) || fail "a descriptor for another release fails closed" "status $status"
-grep -Fq "does not describe that Aurora release" "$test_tmp/err" || fail "the wrong release is explained" "$(cat "$test_tmp/err")"
-expect_untouched "a descriptor for another release"
+failed_closed "a descriptor for another release" 2 "does not describe that Aurora release"
 mv "$test_tmp/new-descriptor" "$assets/$new_tag/AURORA"
 write_pin "$new_tag" "$new_digest"
+pass "a digest mismatch, bad signature, download failure, bad key or wrong descriptor leaves pacman.conf and its cache as they were"
 
-reset_run
-TEST_PACMAN_FAIL=1 run_status
-(( status == 2 )) || fail "a release pacman cannot read fails closed" "status $status"
-grep -Fq 'restored the previous repository' "$test_tmp/err" || fail "the restore is explained" "$(cat "$test_tmp/err")"
-cmp -s "$test_tmp/before" "$pacman_conf" || fail "a failed sync restores the previous pacman.conf"
-pass "a digest mismatch, bad signature, download failure or unreadable release leaves pacman.conf as it was"
-
-# Configurations this cannot safely edit are refused before any download.
+# Configurations and pins this cannot safely act on are refused before any download.
 refused() {
   local description=$1 message=$2
   reset_run
@@ -443,21 +505,24 @@ refused() {
 refused "a duplicate [omarchy-aurora]" 'more than one [omarchy-aurora] repository'
 { options_conf; aurora_conf "$old_server"; remaining_conf; } >"$pacman_conf"
 refused "a configuration without [omarchy]" 'exactly one [omarchy] repository'
-{ options_conf; printf '[omarchy-aurora]\nInclude = /etc/pacman.d/mirrorlist\n\n'; omarchy_conf; remaining_conf; } >"$pacman_conf"
-refused "an [omarchy-aurora] that includes a server list" 'must name its release'
 { options_conf; omarchy_conf; remaining_conf; } >"$pacman_conf"
-printf 'tag=%s\n' "$new_tag" >"$pin_file"
+printf 'tag=%s\npredecessors=\n' "$new_tag" >"$pin_file"
 refused "a pin without a digest" 'pin is malformed'
+printf 'tag=%s\ndescriptor_sha256=%s\n' "$new_tag" "$new_digest" >"$pin_file"
+refused "a pin without predecessors" 'pin is malformed'
+write_pin "$new_tag" "$new_digest" "$old_tag $new_tag"
+refused "a pin that replaces itself" 'pin is malformed'
+write_pin "$new_tag" "$new_digest" "$old_tag aurora-packages-412375933f5c"
+refused "a pin with an abbreviated predecessor" 'pin is malformed'
 write_pin "$new_tag" "$new_digest"
-pass "duplicate sections, a missing [omarchy], Include and a malformed pin are refused without edits"
+pass "duplicate sections, a missing [omarchy] and malformed pins are refused without edits"
 
 # A hold is kept, and named.
 { options_conf 'IgnorePkg = linux-aurora linux-aurora-headers'; omarchy_conf; remaining_conf; } >"$pacman_conf"
 { options_conf 'IgnorePkg = linux-aurora linux-aurora-headers'; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
 reset_run
 run_status
-(( status == 0 )) || fail "a held kernel still gets its repository" "status $status: $(cat "$test_tmp/err")"
-expect_conf "the IgnorePkg hold is preserved while the section is added"
+expect_repinned "the IgnorePkg hold is preserved while the section is added"
 grep -Fq 'holds linux-aurora linux-aurora-headers, so omarchy update cannot install a newer Aurora kernel until that hold is removed' "$test_tmp/err" ||
   fail "the hold is named with what it blocks" "$(cat "$test_tmp/err")"
 { options_conf 'IgnoreGroup = m1n1-*'; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
@@ -468,10 +533,12 @@ grep -Fq 'holds m1n1-aurora' "$test_tmp/err" || fail "a glob hold on m1n1-aurora
 expect_untouched "a current repository with a hold"
 pass "IgnorePkg and IgnoreGroup holds on the Aurora packages are preserved and warned about"
 
-# Run on its own, the updater takes the update lock.
-{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+# Run on its own, the updater takes the update lock and says who syncs.
+{ options_conf; omarchy_conf; remaining_conf; } >"$pacman_conf"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
 reset_run
 TEST_LOCK_HELD=0 run_status
-(( status == 0 )) || fail "the updater runs under the update lock" "status $status: $(cat "$test_tmp/err")"
+expect_repinned "a standalone repin"
 grep -Fxq run "$lock_log" || fail "an updater run outside omarchy update takes the update lock" "$(cat "$lock_log")"
-pass "the updater runs under the Omarchy update lock"
+grep -Fxq 'omarchy update will sync it.' "$test_tmp/out" || fail "a standalone repin says omarchy update will sync it" "$(cat "$test_tmp/out")"
+pass "a standalone run takes the update lock and leaves the sync to omarchy update"

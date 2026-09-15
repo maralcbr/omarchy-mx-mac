@@ -284,30 +284,36 @@ Steps 2 through 4 need the owner's authorization, like every other publication.
 
 ### Promoting a qualified Aurora kernel
 
-Installed Aurora Macs follow `default/aurora-qualified-release`: a tag and the
-sha256 of its `AURORA`. On every `omarchy update`,
-`omarchy-update-system-pkgs` first runs `omarchy-update-aurora-repository`,
-which checks the pinned `AURORA` against that digest and the ARM repository
-subkey, then adds or repoints `[omarchy-aurora]` just before `[omarchy]`. Asahi
-installs and x86 are untouched; a failed check stops the update before any
-package moves.
+Installed Aurora Macs follow `default/aurora-qualified-release`: a `tag`, the
+`descriptor_sha256` of its `AURORA`, and `predecessors`, the older releases it
+replaces. On every `omarchy update`, `omarchy-update-system-pkgs` first runs
+`omarchy-update-aurora-repository`, which checks the pinned `AURORA` against
+that digest and the ARM repository subkey, then adds `[omarchy-aurora]` just
+before `[omarchy]` or repins it from a listed predecessor; the package upgrade
+right after it syncs. Commit hashes carry no order, so a section on any other
+release — such as a candidate pinned by hand for qualification — is left alone
+with a warning. Asahi installs and x86 are untouched; a failed check stops the
+update before any package moves.
 
 1. Publish the kernel release (step 1 above); record the tag and `AURORA`
    digest.
 2. Qualify it on real hardware: on the M2 Max, point `[omarchy-aurora]` at the
    new release by hand, `omarchy update`, reboot, and check boot, Wi-Fi and
-   every display.
-3. Bump both lines of the pin file in one commit. Recompute the digest rather
-   than copying it: `gh release download <tag> --repo maralcbr/omarchy-pkgs
-   --pattern AURORA --dir <tmp>`, then `sha256sum <tmp>/AURORA`.
+   every display. The updater leaves that hand-pinned candidate alone.
+3. In one commit, append the current `tag` to the end of `predecessors`, then
+   set `tag` and `descriptor_sha256` to the new release. Recompute the digest
+   rather than copying it: `gh release download <tag> --repo
+   maralcbr/omarchy-pkgs --pattern AURORA --dir <tmp>`, then
+   `sha256sum <tmp>/AURORA`.
 4. Ship it as a runtime release ([fast lane](#fast-lane-a-runtime-only-change)).
 5. Verify on the M2 Max: put its `[omarchy-aurora]` `Server` back on the
-   previous release, run `omarchy update`, and check that the section names
-   the new tag, `pacman -Q linux-aurora` shows the new version, and it boots.
+   previous release (now a predecessor), run `omarchy update`, and check that
+   the section names the new tag, `pacman -Q linux-aurora` shows the new
+   version, and it boots.
 
-An `IgnorePkg` hold on `linux-aurora` (the current Aurora ISO ships one) keeps
-the old kernel: the updater warns and leaves the hold, so remove it on the
-machine first. A repin never downgrades an installed kernel.
+An `IgnorePkg` or `IgnoreGroup` hold on the Aurora packages keeps the old
+kernel: the updater warns and leaves the hold. A repin never downgrades an
+installed kernel.
 
 ### What the Aurora lane does not do
 

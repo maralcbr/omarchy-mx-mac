@@ -1,6 +1,9 @@
-# The aurora-packages release installed Aurora Macs follow, and the sha256 of
-# that release's signed AURORA descriptor. Change both together, and only for a
-# kernel qualified on real hardware: see "Promoting a qualified Aurora kernel"
-# in docs/apple-silicon-deployment.md.
+# The aurora-packages release installed Aurora Macs follow, the sha256 of that
+# release's signed AURORA descriptor, and the older releases it may replace,
+# oldest first. A Mac on any other release is left alone. To promote a kernel
+# qualified on real hardware, append the current tag to predecessors, then
+# change tag and descriptor_sha256 together: see "Promoting a qualified Aurora
+# kernel" in docs/apple-silicon-deployment.md.
 tag=aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c
 descriptor_sha256=90a46b7eab8a34a413bdb63cfd03a085c08f2e66f5b9ae2019a57f93eee03626
+predecessors=aurora-packages-f0af33325a071092cf7883cc0a79ae755b15b0c7 aurora-packages-412375933f5c94b304708576c9999c4cf5f88700 aurora-packages-11d3ca175b7caf3597861ad0b052308a8bf691bd
