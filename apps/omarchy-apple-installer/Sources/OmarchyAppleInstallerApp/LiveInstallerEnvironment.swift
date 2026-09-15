@@ -182,6 +182,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let recommendation = try InstallerAllocationRecommendation(
       inventory: inventory,
       targetBytes: omarchyBytes ?? InstallerAllocationRecommendation.balancedTargetBytes,
+      reservedBytes: release.assets.additionalHandoffBytes,
       snapshotConstraint: {
         APFSSnapshotInspector().constraint(in: host.storage)
       }

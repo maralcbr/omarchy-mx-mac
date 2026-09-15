@@ -8,7 +8,28 @@ set -e
 # Install voxtype and configure it for use.
 
 if gum confirm "Install Voxtype + AI model (~150MB) to enable dictation?"; then
-  omarchy-pkg-add wtype voxtype-bin
+  # voxtype-bin is built for x86_64 only. On any other architecture, such as
+  # Apple Silicon, the AUR source package is the only Voxtype that installs.
+  if [[ $(uname -m) == "x86_64" ]]; then
+    omarchy-pkg-add wtype voxtype-bin
+  else
+    gum style --foreground 3 "There's no prebuilt Voxtype binary for your CPU architecture."
+    if ! gum confirm "Build Voxtype from source instead? This can take 10-20 minutes."; then
+      echo "Skipping Voxtype install."
+      exit 0
+    fi
+
+    if ! omarchy-pkg-aur-accessible; then
+      gum style --foreground 1 "The AUR is unreachable right now, so Voxtype can't be built from source. Try again later."
+      exit 1
+    fi
+
+    if ! omarchy-pkg-aur-add voxtype; then
+      gum style --foreground 1 "Building Voxtype from source failed. The build output above shows why."
+      exit 1
+    fi
+    omarchy-pkg-add wtype
+  fi
 
   # Setup voxtype
   mkdir -p ~/.config/voxtype

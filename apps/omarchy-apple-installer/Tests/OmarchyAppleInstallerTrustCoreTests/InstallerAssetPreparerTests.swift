@@ -62,6 +62,42 @@
       XCTAssertEqual(maximumConcurrentDownloads, 3)
     }
 
+    func testHandoffReserveIncludesBothCopiesOfPreparedArtifacts() async throws {
+      let fixture = try makeFixture(schemaVersion: 2)
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let assets = try await fixture.preparer.prepare(fixture.request(stagingDirectory: directory))
+
+      XCTAssertEqual(
+        assets.additionalHandoffBytes,
+        2 * UInt64(fixture.engine.count + fixture.metadata.count + fixture.payload.count)
+      )
+    }
+
+    func testHandoffReserveOverflowCannotAdvertiseUsableSpace() async throws {
+      let fixture = try makeFixture(schemaVersion: 2)
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let assets = try await fixture.preparer.prepare(fixture.request(stagingDirectory: directory))
+
+      // Cover overflow in both the copy count and the sum of artifact sizes.
+      for size in [UInt64.max, UInt64.max / 2] {
+        let payload = try PinnedInstallerArtifact(
+          role: "payload", sourceURL: assets.payload.artifact.sourceURL,
+          fileName: assets.payload.artifact.fileName,
+          expectedDigest: assets.payload.artifact.expectedDigest, expectedSizeBytes: size
+        )
+        let oversized = PreparedInstallerAssets(
+          catalogIdentity: assets.catalogIdentity, installer: assets.installer,
+          engine: assets.engine, metadata: assets.metadata,
+          payload: StagedInstallerArtifact(
+            artifact: payload, fileURL: assets.payload.fileURL, reusedExistingFile: false
+          )
+        )
+        XCTAssertEqual(oversized.additionalHandoffBytes, UInt64.max)
+      }
+    }
+
     func testReplanReusesAssetsButStillRejectsExpiredCatalog() async throws {
       let fixture = try makeFixture(schemaVersion: 2)
       let directory = temporaryDirectory()

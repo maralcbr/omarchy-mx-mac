@@ -60,10 +60,20 @@ __omarchy_optional_load() {
   __omarchy_optional_valid=true
 }
 
+# Probe the architecture once per process, shared by every row that needs it.
+__omarchy_optional_load_arch() {
+  if ! $__omarchy_arch_loaded; then
+    __omarchy_optional_arch=$(uname -m) || return 1
+    __omarchy_arch_loaded=true
+  fi
+}
+
 # Return the complete selected sync targets in an array without a subprocess.
 # Xbox's mandatory headers follow the installer's hardware predicate, not uname.
+# Dictation's prebuilt voxtype-bin is x86_64-only; elsewhere the installer
+# builds voxtype from the AUR, so only its remaining sync targets must resolve.
 __omarchy_optional_targets() {
-  local id=${1:-} headers=linux-headers
+  local id=${1:-} headers=linux-headers package
   __omarchy_optional_load || return 1
   [[ -n $id && -n ${__omarchy_optional_sync[$id]-} ]] || return 1
   read -ra __omarchy_requested_packages <<<"${__omarchy_optional_sync[$id]}"
@@ -72,6 +82,15 @@ __omarchy_optional_targets() {
       headers=$(omarchy-hw-apple-kernel)-headers
     fi
     __omarchy_requested_packages=("$headers" "${__omarchy_requested_packages[@]}")
+  elif [[ $id == "install.ai.dictation" ]]; then
+    __omarchy_optional_load_arch || return 1
+    if [[ $__omarchy_optional_arch != "x86_64" ]]; then
+      local -a sync_packages=()
+      for package in "${__omarchy_requested_packages[@]}"; do
+        [[ $package == "voxtype-bin" ]] || sync_packages+=("$package")
+      done
+      __omarchy_requested_packages=("${sync_packages[@]}")
+    fi
   fi
 }
 
@@ -80,10 +99,7 @@ omarchy-install-available() {
   [[ -n $id ]] || return 1
   __omarchy_optional_load || return 1
   if [[ -n ${__omarchy_optional_aur[$id]-} ]]; then
-    if ! $__omarchy_arch_loaded; then
-      __omarchy_optional_arch=$(uname -m) || return 1
-      __omarchy_arch_loaded=true
-    fi
+    __omarchy_optional_load_arch || return 1
     [[ " ${__omarchy_optional_aur[$id]} " == *" $__omarchy_optional_arch "* ]]
   else
     __omarchy_optional_targets "$id" || return 1

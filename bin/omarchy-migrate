@@ -95,7 +95,7 @@ asahi_migration_disposition() {
     1784914435.sh) printf 'handled\tpackaged NetworkManager policy installed by the Quattro transition\n' ;;
     1784917531.sh) printf 'skipped\tLimine kernel and initramfs repair is not applicable to Asahi\n' ;;
     1784809452.sh) printf 'skipped\tSnapper timeline cleanup is not applicable to Asahi\n' ;;
-    1784961000.sh|1785013000.sh) printf 'skipped\tzram tuning is held until validated on Asahi\n' ;;
+    1784961000.sh|1785013000.sh) printf 'handled\tzram config and reclaim tuning ship in the settings package and apply at boot\n' ;;
     1785090473.sh) printf 'skipped\tfingerprint hardware is unsupported on this Apple Silicon path\n' ;;
     1785273276.sh) printf 'skipped\tT2 Limine and mkinitcpio repair is not applicable to Apple Silicon\n' ;;
     1785424256.sh) printf 'skipped\tsystemd-oomd reclaim tuning is held until validated on Asahi\n' ;;

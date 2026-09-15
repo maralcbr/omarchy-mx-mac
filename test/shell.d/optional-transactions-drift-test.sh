@@ -17,6 +17,7 @@ const items = menu.parseMenuJsonc(fs.readFileSync(path.join(root, 'default/omarc
 // Recipes whose package name is a variable resolved at runtime carry their
 // base package here; the menu action itself is what would drift.
 const overrides = {
+  'install.ai.dictation': ['voxtype-bin', 'wtype'],
   'install.ai.ollama': ['ollama'],
   'install.terminal.alacritty': ['alacritty'],
   'install.terminal.foot': ['foot'],

@@ -41,6 +41,24 @@
     public let repairManifest: StagedInstallerArtifact?
     public let installerCompatibility: InstallerCompatibility?
 
+    /// Downloads are already staged when the disk is inspected. Leave room
+    /// for the app handoff's full-copy fallback and the helper's verified copy,
+    /// both of which remain on macOS while the engine checks resize limits.
+    public var additionalHandoffBytes: UInt64 {
+      let artifacts = [engine, metadata, payload] + (repairManifest.map { [$0] } ?? [])
+      var total: UInt64 = 0
+      for staged in artifacts {
+        let (copies, copyOverflow) = staged.artifact.expectedSizeBytes.multipliedReportingOverflow(
+          by: 2)
+        let (sum, sumOverflow) = total.addingReportingOverflow(copies)
+        guard !copyOverflow, !sumOverflow else {
+          return UInt64.max
+        }
+        total = sum
+      }
+      return total
+    }
+
     public init(
       catalogIdentity: AcceptedCatalogIdentity,
       installer: PinnedInstallerRecord,

@@ -236,7 +236,8 @@ done
 grep -RqsE '^[[:space:]]*wifi\.backend[[:space:]]*=[[:space:]]*iwd[[:space:]]*$' "$(root_path /etc/NetworkManager)" ||
   fail "NetworkManager is not configured with the iwd backend"
 # Active swap and zram are safe here because bundle updates do not repartition
-# storage, and the archive path audit below rejects zram configuration changes.
+# storage. The archive path audit below still rejects boot, initramfs and oomd
+# changes; the zram drop-in and the zswap-off tmpfile only configure memory.
 # The fresh installer keeps the stricter swap and zswap storage-boundary gates.
 
 base="${OMARCHY_ASAHI_RELEASE_BASE_URL:-https://github.com/$repo/releases/download/$channel_tag}"
@@ -303,7 +304,7 @@ runtime_source=$(bsdtar -xOf "${archives[2]}" .PKGINFO | sed -n 's/^provides = o
 [[ $settings_source == "$channel_source" && $runtime_source == "$channel_source" ]] || fail "paired packages do not match the source commit"
 
 for archive in "${archives[@]}"; do
-  if bsdtar -tf "$archive" | sed 's|^\./||; s|^/||' | grep -Eqi '^(boot|etc/(default/grub|grub|limine|mkinitcpio|pacman\.conf|pacman\.d|systemd/oomd\.conf\.d|tmpfiles\.d/omarchy-zswap\.conf)|etc/modprobe\.d/omarchy-usb-autosuspend\.conf|usr/lib/(initcpio|systemd/user/app\.slice\.d|systemd/zram-generator\.conf\.d))(/|$)'; then
+  if bsdtar -tf "$archive" | sed 's|^\./||; s|^/||' | grep -Eqi '^(boot|etc/(default/grub|grub|limine|mkinitcpio|pacman\.conf|pacman\.d|systemd/oomd\.conf\.d)|etc/modprobe\.d/omarchy-usb-autosuspend\.conf|usr/lib/(initcpio|systemd/user/app\.slice\.d))(/|$)'; then
     fail "$(basename "$archive") contains an Apple Silicon unsafe path"
   fi
 done

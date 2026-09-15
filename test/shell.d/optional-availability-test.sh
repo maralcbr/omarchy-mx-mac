@@ -10,7 +10,7 @@ cat >"$test_tmp/bin/pacman" <<'STUB'
 printf '%s\n' "$*" >>"$CALLS"
 case $1 in
 -Slq)
-  printf '%s\n' primary secondary zed omazed xpadneo-dkms linux-headers linux-asahi-headers | while read -r p; do
+  printf '%s\n' primary secondary zed omazed xpadneo-dkms linux-headers linux-asahi-headers voxtype-bin wtype | while read -r p; do
     [[ $p == "${MISSING:-}" ]] || echo "$p"
   done ;;
 -Sp)
@@ -66,6 +66,12 @@ for arch in x86_64 aarch64; do
   check 1 omarchy-pkg-available missing
   check 0 omarchy-install-available install.editor.zed
   MISSING=omazed check 1 omarchy-install-available install.editor.zed
+  # voxtype-bin is x86_64-only; elsewhere dictation builds voxtype from the AUR.
+  prebuilt_expected=1
+  [[ $arch == x86_64 ]] || prebuilt_expected=0
+  check 0 omarchy-install-available install.ai.dictation
+  MISSING=voxtype-bin check "$prebuilt_expected" omarchy-install-available install.ai.dictation
+  MISSING=wtype check 1 omarchy-install-available install.ai.dictation
   for apple in 0 1; do
     export APPLE=$apple
     selected=linux-headers
@@ -79,7 +85,7 @@ done
 ARCH=riscv64 check 1 omarchy-install-available install.browser.chrome
 check 1 omarchy-install-available install.unknown
 : >"$CALLS"
-bash -c "$prelude"$'\n''omarchy-pkg-available primary provided; omarchy-pkg-available secondary provided; omarchy-install-available install.browser.chrome; omarchy-install-available install.browser.brave'
+bash -c "$prelude"$'\n''omarchy-pkg-available primary provided; omarchy-pkg-available secondary provided; omarchy-install-available install.browser.chrome; omarchy-install-available install.browser.brave; omarchy-install-available install.ai.dictation'
 [[ $(grep -c -- '^-Slq$' "$CALLS") == 1 ]] || fail 'one sync snapshot per batch'
 [[ $(grep -c -- '^-Sp .*provided$' "$CALLS") == 1 ]] || fail 'provided results cached per batch'
 [[ $(grep -c '^uname$' "$CALLS") == 1 ]] || fail 'one architecture probe per batch'
