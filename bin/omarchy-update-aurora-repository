@@ -301,18 +301,21 @@ if ! sudo pacman-key --finger "$trusted_key" >/dev/null 2>&1; then
   sudo pacman-key --lsign-key "$trusted_key"
 fi
 
-# Staged beside the original so the rename is atomic.
-sudo install -o root -g root -m 0644 "$workdir/pacman.conf" "$pacman_conf.omarchy-aurora"
-sudo mv -f "$pacman_conf.omarchy-aurora" "$pacman_conf"
-
 # The package upgrade after this step does the sync. Every aurora-packages
 # release serves its database as omarchy-aurora.db, and upload times are not
 # ordered by release, so that sync could keep a cached database from the
-# previous release and reject it against the new signature. Drop it so both are
-# fetched together for the release now pinned.
+# previous release and reject it against the new signature. Drop it before the
+# new pin lands: no cache beside the old pin only means the next sync downloads
+# it again, but a stale one beside the new pin would outlive a rerun, which
+# finds nothing left to change.
 db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2 }' "$pacman_conf")
 sync_dir="$(root_path "${db_path:-/var/lib/pacman}")/sync"
-sudo rm -f "$sync_dir/omarchy-aurora.db" "$sync_dir/omarchy-aurora.db.sig"
+sudo rm -f "$sync_dir/omarchy-aurora.db" "$sync_dir/omarchy-aurora.db.sig" ||
+  fail "could not remove the cached Aurora database in $sync_dir; pacman.conf is unchanged"
+
+# Staged beside the original so the rename is atomic.
+sudo install -o root -g root -m 0644 "$workdir/pacman.conf" "$pacman_conf.omarchy-aurora"
+sudo mv -f "$pacman_conf.omarchy-aurora" "$pacman_conf"
 
 echo "Pinned the Aurora kernel repository to $tag (backup: $backup)"
 if [[ ${OMARCHY_AURORA_REPOSITORY_STANDALONE:-} == 1 ]]; then

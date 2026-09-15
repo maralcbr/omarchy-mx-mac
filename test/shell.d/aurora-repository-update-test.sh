@@ -182,6 +182,15 @@ SH
 cat >"$stub_bin/sudo" <<'SH'
 #!/bin/bash
 printf 'sudo:%s\n' "$*" >>"$TEST_CALLS"
+if [[ $1 == "rm" && ${TEST_RM_FAIL:-0} == 1 ]]; then
+  echo "rm: cannot remove: Read-only file system" >&2
+  exit 1
+fi
+if [[ $1 == "install" && $* == *.omarchy-aurora && ${TEST_INTERRUPT_INSTALL:-0} == 1 ]]; then
+  # Stop the updater itself, the way a power loss or kill would.
+  kill -KILL "$PPID"
+  exit 1
+fi
 if [[ $1 == "env" ]]; then
   shift
   while [[ $1 == *=* ]]; do export "$1"; shift; done
@@ -532,6 +541,35 @@ run_status
 grep -Fq 'holds m1n1-aurora' "$test_tmp/err" || fail "a glob hold on m1n1-aurora is named" "$(cat "$test_tmp/err")"
 expect_untouched "a current repository with a hold"
 pass "IgnorePkg and IgnoreGroup holds on the Aurora packages are preserved and warned about"
+
+# The cache goes before the new pin lands, so no failure pairs the new pin with
+# a stale database that a rerun would never revisit.
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
+reset_run
+TEST_RM_FAIL=1 run_status
+(( status == 2 )) || fail "a cache that cannot be removed stops the repin" "status $status: $(cat "$test_tmp/err")"
+grep -Fq "could not remove the cached Aurora database in $sync_dir; pacman.conf is unchanged" "$test_tmp/err" ||
+  fail "a failed cache removal is explained" "$(cat "$test_tmp/err")"
+cmp -s "$test_tmp/before" "$pacman_conf" || fail "a failed cache removal leaves pacman.conf byte-identical"
+! grep -Fq "sudo:install -o root -g root -m 0644" "$calls" || fail "a failed cache removal installs no pacman.conf" "$(cat "$calls")"
+reset_run
+run_status
+expect_repinned "the retry after a failed cache removal"
+grep -Fq "sudo:rm -f $sync_dir/omarchy-aurora.db $sync_dir/omarchy-aurora.db.sig" "$calls" || fail "the retry removes the cache" "$(cat "$calls")"
+pass "a cache that cannot be removed leaves pacman.conf alone, and the retry does both"
+
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+reset_run
+{ TEST_INTERRUPT_INSTALL=1 run_status; } 2>/dev/null
+(( status != 0 )) || fail "an interrupted repin does not report success"
+cmp -s "$test_tmp/before" "$pacman_conf" || fail "an interrupted repin leaves the old pacman.conf"
+[[ ! -e $sync_dir/omarchy-aurora.db && ! -e $sync_dir/omarchy-aurora.db.sig ]] || fail "the cache is already gone when the pin is interrupted"
+: >"$calls"
+: >"$curl_log"
+run_status
+expect_repinned "a rerun after an interrupted repin"
+pass "a repin interrupted between the cache removal and the config install is completed by a rerun"
 
 # Run on its own, the updater takes the update lock and says who syncs.
 { options_conf; omarchy_conf; remaining_conf; } >"$pacman_conf"
