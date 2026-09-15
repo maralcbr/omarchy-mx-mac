@@ -13,55 +13,69 @@ struct OnePageInstallerView: View {
   @State private var session: InstallerSession
   @State private var showsShutdownConfirmation = false
   @State private var showsRecoveryRetryConfirmation = false
-  /// The last host and plan seen, so the header and the disk split stay on
-  /// the page through the phases that no longer carry them.
+  /// The last host seen, so the header stays on the page through the phases
+  /// that no longer carry it.
   @State private var host: HostDisplay?
-  @State private var plan: PlanDisplay?
+  @State private var contentHeight: CGFloat = 400
+  /// Which channel this Mac reads. Owned by the scene so the banner always
+  /// names the channel the next preparation will actually fetch.
+  let channel: ReleaseChannel
+  let onChannelAvailability: (Bool) -> Void
+  let onSessionAvailable: (InstallerSession) -> Void
 
-  init(environment: any InstallerEnvironment) {
+  init(
+    environment: any InstallerEnvironment,
+    channel: ReleaseChannel = ReleaseChannelPreference().resolve(
+      descriptorDefault: .stable
+    ),
+    onChannelAvailability: @escaping (Bool) -> Void = { _ in },
+    onSessionAvailable: @escaping (InstallerSession) -> Void = { _ in }
+  ) {
     _session = State(initialValue: InstallerSession(environment: environment))
+    self.channel = channel
+    self.onChannelAvailability = onChannelAvailability
+    self.onSessionAvailable = onSessionAvailable
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      OmarchyWordmark()
-        .frame(maxWidth: 400)
-        .padding(.top, 30)
-        .padding(.bottom, 20)
-
-      header
-        .padding(.bottom, 26)
-
-      if !centresStage {
-        VStack(alignment: .leading, spacing: 14) {
-          stage
+    ScrollView {
+      VStack(spacing: 0) {
+        OmarchyWordmark()
+          .frame(maxWidth: 400)
+          .padding(.top, 24)
+          .padding(.bottom, 16)
+        header.padding(.bottom, 20)
+        VStack(alignment: .leading, spacing: 14) { stage }
+          .frame(maxWidth: 560)
+        HStack(spacing: 16) { actions }
+          .padding(.top, 24)
+          .padding(.bottom, 24)
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.horizontal, 40)
+      .background {
+        GeometryReader { geometry in
+          Color.clear.preference(key: InstallerContentHeight.self, value: geometry.size.height)
         }
-        .frame(maxWidth: 560)
       }
-
-      Spacer(minLength: 16)
-
-      HStack(spacing: 16) {
-        actions
-      }
-      .padding(.bottom, 28)
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .padding(.horizontal, 40)
-    .overlay {
-      if centresStage {
-        VStack(alignment: .leading, spacing: 14) {
-          stage
-        }
-        .frame(maxWidth: 560)
-        .padding(.horizontal, 40)
-      }
+    .frame(height: min(contentHeight, 680))
+    .onPreferenceChange(InstallerContentHeight.self) { height in
+      if height > 0 { contentHeight = height }
     }
     .foregroundStyle(OmarchyTheme.text)
     .background(OmarchyTheme.window)
-    .focusEffectDisabled()
+    .onChange(of: session.canChangeChannel, initial: true) { _, available in
+      onChannelAvailability(available)
+    }
     .task {
+      onSessionAvailable(session)
       await session.inspect()
+    }
+    .onChange(of: channel) { _, _ in
+      // Switching channel discards anything already planned: the new channel
+      // may name a different release entirely.
+      Task { await session.inspect() }
     }
     .onChange(of: scenePhase) { _, phase in
       if phase == .active {
@@ -79,6 +93,8 @@ struct OnePageInstallerView: View {
       if let context = session.credentialSheet.context {
         CredentialSheet(
           context: context,
+          isSimulation: session.isSimulation,
+          approvedSize: approvedSize,
           onCancel: { session.dismissCredentials() },
           onSubmit: { authorization in
             Task { await session.submit(authorization) }
@@ -94,7 +110,6 @@ struct OnePageInstallerView: View {
         onConfirm: {
           showsShutdownConfirmation = false
           session.shutDown()
-          NSApplication.shared.terminate(nil)
         },
         onCancel: { showsShutdownConfirmation = false }
       )
@@ -127,6 +142,7 @@ struct OnePageInstallerView: View {
         } else {
           StatusBadge(text: PlainLanguage.supportedBadge, kind: .ok)
         }
+        StatusBadge(text: PlainLanguage.badge(for: channel), kind: .ok)
       }
       .lineLimit(1)
     } else {
@@ -134,16 +150,6 @@ struct OnePageInstallerView: View {
         .font(.system(size: 14, weight: .semibold))
         .foregroundStyle(OmarchyTheme.secondaryText)
     }
-  }
-
-  /// Only the Recovery steps sit in the exact middle of the window (drawn as
-  /// an overlay so the header and button don't skew them); everything else
-  /// hugs the header.
-  private var centresStage: Bool {
-    if case .awaitingRecovery = session.phase {
-      return true
-    }
-    return false
   }
 
   private var isBlocked: Bool {
@@ -191,8 +197,16 @@ struct OnePageInstallerView: View {
         plan: plan,
         editable: plan.isResizable,
         isBusy: session.isBusy,
-        onSizeChosen: { bytes in Task { await session.replan(omarchyBytes: bytes) } }
+        onSizeChosen: { bytes in
+          session.setAcknowledged(false)
+          Task { await session.replan(omarchyBytes: bytes) }
+        },
+        onEditingChange: { session.setSizeEditing($0) }
       )
+      .id(session.planRevision)
+      if let notice = session.allocationNotice {
+        Text(notice).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
+      }
       acknowledgement(acknowledged)
 
     case .awaitingInstall(let plan, let helper, _):
@@ -202,9 +216,6 @@ struct OnePageInstallerView: View {
       }
 
     case .installing(let progress):
-      if let plan {
-        DiskSplitPanel(plan: plan, editable: false, isBusy: false, onSizeChosen: { _ in })
-      }
       InstallPanel(progress: progress)
 
     case .awaitingRecovery(let handoff):
@@ -258,10 +269,13 @@ struct OnePageInstallerView: View {
         }
       }
       .omarchyPrimaryButton()
-      .disabled(!acknowledged || session.isBusy)
+      .disabled(!acknowledged || session.isBusy || session.isEditingSize)
       .keyboardShortcut(.defaultAction)
 
     case .awaitingInstall:
+      Button("Edit disk size") { session.editPlan() }
+        .omarchySecondaryButton()
+        .disabled(!session.canEditPlan)
       Button(PlainLanguage.planInstall) { session.presentInstallCredentials() }
         .omarchyPrimaryButton()
         .disabled(!session.canStartInstallation)
@@ -278,17 +292,26 @@ struct OnePageInstallerView: View {
         .keyboardShortcut(.defaultAction)
 
     case .done:
-      Button(PlainLanguage.startOver) { Task { await session.inspect() } }
+      Button("Close") { NSApplication.shared.terminate(nil) }
         .omarchySecondaryButton()
 
     case .failed(let failure):
-      Button(PlainLanguage.startOver) { Task { await session.inspect() } }
-        .omarchySecondaryButton()
+      if session.canInspect {
+        Button("Check again") { Task { await session.inspect() } }
+          .omarchySecondaryButton()
+      }
       if failure.retryRecoveryAvailable {
         Button(PlainLanguage.retry) { showsRecoveryRetryConfirmation = true }
           .omarchyPrimaryButton()
           .disabled(!session.canRetryRecoveryAuthorization)
           .keyboardShortcut(.defaultAction)
+      } else if let url = failure.actionURL, let title = failure.actionTitle {
+        Button(title) {
+          if !session.isSimulation { NSWorkspace.shared.open(url) }
+        }
+        .disabled(session.isSimulation)
+        .omarchyPrimaryButton()
+        .keyboardShortcut(.defaultAction)
       }
     }
   }
@@ -327,8 +350,35 @@ struct OnePageInstallerView: View {
             .padding(.top, 2)
         }
         if let technical {
-          TechnicalDetailText(text: technical)
-            .padding(.top, 4)
+          DisclosureGroup("Technical details") {
+            TechnicalDetailText(text: technical)
+            Button("Copy error details") {
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(technical, forType: .string)
+            }
+          }.padding(.top, 4)
+        }
+        if session.hasExecutionStarted {
+          Text(
+            "The previous installation result must be checked before you can start again. Keep your Mac connected to power."
+          )
+          .font(OmarchyTheme.body)
+          DisclosureGroup("Last verified steps") {
+            if session.journal.feed.isEmpty {
+              Text(
+                "No completed disk step was confirmed. Disk changes may still have started."
+              )
+            }
+            Button("Copy installation record") {
+              let record = ([headline, detail, technical ?? ""] + session.journal.feed.map(\.text))
+                .joined(separator: "\n")
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(record, forType: .string)
+            }
+            ForEach(session.journal.feed) { line in
+              Text(line.text).font(OmarchyTheme.caption).textSelection(.enabled)
+            }
+          }
         }
       }
       .padding(.vertical, 2)
@@ -341,6 +391,12 @@ struct OnePageInstallerView: View {
         .font(.system(size: 16, weight: .semibold))
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 2)
+      Text(
+        "To remove it and return its space to macOS, choose Installation → Remove Omarchy from the menu bar."
+      )
+      .font(OmarchyTheme.body)
+      .foregroundStyle(OmarchyTheme.secondaryText)
+      .fixedSize(horizontal: false, vertical: true)
     }
   }
 
@@ -364,7 +420,7 @@ struct OnePageInstallerView: View {
         .onTapGesture { session.setAcknowledged(!acknowledged) }
       Spacer(minLength: 0)
     }
-    .disabled(session.isBusy)
+    .disabled(session.isBusy || session.isEditingSize)
     .padding(.horizontal, 4)
     .padding(.top, 4)
   }
@@ -389,6 +445,9 @@ struct OnePageInstallerView: View {
         .padding(.bottom, 4)
       ForEach(handoff.steps) { step in
         RecoveryStepRow(step: step)
+      }
+      if let message = session.shutdownMessage {
+        Text(message).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
       }
     }
   }
@@ -415,6 +474,11 @@ struct OnePageInstallerView: View {
 
   // MARK: Plumbing
 
+  private var approvedSize: String? {
+    guard case .awaitingInstall(let plan, _, _) = session.phase else { return nil }
+    return PlainLanguage.bytes(plan.omarchyBytes)
+  }
+
   private var credentialSheetBinding: Binding<Bool> {
     Binding(
       get: { session.credentialSheet.context != nil },
@@ -436,9 +500,6 @@ struct OnePageInstallerView: View {
       host = failure.device
     case .inspecting:
       host = nil
-      plan = nil
-    case .planPrepared(let seen, _), .planReview(let seen, _), .awaitingInstall(let seen, _, _):
-      plan = seen
     default:
       break
     }
@@ -519,31 +580,99 @@ private struct DiskSplitPanel: View {
   let editable: Bool
   let isBusy: Bool
   let onSizeChosen: (UInt64) -> Void
+  var onEditingChange: (Bool) -> Void = { _ in }
 
   @State private var exploredOmarchyGB: Double?
-
-  private static let minimumOmarchyGB: Double = 30
+  @State private var sizeInput = DiskSizeInput()
+  @FocusState private var sizeFocused: Bool
 
   var body: some View {
     Panel {
       VStack(alignment: .leading, spacing: 10) {
         HStack(alignment: .firstTextBaseline) {
-          Text("MacOS " + PlainLanguage.bytes(plan.diskTotalBytes - displayedOmarchyBytes))
+          Text(plan.fixedMacOSBytes == nil ? "macOS" : "macOS + free space")
             .font(.system(size: 13.5, weight: .semibold).monospacedDigit())
             .foregroundStyle(OmarchyTheme.accent)
           Spacer(minLength: 8)
-          Text("Omarchy " + PlainLanguage.bytes(displayedOmarchyBytes))
+          Text("Omarchy")
             .font(.system(size: 13.5, weight: .semibold).monospacedDigit())
             .foregroundStyle(OmarchyTheme.accent)
         }
         DiskBar(
-          macOSBytes: plan.diskTotalBytes - displayedOmarchyBytes,
+          macOSBytes: plan.macOSBytes(for: displayedOmarchyBytes),
           omarchyBytes: displayedOmarchyBytes,
+          unallocatedBytes: plan.unallocatedBytes(for: displayedOmarchyBytes),
           onAdjustOmarchyFraction: editable ? { adjust($0) } : nil,
           onCommitOmarchyFraction: editable ? { commit($0) } : nil,
-          isFrozen: isBusy
+          isFrozen: isBusy || sizeInput.isEditing
         )
         .transaction { $0.animation = nil }
+        if editable {
+          VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+              Text("Space for Omarchy").font(OmarchyTheme.body)
+              TextField(
+                "Size",
+                text: Binding(
+                  get: {
+                    sizeInput.isEditing ? sizeInput.text : sizeInput.display(plan.omarchyBytes)
+                  },
+                  set: { value in
+                    beginSizeEdit()
+                    sizeInput.text = value
+                  }
+                )
+              )
+              .textFieldStyle(.roundedBorder)
+              .font(OmarchyTheme.body.monospacedDigit())
+              .frame(width: 62, height: 28)
+              .focused($sizeFocused)
+              .onTapGesture {
+                beginSizeEdit()
+                sizeFocused = true
+              }
+              .accessibilityLabel("Omarchy size in gigabytes")
+              .onSubmit(applySize)
+              .onExitCommand(perform: cancelSize)
+              Text("GB").font(OmarchyTheme.caption)
+              if sizeInput.isEditing {
+                Button(action: applySize) {
+                  Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                }
+                .buttonStyle(SizeEditButtonStyle(tint: OmarchyTheme.success))
+                .accessibilityLabel("Apply size")
+                .help("Apply size (Return)")
+                .disabled(sizeInput.requestedBytes == nil)
+                Button(action: cancelSize) {
+                  Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 28, height: 28)
+                }
+                .buttonStyle(SizeEditButtonStyle(tint: OmarchyTheme.danger))
+                .accessibilityLabel("Cancel size edit")
+                .help("Cancel size edit (Escape)")
+              }
+              Spacer(minLength: 0)
+            }
+            if let message = sizeInput.validationMessage {
+              Text(message).font(OmarchyTheme.caption).foregroundStyle(OmarchyTheme.danger)
+            }
+          }
+          .disabled(isBusy)
+
+        }
+        if plan.fixedMacOSBytes != nil {
+          Text(
+            "\(PlainLanguage.bytes(plan.unallocatedBytes(for: displayedOmarchyBytes))) remains unallocated. macOS keeps its current size."
+          )
+          .font(OmarchyTheme.body)
+        }
+        Text(
+          "Omarchy will use the space shown above. Finish setup in Recovery after restarting."
+        )
+        .font(OmarchyTheme.body)
         if isBusy {
           // A released divider re-plans through the engine, which takes a
           // moment; say so instead of leaving the bar and the tick inert.
@@ -554,12 +683,6 @@ private struct DiskSplitPanel: View {
               .font(OmarchyTheme.caption)
               .foregroundStyle(OmarchyTheme.secondaryText)
           }
-        } else if editable {
-          Text(
-            "Drag the divider to choose how much space Omarchy gets (minimum \(Int(Self.minimumOmarchyGB)) GB)"
-          )
-          .font(OmarchyTheme.caption)
-          .foregroundStyle(OmarchyTheme.secondaryText)
         }
       }
       .padding(.vertical, 4)
@@ -576,20 +699,36 @@ private struct DiskSplitPanel: View {
     return UInt64(exploredOmarchyGB * 1_000_000_000)
   }
 
-  private var maximumOmarchyGB: Double {
-    let totalGB = Double(plan.diskTotalBytes) / 1_000_000_000
-    return max(Self.minimumOmarchyGB + 10, min(800, (totalGB - 120) / 10 * 10).rounded(.down))
+  private func beginSizeEdit() {
+    guard !isBusy && editable else { return }
+    sizeInput.begin(
+      bytes: plan.omarchyBytes, minimum: plan.minimumBytes, maximum: plan.maximumBytes)
+    onEditingChange(true)
+  }
+
+  private func applySize() {
+    guard !isBusy, let chosen = sizeInput.apply() else { return }
+    sizeFocused = false
+    onEditingChange(false)
+    if chosen != plan.omarchyBytes { onSizeChosen(chosen) }
+  }
+
+  private func cancelSize() {
+    sizeInput.cancel()
+    sizeFocused = false
+    onEditingChange(false)
   }
 
   private func adjust(_ fraction: Double) {
-    let totalGB = Double(plan.diskTotalBytes) / 1_000_000_000
-    let steppedGB = ((totalGB * fraction) / 10).rounded() * 10
-    exploredOmarchyGB = min(maximumOmarchyGB, max(Self.minimumOmarchyGB, steppedGB))
+    let requested = Double(plan.diskTotalBytes) * min(1, max(0, fraction))
+    let chosen = min(Double(plan.maximumBytes), max(Double(plan.minimumBytes), requested))
+    exploredOmarchyGB = chosen / 1_000_000_000
   }
 
   private func commit(_ fraction: Double) {
     adjust(fraction)
-    let chosen = displayedOmarchyBytes
+    let rounded = (Double(displayedOmarchyBytes) / 1_000_000_000).rounded() * 1_000_000_000
+    let chosen = min(plan.maximumBytes, max(plan.minimumBytes, UInt64(rounded)))
     if chosen != plan.omarchyBytes {
       onSizeChosen(chosen)
     } else {
@@ -600,27 +739,19 @@ private struct DiskSplitPanel: View {
 
 // MARK: - The install bar
 
-/// One bar for the whole installation: every stage counts equally and the
-/// active stage keeps moving between journal events. A degraded stream
-/// sweeps instead.
+/// Stage count and verified activity describe progress without inventing a
+/// percentage for operations whose duration is unknown.
 private struct InstallPanel: View {
   let progress: InstallProgressDisplay
+  @State private var estimate = InstallationProgressEstimate(
+    expectedSeconds: InstallationTimingHistory.expectedSeconds)
 
   private var stageLabel: String {
     let index = progress.stageIndex
     if progress.stageLabels.indices.contains(index) {
-      return progress.stageLabels[index]
+      return progress.phaseTitle
     }
     return progress.phaseTitle
-  }
-
-  private var overallFraction: Double? {
-    let count = progress.stageFractions.count
-    guard count > 0 else {
-      return nil
-    }
-    let total = progress.stageFractions.reduce(0) { $0 + min(1, max(0, $1)) }
-    return min(1, max(0, total / Double(count)))
   }
 
   var body: some View {
@@ -637,13 +768,38 @@ private struct InstallPanel: View {
               .font(OmarchyTheme.caption.monospacedDigit())
               .foregroundStyle(OmarchyTheme.secondaryText)
           }
-          if let overallFraction {
-            Text("\(Int((overallFraction * 100).rounded()))%")
-              .font(OmarchyTheme.body.monospacedDigit())
-              .foregroundStyle(OmarchyTheme.secondaryText)
+          Text(
+            "Step \(min(progress.stageIndex + 1, progress.stageLabels.count)) of \(progress.stageLabels.count)"
+          )
+          .font(OmarchyTheme.body.monospacedDigit())
+        }
+        TimelineView(.periodic(from: progress.startedAt, by: 1)) { context in
+          let elapsed = max(0, context.date.timeIntervalSince(progress.startedAt))
+          VStack(alignment: .leading, spacing: 6) {
+            ProgressTrack(fraction: estimate.fraction, height: 18)
+            HStack {
+              Text("Estimated progress · \(Int(estimate.fraction * 100))%")
+              Spacer()
+              if let minutes = estimate.remainingMinutes(elapsed: elapsed) {
+                Text("About \(minutes) min remaining")
+              } else {
+                Text("Taking longer than estimated")
+              }
+            }
+            .font(OmarchyTheme.caption.monospacedDigit())
+            .foregroundStyle(OmarchyTheme.secondaryText)
+          }
+          .onChange(of: context.date, initial: true) { _, date in
+            estimate.update(
+              elapsed: date.timeIntervalSince(progress.startedAt),
+              completedStages: progress.stageFractions.filter { $0 >= 1 }.count)
           }
         }
-        ProgressTrack(fraction: progress.degraded ? nil : overallFraction, height: 18)
+        DisclosureGroup("View activity") {
+          ForEach(progress.feed) { line in
+            Text(line.text).font(OmarchyTheme.caption).textSelection(.enabled)
+          }
+        }
         if progress.degraded {
           Text(PlainLanguage.installDegraded)
             .font(OmarchyTheme.caption)
@@ -658,5 +814,48 @@ private struct InstallPanel: View {
   private func elapsed(at date: Date) -> String {
     let seconds = max(0, Int(date.timeIntervalSince(progress.startedAt)))
     return String(format: "%d:%02d", seconds / 60, seconds % 60)
+  }
+}
+
+/// Quiet, keyboard-sized actions that share the editor's terminal palette.
+private struct SizeEditButtonStyle: ButtonStyle {
+  let tint: Color
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    SizeEditButtonBody(configuration: configuration, tint: tint, isEnabled: isEnabled)
+  }
+
+  private struct SizeEditButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let tint: Color
+    let isEnabled: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+      configuration.label
+        .foregroundStyle(isEnabled ? tint : OmarchyTheme.secondaryText.opacity(0.4))
+        .background(
+          RoundedRectangle(cornerRadius: 4)
+            .fill(
+              tint.opacity(
+                isEnabled && configuration.isPressed ? 0.20 : isEnabled && isHovered ? 0.10 : 0))
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 4)
+            .strokeBorder(
+              isEnabled && isHovered ? tint.opacity(0.35) : OmarchyTheme.separator.opacity(0.5),
+              lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+    }
+  }
+}
+
+private struct InstallerContentHeight: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
   }
 }

@@ -5,6 +5,162 @@ import XCTest
 final class InstallerAllocationRecommendationTests: XCTestCase {
   private let gib: UInt64 = 1_073_741_824
 
+  func testResizeCeilingWithholdsADriftMargin() throws {
+    let resize = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: 600 * gib,
+      minimumInstall: 64 * gib,
+      minimumContainer: 200 * gib
+    )
+
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([resize])
+    )
+
+    // 400 GiB of headroom: 5% would be 20 GiB, capped at 8 GiB.
+    XCTAssertEqual(recommendation.maximumBytes, 392 * gib)
+  }
+
+  func testDriftMarginIsFivePercentBelowTheCap() throws {
+    let resize = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: 300 * gib,
+      minimumInstall: 64 * gib,
+      minimumContainer: 200 * gib
+    )
+
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([resize])
+    )
+
+    XCTAssertEqual(recommendation.maximumBytes, 95 * gib)
+  }
+
+  func testDriftMarginAppliesAfterTheHandoffReserve() throws {
+    let resize = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: 300 * gib,
+      minimumInstall: 64 * gib,
+      minimumContainer: 200 * gib
+    )
+
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([resize]),
+      reservedBytes: 10 * gib
+    )
+
+    // 90 GiB after the reserve, 4.5 GiB of it withheld.
+    XCTAssertEqual(recommendation.maximumBytes, 85 * gib + gib / 2)
+  }
+
+  func testFreeExtentKeepsItsFullCeiling() throws {
+    let free = candidate(
+      kind: "free",
+      source: "disk0s3",
+      length: 300 * gib,
+      minimumInstall: 64 * gib
+    )
+
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([free])
+    )
+
+    // A free extent is fixed on the partition map, so nothing is withheld.
+    XCTAssertEqual(recommendation.maximumBytes, 300 * gib)
+  }
+
+  func testTightDiskClampsToMinimumInstallInsteadOfDroppingTheMargin() throws {
+    // 66 GiB of headroom: the full 3.3 GiB margin would fall below the 64 GiB
+    // minimum, so the ceiling keeps the 2 GiB that still fits.
+    let resize = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: 266 * gib,
+      minimumInstall: 64 * gib,
+      minimumContainer: 200 * gib
+    )
+
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([resize])
+    )
+
+    XCTAssertEqual(recommendation.maximumBytes, 64 * gib)
+    XCTAssertEqual(recommendation.requestedLengthBytes, 64 * gib)
+  }
+
+  func testTightDiskClampUsesTheAlignedMinimum() throws {
+    let unit = PinnedAsahiPlanRequest.allocationUnitBytes
+    let resize = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: 266 * gib,
+      minimumInstall: 64 * gib + 1,
+      minimumContainer: 200 * gib
+    )
+
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([resize])
+    )
+
+    XCTAssertEqual(recommendation.minimumBytes, 64 * gib + unit)
+    XCTAssertEqual(recommendation.maximumBytes, 64 * gib + unit)
+  }
+
+  func testDiskAtExactMinimumStaysInstallable() throws {
+    let resize = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: 264 * gib,
+      minimumInstall: 64 * gib,
+      minimumContainer: 200 * gib
+    )
+
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([resize])
+    )
+
+    XCTAssertEqual(recommendation.maximumBytes, 64 * gib)
+  }
+
+  /// The layout that refused four installs on an M2 Max (#120): a 494.4 GB
+  /// container with 383.1 GB of headroom, which installed once approved at
+  /// 370 GB. Execution sees the handoff copies plus 4 GiB of other writes.
+  func testObservedM2MaxLayoutSurvivesHandoffAndChurn() throws {
+    let handoffBytes: UInt64 = 8_492_104_840
+    let resize = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: 494_384_795_648,
+      minimumInstall: 76_562_825_216,
+      minimumContainer: 111_240_282_112
+    )
+
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([resize]),
+      targetBytes: resize.lengthBytes,
+      reservedBytes: handoffBytes
+    )
+
+    XCTAssertLessThan(recommendation.requestedLengthBytes, 370_000_000_000)
+    let executionCandidate = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: resize.lengthBytes,
+      minimumInstall: resize.minimumInstallBytes,
+      minimumContainer: resize.minimumContainerBytes + handoffBytes + 4 * gib
+    )
+    XCTAssertNoThrow(
+      try PinnedAsahiPlanRequest(
+        inventory: inventory([executionCandidate]),
+        candidate: executionCandidate,
+        requestedLengthBytes: recommendation.requestedLengthBytes
+      )
+    )
+  }
+
   func testPrefersFreeExtentAndBalancedTarget() throws {
     let resize = candidate(
       kind: "resize",
@@ -67,6 +223,84 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
         $0 as? InstallerAllocationRecommendationError,
         .noEligibleCandidate
       )
+    }
+  }
+
+  func testResizeMaximumLeavesRoomForHandoffCopiesBeforeApproval() throws {
+    let resize = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: 494_384_795_648,
+      minimumInstall: 76_562_825_216,
+      minimumContainer: 118_385_364_992
+    )
+    let oldMaximum: UInt64 = 375_999_430_656
+    let handoffBytes: UInt64 = 8_492_104_840
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([resize]),
+      targetBytes: oldMaximum,
+      reservedBytes: handoffBytes
+    )
+
+    XCTAssertEqual(recommendation.candidate, resize)
+    XCTAssertEqual(recommendation.requestedLengthBytes, recommendation.maximumBytes)
+    XCTAssertEqual(recommendation.maximumBytes % PinnedAsahiPlanRequest.allocationUnitBytes, 0)
+    XCTAssertGreaterThanOrEqual(
+      resize.lengthBytes - resize.minimumContainerBytes - recommendation.maximumBytes,
+      handoffBytes
+    )
+
+    // The reported failure: helper import raised the minimum after review.
+    let executionCandidate = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: resize.lengthBytes,
+      minimumInstall: resize.minimumInstallBytes,
+      minimumContainer: 122_248_232_960
+    )
+    XCTAssertThrowsError(
+      try PinnedAsahiPlanRequest(
+        inventory: inventory([executionCandidate]), candidate: executionCandidate,
+        requestedLengthBytes: oldMaximum
+      )
+    )
+    XCTAssertNoThrow(
+      try PinnedAsahiPlanRequest(
+        inventory: inventory([executionCandidate]), candidate: executionCandidate,
+        requestedLengthBytes: recommendation.requestedLengthBytes
+      )
+    )
+  }
+
+  func testHandoffReserveDoesNotReduceAlreadyFreeExtent() throws {
+    let free = candidate(
+      kind: "free", source: "disk0s3", length: 100 * gib,
+      minimumInstall: 64 * gib
+    )
+    let recommendation = try InstallerAllocationRecommendation(
+      inventory: inventory([free]), targetBytes: 100 * gib,
+      reservedBytes: UInt64.max
+    )
+
+    XCTAssertEqual(recommendation.maximumBytes, 100 * gib)
+    XCTAssertEqual(recommendation.requestedLengthBytes, 100 * gib)
+  }
+
+  func testResizeReserveCannotUnderflowOrViolateInstallMinimum() {
+    let resize = candidate(
+      kind: "resize", source: "disk0s2", length: 200 * gib,
+      minimumInstall: 64 * gib, minimumContainer: 100 * gib
+    )
+    for reserve in [37 * gib, 100 * gib, UInt64.max] {
+      XCTAssertThrowsError(
+        try InstallerAllocationRecommendation(
+          inventory: inventory([resize]), reservedBytes: reserve
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? InstallerAllocationRecommendationError, .noEligibleCandidate
+        )
+      }
     }
   }
 

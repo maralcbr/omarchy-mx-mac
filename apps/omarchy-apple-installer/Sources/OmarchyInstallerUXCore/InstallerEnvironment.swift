@@ -68,6 +68,11 @@
     public let diskTotalBytes: UInt64
     public let omarchyBytes: UInt64
     public let bindingDigest: String
+    public let minimumBytes: UInt64
+    public let maximumBytes: UInt64
+    public let releaseDescription: String
+    public let targetDescription: String
+    public let fixedMacOSBytes: UInt64?
     /// Whether the user may choose Omarchy's size. A replace plan removes an
     /// existing install and reuses its exact extent, so there is nothing to
     /// drag; showing a divider there invites a re-plan the engine refuses.
@@ -77,12 +82,32 @@
       diskTotalBytes: UInt64,
       omarchyBytes: UInt64,
       bindingDigest: String,
-      isResizable: Bool = true
+      isResizable: Bool = true,
+      minimumBytes: UInt64? = nil,
+      maximumBytes: UInt64? = nil,
+      releaseDescription: String = "Verified release",
+      targetDescription: String = "Internal storage",
+      fixedMacOSBytes: UInt64? = nil
     ) {
       self.diskTotalBytes = diskTotalBytes
       self.omarchyBytes = omarchyBytes
       self.bindingDigest = bindingDigest
-      self.isResizable = isResizable
+      self.minimumBytes = minimumBytes ?? omarchyBytes
+      self.maximumBytes = maximumBytes ?? omarchyBytes
+      self.releaseDescription = releaseDescription
+      self.targetDescription = targetDescription
+      self.fixedMacOSBytes = fixedMacOSBytes
+      self.isResizable = isResizable && self.minimumBytes < self.maximumBytes
+    }
+  }
+
+  extension PlanDisplay {
+    public func macOSBytes(for allocation: UInt64) -> UInt64 {
+      fixedMacOSBytes ?? (diskTotalBytes - min(diskTotalBytes, allocation))
+    }
+    public func unallocatedBytes(for allocation: UInt64) -> UInt64 {
+      let remaining = diskTotalBytes - min(diskTotalBytes, macOSBytes(for: allocation))
+      return remaining - min(remaining, allocation)
     }
   }
 
@@ -265,6 +290,10 @@
     public let retryRecoveryAvailable: Bool
     public let isBlockedModel: Bool
     public let device: HostDisplay?
+    /// A page the person should open to get themselves unstuck, when one
+    /// exists — today only the current installer download.
+    public let actionURL: URL?
+    public let actionTitle: String?
 
     public init(
       headline: String,
@@ -273,7 +302,9 @@
       remedy: String? = nil,
       retryRecoveryAvailable: Bool = false,
       isBlockedModel: Bool = false,
-      device: HostDisplay? = nil
+      device: HostDisplay? = nil,
+      actionURL: URL? = nil,
+      actionTitle: String? = nil
     ) {
       self.headline = headline
       self.plainDetail = plainDetail
@@ -282,6 +313,8 @@
       self.retryRecoveryAvailable = retryRecoveryAvailable
       self.isBlockedModel = isBlockedModel
       self.device = device
+      self.actionURL = actionURL
+      self.actionTitle = actionTitle
     }
   }
 
@@ -338,6 +371,7 @@
   /// review, approval, release configuration); the preview implementation
   /// replays a recorded journal. Neither ever hands a credential back.
   public protocol InstallerEnvironment: Sendable {
+    var isSimulation: Bool { get }
     func inspect() async throws -> HostDisplay
     /// `omarchyBytes` asks the planner for that much space for Omarchy; nil
     /// keeps the balanced default. The engine still clamps the request to the
@@ -370,6 +404,7 @@
   }
 
   extension InstallerEnvironment {
+    public var isSimulation: Bool { false }
     public func requestShutdown() -> Bool { false }
   }
 #endif

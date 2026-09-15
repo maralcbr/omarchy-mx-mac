@@ -8,6 +8,7 @@
     public let trustRoot: AppOwnedTrustRoot
     public let validationTime: Date
     public let previouslyAcceptedCatalog: AcceptedCatalogIdentity?
+    public let installerVersion: InstallerVersion?
     public let stagingDirectory: URL
 
     public init(
@@ -17,6 +18,7 @@
       trustRoot: AppOwnedTrustRoot,
       validationTime: Date,
       previouslyAcceptedCatalog: AcceptedCatalogIdentity? = nil,
+      installerVersion: InstallerVersion? = nil,
       stagingDirectory: URL
     ) {
       self.host = host
@@ -25,6 +27,7 @@
       self.trustRoot = trustRoot
       self.validationTime = validationTime
       self.previouslyAcceptedCatalog = previouslyAcceptedCatalog
+      self.installerVersion = installerVersion
       self.stagingDirectory = stagingDirectory
     }
   }
@@ -36,6 +39,25 @@
     public let metadata: StagedInstallerArtifact
     public let payload: StagedInstallerArtifact
     public let repairManifest: StagedInstallerArtifact?
+    public let installerCompatibility: InstallerCompatibility?
+
+    /// Downloads are already staged when the disk is inspected. Leave room
+    /// for the app handoff's full-copy fallback and the helper's verified copy,
+    /// both of which remain on macOS while the engine checks resize limits.
+    public var additionalHandoffBytes: UInt64 {
+      let artifacts = [engine, metadata, payload] + (repairManifest.map { [$0] } ?? [])
+      var total: UInt64 = 0
+      for staged in artifacts {
+        let (copies, copyOverflow) = staged.artifact.expectedSizeBytes.multipliedReportingOverflow(
+          by: 2)
+        let (sum, sumOverflow) = total.addingReportingOverflow(copies)
+        guard !copyOverflow, !sumOverflow else {
+          return UInt64.max
+        }
+        total = sum
+      }
+      return total
+    }
 
     public init(
       catalogIdentity: AcceptedCatalogIdentity,
@@ -43,7 +65,8 @@
       engine: StagedInstallerArtifact,
       metadata: StagedInstallerArtifact,
       payload: StagedInstallerArtifact,
-      repairManifest: StagedInstallerArtifact? = nil
+      repairManifest: StagedInstallerArtifact? = nil,
+      installerCompatibility: InstallerCompatibility? = nil
     ) {
       self.catalogIdentity = catalogIdentity
       self.installer = installer
@@ -51,6 +74,7 @@
       self.metadata = metadata
       self.payload = payload
       self.repairManifest = repairManifest
+      self.installerCompatibility = installerCompatibility
     }
   }
 
@@ -58,6 +82,11 @@
     case hostBlocked(String)
     case unsupportedDevice(String)
     case deliveryMetadataUnavailable
+    case installerOutdated(
+      current: InstallerVersion,
+      minimum: InstallerVersion,
+      downloadURL: URL
+    )
   }
 
   public struct InstallerAssetPreparer: Sendable {
@@ -78,7 +107,8 @@
 
     public func prepare(
       _ request: InstallerAssetPreparationRequest,
-      progress: ArtifactStagingProgressHandler? = nil
+      progress: ArtifactStagingProgressHandler? = nil,
+      previouslyPrepared: PreparedInstallerAssets? = nil
     ) async throws -> PreparedInstallerAssets {
       let deviceIdentifier = try validateHost(request.host)
 
@@ -89,6 +119,16 @@
         now: request.validationTime,
         previouslyAccepted: request.previouslyAcceptedCatalog
       )
+      if let compatibility = catalog.installerCompatibility,
+        let current = request.installerVersion,
+        !compatibility.accepts(current)
+      {
+        throw InstallerAssetPreparationError.installerOutdated(
+          current: current,
+          minimum: compatibility.minimumVersion,
+          downloadURL: compatibility.downloadURL
+        )
+      }
       guard
         case .admitted(let installer) = catalog.admission(
           for: deviceIdentifier
@@ -99,25 +139,59 @@
       guard let delivery = installer.delivery else {
         throw InstallerAssetPreparationError.deliveryMetadataUnavailable
       }
+      // Two releases can name an artifact identically (every channel ships an
+      // installer_data.json) with different bytes. Staging by release keeps a
+      // channel switch from tripping over the previous channel's download.
+      let stagingDirectory = try Self.releaseStagingDirectory(
+        for: installer,
+        in: request.stagingDirectory
+      )
+
+      if let previous = previouslyPrepared, previous.installer == installer {
+        let artifacts =
+          [previous.engine, previous.metadata, previous.payload]
+          + (previous.repairManifest.map { [$0] } ?? [])
+        let available = artifacts.allSatisfy { staged in
+          guard
+            staged.fileURL.deletingLastPathComponent().standardizedFileURL
+              == stagingDirectory.standardizedFileURL,
+            let values = try? staged.fileURL.resourceValues(forKeys: [
+              .isRegularFileKey, .fileSizeKey,
+            ]),
+            values.isRegularFile == true,
+            let size = values.fileSize, size >= 0
+          else { return false }
+          return UInt64(size) == staged.artifact.expectedSizeBytes
+        }
+        if available {
+          // Reuse for planning only. Handoff and root import still verify bytes.
+          return PreparedInstallerAssets(
+            catalogIdentity: catalog.acceptedIdentity, installer: installer,
+            engine: previous.engine, metadata: previous.metadata, payload: previous.payload,
+            repairManifest: previous.repairManifest,
+            installerCompatibility: catalog.installerCompatibility
+          )
+        }
+      }
 
       async let engine = stager.stage(
         delivery.engine,
-        in: request.stagingDirectory,
+        in: stagingDirectory,
         progress: progress
       )
       async let metadata = stager.stage(
         delivery.metadata,
-        in: request.stagingDirectory,
+        in: stagingDirectory,
         progress: progress
       )
       async let payload = stager.stage(
         delivery.payload,
-        in: request.stagingDirectory,
+        in: stagingDirectory,
         progress: progress
       )
       async let repairManifest = stageRepairManifest(
         delivery.repairManifest,
-        in: request.stagingDirectory,
+        in: stagingDirectory,
         progress: progress
       )
 
@@ -127,8 +201,22 @@
         engine: try await engine,
         metadata: try await metadata,
         payload: try await payload,
-        repairManifest: try await repairManifest
+        repairManifest: try await repairManifest,
+        installerCompatibility: catalog.installerCompatibility
       )
+    }
+
+    static func releaseStagingDirectory(
+      for installer: PinnedInstallerRecord,
+      in stagingDirectory: URL
+    ) throws -> URL {
+      let revision = installer.evidenceRevision
+      guard revision.range(of: "^[0-9a-z][0-9a-z.-]*$", options: .regularExpression) != nil,
+        revision != ".", revision != ".."
+      else {
+        throw InstallerAssetPreparationError.deliveryMetadataUnavailable
+      }
+      return stagingDirectory.appendingPathComponent(revision, isDirectory: true)
     }
 
     private func stageRepairManifest(

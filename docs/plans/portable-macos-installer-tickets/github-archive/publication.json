@@ -1,0 +1,96 @@
+{
+  "parent": "https://github.com/maralcbr/omarchy-mx-mac/issues/88",
+  "tickets": {
+    "1": {
+      "number": 89,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/89",
+      "title": "Prove temporary privileges from a downloaded app",
+      "blocked_by": [],
+      "verified": true
+    },
+    "2": {
+      "number": 90,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/90",
+      "title": "Run an approved installation through the temporary worker",
+      "blocked_by": [
+        89
+      ],
+      "verified": true
+    },
+    "3": {
+      "number": 91,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/91",
+      "title": "Recognize unfinished installations when the app reopens",
+      "blocked_by": [
+        90
+      ],
+      "verified": true
+    },
+    "4": {
+      "number": 92,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/92",
+      "title": "Stop safely when the installer quits or loses its UI",
+      "blocked_by": [
+        91
+      ],
+      "verified": true
+    },
+    "5": {
+      "number": 93,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/93",
+      "title": "Start over after interrupted target preparation",
+      "blocked_by": [
+        91
+      ],
+      "verified": true
+    },
+    "6": {
+      "number": 94,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/94",
+      "title": "Start over after partial partition or payload installation",
+      "blocked_by": [
+        93
+      ],
+      "verified": true
+    },
+    "7": {
+      "number": 95,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/95",
+      "title": "Build the portable ZIP and Homebrew review candidate",
+      "blocked_by": [
+        92,
+        94
+      ],
+      "verified": true
+    },
+    "8": {
+      "number": 96,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/96",
+      "title": "Qualify installation and Start over on supported hardware",
+      "blocked_by": [
+        95
+      ],
+      "verified": true
+    },
+    "9": {
+      "number": 97,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/97",
+      "title": "Publish the qualified ZIP as the direct download",
+      "blocked_by": [
+        96
+      ],
+      "verified": true
+    },
+    "10": {
+      "number": 98,
+      "url": "https://github.com/maralcbr/omarchy-mx-mac/issues/98",
+      "title": "Submit and validate central Homebrew Cask distribution",
+      "blocked_by": [
+        97
+      ],
+      "verified": true
+    }
+  },
+  "parent_unchanged": true,
+  "status": "published-and-verified"
+}

@@ -8,6 +8,40 @@
   final class InstallerAssetPreparerTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_788_000_000)
 
+    func testTwoReleasesShareOneStagingDirectoryWithoutColliding() async throws {
+      // rc and rc-aurora both deliver an installer_data.json, with different
+      // bytes. A tester who tries one channel and then the other must not be
+      // refused because the first channel's file is still staged.
+      let first = try makeFixture(
+        schemaVersion: 2, metadataContent: "asahi metadata",
+        evidenceRevision: "4.0.2-mac.1.20260907")
+      let second = try makeFixture(
+        schemaVersion: 2, metadataContent: "aurora metadata",
+        evidenceRevision: "4.0.2-mac.1.20260907-aurora")
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+
+      let one = try await first.preparer.prepare(first.request(stagingDirectory: directory))
+      let two = try await second.preparer.prepare(
+        second.request(stagingDirectory: directory), previouslyPrepared: one)
+      let back = try await first.preparer.prepare(
+        first.request(stagingDirectory: directory), previouslyPrepared: two)
+      XCTAssertEqual(try Data(contentsOf: back.metadata.fileURL), first.metadata)
+      let firstDownloads = await first.downloader.downloadCount
+      let secondDownloads = await second.downloader.downloadCount
+      XCTAssertEqual(firstDownloads, 3)
+      XCTAssertEqual(secondDownloads, 3)
+
+      XCTAssertEqual(try Data(contentsOf: one.metadata.fileURL), first.metadata)
+      XCTAssertEqual(try Data(contentsOf: two.metadata.fileURL), second.metadata)
+      XCTAssertNotEqual(one.metadata.fileURL, two.metadata.fileURL)
+      XCTAssertEqual(
+        one.metadata.fileURL.deletingLastPathComponent().lastPathComponent, "4.0.2-mac.1.20260907")
+      XCTAssertEqual(
+        two.metadata.fileURL.deletingLastPathComponent().lastPathComponent,
+        "4.0.2-mac.1.20260907-aurora")
+    }
+
     func testSignedSchemaTwoCatalogStagesExactAdmittedAssets() async throws {
       let fixture = try makeFixture(schemaVersion: 2)
       let directory = temporaryDirectory()
@@ -26,6 +60,67 @@
       let maximumConcurrentDownloads = await fixture.downloader.maximumConcurrentDownloads
       XCTAssertEqual(downloadCount, 3)
       XCTAssertEqual(maximumConcurrentDownloads, 3)
+    }
+
+    func testHandoffReserveIncludesBothCopiesOfPreparedArtifacts() async throws {
+      let fixture = try makeFixture(schemaVersion: 2)
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let assets = try await fixture.preparer.prepare(fixture.request(stagingDirectory: directory))
+
+      XCTAssertEqual(
+        assets.additionalHandoffBytes,
+        2 * UInt64(fixture.engine.count + fixture.metadata.count + fixture.payload.count)
+      )
+    }
+
+    func testHandoffReserveOverflowCannotAdvertiseUsableSpace() async throws {
+      let fixture = try makeFixture(schemaVersion: 2)
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let assets = try await fixture.preparer.prepare(fixture.request(stagingDirectory: directory))
+
+      // Cover overflow in both the copy count and the sum of artifact sizes.
+      for size in [UInt64.max, UInt64.max / 2] {
+        let payload = try PinnedInstallerArtifact(
+          role: "payload", sourceURL: assets.payload.artifact.sourceURL,
+          fileName: assets.payload.artifact.fileName,
+          expectedDigest: assets.payload.artifact.expectedDigest, expectedSizeBytes: size
+        )
+        let oversized = PreparedInstallerAssets(
+          catalogIdentity: assets.catalogIdentity, installer: assets.installer,
+          engine: assets.engine, metadata: assets.metadata,
+          payload: StagedInstallerArtifact(
+            artifact: payload, fileURL: assets.payload.fileURL, reusedExistingFile: false
+          )
+        )
+        XCTAssertEqual(oversized.additionalHandoffBytes, UInt64.max)
+      }
+    }
+
+    func testReplanReusesAssetsButStillRejectsExpiredCatalog() async throws {
+      let fixture = try makeFixture(schemaVersion: 2)
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let request = fixture.request(stagingDirectory: directory)
+      let first = try await fixture.preparer.prepare(request)
+      let recorder = AssetStagingProgressRecorder()
+      let second = try await fixture.preparer.prepare(
+        request, progress: recorder.handler, previouslyPrepared: first)
+      XCTAssertTrue(recorder.events.isEmpty, "Replanning must not rehash already prepared assets")
+      XCTAssertEqual(first.payload.fileURL, second.payload.fileURL)
+      let expired = InstallerAssetPreparationRequest(
+        host: request.host, catalogPayload: request.catalogPayload,
+        catalogSignature: request.catalogSignature, trustRoot: request.trustRoot,
+        validationTime: now.addingTimeInterval(365 * 86400),
+        stagingDirectory: directory
+      )
+      do {
+        _ = try await fixture.preparer.prepare(expired, previouslyPrepared: first)
+        XCTFail("Reused assets must not bypass current catalog validation")
+      } catch {}
+      let count = await fixture.downloader.downloadCount
+      XCTAssertEqual(count, 3)
     }
 
     func testSignedRepairCatalogStagesExactRepairManifest() async throws {
@@ -65,6 +160,7 @@
         InstallerReleasePreparationRequest(
           host: fixture.host,
           configuration: fixture.releaseConfiguration,
+          channel: .stable,
           validationTime: now,
           stagingDirectory: directory
         )
@@ -75,8 +171,118 @@
       XCTAssertEqual(try Data(contentsOf: result.payload.fileURL), fixture.payload)
       let releaseDownloadCount = await fixture.releaseDownloader.downloadCount
       let artifactDownloadCount = await fixture.downloader.downloadCount
-      XCTAssertEqual(releaseDownloadCount, 2)
+      // The catalog and its signature arrive as one envelope object, so a
+      // channel update can never be read half-applied.
+      XCTAssertEqual(releaseDownloadCount, 1)
       XCTAssertEqual(artifactDownloadCount, 3)
+    }
+
+    func testAnOutdatedInstallerIsRefusedBeforeAnythingIsDownloaded()
+      async throws
+    {
+      let fixture = try makeFixture(
+        schemaVersion: 2,
+        installerMinimumVersion: "2.0.0"
+      )
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let coordinator = InstallerReleaseAssetCoordinator(
+        catalogFetcher: InstallerReleaseCatalogFetcher(
+          downloader: fixture.releaseDownloader
+        ),
+        assetPreparer: fixture.preparer
+      )
+
+      await assertAssetPreparationThrows(
+        try await coordinator.prepare(
+          InstallerReleasePreparationRequest(
+            host: fixture.host,
+            configuration: fixture.releaseConfiguration,
+            channel: .stable,
+            validationTime: now,
+            installerVersion: InstallerVersion("1.9.9"),
+            stagingDirectory: directory
+          )
+        )
+      ) {
+        XCTAssertEqual(
+          $0 as? InstallerAssetPreparationError,
+          .installerOutdated(
+            current: InstallerVersion("1.9.9")!,
+            minimum: InstallerVersion("2.0.0")!,
+            downloadURL: URL(
+              string:
+                "https://downloads.example.com/installer/stable/Installer.pkg"
+            )!
+          )
+        )
+      }
+
+      let artifactDownloadCount = await fixture.downloader.downloadCount
+      XCTAssertEqual(artifactDownloadCount, 0)
+    }
+
+    func testAnInstallerAtTheMinimumVersionProceeds() async throws {
+      let fixture = try makeFixture(
+        schemaVersion: 2,
+        installerMinimumVersion: "2.0.0"
+      )
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let coordinator = InstallerReleaseAssetCoordinator(
+        catalogFetcher: InstallerReleaseCatalogFetcher(
+          downloader: fixture.releaseDownloader
+        ),
+        assetPreparer: fixture.preparer
+      )
+
+      let result = try await coordinator.prepare(
+        InstallerReleasePreparationRequest(
+          host: fixture.host,
+          configuration: fixture.releaseConfiguration,
+          channel: .stable,
+          validationTime: now,
+          installerVersion: InstallerVersion("2.0.0"),
+          stagingDirectory: directory
+        )
+      )
+
+      XCTAssertEqual(
+        result.installerCompatibility?.minimumVersion,
+        InstallerVersion("2.0.0")
+      )
+    }
+
+    func testAnUnknownInstallerVersionSkipsTheCompatibilityCheck()
+      async throws
+    {
+      // A bare SwiftPM build has no bundle version. That must never be
+      // mistaken for an out-of-date installer.
+      let fixture = try makeFixture(
+        schemaVersion: 2,
+        installerMinimumVersion: "9.0.0"
+      )
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let coordinator = InstallerReleaseAssetCoordinator(
+        catalogFetcher: InstallerReleaseCatalogFetcher(
+          downloader: fixture.releaseDownloader
+        ),
+        assetPreparer: fixture.preparer
+      )
+
+      let result = try await coordinator.prepare(
+        InstallerReleasePreparationRequest(
+          host: fixture.host,
+          configuration: fixture.releaseConfiguration,
+          channel: .stable,
+          validationTime: now,
+          installerVersion: nil,
+          stagingDirectory: directory
+        )
+      )
+
+      XCTAssertEqual(result.catalogIdentity.sequence, 30)
     }
 
     func testReleaseCoordinatorBlocksM4BeforeCatalogNetwork() async throws {
@@ -101,6 +307,7 @@
           InstallerReleasePreparationRequest(
             host: fixture.host,
             configuration: fixture.releaseConfiguration,
+            channel: .stable,
             validationTime: now,
             stagingDirectory: directory
           )
@@ -234,10 +441,13 @@
       schemaVersion: Int,
       host: AppleSiliconHostInspection? = nil,
       invalidateSignature: Bool = false,
-      omitEngineVersion: Bool = false
+      omitEngineVersion: Bool = false,
+      installerMinimumVersion: String? = nil,
+      metadataContent: String = "installer metadata",
+      evidenceRevision: String = "evidence-s4"
     ) throws -> AssetPreparationFixture {
       let engine = Data("engine archive".utf8)
-      let metadata = Data("installer metadata".utf8)
+      let metadata = Data(metadataContent.utf8)
       let payload = Data("omarchy payload".utf8)
       let repairManifest = Data("{\"operation\":\"repair-installed-system\"}".utf8)
       var artifacts = [
@@ -256,7 +466,9 @@
         metadata: metadata,
         payload: payload,
         repairManifest: repairManifest,
-        omitEngineVersion: omitEngineVersion
+        installerMinimumVersion: installerMinimumVersion,
+        omitEngineVersion: omitEngineVersion,
+        evidenceRevision: evidenceRevision
       )
       let signature = try privateKey.signature(for: payloadData)
       let deliveredSignature =
@@ -268,19 +480,30 @@
         rawRepresentation: publicKey,
         expectedFingerprint: digest(publicKey)
       )
-      let catalogURL = URL(
-        string: "https://releases.example.com/apple/catalog.json"
+      let stableURL = URL(
+        string: "https://releases.example.com/channels/stable/catalog.signed.json"
       )!
-      let signatureURL = URL(
-        string: "https://releases.example.com/apple/catalog.json.sig"
+      let rcURL = URL(
+        string: "https://releases.example.com/channels/rc/catalog.signed.json"
       )!
+      let envelope = Data(
+        """
+        {"schema_version":1,"catalog":"\(payloadData.base64EncodedString())","signature":"\(deliveredSignature.base64EncodedString())"}
+        """.utf8
+      )
       let releaseDownloader = ReleaseCatalogFixtureDownloader(values: [
-        catalogURL: payloadData,
-        signatureURL: deliveredSignature,
+        stableURL: envelope,
+        rcURL: envelope,
       ])
       let releaseConfiguration = InstallerReleaseConfiguration(
-        catalogURL: catalogURL,
-        catalogSignatureURL: signatureURL,
+        channels: ReleaseChannelEndpoints(endpoints: [
+          .stable: stableURL,
+          .rc: rcURL,
+          .rcAurora: URL(
+            string: "https://releases.example.com/channels/rc-aurora/catalog.signed.json"
+          )!,
+        ])!,
+        defaultChannel: .stable,
         trustRoot: trustRoot,
         helperMachServiceName: "com.omarchy.apple-installer.helper",
         helperCodeSigningRequirement:
@@ -316,7 +539,9 @@
       metadata: Data,
       payload: Data,
       repairManifest: Data,
-      omitEngineVersion: Bool
+      installerMinimumVersion: String? = nil,
+      omitEngineVersion: Bool,
+      evidenceRevision: String = "evidence-s4"
     ) -> Data {
       let issued = ISO8601DateFormatter().string(
         from: now.addingTimeInterval(-3_600)
@@ -338,9 +563,13 @@
         \(engineVersion),"engineArtifact":{"sourceURL":"https://downloads.example.com/engine.tar.gz","fileName":"engine.tar.gz","sizeBytes":\(engine.count)},"metadataArtifact":{"sourceURL":"https://downloads.example.com/installer-data.json","fileName":"installer-data.json","sizeBytes":\(metadata.count)},"payloadArtifact":{"sourceURL":"https://downloads.example.com/omarchy.img.zst","fileName":"omarchy.img.zst","sizeBytes":\(payload.count)}\(repairDelivery)
         """
         : ""
+      let installer =
+        installerMinimumVersion.map {
+          ",\"installer\":{\"minimumVersion\":\"\($0)\",\"latestVersion\":\"9.9.9\",\"downloadURL\":\"https://downloads.example.com/installer/stable/Installer.pkg\"}"
+        } ?? ""
       return Data(
         """
-        {"schemaVersion":\(schemaVersion),"sequence":30,"issuedAt":"\(issued)","expiresAt":"\(expires)","models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineDigest":"\(digest(engine))","metadataDigest":"\(digest(metadata))","payloadDigest":"\(digest(payload))","evidenceRevision":"evidence-s4"\(delivery)}]}
+        {"schemaVersion":\(schemaVersion),"sequence":30,"issuedAt":"\(issued)","expiresAt":"\(expires)"\(installer),"models":[{"deviceIdentifier":"apple,j314s","status":"enabled","asahiInstallerTag":"v0.9.0","asahiInstallerRevision":"\(String(repeating: "a", count: 40))","asahiInstallerDataRevision":"\(String(repeating: "b", count: 40))","downstreamRevision":"\(String(repeating: "c", count: 40))","engineDigest":"\(digest(engine))","metadataDigest":"\(digest(metadata))","payloadDigest":"\(digest(payload))","evidenceRevision":"\(evidenceRevision)"\(delivery)}]}
         """.utf8
       )
     }

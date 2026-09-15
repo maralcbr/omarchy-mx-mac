@@ -73,6 +73,7 @@ struct StatusBadge: View {
 struct DiskBar: View {
   let macOSBytes: UInt64
   let omarchyBytes: UInt64
+  var unallocatedBytes: UInt64 = 0
   /// When set, the divider between the segments is draggable and reports the
   /// Omarchy share of the disk (0...1) as it moves.
   var onAdjustOmarchyFraction: ((Double) -> Void)?
@@ -84,14 +85,14 @@ struct DiskBar: View {
 
   var body: some View {
     GeometryReader { geometry in
-      let total = max(1, Double(macOSBytes + omarchyBytes))
+      let total = max(1, Double(macOSBytes + omarchyBytes + unallocatedBytes))
       let width = geometry.size.width
       let omarchyWidth = width * Double(omarchyBytes) / total
       ZStack(alignment: .leading) {
         HStack(spacing: 0) {
           segment(
-            name: "MacOS",
-            bytes: macOSBytes,
+            name: unallocatedBytes > 0 ? "macOS and free space" : "macOS",
+            bytes: macOSBytes + unallocatedBytes,
             width: width - omarchyWidth,
             background: OmarchyTheme.track,
             foreground: OmarchyTheme.secondaryText
@@ -135,6 +136,21 @@ struct DiskBar: View {
     .frame(height: 24)
     .clipShape(RoundedRectangle(cornerRadius: 8))
     .accessibilityElement(children: .combine)
+    .accessibilityLabel("Disk space")
+    .accessibilityValue(
+      "macOS \(PlainLanguage.bytes(macOSBytes)), Omarchy \(PlainLanguage.bytes(omarchyBytes)), unallocated \(PlainLanguage.bytes(unallocatedBytes))"
+    )
+    .accessibilityAdjustableAction { direction in
+      guard !isFrozen else { return }
+      let total = max(1, Double(macOSBytes + omarchyBytes + unallocatedBytes))
+      let change: Double
+      switch direction {
+      case .increment: change = 1_000_000_000
+      case .decrement: change = -1_000_000_000
+      @unknown default: return
+      }
+      onCommitOmarchyFraction?(min(1, max(0, (Double(omarchyBytes) + change) / total)))
+    }
   }
 
   private func segment(
@@ -146,7 +162,7 @@ struct DiskBar: View {
   ) -> some View {
     ZStack {
       background
-      // Just the amount of space; the colour says which side is which.
+      // Center each live capacity in the full area on its side of the handle.
       Text(PlainLanguage.bytes(bytes))
         .accessibilityLabel(name + " " + PlainLanguage.bytes(bytes))
         .font(.system(size: 10.5, weight: .semibold))
@@ -163,6 +179,7 @@ struct ProgressTrack: View {
   var height: CGFloat = 6
 
   @State private var sweep = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     GeometryReader { geometry in
@@ -182,7 +199,7 @@ struct ProgressTrack: View {
               .easeInOut(duration: 1.1).repeatForever(autoreverses: true),
               value: sweep
             )
-            .onAppear { sweep = true }
+            .onAppear { sweep = !reduceMotion }
         }
       }
     }

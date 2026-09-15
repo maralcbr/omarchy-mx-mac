@@ -6,6 +6,32 @@
   @testable import OmarchyInstallerUXCore
 
   final class PlainLanguageTests: XCTestCase {
+    func testChannelBadgesDistinguishStableRCAndAurora() {
+      XCTAssertEqual(PlainLanguage.badge(for: .stable), "Stable")
+      XCTAssertEqual(PlainLanguage.badge(for: .rc), "Release candidate")
+      XCTAssertEqual(PlainLanguage.badge(for: .rcAurora), "RC (Aurora)")
+    }
+
+    func testAllocationNoticeIgnoresByteAlignmentAtDisplayedPrecision() {
+      XCTAssertNil(
+        PlainLanguage.allocationNotice(
+          requestedBytes: 180_000_000_000, actualBytes: 179_999_604_736))
+      XCTAssertNil(
+        PlainLanguage.allocationNotice(
+          requestedBytes: 180_000_000_000, actualBytes: 180_000_000_000))
+    }
+
+    func testAllocationNoticeDescribesActualChangeWithoutClaimingDiskIsFull() {
+      XCTAssertEqual(
+        PlainLanguage.allocationNotice(
+          requestedBytes: 650_000_000_000, actualBytes: 137_438_953_472),
+        "Space for Omarchy changed from 650 GB to 137 GB. Review the updated size before installing."
+      )
+      XCTAssertEqual(
+        PlainLanguage.allocationNotice(requestedBytes: 70_000_000_000, actualBytes: 80_000_000_000),
+        "Space for Omarchy changed from 70 GB to 80 GB. Review the updated size before installing.")
+    }
+
     func testEveryPhaseHasADistinctTitle() {
       let phases = [
         "preflight", "existing_removal", "apfs_preparation", "stub_and_esp",
@@ -30,7 +56,8 @@
         XCTAssertFalse(PlainLanguage.eventSummary(event).isEmpty)
       }
       XCTAssertNil(PlainLanguage.installPhaseTitle(forEvent: "unknown_event"))
-      XCTAssertEqual(PlainLanguage.eventSummary("odd_name"), "odd name")
+      XCTAssertEqual(
+        PlainLanguage.eventSummary("odd_name"), "Additional installation activity (odd_name)")
     }
 
     func testEveryCheckpointHasAPlainSummary() {
@@ -42,7 +69,8 @@
 
       XCTAssertEqual(Set(summaries).count, identifiers.count)
       XCTAssertTrue(summaries.allSatisfy { !$0.isEmpty })
-      XCTAssertEqual(PlainLanguage.checkpointSummary("unknown"), "unknown")
+      XCTAssertEqual(
+        PlainLanguage.checkpointSummary("unknown"), "Additional installation activity (unknown)")
     }
 
     func testEveryNextActionHasAMessage() {
@@ -65,7 +93,10 @@
 
       let unknown = PlainLanguage.recoverySteps(for: ["somethingNew"])
       XCTAssertEqual(unknown.count, 1)
-      XCTAssertEqual(unknown.first?.title, "somethingNew")
+      XCTAssertEqual(
+        unknown.first?.title,
+        "Unsupported Recovery instruction: somethingNew. Save the installation record and get support before continuing."
+      )
 
       XCTAssertEqual(PlainLanguage.recoverySteps(for: []).count, 3)
     }
@@ -81,6 +112,9 @@
         ArtifactStageError.digestMismatch(expected: "a", actual: "b"),
         InstallerReleaseConfigurationError.releaseResourcesUnavailable,
         SupportCatalogError.expired,
+        InstallerAssetPreparationError.hostBlocked("not enabled"),
+        InstallerAssetPreparationError.unsupportedDevice("apple,j614s"),
+        InstallerAssetPreparationError.deliveryMetadataUnavailable,
         InstallerAppErrorStub.unknown,
       ]
 
@@ -93,6 +127,67 @@
         headlines.insert(failure.headline)
       }
       XCTAssertGreaterThanOrEqual(headlines.count, 8)
+    }
+
+    func testAnOutdatedInstallerOffersTheDownloadItNeeds() {
+      let url = URL(
+        string: "https://downloads.example.com/installer/stable/Installer.pkg"
+      )!
+      let failure = PlainLanguage.failure(
+        for: InstallerAssetPreparationError.installerOutdated(
+          current: InstallerVersion("1.9.9")!,
+          minimum: InstallerVersion("2.0.0")!,
+          downloadURL: url
+        )
+      )
+
+      XCTAssertEqual(failure.headline, "This installer is out of date")
+      XCTAssertTrue(failure.plainDetail.contains("2.0.0"))
+      XCTAssertTrue(failure.plainDetail.contains("1.9.9"))
+      XCTAssertTrue(failure.plainDetail.contains("requires installer"))
+      XCTAssertEqual(failure.actionURL, url)
+      XCTAssertEqual(failure.actionTitle, PlainLanguage.downloadInstaller)
+      XCTAssertFalse(failure.retryRecoveryAvailable)
+    }
+
+    func testFailuresWithoutAnActionCarryNoLink() {
+      let failure = PlainLanguage.failure(for: SupportCatalogError.expired)
+
+      XCTAssertNil(failure.actionURL)
+      XCTAssertNil(failure.actionTitle)
+    }
+
+    func testAnEmptyChannelSaysSoInsteadOfShowingAStatusCode() {
+      let failure = PlainLanguage.failure(
+        for: InstallerReleaseConfigurationError.unexpectedHTTPStatus(404)
+      )
+
+      XCTAssertEqual(failure.headline, "No release is available on this channel")
+      XCTAssertTrue(failure.plainDetail.contains("No downloadable release"))
+      XCTAssertFalse(failure.plainDetail.contains("404"))
+      XCTAssertFalse(failure.headline.contains("404"))
+      XCTAssertEqual(
+        failure.technicalDetail,
+        String(describing: InstallerReleaseConfigurationError.unexpectedHTTPStatus(404))
+      )
+      XCTAssertTrue(try XCTUnwrap(failure.remedy).contains("release channel"))
+    }
+
+    func testOtherServerFailuresAreDistinctFromAnEmptyChannel() {
+      let failure = PlainLanguage.failure(
+        for: InstallerReleaseConfigurationError.unexpectedHTTPStatus(503)
+      )
+
+      XCTAssertEqual(failure.headline, "The release server returned an error")
+      XCTAssertFalse(failure.plainDetail.contains("503"))
+    }
+
+    func testAnUnreadableReleaseIsExplainedPlainly() {
+      let failure = PlainLanguage.failure(
+        for: InstallerReleaseConfigurationError.invalidCatalogEnvelope
+      )
+
+      XCTAssertEqual(failure.headline, "The release couldn’t be verified")
     }
 
     func testRetryEligibleFailureIsFlaggedAndExplained() {

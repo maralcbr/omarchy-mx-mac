@@ -32,9 +32,10 @@ Do not proceed past a failed invariant.
 - Target only validated `aarch64` Apple hardware, currently `apple,j314s`.
 - Preserve `linux-asahi`, GRUB, `/boot/vmlinuz-linux-asahi`, `[asahi-alarm]`,
   `[core]`, `[extra]`, `[alarm]`, `[aur]`, NetworkManager with `wifi.backend=iwd`,
-  and disabled swap, zram, and zswap.
+  no disk swap, and disabled zswap. Omarchy's swap on zram and its reclaim
+  sysctls are allowed; they only configure memory.
 - Never activate x86 kernels, Limine, mkinitcpio boot policy, NVIDIA/Intel GPU
-  policy, multilib, zram, zswap, reclaim tuning, or USB autosuspend on Asahi.
+  policy, multilib, zswap, systemd-oomd tuning, or USB autosuspend on Asahi.
 - Review every new migration and explicitly mark its Asahi disposition as
   `run`, `handled`, or `skipped`; unknown migrations fail closed.
 - Never resolve conflicts by moving protected boot, pacman, GRUB, mkinitcpio,

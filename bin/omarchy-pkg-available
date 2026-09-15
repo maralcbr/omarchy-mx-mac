@@ -1,10 +1,8 @@
 #!/bin/bash
 
-# omarchy:summary=Returns true if all named packages exist in the configured pacman repositories
+# omarchy:summary=Check whether all explicit targets are available in the configured repositories
 # omarchy:args=<packages...>
 
-for pkg in "$@"; do
-  pacman -Si "$pkg" &>/dev/null || exit 1
-done
-
-exit 0
+source "$OMARCHY_PATH/install/helpers/optional-packages.sh" || exit 1
+declare -F omarchy-pkg-available omarchy-install-available __omarchy_optional_load __omarchy_optional_targets >/dev/null || exit 1
+omarchy-pkg-available "$@"

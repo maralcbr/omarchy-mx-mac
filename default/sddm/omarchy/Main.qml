@@ -1,4 +1,5 @@
 import QtQuick 2.0
+import QtQuick.Window 2.15 as QtWindow
 import SddmComponents 2.0
 
 Rectangle {
@@ -21,13 +22,23 @@ Rectangle {
   Connections {
     target: sddm
     function onLoginFailed() {
-      root.loginFailed = true
       password.text = ""
-      password.focus = true
+      root.loginFailed = true
+      password.forceActiveFocus()
     }
     function onLoginSucceeded() {
       root.loginFailed = false
     }
+  }
+
+  MouseArea {
+    anchors.fill: parent
+    onClicked: password.forceActiveFocus()
+  }
+
+  QtWindow.Window.onActiveChanged: {
+    if (QtWindow.Window.active)
+      password.forceActiveFocus()
   }
 
   Column {
@@ -65,21 +76,16 @@ Rectangle {
           anchors.centerIn: parent
         }
 
-        Row {
-          anchors.left: parent.left
+        Text {
+          anchors.fill: parent
           anchors.leftMargin: 20
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: 5
-
-          Repeater {
-            model: Math.min(password.text.length, 21)
-
-            Image {
-              source: "bullet.png"
-              width: 7
-              height: 7
-            }
-          }
+          anchors.rightMargin: 20
+          verticalAlignment: Text.AlignVCenter
+          visible: password.text.length === 0
+          text: root.QtWindow.Window.active ? "Password" : "Click to type here"
+          color: "#9aa5ce"
+          font.family: "JetBrainsMono Nerd Font"
+          font.pixelSize: 18
         }
 
         TextInput {
@@ -93,15 +99,17 @@ Rectangle {
           font.pixelSize: 24
           font.letterSpacing: 5
           passwordCharacter: "\u2022"
-          color: "transparent"
-          selectionColor: "transparent"
-          selectedTextColor: "transparent"
-          cursorDelegate: Item {}
+          passwordMaskDelay: 0
+          color: "#c0caf5"
+          selectionColor: "#414868"
+          selectedTextColor: "#c0caf5"
+          clip: true
+          cursorVisible: activeFocus && root.QtWindow.Window.active
           focus: true
 
           onTextChanged: root.loginFailed = false
 
-          Keys.onPressed: {
+          Keys.onPressed: function(event) {
             if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
               sddm.login(root.currentUser, password.text, root.sessionIndex)
               event.accepted = true

@@ -1,0 +1,73 @@
+[
+  {
+    "number": 98,
+    "exit_code": 1,
+    "output": "GraphQL: Unauthorized: As an Enterprise Managed User, you cannot access this content (deleteIssue)\n"
+  },
+  {
+    "number": 98,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 97,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 96,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 95,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 94,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 93,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 92,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 91,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 90,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 89,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  },
+  {
+    "number": 88,
+    "account": "maralcbr",
+    "exit_code": 0,
+    "output": ""
+  }
+]

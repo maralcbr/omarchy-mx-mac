@@ -12,58 +12,68 @@
     // MARK: Screen A — Check
 
     public static let checkSubheadline =
-      "After the installation you will be able to boot start Omarchy or MacOS."
+      "When setup is complete, you can choose Omarchy or macOS at startup."
     public static let checkContinue = "Continue"
     public static let checkAgain = "Check again"
     public static let inspectingHeadline = "Checking this Mac"
     public static let inspectingSubheadline =
-      "Reading the model, MacOS version, power, FileVault, and free space."
+      "Checking your Mac model, macOS version, power connection, FileVault, and available disk space."
 
     // MARK: Screen A2 — Existing install
 
-    public static let existingInstallHeadline = "Omarchy is already installed on this Mac."
+    public static let existingInstallHeadline = "Omarchy is already installed"
     public static let closeInstaller = "Close"
 
     // MARK: Screen B — Plan
 
-    public static let replanning = "Updating the plan for that size…"
+    public static func allocationNotice(requestedBytes: UInt64, actualBytes: UInt64) -> String? {
+      let formatter = DiskSizeInput()
+      let requested = formatter.display(requestedBytes)
+      let actual = formatter.display(actualBytes)
+      // Disk alignment changes bytes without changing the whole GB the user chose.
+      guard requested != actual else { return nil }
+      return
+        "Space for Omarchy changed from \(requested) GB to \(actual) GB. Review the updated size before installing."
+    }
+
+    public static let replanning = "Checking the new size…"
     public static let planAcknowledgement =
-      "I am ready to partition my ssd and install."
+      "I have a current backup and approve the disk sizes shown above."
     public static let planInstall = "Install"
-    public static let downloadingPackagesTitle = "Downloading the Omarchy packages"
+    public static let downloadingPackagesTitle = "Downloading installation files"
 
     public static func preparingStageTitle(
       _ stage: AssetProgressUpdate.Stage
     ) -> String {
       switch stage {
-      case .fetchingCatalog: "Checking the signed catalog…"
-      case .downloading: "Downloading verified files…"
-      case .inspectingEngine: "Asking the pinned engine about this disk…"
-      case .planning: "Building the exact plan…"
+      case .fetchingCatalog: "Checking the signed release…"
+      case .downloading: "Downloading installation files…"
+      case .inspectingEngine: "Checking disk compatibility…"
+      case .planning: "Preparing your installation plan…"
       }
     }
 
     // MARK: Screen C — Authorize
 
     public static let authorizeTitle =
-      "Authorize the changes"
-    public static let authorizeRetryTitle = "Retry Recovery authorization."
-    public static let authorizeUsernameLabel = "Username"
-    public static let authorizeChecking = "Verifying"
+      "Authorize installation"
+    public static let authorizeRetryTitle = "Authorize the Recovery step"
+    public static let authorizeUsernameLabel = "macOS account name"
+    public static let authorizeChecking = "Checking your credentials…"
     public static let authorizeStillWorking =
-      "Still working. Once the password is accepted the installer package is prepared, which takes a few minutes."
-    public static let authorizePasswordLabel = "Password"
+      "This can take a few minutes. After your credentials are accepted, the installer prepares the installation package."
+    public static let authorizePasswordLabel = "macOS login password"
     public static let authorizeCancel = "Cancel"
     public static let authorizeRetryAction = "Authorize"
     public static let authorizeRejected =
-      "The user name or password is not correct."
+      "The account name or password wasn’t accepted."
 
     // MARK: Confirmation dialogs (preserved verbatim)
 
     public static let recoveryRetryConfirmationTitle =
-      "Retry only Recovery authorization?"
+      "Retry the Recovery authorization step?"
     public static let recoveryRetryConfirmationBody =
-      "The helper will revalidate the exact plan, artifacts, disk extent, and completed read-back checkpoint, then rerun only Apple’s boot-policy authorization. It cannot resize, repartition, or rewrite the installed system."
+      "The installer will verify the approved plan, installation files, disk location, and completed checkpoint before retrying Apple’s boot authorization. This retry cannot resize the disk, change partitions, or rewrite the installed system."
     public static let recoveryRetryConfirmationAction =
       "Retry Recovery authorization"
     public static let cancel = "Cancel"
@@ -71,23 +81,24 @@
     // MARK: Screen D — Install
 
     public static let installWarning =
-      "Keep the lid open and power connected."
+      "Keep your Mac open and connected to power."
     public static let installDegraded =
-      "Live progress is unavailable. The installation continues; the sealed journal is still verified when it finishes."
-    public static let installVerifyingOwner = "Verifying machine owner…"
+      "Live progress is unavailable. The installer will verify the installation record when it receives a result."
+    public static let installVerifyingOwner = "Checking your macOS account…"
     public static let installStageLabels = [
-      "Prepare space", "Boot files", "Recovery handoff",
+      "Preparing disk space", "Installing boot files",
+      "Preparing the Recovery step",
     ]
 
     public static func installPhaseTitle(forPhase phase: String?) -> String {
       switch phase {
       case "preflight": "Checking the disk…"
-      case "existing_removal": "Removing the old Omarchy…"
-      case "apfs_preparation": "Preparing space…"
+      case "existing_removal": "Removing the previous Omarchy installation…"
+      case "apfs_preparation": "Preparing disk space…"
       case "stub_and_esp": "Writing boot files…"
-      case "awaiting_recovery": "Handing off to Recovery…"
-      case "boot_policy": "Setting the boot policy…"
-      case "media_handoff": "Handing off installation media…"
+      case "awaiting_recovery": "Preparing the Recovery step…"
+      case "boot_policy": "Authorizing startup…"
+      case "media_handoff": "Preparing installation media…"
       case "omarchy_install": "Installing Omarchy…"
       default: installVerifyingOwner
       }
@@ -95,43 +106,43 @@
 
     public static func installPhaseTitle(forEvent event: String?) -> String? {
       switch event {
-      case "existing_removal_started": "Removing the old Omarchy…"
-      case "apfs_preparation_started": "Preparing space…"
+      case "existing_removal_started": "Removing the previous Omarchy installation…"
+      case "apfs_preparation_started": "Preparing disk space…"
       case "stub_and_esp_started": "Writing boot files…"
-      case "recovery_handoff_started": "Handing off to Recovery…"
+      case "recovery_handoff_started": "Preparing the Recovery step…"
       default: nil
       }
     }
 
     public static func checkpointSummary(_ identifier: String) -> String {
       switch identifier {
-      case "existing-install-removed": "The old Omarchy is removed"
-      case "apfs-target-prepared": "Space for Omarchy is reserved"
-      case "stub-and-esp-installed": "Boot files are written and verified"
-      case "recovery-handoff-prepared": "Ready for the Recovery step"
-      default: identifier
+      case "existing-install-removed": "Previous Omarchy installation removed"
+      case "apfs-target-prepared": "Disk space reserved for Omarchy"
+      case "stub-and-esp-installed": "Installation files written"
+      case "recovery-handoff-prepared": "Ready for Recovery"
+      default: "Additional installation activity (\(identifier))"
       }
     }
 
     public static func eventSummary(_ name: String) -> String {
       switch name {
-      case "existing_removal_started": "Started removing the old Omarchy"
-      case "apfs_preparation_started": "Started preparing space"
+      case "existing_removal_started": "Started removing the previous Omarchy installation"
+      case "apfs_preparation_started": "Started preparing disk space"
       case "stub_and_esp_started": "Started writing boot files"
-      case "recovery_handoff_started": "Started the Recovery handoff"
-      default: name.replacingOccurrences(of: "_", with: " ")
+      case "recovery_handoff_started": "Started preparing the Recovery step"
+      default: "Additional installation activity (\(name))"
       }
     }
 
     // MARK: Screen E — Recovery
 
-    public static let recoveryHeadline = "Follow the steps below to install"
-    public static let recoveryShutDown = "Shutdown your Mac"
+    public static let recoveryHeadline = "Finish setup in Recovery"
+    public static let recoveryShutDown = "Shut down"
     public static let shutdownConfirmationTitle = "Shut down this Mac now?"
     public static let shutdownConfirmationBody =
-      "After it turns off, hold the power button until “Loading startup options” appears, then pick Omarchy → Finish Installation and sign in."
-    public static let shutdownConfirmationAction = "Shut Down"
-    public static let mediaHeadline = "Attach the installation media"
+      "Save your work before shutting down. When your Mac is off, hold the power button until “Loading startup options” appears. Choose Omarchy → Finish Installation, then sign in with your macOS account."
+    public static let shutdownConfirmationAction = "Shut down"
+    public static let mediaHeadline = "Connect the installation media"
 
     /// Numbered plain-language steps for the signed `requiredHumanSteps`
     /// tokens. Unknown tokens are surfaced rather than dropped.
@@ -148,17 +159,20 @@
         switch token {
         case "enterOneTrueRecovery":
           append("Shut down")
-          append("After the Mac is off, hold the power button until startup options appear")
+          append(
+            "When your Mac is off, press and hold the power button until startup options appear.")
         case "authenticateMachineOwner":
-          append("Pick Omarchy → Finish Installation")
+          append("Choose Omarchy → Finish Installation, then sign in with your macOS account.")
         default:
-          append(token)
+          append(
+            "Unsupported Recovery instruction: \(token). Save the installation record and get support before continuing."
+          )
         }
       }
       if steps.isEmpty {
         append("Shut down")
-        append("Hold the power button")
-        append("Pick Omarchy → Finish Installation")
+        append("Hold the power button until startup options appear.")
+        append("Choose Omarchy → Finish Installation, then sign in with your macOS account.")
       }
       return steps
     }
@@ -167,14 +181,28 @@
 
     public static let doneHeadline = "Omarchy is installed"
     public static let startOver = "Start over"
+    public static let downloadInstaller = "Download the installer"
+    public static let rcBadge = "Release candidate"
+    public static let rcAuroraBadge = "RC (Aurora)"
+    public static let channelMenuTitle = "Release channel"
+    public static let channelStable = "Stable"
+    public static let channelRC = "Release candidate"
+    public static let channelRCAurora = "RC (Aurora)"
+
+    public static func badge(for channel: ReleaseChannel) -> String {
+      switch channel {
+      case .stable: channelStable
+      case .rc: rcBadge
+      case .rcAurora: rcAuroraBadge
+      }
+    }
+
     public static let doneVerifiedRows = [
-      PlanFactRow(label: "Boot chain", value: "m1n1 → U-Boot → GRUB → Omarchy"),
+      PlanFactRow(label: "Startup sequence", value: "m1n1 → U-Boot → GRUB → Omarchy"),
       PlanFactRow(
-        label: "Read-back",
-        value: "installed files re-hashed and matched"
+        label: "File verification",
+        value: "Release verified; installation files written"
       ),
-      PlanFactRow(label: "MacOS", value: "untouched, full security"),
-      PlanFactRow(label: "Recovery", value: "partition intact"),
     ]
 
     public static func nextActionMessage(
@@ -182,15 +210,15 @@
     ) -> String {
       switch action {
       case .continueInstallation:
-        "The helper accepted the exact plan and installation is continuing."
+        "Your approved plan was accepted. Installation is continuing."
       case .enterRecovery:
-        "The complete Omarchy system is installed. Shut down, hold the power button to enter 1TR Recovery, then run Finish Installation to establish boot policy."
+        "Omarchy’s files are installed. Finish setup in Recovery to allow your Mac to start Omarchy."
       case .attachInstallationMedia:
-        "Preparation completed. Attach the verified installation media to continue."
+        "Preparation is complete. Connect the verified installation media to continue."
       case .verifyInstalledSystem:
-        "Installation completed. Boot and verify the installed Omarchy system."
+        "Installation is complete. Start Omarchy and check that it works."
       case .manualRecovery:
-        "The engine stopped safely and requires manual recovery before continuing."
+        "Installation needs manual recovery before it can continue."
       }
     }
 
@@ -198,38 +226,38 @@
 
     public static let blockedHeadline = "This Mac isn’t supported yet"
     public static let blockedSubheadline =
-      "Each model is tested and signed off individually. Nothing was downloaded or changed."
+      "This Mac model has not been approved for this release."
     public static let blockedExplainer =
-      "The model list is signed and fails closed. Updates can remove a model, never add one. New models arrive only in a new signed release, after physical testing."
-    public static let blockedBadge = "Blocked"
+      "Each Mac model requires physical testing before it is included in a signed installer release. Catalog updates can withdraw support; adding a model requires a new signed release."
+    public static let blockedBadge = "Not supported"
     public static let notReadyHeadline = "This Mac isn’t ready yet"
     public static let notReadyDetail =
-      "Nothing was downloaded or changed. The pinned engine could not confirm this Mac."
+      "The installer couldn’t confirm that this Mac meets the installation requirements."
     public static let supportedBadge = "Supported"
 
     // MARK: Errors
 
-    public static let retry = "Retry…"
+    public static let retry = "Try again"
 
     /// Shown when the pre-installed system daemon is missing. The remedy is to
     /// run the installer package again — never to open Login Items.
     public static let helperNotInstalled =
-      "The privileged helper is not installed. Run the Omarchy installer package again to install it, then reopen this app."
+      "The system installation service is missing. Run the Omarchy installer package again, then reopen this app."
 
     public static let engineUnavailable =
-      "Pinned validation engine is not available in this build. Installation remains locked."
+      "This build is missing the required validation engine. Installation is unavailable."
     public static let engineIdentityMismatch =
-      "Pinned engine identity did not match this Mac. Installation remains locked."
+      "The validation engine failed an identity check. Installation is unavailable."
     public static let releaseResourcesUnavailable =
-      "This build has no sealed production release identity. Installation remains locked."
+      "This build is missing a verified production release identity. Installation is unavailable."
     public static let planChangedBeforeApproval =
-      "The plan changed before approval. Prepare and review it again."
+      "The installation plan changed. Prepare and review the new plan before continuing."
     public static let approvalUnavailable =
-      "The approved plan or enabled helper is no longer available. Prepare and review the plan again."
+      "The approved plan or installation service is no longer available. Prepare and review the plan again."
     public static let retryCheckpointUnavailable =
-      "The exact Recovery retry checkpoint is no longer available. Installation remains stopped."
+      "The verified checkpoint needed to retry Recovery authorization is unavailable. Installation remains stopped."
     public static let inspectionRequired =
-      "Read-only host and engine inspection must complete first."
+      "Complete the Mac and disk checks before continuing."
 
     /// Maps a thrown error to the four-part failure card the screens render.
     /// `technicalDetail` always preserves `String(describing:)` so nothing is
@@ -244,10 +272,10 @@
         return FailureDisplay(
           headline: "Recovery authorization didn’t complete",
           plainDetail:
-            "The disk work finished and was verified. MacOS still boots. Retry the last step.",
+            "Disk preparation and file installation were verified. Retry the Recovery authorization step.",
           technicalDetail: technical,
           remedy:
-            "Re-enter the machine-owner password to retry only the checkpoint-bound boot-policy handoff.",
+            "Enter the authorized macOS account password again. Only the Recovery authorization step will be retried.",
           retryRecoveryAvailable: true
         )
       }
@@ -258,58 +286,62 @@
           return FailureDisplay(
             headline: authorizeRejected,
             plainDetail:
-              "Nothing was changed. The helper checks the password before any disk work starts.",
+              "Your credentials were rejected before this request could change the disk.",
             technicalDetail: technical,
-            remedy: "Enter the machine owner’s MacOS user name and password again."
+            remedy:
+              "Enter the account name and password of a macOS account authorized to install on this Mac."
           )
         case .recoveryAuthorizationFailed:
           return FailureDisplay(
             headline: "Recovery authorization didn’t complete",
             plainDetail:
-              "The disk work finished and was verified. MacOS still boots.",
+              "Disk preparation and file installation were verified. Recovery authorization is still required.",
             technicalDetail: technical,
             remedy: "Retry only the Recovery authorization step."
           )
         case .helperUnresponsive:
           return FailureDisplay(
-            headline: "The privileged helper is not responding",
+            headline: "The installation service isn’t responding",
             plainDetail:
-              "Nothing was changed. The helper was asked to start but did not answer, which usually means its installation is broken.",
+              "The app couldn’t get a response from the installation service. Installation has not started.",
             technicalDetail: technical,
-            remedy: "Reinstall the Omarchy installer package, then reopen this app."
+            remedy: "Run the Omarchy installer package again, then reopen this app."
           )
         case .connectionFailed:
           return FailureDisplay(
-            headline: "The privileged helper is not reachable",
+            headline: "Connection to the installation service was lost",
             plainDetail:
-              "Nothing was changed. The helper is installed by the Omarchy installer package and runs as a system service.",
+              "Disk changes may have started. The app cannot yet confirm the installation result.",
             technicalDetail: technical,
-            remedy: "Run the Omarchy installer package again, then try again."
+            remedy:
+              "Keep your Mac connected to power. Save the error details and check the verified installation record before trying again."
           )
         case .helperRejected(let domain, let code):
           let busy = ClosedEngineHelperError.busy as NSError
           if domain == busy.domain, code == busy.code {
             return FailureDisplay(
-              headline: "An installation appears to be in progress",
+              headline: "An installation may already be running",
               plainDetail:
-                "Do not power off this Mac. Quit the app and reopen it later; the running installation keeps its own journal.",
+                "Keep your Mac powered on. An installation may still be running; check its installation record before starting another attempt.",
               technicalDetail: technical
             )
           }
           return FailureDisplay(
-            headline: "The privileged helper refused this request",
+            headline: "The installation service couldn’t complete the request",
             plainDetail:
-              "Nothing was changed. The helper revalidates the plan, the artifacts, and this Mac before doing any work.",
+              "The service returned an error. The app cannot confirm whether disk changes have started.",
             technicalDetail: technical,
-            remedy: "Prepare and review the plan again."
+            remedy:
+              "Save the error details and check the verified installation record before trying again."
           )
         default:
           return FailureDisplay(
-            headline: "The installation could not start",
+            headline: "The installation result is unknown",
             plainDetail:
-              "Nothing was changed. The request was rejected before any disk work.",
+              "The installation service did not return a verified result. Disk changes may have started.",
             technicalDetail: technical,
-            remedy: "Prepare and review the plan again."
+            remedy:
+              "Save the error details and check the verified installation record before trying again."
           )
         }
       }
@@ -318,15 +350,15 @@
         switch helper {
         case .busy:
           return FailureDisplay(
-            headline: "An installation appears to be in progress",
+            headline: "An installation may already be running",
             plainDetail:
-              "Do not power off this Mac. Quit the app and reopen it later.",
+              "Keep your Mac powered on. Check the existing installation before trying again.",
             technicalDetail: technical
           )
         case .invalidMachineOwnerCredentials:
           return FailureDisplay(
             headline: authorizeRejected,
-            plainDetail: "Nothing was changed.",
+            plainDetail: "This request did not change the disk.",
             technicalDetail: technical
           )
         case .unsupportedDevice(let identifier):
@@ -334,18 +366,33 @@
             headline: blockedHeadline,
             plainDetail: blockedSubheadline,
             technicalDetail: technical,
-            remedy: "Model \(identifier) is not in the signed catalog.",
+            remedy: "This release does not support Mac model \(identifier).",
             isBlockedModel: true
           )
         default:
           return FailureDisplay(
-            headline: "The privileged helper stopped the installation",
+            headline: "The installation service reported an error",
             plainDetail:
-              "The engine transcript did not match the approved plan, so nothing continued.",
+              "Check the last verified installation step to see what completed.",
             technicalDetail: technical,
-            remedy: "Prepare and review the plan again."
+            remedy:
+              "Save the error details and check the verified installation record before trying again."
           )
         }
+      }
+
+      if error is InstallerAllocationRecommendationError {
+        return FailureDisplay(
+          headline: "There isn’t enough usable disk space",
+          plainDetail:
+            "The installer couldn’t find a disk allocation that meets its requirements. The disk has not been changed.",
+          technicalDetail: technical, remedy: "Free up space in macOS, then check again.")
+      }
+      if error is URLError {
+        return FailureDisplay(
+          headline: "The network request didn’t finish",
+          plainDetail: "Check your internet connection before continuing.",
+          technicalDetail: technical, remedy: "Check your internet connection, then try again.")
       }
 
       if let preparation = error as? InstallerPlanPreparationError {
@@ -359,11 +406,50 @@
           )
         default:
           return FailureDisplay(
-            headline: "The plan could not be built",
+            headline: "An installation plan couldn’t be prepared",
             plainDetail:
-              "Nothing was downloaded or changed beyond verified files. The pinned engine did not offer a usable place for Omarchy.",
+              "The installer couldn’t prepare a valid disk plan. Installation has not started.",
             technicalDetail: technical,
-            remedy: "Free up space in MacOS, then check again."
+            remedy: "Review the error details, then check this Mac again."
+          )
+        }
+      }
+
+      if let preparation = error as? InstallerAssetPreparationError {
+        switch preparation {
+        case .installerOutdated(let current, let minimum, let downloadURL):
+          return FailureDisplay(
+            headline: "This installer is out of date",
+            plainDetail:
+              "This release requires installer \(minimum) or later. You’re using \(current).",
+            technicalDetail: technical,
+            remedy:
+              "Download and run the latest installer package, then reopen this app.",
+            actionURL: downloadURL,
+            actionTitle: downloadInstaller
+          )
+        case .hostBlocked(let reason):
+          return FailureDisplay(
+            headline: "This Mac isn’t supported yet",
+            plainDetail: reason,
+            technicalDetail: technical,
+            isBlockedModel: true
+          )
+        case .unsupportedDevice(let identifier):
+          return FailureDisplay(
+            headline: "This release doesn’t support this Mac",
+            plainDetail:
+              "Mac model \(identifier) is not listed in this release’s signed support catalog.",
+            technicalDetail: technical,
+            isBlockedModel: true
+          )
+        case .deliveryMetadataUnavailable:
+          return FailureDisplay(
+            headline: "Installation files aren’t listed for this Mac",
+            plainDetail:
+              "The signed release supports this Mac but doesn’t provide its installation file details. Installation cannot continue.",
+            technicalDetail: technical,
+            remedy: "Check again later."
           )
         }
       }
@@ -373,48 +459,82 @@
         case .digestMismatch, .sizeMismatch, .destinationConflict,
           .partSizeSumMismatch:
           return FailureDisplay(
-            headline: "A downloaded file did not match the signed catalog",
+            headline: "An installation file couldn’t be verified",
             plainDetail:
-              "The file was discarded. Nothing was installed and nothing was changed.",
+              "The file did not pass verification. Installation cannot continue.",
             technicalDetail: technical,
-            remedy: "Check again to download the files fresh."
+            remedy: "Try downloading the installation files again."
           )
         default:
           return FailureDisplay(
-            headline: "The verified download did not complete",
-            plainDetail: "Nothing was installed and nothing was changed.",
+            headline: "The installation files couldn’t be prepared",
+            plainDetail: "Installation has not started.",
             technicalDetail: technical,
-            remedy: "Check your network connection and try again."
+            remedy: "Review the error details, then try again."
           )
         }
       }
 
-      if let configuration = error as? InstallerReleaseConfigurationError,
-        configuration == .releaseResourcesUnavailable
-      {
-        return FailureDisplay(
-          headline: "This build cannot install anything",
-          plainDetail: releaseResourcesUnavailable,
-          technicalDetail: technical
-        )
+      if let configuration = error as? InstallerReleaseConfigurationError {
+        switch configuration {
+        case .releaseResourcesUnavailable:
+          return FailureDisplay(
+            headline: "Installation is unavailable in this build",
+            plainDetail: releaseResourcesUnavailable,
+            technicalDetail: technical
+          )
+        case .unexpectedHTTPStatus(404):
+          return FailureDisplay(
+            headline: "No release is available on this channel",
+            plainDetail:
+              "No downloadable release was found on the selected channel.",
+            technicalDetail: technical,
+            remedy:
+              "Choose another release channel from the menu bar, or check again later."
+          )
+        case .unexpectedHTTPStatus:
+          return FailureDisplay(
+            headline: "The release server returned an error",
+            plainDetail: "Installation has not started.",
+            technicalDetail: technical,
+            remedy: "Review the error details, then try again."
+          )
+        case .invalidCatalogEnvelope, .invalidCatalogSignature,
+          .oversizedDocument:
+          return FailureDisplay(
+            headline: "The release couldn’t be verified",
+            plainDetail:
+              "The server response did not pass release verification. Installation cannot continue.",
+            technicalDetail: technical,
+            remedy: "Check again later."
+          )
+        default:
+          return FailureDisplay(
+            headline: "The release is unavailable",
+            plainDetail: "Installation has not started.",
+            technicalDetail: technical,
+            remedy: "Review the error details, then try again."
+          )
+        }
       }
 
       if let catalog = error as? SupportCatalogError {
         return FailureDisplay(
-          headline: "The signed catalog was rejected",
+          headline: "The support catalog couldn’t be verified",
           plainDetail:
-            "Nothing was downloaded. The catalog must be signed, current, and newer than the one already accepted.",
+            "The catalog did not meet the installer’s signature or version requirements. Installation cannot continue.",
           technicalDetail: String(describing: catalog),
-          remedy: "Try again later, or install a newer signed release."
+          remedy: "Try again later, or download the latest installer."
         )
       }
 
       return FailureDisplay(
-        headline: "The installation stopped safely",
+        headline: "The installer encountered an error",
         plainDetail:
-          "Review the last trusted checkpoint before continuing. Nothing continues automatically.",
+          "Review the last verified installation step before continuing.",
         technicalDetail: technical,
-        remedy: "Start over to inspect this Mac again."
+        remedy:
+          "If installation has started, keep your Mac connected to power and check the verified installation record before trying again."
       )
     }
 

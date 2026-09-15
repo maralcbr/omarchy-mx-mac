@@ -53,7 +53,7 @@ that it is actually implicated.
 
 ## Symbolize when you can
 
-This is Arch, which runs a public debuginfod server:
+On x86_64 this is Arch, which runs a public debuginfod server:
 
 ```bash
 core=$(mktemp -t crash-XXXXXX.core)
@@ -63,6 +63,28 @@ DEBUGINFOD_URLS="https://debuginfod.archlinux.org" \
   gdb -q <executable> "$core" \
   -batch -ex 'set debuginfod enabled on' -ex 'bt'
 ```
+
+On aarch64, including Apple Silicon, that server rarely helps. Arch publishes
+debug symbols for its own x86_64 builds only, and packages here come from Arch
+Linux ARM and the Omarchy Apple Silicon repository. Neither runs a debuginfod
+server, and Arch Linux ARM ships only a handful of incidental `-debug` packages,
+none of them for the common libraries. Check the build ID of the library in the
+crashing frame, whether its symbols are already installed locally, and whether
+a debug package exists for its owner:
+
+```bash
+id=$(readelf -n <library> | awk '/Build ID/ { print $3 }')
+ls "/usr/lib/debug/.build-id/${id:0:2}/${id:2}.debug"
+pacman -Ssq "^$(pacman -Qoq <library>)-debug$"
+curl -s -o /dev/null -w '%{http_code}\n' \
+  "https://debuginfod.archlinux.org/buildid/$id/debuginfo"
+```
+
+The `curl` only asks Arch's server, so a 404 means that server has no symbols
+for this build, not that none exist anywhere. When all three checks come up
+empty, say so and work from the unsymbolized stack below; symbols would need a
+local rebuild of that package with debug enabled, installed before the crash
+recurs.
 
 A core is a verbatim copy of the process's memory and can hold passwords, tokens,
 and private documents. Write it to a fresh `mktemp` path rather than a predictable

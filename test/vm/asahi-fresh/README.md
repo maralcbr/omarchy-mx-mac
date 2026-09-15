@@ -27,6 +27,15 @@ The guest uses 8 vCPUs, 6 GiB RAM, and a 96 GiB sparse disk. Set
 `OMARCHY_VM_MEMORY_MB` explicitly when a different disposable-guest limit is
 required.
 
+The guest takes its Arch Linux ARM packages from a dated, immutable copy of the
+`core`, `extra`, `alarm` and `aur` repositories in our own bucket, not from the
+live mirrors, so a mirror caught mid-transition (one package rebuilt against a
+new library, its dependents not yet) cannot fail a run that has nothing to do
+with it. The default is the snapshot the current payload was built against;
+`OMARCHY_VM_ALARM_MIRROR` overrides it with another mirror URL (any `https://`
+URL naming `$repo` and `$arch`, so a live Arch Linux ARM mirror works too). Only the signed base rootfs still comes from a live mirror. See
+`docs/apple-silicon-distribution-channels.md`, "The Arch Linux ARM snapshot".
+
 Use `--rebuild-base` to discard the cached Arch Linux ARM base and `--keep` to
 retain the VM container after a run. State and failure artifacts are written to
 `test/vm/asahi-fresh/test-runs/`, which is ignored by Git.
@@ -50,6 +59,21 @@ test/vm/asahi-fresh/run
 ```
 
 This opt-in path verifies the signed descriptor inside the guest, installs all
-33 candidate packages through the exact release repository, and checks their
+the declared candidate packages through the exact release repository, and checks their
 versions again after the full install and reboot. It does not alter the stable
 repository pin used by the production installer or the default VM path.
+
+When the candidate also contains a new runtime that is not yet published on the
+stable channel, additionally set `OMARCHY_VM_RUNTIME_MANIFEST_SHA256` to the
+trusted SHA-256 of `asahi-quattro-bundle.manifest` and `OMARCHY_VM_RUNTIME_SOURCE`
+to its exact runtime source commit. Both values are required together with the
+package candidate identity. The guest verifies the manifest signature and all
+six runtime package signatures/checksums, checks the product version, and binds
+the source installer to the signed package's installer bytes.
+
+This runtime-candidate path creates an explicitly named VM-only release fixture
+with sequence 1. It tests fresh installation, recovery and reboot of the exact
+candidate bytes; it does not claim to test a published runtime-channel descriptor
+or public channel promotion. Omitting the runtime pins retains the published
+stable-channel path. The VM allows SSH before applying the firewall defaults
+and removes that test-only rule in the final rerun stage.

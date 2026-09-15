@@ -12,13 +12,18 @@ the Asahi platform foundation. Asahi continues to own APFS preparation,
 recoveryOS and boot policy, m1n1, U-Boot, device trees, machine firmware, and
 the Asahi kernel.
 
+The commands for every step below, both lanes, are in
+[`apple-silicon-deployment.md`](apple-silicon-deployment.md).
+
 ## 1. Assemble a private candidate
 
 1. Build only the explicit `aarch64/apple-silicon` target through the
    validation-only route. Never relabel generic ARM media.
 2. Retain the exact ISO, static media evidence, content-addressed Apple package
    snapshot, all detached signatures, and every source commit named by the
-   manifest.
+   manifest. Build and accept against a dated Arch Linux ARM snapshot in the
+   bucket (`mirror/alarm/<YYYYMMDD>/`), never the live mirrors; record which
+   date the payload pins in `apple-silicon-distribution-channels.md`.
 3. Verify the ISO and manifest with the production public key and a durable,
    rollback-protected sequence store. Verification must be read-only first;
    advance the sequence only after the complete candidate set passes.
@@ -54,6 +59,12 @@ and binds the record to a retained evidence SHA-256 and catalog sequence.
 Unsupported or incomplete identifiers remain absent from the signed catalog
 and must stop before authorization or disk mutation.
 
+The mechanics of publishing — the channel layout, the signing key, and the
+commands for each step — are in
+[`apple-silicon-distribution-channels.md`](apple-silicon-distribution-channels.md).
+This document governs *when* a release may be published; that one describes
+*how*.
+
 ## 3. Publish a preview
 
 Preview publication requires a separate explicit authorization after all of
@@ -67,7 +78,8 @@ these are true:
 4. recovery, rollback, removal, and known-limitations text has been reviewed;
 5. the public object set has been fetched back and every hash/signature checked.
 
-Publish to the signed Apple preview channel first. Only at this gate may the
+Publish to the beta channel first (`publish-channels os-promote --to beta`),
+and promote to stable only after the evidence above is complete. Only at this gate may the
 top-level README replace the current Asahi Arch Minimal instructions with the
 macOS Omarchy installer → Asahi bridge → verified Apple media flow. The README
 must name the exact allowlisted models and continue stating that Asahi supplies
@@ -81,6 +93,26 @@ package ownership and migrations, prove eligible preview installations move to
 the standard signed Omarchy channel, and leave ineligible systems on a
 documented safe channel. Promotion receives a new, higher sequence; it never
 reuses preview metadata or weakens exact-model admission.
+
+## 4a. Runtime-only changes take the fast lane
+
+A change that touches only the runtime pair (scripts, configuration,
+migrations — everything under this repository that ships in `omarchy-dev` and
+`omarchy-settings-dev`) does not change the repository package set, so it does
+not need VM acceptance, package promotion, or a new payload. Push it to `main`
+and run, in omarchy-pkgs:
+
+```bash
+bin/asahi-runtime-release <commit>
+```
+
+That builds an incremental candidate (gated by the upgrade over the
+predecessor) and publishes the next release channel; installed Macs receive it
+on their next `omarchy update`, about fifteen minutes after the push. The lane
+refuses a candidate that rebuilt any repository package — that change belongs
+to the full lane above. Payloads are rebuilt when the package set changes or on
+a cadence, not per fix: a fresh install syncs its repositories and updates on
+first boot.
 
 ## 5. Roll back a bad candidate
 

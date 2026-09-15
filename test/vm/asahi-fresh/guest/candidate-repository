@@ -65,7 +65,16 @@ done < <(sed -n 's/^package=//p' "$work/CANDIDATE")
 (( ${#packages[@]} == package_count ))
 (( $(printf '%s\n' "${packages[@]}" | sort -u | wc -l) == package_count ))
 
-pacman -Syu --needed --noconfirm "${packages[@]}"
+# The cached VM base owns its generic boot image and its Asahi fixture. A live
+# Asahi update here can run newly installed boot hooks before the fresh
+# installer has established its own protected-boot boundary.
+protected_packages=(linux-asahi linux-asahi-headers m1n1 grub)
+pacman -Q "${protected_packages[@]}" >"$work/protected-packages.before"
+sha256sum /boot/Image /boot/vmlinuz-linux-asahi /boot/grub/grub.cfg >"$work/protected-boot.before"
+pacman -Syu --needed --noconfirm --ignore linux-asahi,linux-asahi-headers,m1n1,grub "${packages[@]}"
+pacman -Q "${protected_packages[@]}" >"$work/protected-packages.after"
+cmp "$work/protected-packages.before" "$work/protected-packages.after"
+sha256sum --check --status "$work/protected-boot.before"
 while IFS='|' read -r _ package version _ _ _ _ _; do
   [[ $(pacman -Q "$package" | cut -d' ' -f2) == "$version" ]]
 done < <(sed -n 's/^package=//p' "$work/CANDIDATE")

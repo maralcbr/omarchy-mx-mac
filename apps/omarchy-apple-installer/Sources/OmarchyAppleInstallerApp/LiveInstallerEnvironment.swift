@@ -22,6 +22,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private var planReview: InstallerPlanReview?
   private var preparedPlan: PreparedInstallerPlanExecution?
   private var planApproval: CandidateBoundPlanApproval?
+  private var reusableAssets: PreparedInstallerAssets?
   private var releaseConfiguration: InstallerReleaseConfiguration?
 
   // MARK: Fail-closed gates
@@ -78,7 +79,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       // engineFailure already set above.
     } catch {
       engineFailure =
-        "Pinned engine inspection failed validation (\(String(describing: error))). Installation remains locked."
+        "The disk compatibility check failed. Installation is unavailable. Details: \(String(describing: error))"
     }
 
     lock.withLock {
@@ -119,7 +120,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let configuration = try InstallerReleaseConfigurationLocator()
       .loadFromMainBundle()
     let workspace = try installerWorkspace()
-    let catalogStore = AcceptedCatalogIdentityStore(directory: workspace.state)
+    let channel = ReleaseChannelPreference()
+      .resolve(descriptorDefault: configuration.defaultChannel)
+    let catalogStore = AcceptedCatalogIdentityStore(
+      directory: workspace.state,
+      channel: channel
+    )
     let previouslyAcceptedCatalog = try catalogStore.load()
     let validationTime = Date()
 
@@ -129,14 +135,18 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         InstallerReleasePreparationRequest(
           host: host,
           configuration: configuration,
+          channel: channel,
           validationTime: validationTime,
           previouslyAcceptedCatalog: previouslyAcceptedCatalog,
+          installerVersion: InstallerVersion.current(),
           stagingDirectory: workspace.staging
         ),
         progress: { event in
           collector.record(event)
-        }
+        },
+        previouslyPrepared: lock.withLock { reusableAssets }
       )
+    lock.withLock { reusableAssets = release.assets }
     try catalogStore.store(release.assets.catalogIdentity)
 
     progress(
@@ -171,7 +181,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
     let recommendation = try InstallerAllocationRecommendation(
       inventory: inventory,
-      targetBytes: omarchyBytes ?? InstallerAllocationRecommendation.balancedTargetBytes
+      targetBytes: omarchyBytes ?? InstallerAllocationRecommendation.balancedTargetBytes,
+      reservedBytes: release.assets.additionalHandoffBytes
     )
     let candidate = recommendation.candidate
     let requestedLengthBytes = recommendation.requestedLengthBytes
@@ -197,7 +208,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       releaseConfiguration = configuration
     }
 
-    return .plan(Self.planDisplay(review: prepared.review, host: host))
+    return .plan(
+      Self.planDisplay(
+        review: prepared.review, host: host, recommendation: recommendation,
+        release:
+          "\(channel.rawValue.capitalized) · \(release.assets.payload.fileURL.lastPathComponent)"
+      ))
   }
 
   // MARK: Approval
@@ -271,6 +287,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     authorization: MachineOwnerAuthorization,
     journal: @escaping @Sendable (Data) -> Void
   ) async throws -> CompletionDisplay {
+    let executionStarted = ProcessInfo.processInfo.systemUptime
     let (prepared, approval, configuration, host) = lock.withLock {
       (preparedPlan, planApproval, releaseConfiguration, hostInspection)
     }
@@ -311,7 +328,12 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         journalProgress: journal
       )
     }
-    return Self.completionDisplay(progress)
+    let completion = Self.completionDisplay(progress)
+    if operation == .install, completion.nextAction == .enterRecovery {
+      InstallationTimingHistory.recordCompleted(
+        seconds: ProcessInfo.processInfo.systemUptime - executionStarted)
+    }
+    return completion
   }
 
   // MARK: Display mapping
@@ -368,16 +390,27 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
 
   static func planDisplay(
     review: InstallerPlanReview,
-    host: AppleSiliconHostInspection
+    host: AppleSiliconHostInspection,
+    recommendation: InstallerAllocationRecommendation,
+    release: String
   ) -> PlanDisplay {
     let length = review.plan.lengthBytes
-    let total = max(host.storage.containerSizeBytes, length)
+    let total =
+      review.plan.candidateKind == "free"
+      ? host.storage.containerSizeBytes + recommendation.candidate.lengthBytes
+      : max(host.storage.containerSizeBytes, length)
 
     return PlanDisplay(
       diskTotalBytes: total,
       omarchyBytes: length,
       bindingDigest: review.identity.bindingDigest,
-      isResizable: review.plan.candidateKind != "replace"
+      isResizable: review.plan.candidateKind != "replace",
+      minimumBytes: recommendation.minimumBytes,
+      maximumBytes: recommendation.maximumBytes,
+      releaseDescription: release,
+      targetDescription:
+        "Internal storage · \(review.plan.candidateKind == "free" ? "Use free space" : "Resize macOS")",
+      fixedMacOSBytes: review.plan.candidateKind == "free" ? host.storage.containerSizeBytes : nil
     )
   }
 

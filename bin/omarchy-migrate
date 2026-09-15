@@ -95,7 +95,7 @@ asahi_migration_disposition() {
     1784914435.sh) printf 'handled\tpackaged NetworkManager policy installed by the Quattro transition\n' ;;
     1784917531.sh) printf 'skipped\tLimine kernel and initramfs repair is not applicable to Asahi\n' ;;
     1784809452.sh) printf 'skipped\tSnapper timeline cleanup is not applicable to Asahi\n' ;;
-    1784961000.sh|1785013000.sh) printf 'skipped\tzram tuning is held until validated on Asahi\n' ;;
+    1784961000.sh|1785013000.sh) printf 'handled\tzram config and reclaim tuning ship in the settings package and apply at boot\n' ;;
     1785090473.sh) printf 'skipped\tfingerprint hardware is unsupported on this Apple Silicon path\n' ;;
     1785273276.sh) printf 'skipped\tT2 Limine and mkinitcpio repair is not applicable to Apple Silicon\n' ;;
     1785424256.sh) printf 'skipped\tsystemd-oomd reclaim tuning is held until validated on Asahi\n' ;;
@@ -133,8 +133,19 @@ asahi_migration_disposition() {
     1788102906.sh) printf 'run\treviewed architecture-neutral XCompose and legacy udev rule repair\n' ;;
     1788112314.sh) printf 'run\treviewed no-op: Asahi installs do not use the rc mirror pairing\n' ;;
     1788124236.sh) printf 'run\treviewed sshd hardening; self-gating on an enabled or active sshd\n' ;;
+    1787215483.sh) printf 'run\treviewed architecture-neutral mise version retention\n' ;;
+    1787760281.sh) printf 'run\treviewed architecture-neutral Hermes CLI wrapper preserving user installs\n' ;;
+    1787843905.sh) printf 'run\treviewed architecture-neutral Hermes skill links\n' ;;
+    1788577553.sh) printf 'run\treviewed architecture-neutral Cursor CLI wrapper preserving existing commands\n' ;;
+    1788619462.sh) printf 'run\treviewed architecture-neutral optional Hermes theme handover\n' ;;
+    1789172112.sh) printf 'run\treviewed exact Intel Broadcom workaround cleanup on affected Apple Silicon with retryable initramfs rebuild\n' ;;
+    1788662350.sh) printf 'run\treviewed architecture-neutral root ownership repair for existing sleep hooks\n' ;;
+    1788724825.sh) printf 'run\treviewed architecture-neutral Muse CLI wrapper preserving existing commands\n' ;;
+    1788745941.sh) printf 'run\treviewed architecture-neutral Kitty local-socket security repair preserving custom settings\n' ;;
+    1788848726.sh) printf 'run\treviewed architecture-neutral retirement of the exact legacy icon font\n' ;;
     1788345489.sh) printf 'run\tApple Silicon speaker pop fix gates itself to Apple Silicon hardware\n' ;;
     1788486400.sh) printf 'run\treviewed default package parity install; every package is built for aarch64\n' ;;
+    1789107528.sh) printf 'run\treviewed initramfs static device node ordering; self-gating to Apple Silicon hardware\n' ;;
     *) return 1 ;;
   esac
 }

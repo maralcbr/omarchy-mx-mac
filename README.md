@@ -13,16 +13,49 @@ Omarchy 4 (Quattro) is the maintained release:
 
 | Version | Status | Installation |
 | --- | --- | --- |
-| Omarchy `4.0.2-mac.1` | Recommended stable version | Direct signed installation on Asahi Arch Minimal |
+| Omarchy `4.0.3-mac.1` | Recommended stable version | Existing installations: run `omarchy update` |
+| Omarchy `4.0.3-mac.1` | Current RC fresh-install image (Asahi) | Install from macOS using the app below |
 | Omarchy `3.8.4-mac.4` | Legacy | Existing installations can update to Omarchy 4 |
 
 > [!NOTE]
-> Omarchy Mac has been tested on M1, M2, and M3 Macs. Physical Apple-hardware
-> qualification is recorded per release against a 14-inch 2021 MacBook Pro
-> with M1 Pro (`apple,j314s`). The current `4.0.1-mac.2` release was accepted in
-> a generic ARM64 QEMU/HVF VM and does not claim physical Apple-hardware
-> qualification. Apple Silicon support still depends on the upstream Asahi
-> Linux support available for each model.
+> The 4.0.3 Asahi RC includes the latest runtime and greeter fixes. Its exact
+> package candidate passed a native ARM64 VM installation, recovery, reboot,
+> all 23 optional application installs, and completed-installer rerun checks.
+> The greeter fixes were also tested on an M2 Max with three displays. A fresh
+> physical installation of this final OS image has not been performed.
+> Hardware support depends on Asahi Linux support for each model.
+
+## Download For Apple Silicon
+
+Download the ZIP, extract it, and open **Omarchy MX Mac Installer.app**.
+You can run it directly from Downloads; no PKG or Applications-folder installation is required.
+
+**[Download Omarchy MX Mac Installer for macOS](https://downloads.aicodelabs.com.au/installer/previews/20260912-55064ca4f708/Omarchy-MX-Mac-Installer.zip)**
+
+The app is signed with Developer ID, notarized by Apple, and stapled. It defaults
+to **RC** and fetches the latest signed release from the selected existing channel
+each time you prepare an installation. Matching cached files are verified and
+reused instead of downloaded again. The existing installation screens remain the
+same, and the privileged worker runs only for the installation session.
+
+The owner confirmed an end-to-end installation on the M2 Max. The app also saves
+credential-free diagnostic logs across reboots in
+`~/Library/Logs/Omarchy MX Mac Installer/` and root-worker diagnostics in
+`/var/db/com.omarchy.mx.installer/diagnostics/`.
+
+After extracting the ZIP, you can verify the app with:
+
+```bash
+codesign --verify --deep --strict ~/Downloads/"Omarchy MX Mac Installer.app"
+spctl -a -vv -t execute ~/Downloads/"Omarchy MX Mac Installer.app"
+```
+
+Gatekeeper should report `Notarized Developer ID`. The signing identity is
+`MARCELO DE BARROS ALCANTARA (T2C384FJBD)`.
+
+> [!IMPORTANT]
+> Installers older than `2.0.0` were pinned to a single Omarchy release and
+> stop working on 2026-12-01. Replace them with the download above.
 
 ## Before You Begin
 
@@ -77,7 +110,27 @@ On Apple keyboards, the Command key is Hyprland's `SUPER` modifier.
 The existing Print Screen shortcuts and all Omarchy workspace bindings remain
 available.
 
-## Install Omarchy 4
+## Release Details
+
+The RC app currently installs signed image `os-v4.0.3-mac.1.20260913` (Omarchy
+4.0.3, Asahi). It follows the latest signed catalog for the channel you select; cached
+files are reused only when their size and SHA-256 match that catalog.
+
+Omarchy 4.0.3 brings upstream security fixes and AI integrations, Apple Silicon
+migration support, and ARM OpenClaw/Perplexity integration while retaining Mac
+boot, package, and network protections. The signed runtime and packages are now
+published to the shared Stable update feed. Existing Omarchy Macs receive them
+through `omarchy update`.
+
+[Stable packages](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-83973903b7deb9b56ce75f02b432fba0561d6293)
+and [runtime channel 32](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-32)
+carry the accepted `4.0.3.r6962.ga67d7f7-1` runtime/settings pair embedded in
+this RC image. The release includes greeter password masking and focus fixes,
+Apple DRM readiness handling, and the initramfs static-device race fix.
+
+See [4.0.3 release notes](docs/releases/v4.0.3-mac.1.md).
+
+## Alternative: Install From Asahi Arch Minimal
 
 The signed installer takes a prepared Asahi Arch Minimal system directly to
 Omarchy 4. It verifies immutable release metadata and never installs moving
@@ -85,8 +138,7 @@ Omarchy 4. It verifies immutable release metadata and never installs moving
 
 The `vX.Y.Z-mac.N` tag records the product source and release notes. Installer,
 channel, and package assets are published separately as immutable releases in
-[`maralcbr/omarchy-pkgs`](https://github.com/maralcbr/omarchy-pkgs). Stable
-channel sequence 25 installs product version `4.0.1-mac.2`.
+[`maralcbr/omarchy-pkgs`](https://github.com/maralcbr/omarchy-pkgs). The Linux bootstrap channel is separate from the macOS app’s RC image catalog.
 
 ### 1. Install Asahi Arch Minimal
 

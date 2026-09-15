@@ -26,6 +26,12 @@ grep -Fq '/sys/module/zswap/parameters/enabled' "$ROOT/bin/omarchy-install-asahi
   fail "fresh Asahi installs retain the zswap safety gate"
 pass "runtime zram is allowed only outside the fresh-install storage boundary"
 
+audit=$(grep -F 'grep -Eqi' "$updater")
+grep -Fq 'systemd/oomd\.conf\.d' <<<"$audit" || fail "Asahi bundle audit still rejects oomd drop-ins"
+grep -Fq 'initcpio' <<<"$audit" || fail "Asahi bundle audit still rejects initramfs changes"
+! grep -Eq 'zram-generator|omarchy-zswap' <<<"$audit" || fail "Asahi bundle audit accepts the zram drop-in and zswap tmpfile"
+pass "Asahi bundle audit accepts memory configuration but not boot or oomd changes"
+
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 stub_bin="$test_tmp/bin"
@@ -55,6 +61,10 @@ EOF
 cat >"$stub_bin/omarchy-hw-apple-silicon" <<'SH'
 #!/bin/bash
 exit 0
+SH
+cat >"$stub_bin/omarchy-hw-apple-kernel" <<'SH'
+#!/bin/bash
+echo linux-asahi
 SH
 cat >"$stub_bin/omarchy-cmd-present" <<'SH'
 #!/bin/bash
@@ -145,6 +155,7 @@ grep -Fxq 'https://api.github.test/repos/example/releases?per_page=100' "$test_t
   fail "versioned channel discovery reads the GitHub releases API"
 grep -Fxq 'https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-22/asahi-quattro-channel' "$test_tmp/discovery-curl.log" ||
   fail "versioned channel discovery downloads the selected signed pointer"
+grep -Fq '&page=$page' "$updater" || fail "bundle updater pages through the release listing"
 pass "immutable versioned Asahi channels are discovered dynamically"
 
 write_channel 2 "$source_commit"

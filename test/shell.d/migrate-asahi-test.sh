@@ -33,7 +33,7 @@ state_dir="$test_home/.local/state/omarchy/migrations"
 [[ -f $state_dir/1784809451.sh ]] || fail "Asahi migration policy runs reviewed locate migration"
 [[ -f $state_dir/1778623107.sh.skipped ]] || fail "Asahi migration policy records handled transitions"
 [[ -f $state_dir/1781984677.sh.skipped ]] || fail "Asahi migration policy records inapplicable transitions"
-[[ -f $state_dir/1784961000.sh.skipped && -f $state_dir/1785013000.sh.skipped ]] || fail "Asahi migration policy holds zram tuning"
+[[ -f $state_dir/1784961000.sh.skipped && -f $state_dir/1785013000.sh.skipped ]] || fail "Asahi migration policy settles zram tuning"
 [[ -f $state_dir/1785090473.sh.skipped ]] || fail "Asahi migration policy skips unsupported fingerprint replacement"
 [[ -f $state_dir/1786782461.sh ]] || fail "Asahi migration policy runs the Foot config repair"
 [[ -f $state_dir/1786952219.sh.skipped ]] || fail "Asahi migration policy keeps the validated mise package"
@@ -45,7 +45,7 @@ state_dir="$test_home/.local/state/omarchy/migrations"
 [[ -f $state_dir/1787618700.sh ]] || fail "Asahi migration policy runs the input-device state repair"
 grep -Fq $'handled\tmpv-mpris installed' "$state_dir/1778623107.sh.skipped" || fail "handled marker records its reason"
 grep -Fq $'skipped\tSnapper and Limine' "$state_dir/1781984677.sh.skipped" || fail "skipped marker records its reason"
-grep -Fq $'skipped\tzram tuning is held' "$state_dir/1784961000.sh.skipped" || fail "zram marker records its reason"
+grep -Fq $'handled\tzram config and reclaim tuning ship' "$state_dir/1784961000.sh.skipped" || fail "zram marker records its reason"
 grep -Fq $'skipped\tfingerprint hardware is unsupported' "$state_dir/1785090473.sh.skipped" || fail "fingerprint marker records its reason"
 grep -Fq $'skipped\tmise-bin is unavailable' "$state_dir/1786952219.sh.skipped" || fail "mise migration records its Apple Silicon reason"
 grep -Fq $'skipped\tvalidated quickshell-git remains' "$state_dir/1787399318.sh.skipped" || fail "Quickshell migration records its Apple Silicon reason"
@@ -74,6 +74,11 @@ done
 HOME="$test_home" OMARCHY_PATH="$test_root" TEST_CALLS="$calls" \
   "$ROOT/bin/omarchy-migrate" >"$test_tmp/all-reviewed.out"
 pass "Asahi migration policy reviews every bundled migration"
+
+for migration in 1787215483.sh 1787760281.sh 1787843905.sh 1788577553.sh 1788619462.sh 1788662350.sh 1788724825.sh 1788745941.sh 1788848726.sh 1789172112.sh; do
+  [[ -f $state_dir/$migration && ! -e $state_dir/$migration.skipped ]] || fail "4.0.3 migration $migration runs on Apple Silicon"
+done
+pass "Asahi runs the reviewed 4.0.3 migrations"
 
 for migration in 1785273276.sh 1785424256.sh 1785944594.sh 1786137597.sh 1786391100.sh 1786482992.sh; do
   [[ -f $state_dir/$migration.skipped ]] || fail "Asahi migration policy skips $migration"
