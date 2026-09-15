@@ -1,5 +1,8 @@
 -- WirePlumber
 --
+-- Copyright © 2022-2023 The WirePlumber project contributors
+--    @author Dmitry Sharshakov <d3dx12.xx@gmail.com>
+--
 -- Based on node/software-dsp.lua from WirePlumber.
 -- Loads the same asahi-audio graphs, but keeps speaker DSP filter-chain
 -- nodes from pausing/suspending between short-lived streams (Chromium,
