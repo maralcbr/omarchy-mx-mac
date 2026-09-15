@@ -282,12 +282,38 @@ product produces the same bytes it did before this lane existed.
 
 Steps 2 through 4 need the owner's authorization, like every other publication.
 
+### Promoting a qualified Aurora kernel
+
+Installed Aurora Macs follow `default/aurora-qualified-release`: a tag and the
+sha256 of its `AURORA`. On every `omarchy update`,
+`omarchy-update-system-pkgs` first runs `omarchy-update-aurora-repository`,
+which checks the pinned `AURORA` against that digest and the ARM repository
+subkey, then adds or repoints `[omarchy-aurora]` just before `[omarchy]`. Asahi
+installs and x86 are untouched; a failed check stops the update before any
+package moves.
+
+1. Publish the kernel release (step 1 above); record the tag and `AURORA`
+   digest.
+2. Qualify it on real hardware: on the M2 Max, point `[omarchy-aurora]` at the
+   new release by hand, `omarchy update`, reboot, and check boot, Wi-Fi and
+   every display.
+3. Bump both lines of the pin file in one commit. Recompute the digest rather
+   than copying it: `gh release download <tag> --repo maralcbr/omarchy-pkgs
+   --pattern AURORA --dir <tmp>`, then `sha256sum <tmp>/AURORA`.
+4. Ship it as a runtime release ([fast lane](#fast-lane-a-runtime-only-change)).
+5. Verify on the M2 Max: put its `[omarchy-aurora]` `Server` back on the
+   previous release, run `omarchy update`, and check that the section names
+   the new tag, `pacman -Q linux-aurora` shows the new version, and it boots.
+
+An `IgnorePkg` hold on `linux-aurora` (the current Aurora ISO ships one) keeps
+the old kernel: the updater warns and leaves the hold, so remove it on the
+machine first. A repin never downgrades an installed kernel.
+
 ### What the Aurora lane does not do
 
 The kernel is pinned by commit. A new Aurora kernel is a new
-`aurora-packages-<sha>` release, a new pin, and a new payload; installed Aurora
-Macs do not follow it, because `[omarchy-aurora]` names one immutable release.
-Moving them is a manual repoint until that is worth automating.
+`aurora-packages-<sha>` release, a new ISO pin, and a new payload; installed
+Aurora Macs move only when the runtime pin above is bumped, never on their own.
 
 `test/vm/asahi-fresh` installs `linux-asahi` and boots a generic kernel, so it
 proves the runtime tolerates the Aurora name but cannot exercise the kernel.
@@ -302,8 +328,11 @@ aurora ignore rule in `bin/asahi-incremental-plan`); the `builder/*aurora*`,
 `builder/branding/branding-manifest-aurora.json`,
 `products/omarchy-mx-mac-aurora.json`, `*-arm-aurora.conf` and
 `test/unit/aurora-product-test.sh` files from `omarchy-iso`; and
-`bin/omarchy-hw-apple-kernel` plus `scripts/release-inputs-aurora.template.json`
-here. Everything else is a hook that defaults to the Asahi behaviour (the
+`bin/omarchy-hw-apple-kernel`, `bin/omarchy-update-aurora-repository` (and its
+call in `bin/omarchy-update-system-pkgs`), `default/aurora-qualified-release`,
+`test/shell.d/aurora-repository-update-test.sh` and
+`scripts/release-inputs-aurora.template.json` here. Everything else is a hook
+that defaults to the Asahi behaviour (the
 kernel name in the builder, orchestrator and verifiers; the per-kernel branding
 manifest; the `-lane` suffix `publish-channels` accepts on release tags), so
 reverting those files restores the previous lane exactly. Then drop

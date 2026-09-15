@@ -39,7 +39,13 @@ fi
 echo "upgrade complete"
 STUB
 
-chmod +x "$stub_bin/sudo" "$stub_bin/pacman"
+# The Aurora repository step has its own test; here it would only query pacman.
+cat >"$stub_bin/omarchy-update-aurora-repository" <<'STUB'
+#!/bin/bash
+exit 0
+STUB
+
+chmod +x "$stub_bin/sudo" "$stub_bin/pacman" "$stub_bin/omarchy-update-aurora-repository"
 
 # Everything a blocked qemu-common upgrade leaves on stderr, and no more. The
 # ":: ... Remove qemu-block-gluster? [y/N]" pacman asked is deliberately absent:

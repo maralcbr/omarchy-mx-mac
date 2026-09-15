@@ -1,0 +1,275 @@
+#!/bin/bash
+
+# omarchy:summary=Pin the Aurora kernel repository at the qualified signed release
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# Macs installed from the RC (Aurora) channel run linux-aurora and m1n1-aurora,
+# which live only in [omarchy-aurora]: one immutable aurora-packages-<commit>
+# release. The ISO pins that release once, and some Aurora payloads left the
+# section out altogether, so nothing ever moved these Macs to a newer kernel.
+#
+# The runtime pins the release holding the kernel last qualified on real
+# hardware, together with the digest of its signed AURORA descriptor. This
+# proves the release matches both, then adds or repoints [omarchy-aurora] just
+# ahead of [omarchy]. Every other byte of pacman.conf stays as it was, and any
+# machine that is not an Aurora install is left alone.
+
+set -euo pipefail
+
+repo=maralcbr/omarchy-pkgs
+pin_file="${OMARCHY_AURORA_RELEASE_PIN:-/usr/share/omarchy/default/aurora-qualified-release}"
+trusted_key=C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC
+trusted_subkey=CAB18E175BFB9ACCE185234474DE0C737AC186E4
+trusted_key_file="${OMARCHY_AURORA_PACKAGE_KEY_FILE:-/usr/share/omarchy/default/omarchy-arm-repository.asc}"
+signature_line="SigLevel = Required DatabaseOptional"
+comment_line="# Aurora kernel and bootloader, kept on the qualified release by omarchy update"
+
+fail() {
+  echo "Aurora kernel repository update: $*" >&2
+  exit 2
+}
+
+case "${1:-}" in
+  "") ;;
+  -h|--help)
+    echo "Usage: omarchy-update-aurora-repository"
+    exit 0
+    ;;
+  *) fail "unknown option '$1'" ;;
+esac
+
+root_path() {
+  printf '%s%s\n' "${OMARCHY_AURORA_ROOT:-}" "$1"
+}
+
+# Only an Aurora install reads [omarchy-aurora]. Anything else, including a
+# machine whose evidence disagrees, is not this command's to change.
+omarchy-hw-apple-silicon || exit 0
+kernel_marker=$(root_path /usr/share/omarchy/apple-silicon-kernel)
+if [[ -e $kernel_marker || -L $kernel_marker ]]; then
+  [[ $(OMARCHY_APPLE_KERNEL_FILE="$kernel_marker" omarchy-hw-apple-kernel) == "linux-aurora" ]] || exit 0
+  omarchy-pkg-present linux-aurora || exit 0
+else
+  # Aurora payloads from before the marker: the kernel package is the evidence.
+  omarchy-pkg-present linux-aurora || exit 0
+  omarchy-pkg-missing linux-asahi || exit 0
+fi
+
+# omarchy update already holds the update lock; run on its own, take it here.
+if ! omarchy-update-lock held; then
+  exec omarchy-update-lock run "$0" "$@"
+fi
+
+[[ -r $pin_file ]] || fail "the qualified Aurora release pin is not installed"
+tag="" pinned_sha256=""
+while IFS= read -r line; do
+  case "$line" in
+    tag=*)
+      [[ -z $tag ]] || fail "the qualified Aurora release pin is malformed"
+      tag=${line#tag=}
+      ;;
+    descriptor_sha256=*)
+      [[ -z $pinned_sha256 ]] || fail "the qualified Aurora release pin is malformed"
+      pinned_sha256=${line#descriptor_sha256=}
+      ;;
+    ""|"#"*) ;;
+    *) fail "the qualified Aurora release pin is malformed" ;;
+  esac
+done <"$pin_file"
+[[ $tag =~ ^aurora-packages-[0-9a-f]{40}$ && $pinned_sha256 =~ ^[0-9a-f]{64}$ ]] ||
+  fail "the qualified Aurora release pin is malformed"
+server="https://github.com/$repo/releases/download/$tag"
+server_line="Server = $server"
+
+pacman_conf=$(root_path /etc/pacman.conf)
+[[ -r $pacman_conf ]] || fail "pacman configuration is missing"
+mapfile -t lines <"$pacman_conf"
+
+header='^[[:space:]]*\[([^]]+)\][[:space:]]*$'
+setting='^[[:space:]]*([A-Za-z]+)[[:space:]]*=[[:space:]]*(.*)$'
+aurora=() omarchy=()
+for i in "${!lines[@]}"; do
+  [[ ${lines[i]} =~ $header ]] || continue
+  case "${BASH_REMATCH[1]}" in
+    omarchy-aurora) aurora+=("$i") ;;
+    omarchy) omarchy+=("$i") ;;
+  esac
+done
+(( ${#aurora[@]} <= 1 )) || fail "pacman configuration has more than one [omarchy-aurora] repository"
+(( ${#omarchy[@]} == 1 )) || fail "pacman configuration must contain exactly one [omarchy] repository"
+
+# A hold outlives any repin: pacman keeps the kernel it has. The hold was put
+# there on purpose, so it stays; say plainly what it blocks.
+held=()
+section=""
+for line in "${lines[@]}"; do
+  if [[ $line =~ $header ]]; then
+    section=${BASH_REMATCH[1]}
+    continue
+  fi
+  [[ $section == "options" && $line =~ $setting ]] || continue
+  [[ ${BASH_REMATCH[1]} == "IgnorePkg" || ${BASH_REMATCH[1]} == "IgnoreGroup" ]] || continue
+  read -ra patterns <<<"${BASH_REMATCH[2]}"
+  for package in linux-aurora linux-aurora-headers m1n1-aurora; do
+    for pattern in "${patterns[@]}"; do
+      if [[ $package == $pattern && " ${held[*]} " != *" $package "* ]]; then
+        held+=("$package")
+      fi
+    done
+  done
+done
+if (( ${#held[@]} )); then
+  echo -e "\e[33mIgnorePkg/IgnoreGroup in /etc/pacman.conf holds ${held[*]}, so omarchy update cannot install a newer Aurora kernel until that hold is removed.\e[0m" >&2
+fi
+
+# The first line of the run of comments sitting directly on top of line $1.
+comments_above() {
+  local i=$1
+  while (( i > 0 )) && [[ ${lines[i-1]} =~ ^[[:space:]]*# ]]; do
+    (( i-- ))
+  done
+  echo "$i"
+}
+
+# One past the last setting of the section headed at $1. Blank and comment lines
+# before the next header belong to whatever follows.
+section_end() {
+  local end=$(( ${#lines[@]} )) i
+  for (( i = $1 + 1; i < ${#lines[@]}; i++ )); do
+    if [[ ${lines[i]} =~ $header ]]; then
+      end=$i
+      break
+    fi
+  done
+  while (( end - 1 > $1 )) && [[ ${lines[end-1]} =~ ^[[:space:]]*(#.*)?$ ]]; do
+    (( end-- ))
+  done
+  echo "$end"
+}
+
+omarchy_start=$(comments_above "${omarchy[0]}")
+if (( ${#aurora[@]} == 0 )); then
+  updated=(
+    "${lines[@]:0:omarchy_start}"
+    "$comment_line" "[omarchy-aurora]" "$signature_line" "$server_line" ""
+    "${lines[@]:omarchy_start}"
+  )
+else
+  start=${aurora[0]}
+  end=$(section_end "$start")
+  block=("${lines[start]}" "$signature_line" "$server_line")
+  for (( i = start + 1; i < end; i++ )); do
+    if [[ ${lines[i]} =~ $setting ]]; then
+      case "${BASH_REMATCH[1]}" in
+        SigLevel|Server) continue ;;
+        Include) fail "[omarchy-aurora] must name its release, not Include a server list" ;;
+      esac
+    fi
+    block+=("${lines[i]}")
+  done
+
+  if (( start < ${omarchy[0]} )); then
+    updated=("${lines[@]:0:start}" "${block[@]}" "${lines[@]:end}")
+  else
+    # Behind [omarchy], pacman would resolve the kernel from the wrong place.
+    # Move the block, its own comments with it, and the blank line after it.
+    from=$(comments_above "$start")
+    to=$end
+    if (( to < ${#lines[@]} )) && [[ ${lines[to]} =~ ^[[:space:]]*$ ]]; then
+      (( to += 1 ))
+    fi
+    updated=(
+      "${lines[@]:0:omarchy_start}"
+      "${lines[@]:from:start-from}" "${block[@]}" ""
+      "${lines[@]:omarchy_start:from-omarchy_start}"
+      "${lines[@]:to}"
+    )
+  fi
+fi
+
+workdir=$(mktemp -d)
+trap 'rm -rf "$workdir"' EXIT
+printf '%s\n' "${updated[@]}" >"$workdir/pacman.conf"
+# A file that ended without a newline keeps ending that way.
+if [[ -s $pacman_conf && -n $(tail -c 1 "$pacman_conf") ]]; then
+  truncate -s -1 "$workdir/pacman.conf"
+fi
+cmp -s "$workdir/pacman.conf" "$pacman_conf" && exit 0
+
+for command in curl gpg sha256sum; do
+  omarchy-cmd-present "$command" || fail "$command is required"
+done
+
+gnupg_dir="$workdir/gnupg"
+mkdir -m 0700 "$gnupg_dir"
+[[ -r $trusted_key_file ]] || fail "trusted Omarchy ARM repository key is not installed"
+actual_fingerprint=$(gpg --batch --show-keys --with-colons "$trusted_key_file" 2>/dev/null |
+  awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $actual_fingerprint == "$trusted_key" ]] || fail "trusted Omarchy ARM repository key fingerprint does not match"
+gpg --batch --homedir "$gnupg_dir" --import "$trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy ARM repository key"
+subkey_kind=$(gpg --batch --homedir "$gnupg_dir" --with-colons --list-keys 2>/dev/null |
+  awk -F: -v wanted="$trusted_subkey" '
+    $1 == "pub" || $1 == "sub" { kind=$1; next }
+    $1 == "fpr" && $10 == wanted { print kind; exit }
+  ')
+[[ $subkey_kind == "sub" ]] || fail "trusted Omarchy ARM repository key does not carry the signing subkey"
+
+download() {
+  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" --output "$2" || {
+    echo "Aurora kernel repository update: could not download $1" >&2
+    exit 3
+  }
+}
+
+verify_signature() {
+  local file="$1" signature="$2" status
+  [[ -s $file && -s $signature ]] || fail "missing signed asset $(basename "$file")"
+  status=$(gpg --batch --homedir "$gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
+    fail "signature verification failed for $(basename "$file")"
+  awk -v key="$trusted_subkey" '$2 == "VALIDSIG" && $3 == key { valid=1 } END { exit !valid }' <<<"$status" ||
+    fail "$(basename "$file") was not signed by the Omarchy ARM repository signing subkey"
+}
+
+download "$server/AURORA" "$workdir/AURORA"
+download "$server/AURORA.sig" "$workdir/AURORA.sig"
+[[ $(sha256sum "$workdir/AURORA" | cut -d' ' -f1) == "$pinned_sha256" ]] ||
+  fail "AURORA in $tag does not match the qualified digest"
+verify_signature "$workdir/AURORA" "$workdir/AURORA.sig"
+for entry in format=1 channel=aurora "release_tag=$tag" "signing_fingerprint=$trusted_subkey"; do
+  grep -Fxq "$entry" "$workdir/AURORA" || fail "AURORA in $tag does not describe that Aurora release"
+done
+
+backup="$(root_path /var/lib/omarchy/backups)/aurora-repository-$(date +%Y%m%d%H%M%S)"
+mkdir "$workdir/backup"
+cp "$pacman_conf" "$workdir/backup/pacman.conf"
+config_paths=("$pacman_conf")
+[[ ! -d $(root_path /etc/pacman.d) ]] || config_paths+=("$(root_path /etc/pacman.d)")
+sudo find "${config_paths[@]}" -type f -exec sha256sum {} + >"$workdir/backup/config-sha256.txt"
+sudo install -d -o root -g root -m 0700 "$backup"
+sudo cp -a "$workdir/backup"/. "$backup/"
+
+if ! sudo pacman-key --finger "$trusted_key" >/dev/null 2>&1; then
+  sudo pacman-key --add "$trusted_key_file"
+  sudo pacman-key --lsign-key "$trusted_key"
+fi
+
+# Staged beside the original so the rename is atomic.
+sudo install -o root -g root -m 0644 "$workdir/pacman.conf" "$pacman_conf.omarchy-aurora"
+sudo mv -f "$pacman_conf.omarchy-aurora" "$pacman_conf"
+
+# Every aurora-packages release serves its database as omarchy-aurora.db, and
+# upload times are not ordered by release, so pacman can keep a cached database
+# from the previous release and reject it against the new signature. Drop it so
+# both are fetched together for the release now pinned.
+db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2 }' "$pacman_conf")
+sync_dir="$(root_path "${db_path:-/var/lib/pacman}")/sync"
+sudo rm -f "$sync_dir/omarchy-aurora.db" "$sync_dir/omarchy-aurora.db.sig"
+
+if ! sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Sy --noconfirm; then
+  sudo install -o root -g root -m 0644 "$backup/pacman.conf" "$pacman_conf.omarchy-aurora"
+  sudo mv -f "$pacman_conf.omarchy-aurora" "$pacman_conf"
+  fail "pacman could not read $tag; restored the previous repository (backup: $backup)"
+fi
+
+echo "Pinned the Aurora kernel repository to $tag (backup: $backup)"

@@ -5,6 +5,13 @@
 
 set -e
 
+# Aurora Macs take their kernel from [omarchy-aurora], which only this step
+# pins. It runs ahead of every upgrade below, retries included, and a release it
+# cannot prove stops the update: upgrading against the wrong pin would move the
+# kernel. Elsewhere it does nothing. Its statuses are its own; 3 here would read
+# as a repository mid-transition.
+omarchy-update-aurora-repository || exit 1
+
 # The conflict handler's last resort: pacman puts its questions to the person
 # running the update instead of answering them itself. Nothing here may capture
 # a stream, because an upgrade without --noconfirm prompts on stderr. The

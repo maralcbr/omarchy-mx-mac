@@ -28,6 +28,12 @@ cat >"$stub_bin/omarchy-hw-apple-silicon" <<'STUB'
 [[ ${APPLE_SILICON:-} == 1 ]]
 STUB
 
+# The Aurora repository step has its own test; here it would only query pacman.
+cat >"$stub_bin/omarchy-update-aurora-repository" <<'STUB'
+#!/bin/bash
+exit 0
+STUB
+
 # Reaching the conflict handler at all is the failure under test, so it records
 # and refuses rather than doing anything.
 cat >"$stub_bin/omarchy-update-system-pkgs-when-conflicted" <<'STUB'

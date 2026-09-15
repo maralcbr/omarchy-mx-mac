@@ -45,7 +45,13 @@ cat >"$stub_bin/omarchy-hw-apple-silicon" <<'STUB'
 [[ ${APPLE_SILICON:-0} == 1 ]]
 STUB
 
-chmod +x "$stub_bin/sudo" "$stub_bin/pacman" "$stub_bin/omarchy-hw-apple-silicon"
+# The Aurora repository step has its own test; here it would only query pacman.
+cat >"$stub_bin/omarchy-update-aurora-repository" <<'STUB'
+#!/bin/bash
+exit 0
+STUB
+
+chmod +x "$stub_bin/sudo" "$stub_bin/pacman" "$stub_bin/omarchy-hw-apple-silicon" "$stub_bin/omarchy-update-aurora-repository"
 
 replaced="$test_tmp/replaced"
 
