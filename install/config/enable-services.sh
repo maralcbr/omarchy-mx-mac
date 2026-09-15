@@ -27,7 +27,5 @@ if [[ -e /etc/systemd/system/omarchy-seamless-login.service ||
   systemctl daemon-reload
 fi
 systemctl enable sddm.service
-if ! omarchy-hw-apple-silicon; then
-  # [Install] also enables the socket that reports app.slice candidacy.
-  systemctl enable systemd-oomd.service
-fi
+# [Install] also enables the socket that reports app.slice candidacy.
+systemctl enable systemd-oomd.service
