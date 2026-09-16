@@ -12,15 +12,30 @@ set -e
 # as a repository mid-transition.
 omarchy-update-aurora-repository || exit 1
 
+# The boot files an Apple Silicon image wrote are adopted by naming their package in this same upgrade, retries included.
+pacman_targets=()
+boot_admission=""
+if omarchy-hw-apple-silicon && [[ -z ${OMARCHY_APPLE_BOOT_UNAVAILABLE:-} ]]; then
+  boot_admission=$(omarchy-update-apple-boot-admission 2>/dev/null) || boot_admission="skip: its boot files could not be checked"
+  if [[ $boot_admission == adopt ]]; then
+    pacman_targets+=(--needed omarchy-apple-boot)
+  fi
+fi
+
 # The conflict handler's last resort: pacman puts its questions to the person
 # running the update instead of answering them itself. Nothing here may capture
 # a stream, because an upgrade without --noconfirm prompts on stderr. The
 # handler has already said why, so no heading here either.
 if [[ ${OMARCHY_UPDATE_CONFLICT:-} == 1 && ${OMARCHY_UPDATE_INTERACTIVE:-} == 1 ]]; then
-  exec sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Syu --overwrite '/usr/share/omarchy/*'
+  exec sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Syu --overwrite '/usr/share/omarchy/*' "${pacman_targets[@]}"
 fi
 
 echo -e "\e[32m\nUpdate system packages\e[0m"
+
+case $boot_admission in
+  "" | adopt | owned | "skip: no image-written boot files") ;;
+  *) echo -e "\e[33mApple Silicon boot files stay unmanaged: ${boot_admission#skip: }\e[0m" ;;
+esac
 
 errors=$(mktemp)
 trap 'rm -f "$errors"' EXIT
@@ -35,11 +50,18 @@ fi
 # Progress bars stay on stdout. Errors are on stderr, kept for the conflict
 # handler below; LC_ALL=C is what keeps them parseable in any locale.
 if sudo env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm \
-  --overwrite '/usr/share/omarchy/*' "${pacman_args[@]}" 2>"$errors"; then
+  --overwrite '/usr/share/omarchy/*' "${pacman_args[@]}" "${pacman_targets[@]}" 2>"$errors"; then
   cat "$errors" >&2
   exit 0
 fi
 cat "$errors" >&2
+
+# A repository snapshot from before omarchy-apple-boot existed refuses the target before changing anything; update without it.
+if ((${#pacman_targets[@]})) && grep -qx 'error: target not found: omarchy-apple-boot' "$errors"; then
+  echo -e "\e[33mThis Mac's package repository has no omarchy-apple-boot yet; updating without it.\e[0m" >&2
+  rm -f "$errors"
+  exec env OMARCHY_APPLE_BOOT_UNAVAILABLE=1 omarchy-update-system-pkgs
+fi
 
 # A repository mid-transition -- one package already rebuilt against a new
 # library, the packages that need it not yet -- is refused by pacman before it

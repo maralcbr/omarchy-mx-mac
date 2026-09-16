@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# omarchy:summary=Say whether omarchy-apple-boot may adopt this Mac's image-written boot files
+# omarchy:hidden=true
+
+# Prints one line: "owned", "adopt", or "skip: <reason>". Read-only; reads pacman's local database directly.
+
+set -euo pipefail
+
+root=${OMARCHY_APPLE_BOOT_ROOT:-}
+dbpath="$root/var/lib/pacman/local"
+
+# Must match omarchy-pkgs pkgbuilds/omarchy-apple-boot, or adoption becomes a .pacnew on every Mac.
+declare -A laid_down=(
+  [/etc/initcpio/install/omarchy-vendorfw]=68ba5ae1ae77c50a0ddd89c084550873eb93e6710254cf832b064456c29451be
+  [/etc/mkinitcpio.conf.d/90-omarchy-asahi.conf]=be6708cd16649f0853003ecf718cb09d1d720147291806b4ee56e36dd8850186
+  [/etc/systemd/system/omarchy-vendor-firmware.service]=e49865dd93ff43a02fedd28b95737a501c804d9bac2fa0c3bafa969c4cffe087
+  [/usr/lib/omarchy/initcpio/omarchy-vendorfw.service]=6cb0892d6586e933d8743a95148e42e4cc14736d8d7f496ac14bd16e55ec27c0
+  [/usr/lib/omarchy/initcpio/omarchy-vendorfw.sh]=937f0fd50bd611b33c97f108d59118ce853fdbf095b832788d2ed5508c5f0a59
+)
+
+shopt -s nullglob
+installed=("$dbpath"/omarchy-apple-boot-[0-9]*)
+if ((${#installed[@]})); then
+  echo owned
+  exit 0
+fi
+
+present=0
+for path in "${!laid_down[@]}"; do
+  [[ -e $root$path || -L $root$path ]] && present=$((present + 1))
+done
+if ((present == 0)); then
+  echo "skip: no image-written boot files"
+  exit 0
+fi
+if ((present != ${#laid_down[@]})); then
+  echo "skip: only $present of ${#laid_down[@]} image-written boot files are present"
+  exit 0
+fi
+
+for path in $(printf '%s\n' "${!laid_down[@]}" | sort); do
+  # A symlinked parent would let pacman write somewhere else.
+  component=$root
+  for part in $(tr '/' ' ' <<<"${path%/*}"); do
+    component+="/$part"
+    if [[ -L $component || ! -d $component ]]; then
+      echo "skip: ${component#"$root"} is not a plain directory"
+      exit 0
+    fi
+  done
+
+  file=$root$path
+  if [[ -L $file || ! -f $file ]]; then
+    echo "skip: $path is not a regular file"
+    exit 0
+  fi
+
+  owners=("$dbpath"/*/files)
+  if ((${#owners[@]})) && grep -Flx -- "${path#/}" "${owners[@]}" >/dev/null; then
+    echo "skip: $path belongs to another package"
+    exit 0
+  fi
+
+  if [[ $(sha256sum "$file" | cut -d' ' -f1) != "${laid_down[$path]}" ]]; then
+    echo "skip: $path differs from what the image laid down"
+    exit 0
+  fi
+done
+
+echo adopt
