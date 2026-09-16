@@ -96,3 +96,18 @@ printf '%%FILES%%\netc/\netc/initcpio/\netc/initcpio/install/\netc/initcpio/inst
   >"$root/var/lib/pacman/local/some-other-1.0-1/files"
 expect "a file another package owns is not adopted" "$root" \
   "skip: /etc/initcpio/install/omarchy-vendorfw belongs to another package"
+
+root="$test_tmp/owned-damaged"
+image_root "$root"
+mkdir -p "$root/var/lib/pacman/local/omarchy-apple-boot-20260917-1"
+rm "$root/etc/initcpio/install/omarchy-vendorfw"
+expect "an installed package reports owned even with a file deleted; owned is not a health check" "$root" owned
+
+if ((EUID != 0)); then
+  root="$test_tmp/unreadable-db"
+  image_root "$root"
+  mkdir -p "$root/var/lib/pacman/local/some-other-1.0-1"
+  printf '%%FILES%%\n' >"$root/var/lib/pacman/local/some-other-1.0-1/files"
+  chmod 000 "$root/var/lib/pacman/local/some-other-1.0-1/files"
+  expect "an unreadable package database keeps the Mac out of adoption" "$root" "skip: the package database could not be read"
+fi

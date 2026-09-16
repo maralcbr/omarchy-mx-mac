@@ -3,7 +3,7 @@
 # omarchy:summary=Say whether omarchy-apple-boot may adopt this Mac's image-written boot files
 # omarchy:hidden=true
 
-# Prints one line: "owned", "adopt", or "skip: <reason>". Read-only; reads pacman's local database directly.
+# Prints "owned", "adopt", or "skip: <reason>". Read-only; reads the default pacman database, and "owned" says nothing about file health.
 
 set -euo pipefail
 
@@ -57,9 +57,16 @@ for path in $(printf '%s\n' "${!laid_down[@]}" | sort); do
   fi
 
   owners=("$dbpath"/*/files)
-  if ((${#owners[@]})) && grep -Flx -- "${path#/}" "${owners[@]}" >/dev/null; then
-    echo "skip: $path belongs to another package"
-    exit 0
+  if ((${#owners[@]})); then
+    status=0
+    grep -Flxs -- "${path#/}" "${owners[@]}" >/dev/null || status=$?
+    if ((status == 0)); then
+      echo "skip: $path belongs to another package"
+      exit 0
+    elif ((status != 1)); then
+      echo "skip: the package database could not be read"
+      exit 0
+    fi
   fi
 
   if [[ $(sha256sum "$file" | cut -d' ' -f1) != "${laid_down[$path]}" ]]; then

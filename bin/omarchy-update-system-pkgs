@@ -57,7 +57,8 @@ fi
 cat "$errors" >&2
 
 # A repository snapshot from before omarchy-apple-boot existed refuses the target before changing anything; update without it.
-if ((${#pacman_targets[@]})) && grep -qx 'error: target not found: omarchy-apple-boot' "$errors"; then
+if ((${#pacman_targets[@]})) &&
+  sed "s/$(printf '\033')\[[0-9;]*m//g" "$errors" | grep -qx 'error: target not found: omarchy-apple-boot'; then
   echo -e "\e[33mThis Mac's package repository has no omarchy-apple-boot yet; updating without it.\e[0m" >&2
   rm -f "$errors"
   exec env OMARCHY_APPLE_BOOT_UNAVAILABLE=1 omarchy-update-system-pkgs

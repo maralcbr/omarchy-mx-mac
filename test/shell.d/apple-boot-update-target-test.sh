@@ -20,10 +20,25 @@ cat >"$stub_bin/pacman" <<'STUB'
 #!/bin/bash
 printf '%s\n' "$*" >>"$PACMAN_CALLS"
 if [[ -n ${NO_PACKAGE:-} && " $* " == *" omarchy-apple-boot "* ]]; then
-  echo "error: target not found: omarchy-apple-boot" >&2
+  if [[ $NO_PACKAGE == color ]]; then
+    printf '\033[1;31merror: \033[0mtarget not found: omarchy-apple-boot\n' >&2
+  else
+    echo "error: target not found: omarchy-apple-boot" >&2
+  fi
+  exit 1
+fi
+if [[ -n ${CONFLICT_WITHOUT_TARGET:-} ]]; then
+  echo "error: failed to commit transaction (conflicting files)" >&2
+  echo "somepkg: /usr/bin/thing exists in filesystem" >&2
   exit 1
 fi
 echo "upgrade complete"
+STUB
+
+cat >"$stub_bin/omarchy-update-system-pkgs-when-conflicted" <<'STUB'
+#!/bin/bash
+printf 'unavailable=%s\n' "${OMARCHY_APPLE_BOOT_UNAVAILABLE:-}" >"$HANDLER_SEEN"
+rm -f "$1"
 STUB
 
 cat >"$stub_bin/omarchy-hw-apple-silicon" <<'STUB'
@@ -48,8 +63,12 @@ chmod +x "$stub_bin"/*
 run_update() {
   : >"$test_tmp/pacman-calls"
   : >"$test_tmp/admission-calls"
+  rm -rf "$test_tmp/tmp" "$test_tmp/handler-seen"
+  mkdir -p "$test_tmp/tmp"
   env PACMAN_CALLS="$test_tmp/pacman-calls" \
     ADMISSION_CALLS="$test_tmp/admission-calls" \
+    HANDLER_SEEN="$test_tmp/handler-seen" \
+    TMPDIR="$test_tmp/tmp" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
     "$@" bash "$ROOT/bin/omarchy-update-system-pkgs" >"$test_tmp/out" 2>&1
 }
@@ -101,3 +120,17 @@ run_update APPLE_SILICON=1 ADMISSION=adopt NO_PACKAGE=1 || fail "an old reposito
 grep -Fq "has no omarchy-apple-boot yet; updating without it" "$test_tmp/out" ||
   fail "the missing package is explained" "$(cat "$test_tmp/out")"
 pass "a repository snapshot without the package updates without it"
+[[ -z $(ls -A "$test_tmp/tmp") ]] || fail "the fallback leaves no pacman error reports behind" "$(ls -A "$test_tmp/tmp")"
+pass "the fallback leaves no pacman error reports behind"
+
+run_update APPLE_SILICON=1 ADMISSION=adopt NO_PACKAGE=color ||
+  fail "a coloured 'target not found' still falls back" "$(cat "$test_tmp/out")"
+[[ $(wc -l <"$test_tmp/pacman-calls") == 2 && $(sed -n 2p "$test_tmp/pacman-calls") != *omarchy-apple-boot* ]] ||
+  fail "a coloured 'target not found' still falls back" "$(calls)"
+[[ ! -e $test_tmp/handler-seen ]] || fail "a coloured 'target not found' is not mistaken for a conflict"
+pass "pacman's coloured error prefix does not defeat the fallback"
+
+run_update APPLE_SILICON=1 ADMISSION=adopt NO_PACKAGE=1 CONFLICT_WITHOUT_TARGET=1 || true
+[[ $(cat "$test_tmp/handler-seen" 2>/dev/null) == "unavailable=1" ]] ||
+  fail "the conflict handler inherits the missing-package decision" "$(cat "$test_tmp/handler-seen" 2>/dev/null)"
+pass "the conflict handler and its retry keep updating without the missing package"
