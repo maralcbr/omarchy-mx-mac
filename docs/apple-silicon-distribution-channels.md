@@ -37,6 +37,48 @@ Exactly those four mutable keys may ever be overwritten, and only through
 `<channel>` is `stable` or `rc`. Nothing else is accepted anywhere in the
 tooling or the app.
 
+## Planned channel model
+
+Decided 2026-09-17, not implemented yet. This is what the channel refactor
+builds towards; the rest of this document still describes what runs today.
+
+| Channel | Kernel | How it moves |
+| --- | --- | --- |
+| `stable` | `linux-asahi` | Unchanged for now. Once Aurora is fully qualified, `rc` is promoted into `stable` and the Asahi kernel is retired. |
+| `rc` | `linux-aurora` from `aurora-silicon/linux` branch `aurora-wip`, **pinned** to a commit qualified on real hardware | Moves only when a new pin passes hardware qualification. |
+| `edge` | `linux-aurora` from `aurora-wip`, **floating** on the branch head | Follows each new build. |
+
+Today's Asahi-based `rc` goes away and `rc-aurora` becomes `rc`. Macs already
+installed from a renamed channel are migrated, not stranded. Until then,
+`rc-aurora` offers only the models qualified on hardware: `apple,j314s` and
+`apple,j416c`, from release `os-v4.0.3-mac.2.20260913.1-aurora` on.
+
+### Edge, for now
+
+- **Updater only.** An installed `rc` Mac opts into `edge`; there is no `edge`
+  installer image. A full OS image per kernel is too large and slow to build
+  for a lane that moves every day. Once the bootstrap installer exists (a small
+  image that installs the packages on first boot), an `edge` install is simply
+  the Aurora bootstrap pointed at `edge`.
+- **Signing stays behind the `asahi-quattro-release` approval gate.** Each
+  `edge` publish is approved after checking what changed upstream and that the
+  build passed; the owner has delegated that approval to the agent working on
+  their request. There is no unattended signing yet: one signing key signs
+  every channel, and an automatic build would ship whatever `aurora-wip`
+  receives, including a kernel that does not boot.
+- **Before `edge` builds may sign themselves**, two things must exist: an
+  edge-only signing key that only `edge` Macs trust, and a boot-health check
+  that runs before a Mac moves to a new kernel.
+
+### Revisit when omarchy-pool is adopted
+
+[omarchy-pool](https://github.com/firemanxbr/omarchy-pool) brings release
+rings, signed static delivery and a package factory, which is what `edge`
+really wants. The choices above are interim. When omarchy-pool is adopted,
+redesign `edge` on top of it: floating builds from its package factory,
+ring-scoped signing instead of one key for every channel, and installer support
+for `edge`.
+
 ## The signed envelope
 
 `catalog.signed.json` carries the catalog and its signature together:
