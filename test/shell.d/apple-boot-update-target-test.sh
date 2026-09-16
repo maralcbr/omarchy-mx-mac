@@ -133,4 +133,4 @@ pass "pacman's coloured error prefix does not defeat the fallback"
 run_update APPLE_SILICON=1 ADMISSION=adopt NO_PACKAGE=1 CONFLICT_WITHOUT_TARGET=1 || true
 [[ $(cat "$test_tmp/handler-seen" 2>/dev/null) == "unavailable=1" ]] ||
   fail "the conflict handler inherits the missing-package decision" "$(cat "$test_tmp/handler-seen" 2>/dev/null)"
-pass "the conflict handler and its retry keep updating without the missing package"
+pass "the conflict handler inherits the decision to update without the missing package"
