@@ -48,22 +48,19 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
 
   omarchy-update-dev
   if omarchy-hw-apple-silicon; then
-    set +e
-    omarchy-update-asahi-bundle --yes
-    bundle_status=$?
-    set -e
+    # set +e does not stop the ERR banner; a status taken with || does, so only a real failure shows it.
+    bundle_status=0
+    omarchy-update-asahi-bundle --yes || bundle_status=$?
     if (( bundle_status == 3 )); then
       echo "Apple Silicon bundle update deferred because its release channel is unavailable." >&2
-    elif (( bundle_status != 0 )); then
-      exit "$bundle_status"
+    else
+      (( bundle_status == 0 )) || (exit "$bundle_status")
     fi
     # The [omarchy] repository the ISO pinned stays on its install-time snapshot
     # otherwise; move it to the newest promoted snapshot before the package sync
     # so the system upgrade below reads current packages.
-    set +e
-    omarchy-update-asahi-repository --yes
-    repository_status=$?
-    set -e
+    repository_status=0
+    omarchy-update-asahi-repository --yes || repository_status=$?
     # A repoint that fails leaves the previous signed snapshot pinned, which is
     # still a valid repository, so the system upgrade below carries on rather
     # than taking the whole update down with it.

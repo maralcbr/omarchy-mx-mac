@@ -20,6 +20,8 @@ steps=(
   omarchy-snapshot
   omarchy-update-stay-awake
   omarchy-update-dev
+  omarchy-update-asahi-bundle
+  omarchy-update-asahi-repository
   omarchy-update-keyring
   omarchy-update-system-pkgs
   omarchy-migrate
@@ -46,7 +48,7 @@ done
 
 cat >"$stub_bin/omarchy-hw-apple-silicon" <<'STUB'
 #!/bin/bash
-exit 1
+[[ ${APPLE_SILICON:-0} == 1 ]]
 STUB
 chmod +x "$stub_bin/omarchy-hw-apple-silicon"
 
@@ -58,6 +60,7 @@ run_update() {
     FAILING_STEP="${FAILING_STEP:-}" \
     FAILING_STATUS="${FAILING_STATUS:-}" \
     CLEANUP_FAIL="${CLEANUP_FAIL:-0}" \
+    APPLE_SILICON="${APPLE_SILICON:-0}" \
     OMARCHY_UPDATE_LOGGED=1 \
     PATH="$stub_bin:$PATH" \
     bash "$ROOT/bin/omarchy-update" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
@@ -149,3 +152,41 @@ set -e
 grep -q 'Something went wrong' "$test_tmp/out" "$test_tmp/err" ||
   fail "any other blocked upgrade lost the failure banner"
 pass "every other blocked upgrade still shows the failure banner"
+
+# The Apple Silicon bundle and repository steps may defer (3) or, for the repository, fail
+# without stopping the update. Their status is taken so the ERR trap cannot print the
+# failure banner over an update that carries on; only a bundle that really failed shows it.
+apple_expected_steps() {
+  expected_steps | sed '/^omarchy-update-dev$/a omarchy-update-asahi-bundle\nomarchy-update-asahi-repository'
+}
+
+for deferred in omarchy-update-asahi-bundle omarchy-update-asahi-repository; do
+  APPLE_SILICON=1 FAILING_STEP=$deferred FAILING_STATUS=3 run_update -y ||
+    fail "a deferred $deferred fails the update" "$(cat "$test_tmp/err")"
+  diff <(apple_expected_steps) <(steps_run) >"$test_tmp/order" ||
+    fail "a deferred $deferred does not run every other step" "$(cat "$test_tmp/order")"
+  grep -q 'deferred because' "$test_tmp/err" || fail "a deferred $deferred is not reported"
+  if grep -q 'Something went wrong' "$test_tmp/out" "$test_tmp/err"; then
+    fail "a deferred $deferred prints the failure banner"
+  fi
+done
+pass "a deferred Apple Silicon bundle or repository step continues without the failure banner"
+
+APPLE_SILICON=1 FAILING_STEP=omarchy-update-asahi-repository FAILING_STATUS=2 run_update -y ||
+  fail "a failed repository repoint fails the update"
+grep -q 'continuing with the pinned snapshot' "$test_tmp/err" || fail "a failed repository repoint is not reported"
+if grep -q 'Something went wrong' "$test_tmp/out" "$test_tmp/err"; then
+  fail "a failed repository repoint that the update carries past prints the failure banner"
+fi
+pass "a failed repository repoint continues on the pinned snapshot without the failure banner"
+
+set +e
+APPLE_SILICON=1 FAILING_STEP=omarchy-update-asahi-bundle FAILING_STATUS=2 run_update -y
+update_status=$?
+set -e
+[[ $update_status -eq 2 ]] || fail "a failed bundle update does not keep its status" "expected 2, got $update_status"
+grep -q 'Something went wrong' "$test_tmp/out" "$test_tmp/err" || fail "a failed bundle update lost the failure banner"
+if grep -q '^omarchy-update-system-pkgs ' "$test_tmp/steps"; then
+  fail "a failed bundle update still upgrades packages"
+fi
+pass "a failed bundle update stops the update with the failure banner"
