@@ -19,6 +19,14 @@ fi
 
 cd "$work_dir"
 
+# The verification and installation runs below must select the same release.
+# This wrapper resolves nothing itself, so it owns the file they hand that
+# selection over in, and starts it empty: the root work directory survives a
+# previous attempt, and a stale selection would pin this one to it.
+identity_file="$work_dir/channel-identity"
+: >"$identity_file"
+export OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE="$identity_file"
+
 release="https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download"
 fingerprint="5983B1CA32CB778F4D74D24ECFF35022CA5B5959"
 
@@ -38,7 +46,9 @@ gpgv --keyring ./omarchy-release.gpg install-omarchy-mx-mac.sig install-omarchy-
   fail "Installer signature verification failed."
 
 echo "=> Pre-verifying package integrity..."
-bash install-omarchy-mx-mac --verify-only
+# The same arguments reach both runs, so an explicit --release-tag pins the
+# release this verifies as well as the one it installs.
+bash install-omarchy-mx-mac --verify-only "$@"
 
 echo "=> Starting installation..."
 bash install-omarchy-mx-mac "$@"

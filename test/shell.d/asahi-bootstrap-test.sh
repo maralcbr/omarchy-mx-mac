@@ -21,6 +21,9 @@ case "$output" in
     cat >"$output" <<'INSTALLER'
 #!/bin/bash
 printf '%s\n' "$*" >>"$INVOCATION_LOG"
+identity_bytes=$(wc -c <"${OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE:-/dev/null}")
+printf 'identity:%s:%s\n' "${OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE:-}" "${identity_bytes//[[:space:]]/}" >>"$IDENTITY_LOG"
+printf 'run\n' >>"${OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE:-/dev/null}"
 INSTALLER
     ;;
   *)
@@ -42,8 +45,9 @@ EOF
 chmod +x "$test_tmp/bin"/*
 
 run_bootstrap() {
-  PATH="$test_tmp/bin:/usr/bin" TMPDIR="$test_tmp/tmp" \
-    INVOCATION_LOG="$test_tmp/invocations" bash "$bootstrap" "$@"
+  PATH="$test_tmp/bin:$(dirname "$BASH"):/usr/bin:/bin" TMPDIR="$test_tmp/tmp" \
+    INVOCATION_LOG="$test_tmp/invocations" IDENTITY_LOG="$test_tmp/identities" \
+    bash "$bootstrap" "$@"
 }
 
 bash -n "$bootstrap"
@@ -51,12 +55,24 @@ grep -Fq 'for cmd in curl gpg gpgv awk' "$bootstrap" || fail "bootstrap checks e
 pass "bootstrap syntax and prerequisites are valid"
 
 : >"$test_tmp/invocations"
+: >"$test_tmp/identities"
 run_bootstrap --user example >/dev/null
 mapfile -t invocations <"$test_tmp/invocations"
-[[ ${invocations[0]} == "--verify-only" ]] || fail "bootstrap pre-verifies the signed installer"
+[[ ${invocations[0]} == "--verify-only --user example" ]] || fail "bootstrap pre-verifies the signed installer with the same arguments"
 [[ ${invocations[1]} == "--user example" ]] || fail "bootstrap forwards installer arguments"
 (( ${#invocations[@]} == 2 )) || fail "bootstrap invokes the installer exactly twice"
 pass "bootstrap verifies before forwarding installer arguments"
+
+# Both runs must select the same release, so the wrapper owns the file they
+# hand that selection over in and starts it empty.
+mapfile -t identities <"$test_tmp/identities"
+identity_path=${identities[0]%:*}
+identity_path=${identity_path#identity:}
+[[ $identity_path == */channel-identity ]] ||
+  fail "bootstrap creates the handover file in its own work directory" "${identities[*]}"
+[[ ${identities[0]} == "identity:$identity_path:0" ]] || fail "the handover file starts empty"
+[[ ${identities[1]} == "identity:$identity_path:4" ]] || fail "both runs share one handover file"
+pass "bootstrap hands one empty-at-first identity file to both runs"
 
 if find "$test_tmp/tmp" -mindepth 1 -print -quit | grep -q .; then
   fail "bootstrap cleans its non-root working directory"
@@ -64,6 +80,7 @@ fi
 pass "bootstrap cleans its non-root working directory"
 
 : >"$test_tmp/invocations"
+: >"$test_tmp/identities"
 if GPG_FINGERPRINT=invalid run_bootstrap >"$test_tmp/fingerprint.out" 2>&1; then
   fail "bootstrap rejects an unexpected release fingerprint"
 fi
@@ -72,6 +89,7 @@ grep -Fq 'Release signing key fingerprint mismatch' "$test_tmp/fingerprint.out" 
 pass "bootstrap rejects an unexpected release fingerprint"
 
 : >"$test_tmp/invocations"
+: >"$test_tmp/identities"
 if GPGV_EXIT=1 run_bootstrap >"$test_tmp/signature.out" 2>&1; then
   fail "bootstrap rejects an invalid installer signature"
 fi
@@ -80,8 +98,9 @@ grep -Fq 'Installer signature verification failed' "$test_tmp/signature.out" || 
 pass "bootstrap rejects an invalid installer signature"
 
 : >"$test_tmp/invocations"
+: >"$test_tmp/identities"
 run_bootstrap --verify-only >/dev/null
 mapfile -t invocations <"$test_tmp/invocations"
-[[ ${invocations[0]} == "--verify-only" && ${invocations[1]} == "--verify-only" ]] || \
+[[ ${invocations[0]} == "--verify-only --verify-only" && ${invocations[1]} == "--verify-only" ]] || \
   fail "bootstrap preserves the verify-only request"
 pass "bootstrap preserves the verify-only request"

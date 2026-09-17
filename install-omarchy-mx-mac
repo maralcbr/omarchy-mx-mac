@@ -3,22 +3,11 @@
 set -euo pipefail
 
 package_repo="${OMARCHY_PACKAGE_REPO:-maralcbr/omarchy-pkgs}"
-resolve_channel_release_tag() {
-  # The un-numbered asahi-quattro-channel release is an immutable legacy
-  # pointer; the live channel is the highest-numbered asahi-quattro-channel-N.
-  curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --silent \
-    "https://api.github.com/repos/$package_repo/releases?per_page=100" |
-    grep -oE '"tag_name": *"asahi-quattro-channel-[1-9][0-9]*"' |
-    grep -oE 'asahi-quattro-channel-[0-9]+' | sort -t- -k4,4n | tail -1
-}
-if [[ -n ${OMARCHY_PACKAGE_RELEASE_BASE_URL:-} ]]; then
-  release_base_url=$OMARCHY_PACKAGE_RELEASE_BASE_URL
-else
-  channel_release_tag=$(resolve_channel_release_tag)
-  [[ $channel_release_tag =~ ^asahi-quattro-channel-[1-9][0-9]*$ ]] ||
-    channel_release_tag=asahi-quattro-channel
-  release_base_url="https://github.com/$package_repo/releases/download/$channel_release_tag"
-fi
+pointer_url="${OMARCHY_ASAHI_CHANNEL_POINTER_URL:-https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel}"
+# The wrapper owns this file and hands the same selection to the verification
+# and installation runs; a direct run of this script leaves it unset.
+identity_file="${OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE:-}"
+identity_size_limit=4096
 fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
 key_url="${OMARCHY_RELEASE_KEY_URL:-https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/default/omarchy-release.gpg}"
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-mx-mac-install.XXXXXXXX")
@@ -33,6 +22,138 @@ for command_name in curl gpg; do
   command -v "$command_name" >/dev/null 2>&1 || fail "Required command is unavailable: $command_name"
 done
 
+# Compare raw bytes with the canonical body so newline stripping cannot hide trailing junk, CRs or NULs.
+read_pointer_tag() {
+  local file="$1" body="" size sequence canonical
+  local pattern=$'^format=1\nsequence=([1-9][0-9]{0,8})\n'
+  [[ -f $file ]] && size=$(wc -c <"$file") || return 1
+  (( size <= 256 )) || return 1
+  IFS= read -r -d '' body <"$file" || true
+  [[ $body =~ $pattern ]] || return 1
+  sequence=${BASH_REMATCH[1]}
+  printf -v canonical 'format=1\nsequence=%s\ntag=asahi-quattro-channel-%s\n' "$sequence" "$sequence"
+  [[ $body == "$canonical" ]] && (( size == ${#canonical} )) || return 1
+  printf 'asahi-quattro-channel-%s\n' "$sequence"
+}
+
+# The unsigned pointer only picks which signed channel to download; the
+# installer still verifies that channel and requires its sequence to be N.
+resolve_channel_tag() {
+  local discovered="" pointer_status=0
+  curl --proto '=https' --tlsv1.2 --fail --location --silent --max-time 20 --max-filesize 256 \
+    "$pointer_url" --output "$work_dir/pointer" || pointer_status=$?
+  # curl exits 63 when the body exceeds --max-filesize: the server answered, so that is malformed, not unreachable.
+  if (( pointer_status == 0 )) && discovered=$(read_pointer_tag "$work_dir/pointer"); then
+    printf '%s\n' "$discovered"
+    return 0
+  fi
+  if (( pointer_status == 0 || pointer_status == 63 )); then
+    echo "Release channel pointer is malformed; using the GitHub release listing" >&2
+  fi
+  local releases_api_url="${OMARCHY_ASAHI_RELEASES_API_URL:-https://api.github.com/repos/$package_repo/releases?per_page=100}"
+  discovered=$(curl --proto '=https' --tlsv1.2 --fail --location --retry 3 --silent "$releases_api_url" |
+    grep -oE '"tag_name": *"asahi-quattro-channel-[1-9][0-9]*"' |
+    grep -oE 'asahi-quattro-channel-[0-9]+' | sort -u -t- -k4,4n | tail -1) || discovered=""
+  [[ $discovered =~ ^asahi-quattro-channel-[1-9][0-9]*$ ]] || return 1
+  printf '%s\n' "$discovered"
+}
+
+# The selection this run was given, before any network call. An exact release
+# wins over a pinned asset URL, which wins over a named channel; anything else
+# is discovered. Only the first three are "explicit": the other run of a pair
+# must have been given the same one.
+release_argument="${ASAHI_QUATTRO_RELEASE_TAG:-}"
+for (( argument_index = 1; argument_index <= $#; argument_index++ )); do
+  [[ ${!argument_index} == "--release-tag" ]] || continue
+  (( argument_index < $# )) || fail "--release-tag requires a tag"
+  next_index=$(( argument_index + 1 ))
+  release_argument=${!next_index}
+done
+
+explicit=1
+if [[ -n $release_argument ]]; then
+  selector=release
+  value=$release_argument
+elif [[ -n ${OMARCHY_PACKAGE_RELEASE_BASE_URL:-} ]]; then
+  selector=base-url
+  value=$OMARCHY_PACKAGE_RELEASE_BASE_URL
+elif [[ -n ${ASAHI_QUATTRO_CHANNEL_TAG:-} ]]; then
+  selector=channel
+  value=$ASAHI_QUATTRO_CHANNEL_TAG
+else
+  selector=channel
+  value=""
+  explicit=0
+fi
+
+valid_selection() {
+  case "$1" in
+    release) [[ $2 =~ ^asahi-quattro-[0-9a-f]{8}$ ]] ;;
+    channel) [[ $2 =~ ^asahi-quattro-channel-[1-9][0-9]*$ ]] ;;
+    base-url) [[ $2 == https://* && $2 != *[[:space:]]* ]] ;;
+    *) return 1 ;;
+  esac
+}
+
+if (( explicit )); then
+  valid_selection "$selector" "$value" || fail "Invalid $selector selection '$value'"
+fi
+
+recorded_release_tag=""
+if [[ -n $identity_file && -s $identity_file ]]; then
+  (( $(wc -c <"$identity_file") <= identity_size_limit )) || fail "The release identity handed over by the wrapper is malformed"
+  recorded_format="" recorded_selector="" recorded_value=""
+  # The installer appends its record, so read a last line without a newline too.
+  while IFS= read -r line || [[ -n $line ]]; do
+    case "$line" in
+      format=*) recorded_format=${line#format=} ;;
+      selector=*) recorded_selector=${line#selector=} ;;
+      value=*) recorded_value=${line#value=} ;;
+      release_tag=*) recorded_release_tag=${line#release_tag=} ;;
+      "") ;;
+      *) fail "The release identity handed over by the wrapper is malformed" ;;
+    esac
+  done <"$identity_file"
+  [[ $recorded_format == "1" ]] || fail "The release identity handed over by the wrapper is malformed"
+  valid_selection "$recorded_selector" "$recorded_value" ||
+    fail "The release identity handed over by the wrapper is malformed"
+  [[ -z $recorded_release_tag || $recorded_release_tag =~ ^asahi-quattro-[0-9a-f]{8}$ ]] ||
+    fail "The release identity handed over by the wrapper is malformed"
+
+  if (( explicit )); then
+    [[ $recorded_selector == "$selector" && $recorded_value == "$value" ]] ||
+      fail "The verification and installation runs were given different releases; rerun the installation"
+  elif [[ $recorded_selector == "channel" ]]; then
+    # The pointer may have advanced since the verification run; follow what it named then.
+    value=$recorded_value
+  else
+    fail "The verification run was pinned to a $recorded_selector and this run was not; repeat that pin or rerun the installation"
+  fi
+
+  # Every selector but an exact release is resolved by the installer itself, so
+  # the run that verified must have recorded what it resolved.
+  [[ $recorded_selector == "release" || -n $recorded_release_tag ]] ||
+    fail "The installer used for verification does not record its release; pass --release-tag"
+else
+  if [[ $selector == "channel" && -z $value ]]; then
+    value=$(resolve_channel_tag) || fail "Could not discover the release channel"
+  fi
+  if [[ -n $identity_file ]]; then
+    printf 'format=1\nselector=%s\nvalue=%s\n' "$selector" "$value" >"$identity_file"
+  fi
+fi
+
+if [[ -n ${OMARCHY_PACKAGE_RELEASE_BASE_URL:-} ]]; then
+  release_base_url=$OMARCHY_PACKAGE_RELEASE_BASE_URL
+elif [[ $selector == "channel" ]]; then
+  release_base_url="https://github.com/$package_repo/releases/download/$value"
+else
+  # An exact release names what to install, not where this installer asset
+  # lives; the channel still decides that.
+  installer_channel_tag=$(resolve_channel_tag) || fail "Could not discover the release channel"
+  release_base_url="https://github.com/$package_repo/releases/download/$installer_channel_tag"
+fi
+
 installer="$work_dir/install-asahi-quattro"
 signature="$installer.sig"
 keyring="$work_dir/omarchy-release.gpg"
@@ -46,6 +167,11 @@ mkdir -m 0700 "$gnupg_dir"
 gpg --batch --homedir "$gnupg_dir" --import "$keyring" >/dev/null 2>&1 || fail "Could not load Omarchy release key"
 gpg --batch --homedir "$gnupg_dir" --verify "$signature" "$installer" >/dev/null 2>&1 || \
   fail "Apple Silicon bundle installer signature verification failed"
+
+# The installer records the release it resolved in the same file, so this run
+# and the run that verified install the same one.
+[[ -z $identity_file ]] || export ASAHI_QUATTRO_IDENTITY_FILE="$identity_file"
+[[ $selector != "channel" ]] || export ASAHI_QUATTRO_CHANNEL_TAG="$value"
 
 installer_args=("$@")
 (( EUID != 0 )) || installer_args=(--fresh "${installer_args[@]}")
