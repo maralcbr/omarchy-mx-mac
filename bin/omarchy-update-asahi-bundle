@@ -74,9 +74,23 @@ gpg --batch --homedir "$package_gnupg_dir" --import "$package_trusted_key_file" 
 
 download() {
   curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" --output "$2" || {
-    echo "Apple Silicon bundle update: could not download $1" >&2
+    echo "Apple Silicon bundle update: ${3:-could not download $1}" >&2
     exit 3
   }
+}
+
+# Compare raw bytes with the canonical body so newline stripping cannot hide trailing junk, CRs or NULs.
+read_pointer_sequence() {
+  local file="$1" body="" size sequence canonical
+  local pattern=$'^format=1\nsequence=([1-9][0-9]{0,8})\n'
+  [[ -f $file ]] && size=$(wc -c <"$file") || return 1
+  (( size <= 256 )) || return 1
+  IFS= read -r -d '' body <"$file" || true
+  [[ $body =~ $pattern ]] || return 1
+  sequence=${BASH_REMATCH[1]}
+  printf -v canonical 'format=1\nsequence=%s\ntag=asahi-quattro-channel-%s\n' "$sequence" "$sequence"
+  [[ $body == "$canonical" ]] && (( size == ${#canonical} )) || return 1
+  printf '%s\n' "$sequence"
 }
 
 verify_release_signature() {
@@ -94,64 +108,6 @@ verify_package_signature() {
   awk -v key="$package_trusted_key" '$2 == "VALIDSIG" && ($3 == key || $NF == key) { valid=1 } END { exit !valid }' <<<"$status" ||
     fail "$(basename "$file") was not signed by the trusted Omarchy package key"
 }
-
-if [[ -n ${OMARCHY_ASAHI_CHANNEL_URL:-} ]]; then
-  channel_url=$OMARCHY_ASAHI_CHANNEL_URL
-  channel_signature_url="${OMARCHY_ASAHI_CHANNEL_SIGNATURE_URL:-$channel_url.sig}"
-else
-  releases_api_url="${OMARCHY_ASAHI_RELEASES_API_URL:-https://api.github.com/repos/$repo/releases?per_page=100}"
-  # Releases come back newest first, so the highest channel is on the first page
-  # that holds any channel release. Keep paging only while a page is full and
-  # held none, since package and snapshot tags crowd the listing over time.
-  tag=""
-  for page in 1 2 3 4 5; do
-    page_url=$releases_api_url
-    (( page > 1 )) && page_url="$releases_api_url&page=$page"
-    download "$page_url" "$workdir/releases.json"
-    tag=$(jq -er '
-      [
-        .[]
-        | select(.draft == false and .prerelease == false)
-        | select(.tag_name | test("^asahi-quattro-channel-[1-9][0-9]*$"))
-        | { tag: .tag_name, sequence: (.tag_name | sub("^asahi-quattro-channel-"; "") | tonumber) }
-      ]
-      | max_by(.sequence).tag
-    ' "$workdir/releases.json" 2>/dev/null) && [[ -n $tag ]] && break
-    tag=""
-    (( $(jq -r 'length' "$workdir/releases.json" 2>/dev/null || echo 0) == 100 )) || break
-  done
-  [[ -n $tag ]] || fail "could not discover the signed Apple Silicon release channel"
-  base="https://github.com/$repo/releases/download/$tag"
-  channel_url="$base/asahi-quattro-channel"
-  channel_signature_url="$channel_url.sig"
-fi
-
-download "$channel_url" "$workdir/channel"
-download "$channel_signature_url" "$workdir/channel.sig"
-verify_release_signature "$workdir/channel" "$workdir/channel.sig"
-
-channel_format="" channel_name="" channel_sequence="" channel_tag="" channel_source="" manifest_name="" manifest_hash=""
-while IFS= read -r line; do
-  case "$line" in
-    format=*) channel_format=${line#format=} ;;
-    channel=*) channel_name=${line#channel=} ;;
-    sequence=*) channel_sequence=${line#sequence=} ;;
-    release_tag=*) channel_tag=${line#release_tag=} ;;
-    source_commit=*) channel_source=${line#source_commit=} ;;
-    manifest=*) manifest_name=${line#manifest=} ;;
-    manifest_sha256=*) manifest_hash=${line#manifest_sha256=} ;;
-    release_sha256=*) [[ ${line#release_sha256=} =~ ^[0-9a-f]{64}$ ]] || fail "invalid release descriptor checksum" ;;
-    "") ;;
-    *) fail "unknown signed channel entry '$line'" ;;
-  esac
-done <"$workdir/channel"
-
-[[ $channel_format == "1" && $channel_name == "asahi-quattro" ]] || fail "unsupported channel format"
-[[ $channel_sequence =~ ^[1-9][0-9]*$ ]] || fail "invalid release sequence"
-[[ $channel_tag == asahi-quattro-* && $channel_tag != */* ]] || fail "invalid release tag"
-[[ $channel_source =~ ^[0-9a-f]{40}$ ]] || fail "invalid source commit"
-[[ $manifest_name == "asahi-quattro-bundle.manifest" ]] || fail "invalid manifest name"
-[[ $manifest_hash =~ ^[0-9a-f]{64}$ ]] || fail "invalid manifest checksum"
 
 installed_sequence=0 installed_source=""
 if [[ -e $state_file ]]; then
@@ -201,6 +157,89 @@ if [[ -e $pending_file ]]; then
   [[ $pending_format == "1" && $pending_sequence =~ ^[1-9][0-9]*$ && $pending_source =~ ^[0-9a-f]{40}$ ]] || fail "pending release state is malformed"
   [[ -z $pending_package_source || $pending_package_source =~ ^[0-9a-f]{40}$ ]] || fail "pending release state is malformed"
   (( pending_sequence >= installed_sequence )) || fail "pending release state predates installed state"
+fi
+
+tag=""
+if [[ -n ${OMARCHY_ASAHI_CHANNEL_URL:-} ]]; then
+  channel_url=$OMARCHY_ASAHI_CHANNEL_URL
+  channel_signature_url="${OMARCHY_ASAHI_CHANNEL_SIGNATURE_URL:-$channel_url.sig}"
+else
+  pointer_url="${OMARCHY_ASAHI_CHANNEL_POINTER_URL:-https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel}"
+  floor=$(( pending_sequence > installed_sequence ? pending_sequence : installed_sequence ))
+  listing_failure="" pointer_status=0
+  # The unsigned pointer only picks which signed channel to fetch; every check below still applies.
+  curl --fail --location --silent --proto '=https' --tlsv1.2 --max-time 20 --max-filesize 256 \
+    "$pointer_url" --output "$workdir/pointer" || pointer_status=$?
+  # curl exits 63 when the body exceeds --max-filesize: the server answered, so that is malformed, not unreachable.
+  if (( pointer_status == 0 )) && pointer_sequence=$(read_pointer_sequence "$workdir/pointer"); then
+    if (( pointer_sequence >= floor )); then
+      tag="asahi-quattro-channel-$pointer_sequence"
+    else
+      echo "Apple Silicon bundle update: release channel pointer ($pointer_sequence) is behind this Mac ($floor)" >&2
+      listing_failure="release channel pointer is behind this Mac and the GitHub release listing is unavailable; nothing changed"
+    fi
+  elif (( pointer_status == 0 || pointer_status == 63 )); then
+    echo "Apple Silicon bundle update: release channel pointer is malformed; using the GitHub release listing" >&2
+  fi
+
+  if [[ -z $tag ]]; then
+    releases_api_url="${OMARCHY_ASAHI_RELEASES_API_URL:-https://api.github.com/repos/$repo/releases?per_page=100}"
+    # Releases come back newest first, so the highest channel is on the first page
+    # that holds any channel release. Keep paging only while a page is full and
+    # held none, since package and snapshot tags crowd the listing over time.
+    for page in 1 2 3 4 5; do
+      page_url=$releases_api_url
+      (( page > 1 )) && page_url="$releases_api_url&page=$page"
+      download "$page_url" "$workdir/releases.json" "$listing_failure"
+      tag=$(jq -er '
+        [
+          .[]
+          | select(.draft == false and .prerelease == false)
+          | select(.tag_name | test("^asahi-quattro-channel-[1-9][0-9]*$"))
+          | { tag: .tag_name, sequence: (.tag_name | sub("^asahi-quattro-channel-"; "") | tonumber) }
+        ]
+        | max_by(.sequence).tag
+      ' "$workdir/releases.json" 2>/dev/null) && [[ -n $tag ]] && break
+      tag=""
+      (( $(jq -r 'length' "$workdir/releases.json" 2>/dev/null || echo 0) == 100 )) || break
+    done
+    [[ -n $tag ]] || fail "could not discover the signed Apple Silicon release channel"
+  fi
+  base="https://github.com/$repo/releases/download/$tag"
+  channel_url="$base/asahi-quattro-channel"
+  channel_signature_url="$channel_url.sig"
+fi
+
+download "$channel_url" "$workdir/channel"
+download "$channel_signature_url" "$workdir/channel.sig"
+verify_release_signature "$workdir/channel" "$workdir/channel.sig"
+
+channel_format="" channel_name="" channel_sequence="" channel_tag="" channel_source="" manifest_name="" manifest_hash=""
+while IFS= read -r line; do
+  case "$line" in
+    format=*) channel_format=${line#format=} ;;
+    channel=*) channel_name=${line#channel=} ;;
+    sequence=*) channel_sequence=${line#sequence=} ;;
+    release_tag=*) channel_tag=${line#release_tag=} ;;
+    source_commit=*) channel_source=${line#source_commit=} ;;
+    manifest=*) manifest_name=${line#manifest=} ;;
+    manifest_sha256=*) manifest_hash=${line#manifest_sha256=} ;;
+    release_sha256=*) [[ ${line#release_sha256=} =~ ^[0-9a-f]{64}$ ]] || fail "invalid release descriptor checksum" ;;
+    "") ;;
+    *) fail "unknown signed channel entry '$line'" ;;
+  esac
+done <"$workdir/channel"
+
+[[ $channel_format == "1" && $channel_name == "asahi-quattro" ]] || fail "unsupported channel format"
+[[ $channel_sequence =~ ^[1-9][0-9]*$ ]] || fail "invalid release sequence"
+[[ -z $tag || $channel_sequence == "${tag#asahi-quattro-channel-}" ]] ||
+  fail "channel release $tag carries sequence $channel_sequence"
+[[ $channel_tag == asahi-quattro-* && $channel_tag != */* ]] || fail "invalid release tag"
+[[ $channel_source =~ ^[0-9a-f]{40}$ ]] || fail "invalid source commit"
+[[ $manifest_name == "asahi-quattro-bundle.manifest" ]] || fail "invalid manifest name"
+[[ $manifest_hash =~ ^[0-9a-f]{64}$ ]] || fail "invalid manifest checksum"
+
+if [[ -e $pending_file ]]; then
   (( channel_sequence == pending_sequence )) || fail "finish pending release sequence $pending_sequence before installing sequence $channel_sequence"
   [[ $channel_source == "$pending_source" ]] || fail "pending release sequence $pending_sequence has a different source"
   if [[ $mode == "check" ]]; then

@@ -76,17 +76,33 @@ echo aarch64
 SH
 cat >"$stub_bin/curl" <<'SH'
 #!/bin/bash
+args="$*"
 output=""
 url=""
+max_filesize=""
 while (($#)); do
   case "$1" in
     --output) output="$2"; shift 2 ;;
+    --max-filesize) max_filesize="$2"; shift 2 ;;
     http*|file:*) url="$1"; shift ;;
     *) shift ;;
   esac
 done
 [[ -z ${TEST_CURL_LOG:-} ]] || printf '%s\n' "$url" >>"$TEST_CURL_LOG"
-if [[ $url == */releases\?per_page=100 ]]; then
+if [[ $url == */pointers/* ]]; then
+  [[ -z ${TEST_POINTER_ARGS:-} ]] || printf '%s\n' "$args" >"$TEST_POINTER_ARGS"
+  case ${TEST_POINTER:-missing} in
+    missing) exit 22 ;;
+    unreachable) exit 7 ;;
+  esac
+  # A streamed body has no length for curl to refuse up front.
+  if [[ -n $max_filesize && -z ${TEST_POINTER_STREAMED:-} ]] &&
+    (( $(wc -c <"$TEST_ASSETS/$TEST_POINTER") > max_filesize )); then
+    exit 63
+  fi
+  cp "$TEST_ASSETS/$TEST_POINTER" "$output"
+elif [[ $url == */releases\?per_page=100 ]]; then
+  [[ ${TEST_API:-up} == up ]] || exit 7
   cp "$TEST_ASSETS/releases.json" "$output"
 else
   cp "$TEST_ASSETS/${url##*/}" "$output"
@@ -109,7 +125,7 @@ echo '[GNUPG:] VALIDSIG 5983B1CA32CB778F4D74D24ECFF35022CA5B5959 2026-01-01 0 4 
 SH
 cat >"$stub_bin/jq" <<'SH'
 #!/bin/bash
-echo asahi-quattro-channel-22
+echo "${TEST_API_TAG:-asahi-quattro-channel-22}"
 SH
 cat >"$stub_bin/bsdtar" <<'SH'
 #!/bin/bash
@@ -141,6 +157,7 @@ run_discovery_check() {
     OMARCHY_ASAHI_BUNDLE_STATE="$state" \
     OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy-release.gpg" \
     OMARCHY_ASAHI_PACKAGE_KEY_FILE="$test_tmp/asahi-repository-signing.asc" \
+    OMARCHY_ASAHI_CHANNEL_POINTER_URL="https://downloads.example.test/pointers/asahi-quattro-channel" \
     OMARCHY_ASAHI_RELEASES_API_URL="https://api.github.test/repos/example/releases?per_page=100" \
     PATH="$stub_bin:$PATH" \
     "$updater" --check
@@ -149,7 +166,7 @@ run_discovery_check() {
 printf '%s\n' \
   '[{"draft":false,"prerelease":false,"tag_name":"asahi-quattro-channel-22"}]' \
   >"$assets/releases.json"
-write_channel 2 "$source_commit"
+write_channel 22 "$source_commit"
 run_discovery_check >"$test_tmp/discovery.out"
 grep -Fxq 'https://api.github.test/repos/example/releases?per_page=100' "$test_tmp/discovery-curl.log" ||
   fail "versioned channel discovery reads the GitHub releases API"
@@ -242,6 +259,206 @@ grep -Fq 'finish pending release sequence 2 before installing sequence 3' "$test
 pass "new signed release cannot leapfrog pending migrations"
 rm -f "$state.pending"
 
+api_users=$(cd "$ROOT" && grep -rlF 'api.github.com' bin | sort)
+[[ $api_users == $'bin/omarchy-update-asahi-bundle\nbin/omarchy-update-asahi-repository' ]] ||
+  fail "only the bundle updater's fallback and the repository updater read the GitHub API" "$api_users"
+grep -Fq 'https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel' "$updater" ||
+  fail "bundle updater reads the published release channel pointer"
+pass "installed Macs read the GitHub API only for the bundle fallback and the repository update"
+
+pointer_url="https://downloads.example.test/pointers/asahi-quattro-channel"
+api_url="https://api.github.test/repos/example/releases?per_page=100"
+other_commit=fedcba9876543210fedcba9876543210fedcba98
+newer_commit=2468ace02468ace02468ace02468ace02468ace0
+pointer_warning='release channel pointer is malformed; using the GitHub release listing'
+
+write_state() {
+  printf 'format=1\nsequence=%s\ntag=asahi-quattro-test\nsource_commit=%s\n' "$2" "$3" >"$1"
+}
+
+write_pointer() {
+  printf 'format=1\nsequence=%s\ntag=asahi-quattro-channel-%s\n' "$1" "$1" >"$assets/pointer-$1"
+}
+
+channel_asset() {
+  printf 'https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-%s/asahi-quattro-channel\n' "$1"
+}
+
+run_discovery() {
+  TEST_ASSETS="$assets" \
+    TEST_CURL_LOG="$test_tmp/curl.log" \
+    TEST_POINTER_ARGS="$test_tmp/pointer-args" \
+    OMARCHY_ASAHI_TESTING=1 \
+    OMARCHY_ASAHI_ROOT="$test_tmp/root" \
+    OMARCHY_ASAHI_BUNDLE_STATE="$state" \
+    OMARCHY_ASAHI_KEY_FILE="$test_tmp/omarchy-release.gpg" \
+    OMARCHY_ASAHI_PACKAGE_KEY_FILE="$test_tmp/asahi-repository-signing.asc" \
+    OMARCHY_ASAHI_CHANNEL_POINTER_URL="$pointer_url" \
+    OMARCHY_ASAHI_RELEASES_API_URL="$api_url" \
+    PATH="$stub_bin:$PATH" \
+    "$updater" "$@"
+}
+
+# Sets status and leaves stdout, stderr and every fetched URL under $test_tmp.
+discover() {
+  local name="$1"
+  shift
+  rm -f "$test_tmp/curl.log" "$test_tmp/pointer-args"
+  : >"$test_tmp/curl.log"
+  set +e
+  run_discovery "$@" >"$test_tmp/$name.out" 2>"$test_tmp/$name.err"
+  status=$?
+  set -e
+}
+
+expect_status() {
+  local name="$1" expected="$2" description="$3"
+  (( status == expected )) ||
+    fail "$description" "status $status, expected $expected: $(cat "$test_tmp/$name.out" "$test_tmp/$name.err")"
+}
+
+listing_read() {
+  grep -Fxq "$api_url" "$test_tmp/curl.log"
+}
+
+for sequence in 1 2 3; do
+  write_pointer "$sequence"
+done
+
+write_state "$state" 2 "$source_commit"
+write_channel 3 "$newer_commit"
+TEST_POINTER=pointer-3 TEST_API=down discover pointer-current --check
+expect_status pointer-current 0 "a current pointer offers its channel"
+grep -Fxq 'Apple Silicon Quattro bundle asahi-quattro-test is available' "$test_tmp/pointer-current.out" ||
+  fail "a current pointer offers its channel" "$(cat "$test_tmp/pointer-current.out")"
+grep -Fxq "$(channel_asset 3)" "$test_tmp/curl.log" || fail "a current pointer selects its numbered channel release"
+! listing_read || fail "a current pointer does not read the GitHub release listing"
+[[ ! -s $test_tmp/pointer-current.err ]] || fail "a current pointer is silent" "$(cat "$test_tmp/pointer-current.err")"
+for flag in '--proto =https' '--tlsv1.2' '--max-time 20' '--max-filesize 256'; do
+  grep -Fq -- "$flag" "$test_tmp/pointer-args" || fail "the pointer is fetched with $flag" "$(cat "$test_tmp/pointer-args")"
+done
+pass "a current release channel pointer replaces the GitHub release listing"
+
+write_channel 2 "$source_commit"
+TEST_POINTER=pointer-2 TEST_API=down discover pointer-up-to-date --check
+expect_status pointer-up-to-date 1 "--check reports no update when the pointer names the installed channel"
+! listing_read || fail "a pointer at the installed channel does not read the GitHub release listing"
+TEST_POINTER=pointer-2 TEST_API=down discover pointer-up-to-date-update
+expect_status pointer-up-to-date-update 0 "an update at the pointer's channel is up to date"
+grep -Fxq 'Apple Silicon Quattro bundle is up to date' "$test_tmp/pointer-up-to-date-update.out" ||
+  fail "an update at the pointer's channel is up to date" "$(cat "$test_tmp/pointer-up-to-date-update.out")"
+pass "a pointer at the installed channel is up to date without the GitHub release listing"
+
+write_channel 3 "$newer_commit"
+TEST_POINTER=missing TEST_API_TAG=asahi-quattro-channel-3 discover pointer-missing --check
+expect_status pointer-missing 0 "a missing pointer falls back to the GitHub release listing"
+listing_read || fail "a missing pointer reads the GitHub release listing"
+grep -Fxq "$(channel_asset 3)" "$test_tmp/curl.log" || fail "a missing pointer uses the listed channel"
+! grep -Fq pointer "$test_tmp/pointer-missing.err" || fail "a missing pointer is not reported" "$(cat "$test_tmp/pointer-missing.err")"
+pass "a missing release channel pointer falls back to the GitHub release listing"
+
+TEST_POINTER=unreachable TEST_API=down discover pointer-unreachable --check
+expect_status pointer-unreachable 3 "--check reports an unavailable channel when the pointer and listing are unreachable"
+grep -Fq "could not download $api_url" "$test_tmp/pointer-unreachable.err" ||
+  fail "an unreachable listing is reported" "$(cat "$test_tmp/pointer-unreachable.err")"
+TEST_POINTER=unreachable TEST_API=down discover pointer-unreachable-update
+expect_status pointer-unreachable-update 3 "an update defers when the pointer and listing are unreachable"
+pass "an unreachable pointer and GitHub release listing defer the update"
+
+printf 'format=1\nsequence=3\ntag=asahi-quattro-channel-3\nextra=1\n' >"$assets/malformed-extra-line"
+printf 'sequence=3\nformat=1\ntag=asahi-quattro-channel-3\n' >"$assets/malformed-wrong-order"
+printf 'format=1\nsequence=3\ntag=asahi-quattro-channel-4\n' >"$assets/malformed-tag-mismatch"
+{ printf 'format=1\nsequence=3\ntag=asahi-quattro-channel-3\n'; printf '%0300d\n' 0; } >"$assets/malformed-oversized"
+printf 'format=1\nsequence=03\ntag=asahi-quattro-channel-03\n' >"$assets/malformed-leading-zero"
+printf 'format=1\nsequence=1234567890\ntag=asahi-quattro-channel-1234567890\n' >"$assets/malformed-ten-digits"
+printf 'format=1\r\nsequence=3\r\ntag=asahi-quattro-channel-3\r\n' >"$assets/malformed-crlf"
+printf 'format=1\nsequence=3\ntag=asahi-quattro-channel-3\njunk' >"$assets/malformed-trailing-junk"
+printf 'format=1\nsequence=3\ntag=asahi-quattro-channel-3\n\0' >"$assets/malformed-trailing-nul"
+printf 'format=1\nsequence=3\ntag=asahi-quattro-channel-3' >"$assets/malformed-missing-newline"
+: >"$assets/malformed-empty"
+for variant in extra-line wrong-order tag-mismatch oversized leading-zero ten-digits crlf trailing-junk \
+  trailing-nul missing-newline empty; do
+  TEST_POINTER="malformed-$variant" TEST_API_TAG=asahi-quattro-channel-3 discover "malformed-$variant" --check
+  expect_status "malformed-$variant" 0 "the $variant pointer falls back to the GitHub release listing"
+  grep -Fq "$pointer_warning" "$test_tmp/malformed-$variant.err" ||
+    fail "the $variant pointer is reported as malformed" "$(cat "$test_tmp/malformed-$variant.err")"
+  listing_read || fail "the $variant pointer reads the GitHub release listing"
+done
+TEST_POINTER=malformed-oversized TEST_POINTER_STREAMED=1 TEST_API_TAG=asahi-quattro-channel-3 \
+  discover malformed-streamed --check
+expect_status malformed-streamed 0 "an oversized streamed pointer falls back to the GitHub release listing"
+grep -Fq "$pointer_warning" "$test_tmp/malformed-streamed.err" ||
+  fail "an oversized streamed pointer is reported as malformed" "$(cat "$test_tmp/malformed-streamed.err")"
+pass "a malformed release channel pointer warns and falls back to the GitHub release listing"
+
+behind_warning='release channel pointer (1) is behind this Mac (2)'
+TEST_POINTER=pointer-1 TEST_API_TAG=asahi-quattro-channel-3 discover behind-higher --check
+expect_status behind-higher 0 "a stale pointer does not hide a newer listed channel"
+grep -Fq "$behind_warning" "$test_tmp/behind-higher.err" ||
+  fail "a stale pointer is reported" "$(cat "$test_tmp/behind-higher.err")"
+listing_read || fail "a stale pointer reads the GitHub release listing"
+grep -Fxq "$(channel_asset 3)" "$test_tmp/curl.log" || fail "a stale pointer uses the listed channel"
+
+write_channel 2 "$source_commit"
+TEST_POINTER=pointer-1 TEST_API_TAG=asahi-quattro-channel-2 discover behind-equal --check
+expect_status behind-equal 1 "a stale pointer and a listing at the installed channel are up to date"
+TEST_POINTER=pointer-1 TEST_API_TAG=asahi-quattro-channel-2 discover behind-equal-update
+expect_status behind-equal-update 0 "an update with a stale pointer and a current listing is up to date"
+grep -Fxq 'Apple Silicon Quattro bundle is up to date' "$test_tmp/behind-equal-update.out" ||
+  fail "an update with a stale pointer and a current listing is up to date" "$(cat "$test_tmp/behind-equal-update.out")"
+
+write_channel 1 "$other_commit"
+TEST_POINTER=pointer-1 TEST_API_TAG=asahi-quattro-channel-1 discover behind-lower --check
+expect_status behind-lower 2 "a lower listed channel is still refused as a rollback"
+grep -Fq 'refusing signed release rollback from sequence 2 to 1' "$test_tmp/behind-lower.err" ||
+  fail "a lower listed channel explains the refusal" "$(cat "$test_tmp/behind-lower.err")"
+
+TEST_POINTER=pointer-1 TEST_API=down discover behind-unavailable --check
+expect_status behind-unavailable 3 "a stale pointer with no listing defers instead of refusing"
+grep -Fq 'release channel pointer is behind this Mac and the GitHub release listing is unavailable; nothing changed' \
+  "$test_tmp/behind-unavailable.err" || fail "a stale pointer with no listing explains the deferral" "$(cat "$test_tmp/behind-unavailable.err")"
+pass "a release channel pointer behind the installed channel defers to the GitHub release listing"
+
+write_state "$state" 1 "$other_commit"
+write_state "$state.pending" 3 "$source_commit"
+write_channel 3 "$source_commit"
+TEST_POINTER=pointer-2 TEST_API_TAG=asahi-quattro-channel-3 discover behind-pending --check
+expect_status behind-pending 0 "a pointer behind pending migrations defers to the listing"
+grep -Fq 'release channel pointer (2) is behind this Mac (3)' "$test_tmp/behind-pending.err" ||
+  fail "a pointer behind pending migrations is reported" "$(cat "$test_tmp/behind-pending.err")"
+listing_read || fail "a pointer behind pending migrations reads the GitHub release listing"
+grep -Fxq 'Apple Silicon Quattro bundle asahi-quattro-test has pending migrations' "$test_tmp/behind-pending.out" ||
+  fail "the listed channel resumes pending migrations" "$(cat "$test_tmp/behind-pending.out")"
+rm -f "$state.pending"
+pass "a release channel pointer behind pending migrations defers to the GitHub release listing"
+
+write_state "$state" 2 "$source_commit"
+write_channel 4 "$newer_commit"
+TEST_POINTER=pointer-3 TEST_API_TAG=asahi-quattro-channel-4 discover pointer-sequence --check
+expect_status pointer-sequence 2 "a pointer's channel release must carry its own sequence"
+grep -Fq 'channel release asahi-quattro-channel-3 carries sequence 4' "$test_tmp/pointer-sequence.err" ||
+  fail "a pointer's mismatched channel release explains the refusal" "$(cat "$test_tmp/pointer-sequence.err")"
+! listing_read || fail "a signed channel failure after the pointer does not fall back to the GitHub release listing"
+TEST_POINTER=missing TEST_API_TAG=asahi-quattro-channel-3 discover listing-sequence --check
+expect_status listing-sequence 2 "a listed channel release must carry its own sequence"
+grep -Fq 'channel release asahi-quattro-channel-3 carries sequence 4' "$test_tmp/listing-sequence.err" ||
+  fail "a listed mismatched channel release explains the refusal" "$(cat "$test_tmp/listing-sequence.err")"
+pass "a numbered channel release must carry its own signed sequence"
+
+write_channel 3 "$newer_commit"
+OMARCHY_ASAHI_CHANNEL_URL=https://example.test/asahi-quattro-channel-9/asahi-quattro-channel \
+  TEST_POINTER=pointer-3 discover override --check
+expect_status override 0 "an explicit channel URL keeps working"
+[[ $(cat "$test_tmp/curl.log") == $'https://example.test/asahi-quattro-channel-9/asahi-quattro-channel\nhttps://example.test/asahi-quattro-channel-9/asahi-quattro-channel.sig' ]] ||
+  fail "an explicit channel URL reads neither the pointer nor the listing" "$(cat "$test_tmp/curl.log")"
+OMARCHY_ASAHI_CHANNEL_URL=https://example.test/unpublished/missing-channel \
+  TEST_POINTER=pointer-3 discover override-unavailable --check
+expect_status override-unavailable 3 "an unreachable explicit channel URL defers"
+grep -Fxq 'https://example.test/unpublished/missing-channel' "$test_tmp/curl.log" &&
+  (( $(wc -l <"$test_tmp/curl.log") == 1 )) ||
+  fail "an unreachable explicit channel URL reads neither the pointer nor the listing" "$(cat "$test_tmp/curl.log")"
+pass "an explicit channel URL bypasses the pointer and the GitHub release listing"
+
 mkdir -p \
   "$test_tmp/root/boot/grub" \
   "$test_tmp/root/etc/NetworkManager/conf.d" \
@@ -307,6 +524,22 @@ grep -Fxq 'https://example.test/asahi-quattro-test/asahi-quattro-bundle.manifest
   fail "active zswap is not rejected before the immutable manifest download"
 pass "bundle update permits active zswap"
 
+manifest_asset=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-test/asahi-quattro-bundle.manifest
+TEST_POINTER=pointer-2 TEST_API=down discover pointer-install --yes
+expect_status pointer-install 3 "an update from the pointer reaches the signed manifest download"
+grep -Fxq "$manifest_asset" "$test_tmp/curl.log" || fail "an update from the pointer downloads the signed manifest"
+! listing_read || fail "an update from the pointer does not read the GitHub release listing"
+pass "an update installs the channel a current pointer names"
+
+write_state "$state" 2 "$source_commit"
+write_channel 3 "$newer_commit"
+TEST_POINTER=pointer-1 TEST_API_TAG=asahi-quattro-channel-3 discover behind-install --yes
+expect_status behind-install 3 "an update with a stale pointer reaches the listed manifest download"
+listing_read || fail "an update with a stale pointer reads the GitHub release listing"
+grep -Fxq "$(channel_asset 3)" "$test_tmp/curl.log" && grep -Fxq "$manifest_asset" "$test_tmp/curl.log" ||
+  fail "an update with a stale pointer installs the newer listed channel" "$(cat "$test_tmp/curl.log")"
+pass "an update with a stale pointer installs the newer listed channel"
+
 cat >"$stub_bin/gpg" <<'SH'
 #!/bin/bash
 if [[ " $* " == *" --show-keys "* ]]; then
@@ -330,3 +563,10 @@ set -e
 grep -Fq 'signature verification failed' "$test_tmp/signature.err" ||
   fail "invalid signature explains the refusal" "$(cat "$test_tmp/signature.err")"
 pass "unsigned Asahi channel is rejected"
+
+TEST_POINTER=pointer-3 TEST_API_TAG=asahi-quattro-channel-3 discover pointer-signature --check
+expect_status pointer-signature 2 "an unsigned channel named by the pointer fails closed"
+grep -Fq 'signature verification failed' "$test_tmp/pointer-signature.err" ||
+  fail "an unsigned channel named by the pointer explains the refusal" "$(cat "$test_tmp/pointer-signature.err")"
+! listing_read || fail "a signature failure after the pointer does not fall back to the GitHub release listing"
+pass "a signature failure after the pointer does not fall back to the GitHub release listing"
