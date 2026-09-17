@@ -6,14 +6,15 @@
 # omarchy:requires-sudo=true
 
 # The ISO bakes an immutable asahi-packages-stable-<commit> snapshot into the
-# [omarchy] Server line of /etc/pacman.conf and nothing revisits it, so an
-# installed Mac keeps reading the snapshot it was installed from while newer
-# promoted snapshots accumulate. This follows the runtime bundle updater: it
-# discovers the newest promoted stable release, proves the release's signed
-# descriptor was produced by the shipped Omarchy ARM repository subkey for that
-# exact source commit, refuses rollbacks, and rewrites only the Server line of
-# the existing [omarchy] block. Every other repository, boot, GRUB, mkinitcpio,
-# and NetworkManager path stays untouched.
+# [omarchy] Server line of /etc/pacman.conf and nothing revisits it. This
+# follows the signed package channel instead: asahi-packages-channel-<S>, found
+# through an R2 pointer, names the promoted stable snapshot, the digest of its
+# descriptor, and every older stable commit it supersedes. The Server moves only
+# from one of those superseded snapshots, after the descriptor is proven to come
+# from the shipped Omarchy ARM repository subkey for that exact source commit;
+# any other Server is left alone. Only the Server line of the existing [omarchy]
+# block changes. Every other repository, boot, GRUB, mkinitcpio, and
+# NetworkManager path stays untouched.
 
 set -euo pipefail
 
@@ -22,6 +23,10 @@ state_file="${OMARCHY_ASAHI_REPOSITORY_STATE:-/var/lib/omarchy/asahi-package-rep
 trusted_key=C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC
 trusted_subkey=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 trusted_key_file="${OMARCHY_ASAHI_PACKAGE_KEY_FILE:-/usr/share/omarchy/default/omarchy-arm-repository.asc}"
+release_trusted_key=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
+release_trusted_key_file="${OMARCHY_ASAHI_KEY_FILE:-/usr/share/omarchy/default/omarchy-release.gpg}"
+channel_size_limit=131072
+channel_entry_limit=2048
 mode=update
 yes=0
 
@@ -56,7 +61,8 @@ done
 workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 gnupg_dir="$workdir/gnupg"
-mkdir -m 0700 "$gnupg_dir"
+release_gnupg_dir="$workdir/release-gnupg"
+mkdir -m 0700 "$gnupg_dir" "$release_gnupg_dir"
 [[ -r $trusted_key_file ]] || fail "trusted Omarchy ARM repository key is not installed"
 actual_fingerprint=$(gpg --batch --show-keys --with-colons "$trusted_key_file" 2>/dev/null |
   awk -F: '$1 == "fpr" { print $10; exit }')
@@ -68,10 +74,15 @@ subkey_kind=$(gpg --batch --homedir "$gnupg_dir" --with-colons --list-keys 2>/de
     $1 == "fpr" && $10 == wanted { print kind; exit }
   ')
 [[ $subkey_kind == "sub" ]] || fail "trusted Omarchy ARM repository key does not carry the signing subkey"
+[[ -r $release_trusted_key_file ]] || fail "trusted Omarchy release signing key is not installed"
+actual_fingerprint=$(gpg --batch --show-keys --with-colons "$release_trusted_key_file" 2>/dev/null |
+  awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $actual_fingerprint == "$release_trusted_key" ]] || fail "trusted Omarchy release signing key fingerprint does not match"
+gpg --batch --homedir "$release_gnupg_dir" --import "$release_trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy release signing key"
 
 download() {
   curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" --output "$2" || {
-    echo "Apple Silicon package repository update: could not download $1" >&2
+    echo "Apple Silicon package repository update: ${3:-could not download $1}" >&2
     exit 3
   }
 }
@@ -85,36 +96,92 @@ verify_signature() {
     fail "$(basename "$file") was not signed by the Omarchy ARM repository signing subkey"
 }
 
-# The stable snapshot is the accepted candidate promoted byte for byte, so its
-# descriptor is the candidate's CANDIDATE file, and the stable tag carries the
-# same source commit. Draft, prerelease, and mutable releases are not stable.
-releases_api_url="${OMARCHY_ASAHI_RELEASES_API_URL:-https://api.github.com/repos/$repo/releases?per_page=100}"
+verify_release_signature() {
+  local file="$1" signature="$2" status
+  [[ -s $file && -s $signature ]] || fail "missing signed asset $(basename "$file")"
+  status=$(gpg --batch --homedir "$release_gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
+    fail "signature verification failed for $(basename "$file")"
+  awk -v key="$release_trusted_key" '$2 == "VALIDSIG" && ($3 == key || $NF == key) { valid=1 } END { exit !valid }' <<<"$status" ||
+    fail "$(basename "$file") was not signed by the trusted Omarchy release key"
+}
 
-# The API returns releases newest first, so the newest promoted snapshot is on
-# the first page that holds any match at all. Candidate, channel and snapshot
-# tags accumulate quickly, though, so keep paging while a page is full and has
-# no match rather than reporting no snapshot at all.
-tag=""
-for page in 1 2 3 4 5; do
-  page_url=$releases_api_url
-  (( page > 1 )) && page_url="$releases_api_url&page=$page"
-  download "$page_url" "$workdir/releases.json"
-  tag=$(jq -er '
-    [
-      .[]
-      | select(.draft == false and .prerelease == false and .immutable == true)
-      | select(.tag_name | test("^asahi-packages-stable-[0-9a-f]{40}$"))
-      | select(.published_at | type == "string")
-    ]
-    | max_by(.published_at).tag_name
-  ' "$workdir/releases.json" 2>/dev/null) && [[ -n $tag ]] && break
-  tag=""
-  (( $(jq -r 'length' "$workdir/releases.json" 2>/dev/null || echo 0) == 100 )) || break
-done
-[[ -n $tag ]] || fail "could not discover a promoted Apple Silicon package snapshot"
-[[ $tag =~ ^asahi-packages-stable-([0-9a-f]{40})$ ]] || fail "invalid stable release tag"
-source_commit=${BASH_REMATCH[1]}
-server="https://github.com/$repo/releases/download/$tag"
+# Compare raw bytes with the canonical body so newline stripping cannot hide trailing junk, CRs or NULs.
+read_pointer_sequence() {
+  local file="$1" body="" size sequence canonical
+  local pattern=$'^format=1\nsequence=([1-9][0-9]{0,8})\n'
+  [[ -f $file ]] && size=$(wc -c <"$file") || return 1
+  (( size <= 256 )) || return 1
+  IFS= read -r -d '' body <"$file" || true
+  [[ $body =~ $pattern ]] || return 1
+  sequence=${BASH_REMATCH[1]}
+  printf -v canonical 'format=1\nsequence=%s\ntag=asahi-packages-channel-%s\n' "$sequence" "$sequence"
+  [[ $body == "$canonical" ]] && (( size == ${#canonical} )) || return 1
+  printf '%s\n' "$sequence"
+}
+
+declare -A superseded=()
+# The C locale keeps byte counts and the sort-order check independent of the user's locale.
+read_channel() {
+  local file="$1" body="" size entries=() entry previous="" LC_ALL=C
+  local pattern=$'^format=1\nchannel=asahi-packages\nsequence=([1-9][0-9]{0,8})\nstable_tag=asahi-packages-stable-([0-9a-f]{40})\ndescriptor_sha256=([0-9a-f]{64})\nsupersedes=([0-9a-f,]*)\n$'
+  size=$(wc -c <"$file")
+  (( size <= channel_size_limit )) || fail "the signed package channel is larger than 128 KiB"
+  IFS= read -r -d '' body <"$file" || true
+  [[ $body =~ $pattern ]] && (( size == ${#body} )) || fail "the signed package channel is malformed"
+  channel_sequence=${BASH_REMATCH[1]}
+  stable_commit=${BASH_REMATCH[2]}
+  channel_descriptor=${BASH_REMATCH[3]}
+  local field=${BASH_REMATCH[4]}
+  [[ -n $field ]] || return 0
+  IFS=, read -r -a entries <<<"$field"
+  (( ${#entries[@]} <= channel_entry_limit )) || fail "the signed package channel supersedes more than $channel_entry_limit snapshots"
+  # read drops a trailing empty field, so only the joined length exposes a stray comma.
+  (( ${#entries[@]} * 41 - 1 == ${#field} )) || fail "the signed package channel has a malformed supersedes list"
+  for entry in "${entries[@]}"; do
+    [[ $entry =~ ^[0-9a-f]{40}$ ]] || fail "the signed package channel has a malformed supersedes list"
+    [[ -z $previous || $previous < $entry ]] || fail "the signed package channel supersedes list is not sorted and unique"
+    [[ $entry != "$stable_commit" ]] || fail "the signed package channel supersedes its own snapshot"
+    superseded[$entry]=1
+    previous=$entry
+  done
+}
+
+# Preserved pins and older channels are not updates, and nothing is written for them.
+leave() {
+  echo "Apple Silicon package repository: $*"
+  [[ $mode != "check" ]] || exit 1
+  exit 0
+}
+
+installed_tag="" installed_source="" installed_descriptor="" installed_sequence=0
+if [[ -e $state_file ]]; then
+  if [[ ${OMARCHY_ASAHI_TESTING:-0} != 1 ]]; then
+    permissions=$(stat -c '%a' "$state_file")
+    [[ $(stat -c '%u' "$state_file") == 0 ]] || fail "repository state is not root-owned"
+    (( (8#$permissions & 8#022) == 0 )) || fail "repository state is writable by non-root users"
+  fi
+  state_format="" state_run="" state_sequence="" state_has_sequence=0
+  while IFS= read -r line; do
+    case "$line" in
+      format=*) state_format=${line#format=} ;;
+      tag=*) installed_tag=${line#tag=} ;;
+      source_commit=*) installed_source=${line#source_commit=} ;;
+      workflow_run=*) state_run=${line#workflow_run=} ;;
+      descriptor_sha256=*) installed_descriptor=${line#descriptor_sha256=} ;;
+      channel_sequence=*) state_sequence=${line#channel_sequence=} state_has_sequence=1 ;;
+      "") ;;
+      *) fail "repository state is malformed" ;;
+    esac
+  done <"$state_file"
+  [[ $state_format == "1" && $installed_tag =~ ^asahi-packages-stable-[0-9a-f]{40}$ ]] || fail "repository state is malformed"
+  [[ $installed_source =~ ^[0-9a-f]{40}$ && $state_run =~ ^[1-9][0-9]*$ && $installed_descriptor =~ ^[0-9a-f]{64}$ ]] ||
+    fail "repository state is malformed"
+  # State written before the package channel existed has no channel_sequence.
+  if (( state_has_sequence )); then
+    [[ $state_sequence =~ ^[1-9][0-9]{0,8}$ ]] || fail "repository state is malformed"
+    installed_sequence=$state_sequence
+  fi
+fi
 
 pacman_conf=$(root_path /etc/pacman.conf)
 [[ -r $pacman_conf ]] || fail "pacman configuration is missing"
@@ -126,48 +193,112 @@ block_count=$(grep -Ec '^[[:space:]]*\[omarchy\][[:space:]]*$' "$pacman_conf" ||
 current_servers=$(awk '
   /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; next }
   inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
-  inside && /^[[:space:]]*Server[[:space:]]*=/ { sub(/^[[:space:]]*Server[[:space:]]*=[[:space:]]*/, ""); print }
+  inside && /^[[:space:]]*Server[[:space:]]*=/ { sub(/^[[:space:]]*Server[[:space:]]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print }
 ' "$pacman_conf")
 [[ -n $current_servers ]] || fail "[omarchy] repository must have exactly one Server"
 (( $(wc -l <<<"$current_servers") == 1 )) || fail "[omarchy] repository must have exactly one Server"
 current_server=$current_servers
-
-installed_tag="" installed_run=0 installed_source=""
-if [[ -e $state_file ]]; then
-  if [[ ${OMARCHY_ASAHI_TESTING:-0} != 1 ]]; then
-    permissions=$(stat -c '%a' "$state_file")
-    [[ $(stat -c '%u' "$state_file") == 0 ]] || fail "repository state is not root-owned"
-    (( (8#$permissions & 8#022) == 0 )) || fail "repository state is writable by non-root users"
-  fi
-  state_format="" state_descriptor=""
-  while IFS= read -r line; do
-    case "$line" in
-      format=*) state_format=${line#format=} ;;
-      tag=*) installed_tag=${line#tag=} ;;
-      source_commit=*) installed_source=${line#source_commit=} ;;
-      workflow_run=*) installed_run=${line#workflow_run=} ;;
-      descriptor_sha256=*) state_descriptor=${line#descriptor_sha256=} ;;
-      "") ;;
-      *) fail "repository state is malformed" ;;
-    esac
-  done <"$state_file"
-  [[ $state_format == "1" && $installed_tag =~ ^asahi-packages-stable-[0-9a-f]{40}$ ]] || fail "repository state is malformed"
-  [[ $installed_source =~ ^[0-9a-f]{40}$ && $installed_run =~ ^[1-9][0-9]*$ && $state_descriptor =~ ^[0-9a-f]{64}$ ]] ||
-    fail "repository state is malformed"
+stable_prefix="https://github.com/$repo/releases/download/asahi-packages-stable-"
+current_commit=""
+if [[ $current_server == "$stable_prefix"* && ${current_server#"$stable_prefix"} =~ ^[0-9a-f]{40}$ ]]; then
+  current_commit=${current_server#"$stable_prefix"}
 fi
 
-if [[ $current_server == "$server" ]]; then
-  [[ $mode != "check" ]] || exit 1
-  echo "Apple Silicon package repository is up to date"
-  exit 0
+channel_tag=""
+if [[ -n ${OMARCHY_ASAHI_PACKAGES_CHANNEL_URL:-} ]]; then
+  channel_url=$OMARCHY_ASAHI_PACKAGES_CHANNEL_URL
+  channel_signature_url="${OMARCHY_ASAHI_PACKAGES_CHANNEL_SIGNATURE_URL:-$channel_url.sig}"
+else
+  pointer_url="${OMARCHY_ASAHI_PACKAGES_POINTER_URL:-https://downloads.aicodelabs.com.au/pointers/asahi-packages-channel}"
+  listing_failure="" pointer_status=0
+  # The unsigned pointer only picks which signed channel to fetch; every check below still applies.
+  curl --fail --location --silent --proto '=https' --tlsv1.2 --max-time 20 --max-filesize 256 \
+    "$pointer_url" --output "$workdir/pointer" || pointer_status=$?
+  # curl exits 63 when the body exceeds --max-filesize: the server answered, so that is malformed, not unreachable.
+  if (( pointer_status == 0 )) && pointer_sequence=$(read_pointer_sequence "$workdir/pointer"); then
+    if (( pointer_sequence >= installed_sequence )); then
+      channel_tag="asahi-packages-channel-$pointer_sequence"
+    else
+      echo "Apple Silicon package repository update: package channel pointer ($pointer_sequence) is behind this Mac ($installed_sequence)" >&2
+      listing_failure="package channel pointer is behind this Mac and the GitHub release listing is unavailable; nothing changed"
+    fi
+  elif (( pointer_status == 0 || pointer_status == 63 )); then
+    echo "Apple Silicon package repository update: package channel pointer is malformed; using the GitHub release listing" >&2
+  fi
+
+  if [[ -z $channel_tag ]]; then
+    releases_api_url="${OMARCHY_ASAHI_RELEASES_API_URL:-https://api.github.com/repos/$repo/releases?per_page=100}"
+    # Releases come back newest first and channels are published one at a time,
+    # so the highest channel is on the first page that holds any channel. Keep
+    # paging only while a page is full and held none.
+    for page in 1 2 3 4 5; do
+      page_url=$releases_api_url
+      (( page > 1 )) && page_url="$releases_api_url&page=$page"
+      download "$page_url" "$workdir/releases.json" "$listing_failure"
+      channel_tag=$(jq -er '
+        [
+          .[]
+          | select(.draft == false and .prerelease == false)
+          | select(.tag_name | test("^asahi-packages-channel-[1-9][0-9]{0,8}$"))
+          | { tag: .tag_name, sequence: (.tag_name | sub("^asahi-packages-channel-"; "") | tonumber) }
+        ]
+        | max_by(.sequence).tag
+      ' "$workdir/releases.json" 2>/dev/null) && [[ -n $channel_tag ]] && break
+      channel_tag=""
+      (( $(jq -r 'length' "$workdir/releases.json" 2>/dev/null || echo 0) == 100 )) || break
+    done
+    if [[ -z $channel_tag ]]; then
+      echo "Apple Silicon package repository update: could not discover a signed Apple Silicon package channel" >&2
+      exit 3
+    fi
+  fi
+  channel_url="https://github.com/$repo/releases/download/$channel_tag/asahi-packages-channel"
+  channel_signature_url="$channel_url.sig"
+fi
+
+channel_file="$workdir/asahi-packages-channel"
+channel_status=0
+curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --max-filesize "$channel_size_limit" \
+  "$channel_url" --output "$channel_file" || channel_status=$?
+(( channel_status != 63 )) || fail "the signed package channel is larger than 128 KiB"
+if (( channel_status != 0 )); then
+  echo "Apple Silicon package repository update: could not download $channel_url" >&2
+  exit 3
+fi
+download "$channel_signature_url" "$channel_file.sig"
+verify_release_signature "$channel_file" "$channel_file.sig"
+read_channel "$channel_file"
+[[ -z $channel_tag || $channel_sequence == "${channel_tag#asahi-packages-channel-}" ]] ||
+  fail "channel release $channel_tag carries sequence $channel_sequence"
+
+tag="asahi-packages-stable-$stable_commit"
+source_commit=$stable_commit
+server="$stable_prefix$stable_commit"
+
+if [[ -n $installed_tag ]]; then
+  [[ $installed_tag != "$tag" || $installed_descriptor == "$channel_descriptor" ]] ||
+    fail "repository state contradicts the signed channel: $tag has a different descriptor"
+  (( installed_sequence != channel_sequence )) || [[ $installed_tag == "$tag" ]] ||
+    fail "repository state contradicts the signed channel: sequence $channel_sequence names $tag"
+fi
+
+# Runs before the move rules: a superseded pin still must not follow a channel below this Mac's.
+(( channel_sequence >= installed_sequence )) ||
+  leave "package channel $channel_sequence is older than channel $installed_sequence on this Mac; leaving [omarchy] unchanged"
+
+if [[ $current_server != "$server" ]]; then
+  [[ -n $current_commit ]] || leave "unrecognised [omarchy] Server; not moving it"
+  [[ -n ${superseded[$current_commit]:-} ]] ||
+    leave "the pinned package set ${current_commit:0:8} is not older than channel $channel_sequence (${stable_commit:0:8}); leaving it"
 fi
 
 base="${OMARCHY_ASAHI_RELEASE_BASE_URL:-$server}"
 base=${base%/}
 download "$base/CANDIDATE" "$workdir/CANDIDATE"
 download "$base/CANDIDATE.sig" "$workdir/CANDIDATE.sig"
-verify_signature "$workdir/CANDIDATE" "$workdir/CANDIDATE.sig"
 descriptor_sha256=$(sha256sum "$workdir/CANDIDATE" | cut -d' ' -f1)
+[[ $descriptor_sha256 == "$channel_descriptor" ]] || fail "the CANDIDATE of $tag does not match the signed package channel"
+verify_signature "$workdir/CANDIDATE" "$workdir/CANDIDATE.sig"
 
 format="" channel="" release_tag="" descriptor_source="" workflow_run="" runner_arch=""
 signing_fingerprint="" package_count="" package_records=0
@@ -219,14 +350,20 @@ for asset in omarchy.db omarchy.db.sig omarchy.files omarchy.files.sig; do
   [[ -n ${assets[$asset]:-} ]] || fail "release descriptor is missing $asset"
 done
 
-# GitHub workflow run numbers only grow, and the descriptor signs the run that
-# built it, so a promoted snapshot with a lower run than the one already
-# installed is a rollback no matter what the release listing says.
-if [[ -n $installed_tag ]]; then
-  (( workflow_run >= installed_run )) || fail "refusing package repository rollback from $installed_tag to $tag"
-  if (( workflow_run == installed_run )); then
-    [[ $source_commit == "$installed_source" ]] || fail "build $workflow_run was reused for a different source"
+write_state() {
+  printf 'format=1\ntag=%s\nsource_commit=%s\nworkflow_run=%s\ndescriptor_sha256=%s\nchannel_sequence=%s\n' \
+    "$tag" "$source_commit" "$workflow_run" "$descriptor_sha256" "$channel_sequence" >"$workdir/state"
+  sudo install -D -o root -g root -m 0644 "$workdir/state" "$state_file"
+}
+
+if [[ $current_server == "$server" ]]; then
+  [[ $mode != "check" ]] || exit 1
+  # Also completes a switch interrupted between the pacman.conf write and the state write.
+  if [[ $installed_tag != "$tag" ]] || (( installed_sequence < channel_sequence )); then
+    write_state
   fi
+  echo "Apple Silicon package repository is up to date"
+  exit 0
 fi
 
 if [[ $mode == "check" ]]; then
@@ -273,9 +410,5 @@ if ! sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Sy --noconfirm; then
   fail "pacman could not read $tag; restored the previous repository (backup: $backup)"
 fi
 
-state_tmp=$(mktemp)
-printf 'format=1\ntag=%s\nsource_commit=%s\nworkflow_run=%s\ndescriptor_sha256=%s\n' \
-  "$tag" "$source_commit" "$workflow_run" "$descriptor_sha256" >"$state_tmp"
-sudo install -D -o root -g root -m 0644 "$state_tmp" "$state_file"
-rm -f "$state_tmp"
+write_state
 echo "Switched the Apple Silicon package repository to $tag (backup: $backup)"
