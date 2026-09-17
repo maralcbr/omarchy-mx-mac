@@ -5,6 +5,10 @@
 echo
 
 confirm_reboot() {
+  if [[ ${OMARCHY_UPDATE_UNATTENDED:-} == 1 ]]; then
+    echo -e "\e[33m$2 Reboot when you are ready.\e[0m"
+    return 0
+  fi
   gum confirm "$1" && { omarchy-system-reboot; exit 0; }
 }
 
@@ -23,14 +27,14 @@ for kernel in /usr/lib/modules/*/vmlinuz; do
 done
 
 if [[ $kernel_updated == "true" ]]; then
-  confirm_reboot "Linux kernel has been updated. Reboot?"
+  confirm_reboot "Linux kernel has been updated. Reboot?" "The Linux kernel has been updated."
 elif [[ -f $HOME/.local/state/omarchy/reboot-required ]]; then
-  confirm_reboot "Updates require reboot. Ready?"
+  confirm_reboot "Updates require reboot. Ready?" "Updates require a reboot."
 fi
 
 running_hyprland=$(readlink /proc/$(pgrep -x Hyprland)/exe 2>/dev/null)
 if [[ $running_hyprland == *"(deleted)"* ]]; then
-  confirm_reboot "Hyprland has been updated. Reboot?"
+  confirm_reboot "Hyprland has been updated. Reboot?" "Hyprland has been updated."
 fi
 
 for file in "$HOME"/.local/state/omarchy/restart-*-required; do
