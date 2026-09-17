@@ -589,8 +589,11 @@ pass "a busy lock times out with exit 2, and an unsafe directory is refused befo
 # locked holds the directory lock for the command's whole life.
 reset
 write_record "$rc_record"
-run locked bash -c 'flock -n "$1" true && echo free || echo busy; echo "locked=$OMARCHY_APPLE_SILICON_CHANNEL_LOCKED"; exit 7' _ "$state_dir"
-expect_output "locked runs the command in its place" 7 'busy\nlocked=1\n'
+run locked bash -c 'flock -n "$1" true && echo free || echo busy
+echo "locked=$OMARCHY_APPLE_SILICON_CHANNEL_LOCKED"
+[[ /proc/$$/fd/$OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD -ef $1 ]] && echo "descriptor on the directory"
+exit 7' _ "$state_dir"
+expect_output "locked runs the command in its place" 7 'busy\nlocked=1\ndescriptor on the directory\n'
 (
   invoke "$test_tmp/locked.out" "$test_tmp/locked.err" locked bash -c ': >"$1"; sleep 2' _ "$test_tmp/locked-ready"
 ) &
@@ -613,6 +616,15 @@ for command in ensure "hold nested" release "locked true"; do
 done
 run locked
 (( status == 2 )) || fail "locked without a command is a usage error" "status $status"
+run locked bash "$helper" verify-locked
+(( status == 0 )) || fail "a command run by locked verifies its lock" "status $status: $(cat "$test_tmp/err")"
+run verify-locked
+(( status == 2 )) || fail "verify-locked outside locked fails" "status $status"
+for fd in "" 3x -1 " 3"; do
+  OMARCHY_APPLE_SILICON_CHANNEL_LOCKED=1 OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD=$fd run verify-locked
+  (( status == 2 )) || fail "verify-locked refuses descriptor '$fd'" "status $status"
+  grep -Fq "is not a descriptor number" "$test_tmp/err" || fail "verify-locked explains descriptor '$fd'" "$(cat "$test_tmp/err")"
+done
 pass "locked holds an exclusive lock on the directory for the command's lifetime and never nests"
 
 # Two first runs at once: both find no directory, one records, the other agrees.

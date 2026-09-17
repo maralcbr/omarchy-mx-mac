@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Keep this Mac's Apple Silicon channel record
-# omarchy:args=ensure|status|current|hold <reason>|release|locked <command> [args...]
+# omarchy:args=ensure|status|current|hold <reason>|release|locked <command> [args...]|verify-locked
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
@@ -10,7 +10,8 @@
 # installed kernel and the image's kernel marker agree. channel=rc is policy, not
 # proof that the qualified kernel is installed. A hold stops [omarchy-aurora]
 # moving; packages still upgrade against the repository it has. locked runs a
-# command holding the channel lock, which is on the record's directory.
+# command holding the channel lock, which is on the record's directory, and
+# verify-locked proves such a command really inherited it.
 #
 # Exit 2: the record, its storage, the lock or the evidence cannot be trusted.
 # Exit 3: there is no record, and for ensure none could be inferred.
@@ -25,7 +26,7 @@ lock_timeout=${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT:-60}
 testing=${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-0}
 
 usage() {
-  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release|locked <command> [args...]>"
+  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release|locked <command> [args...]|verify-locked>"
 }
 
 fail() {
@@ -213,6 +214,24 @@ lock_state_dir() {
   fi
 }
 
+# The flags locked exports are only claims: an inherited or preset environment
+# proves nothing until the descriptor is open on this directory and holds its lock.
+verify_locked() {
+  local fd=${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD:-} fd_id dir_id
+
+  [[ ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} == 1 ]] ||
+    fail "not running under omarchy-apple-silicon-channel locked"
+  [[ $fd =~ ^[0-9]+$ ]] ||
+    fail "OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD is not a descriptor number, so the channel lock is not proven"
+  [[ -e /proc/$$/fd/$fd ]] || fail "descriptor $fd is not open, so the channel lock is not held"
+  safe_state_dir || fail "$problem"
+  if ! fd_id=$(stat -L -c '%d:%i' "/proc/$$/fd/$fd" 2>/dev/null) ||
+    ! dir_id=$(stat -c '%d:%i' "$state_dir" 2>/dev/null) || [[ $fd_id != "$dir_id" ]]; then
+    fail "descriptor $fd is not open on $state_dir, so the channel lock is not held"
+  fi
+  flock -n -x "$fd" || fail "descriptor $fd does not hold the lock on $state_dir; another process does"
+}
+
 staging=""
 trap '[[ -z $staging ]] || sudo rm -f "$staging"' EXIT
 
@@ -235,6 +254,7 @@ case "$command" in
   ensure | status | current | release) (( $# == 1 )) || { usage >&2; exit 2; } ;;
   hold) (( $# == 2 )) || { usage >&2; exit 2; } ;;
   locked) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
+  verify-locked) (( $# == 1 )) || { usage >&2; exit 2; } ;;
   -h | --help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -301,7 +321,10 @@ case "$command" in
   locked)
     shift
     lock_state_dir
-    export OMARCHY_APPLE_SILICON_CHANNEL_LOCKED=1
+    export OMARCHY_APPLE_SILICON_CHANNEL_LOCKED=1 OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD=$lock_fd
     exec "$@"
+    ;;
+  verify-locked)
+    verify_locked
     ;;
 esac

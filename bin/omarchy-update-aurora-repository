@@ -69,6 +69,10 @@ if [[ ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} != 1 ]]; then
   exec omarchy-apple-silicon-channel locked "$0" "$@"
 fi
 
+# Re-entered from locked, or from an environment that only claims to be: prove both locks.
+omarchy-apple-silicon-channel verify-locked || exit 2
+omarchy-update-lock held || fail "the update lock is not held; run omarchy update, or this command on its own"
+
 channel_status=0
 channel_record=$(omarchy-apple-silicon-channel status) || channel_status=$?
 case $channel_status in

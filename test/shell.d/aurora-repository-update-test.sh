@@ -136,7 +136,8 @@ SH
 cat >"$stub_bin/omarchy-update-lock" <<'SH'
 #!/bin/bash
 printf '%s\n' "$1" >>"$TEST_LOCK_LOG"
-if [[ $1 == "held" ]]; then
+# Side effects belong to the first question, before the updater re-enters under the channel lock.
+if [[ $1 == "held" && ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} != 1 ]]; then
   if [[ -n ${TEST_HOLD_BEFORE_LOCK:-} ]]; then
     printf 'hold=%s\n' "$TEST_HOLD_BEFORE_LOCK" >>"$TEST_CHANNEL_RECORD"
   fi
@@ -150,6 +151,8 @@ if [[ $1 == "held" ]]; then
     echo $! >"$TEST_CHANNEL_LOCK_HOLDER"
     until [[ -e $TEST_CHANNEL_LOCK_READY ]]; do sleep 0.05; done
   fi
+fi
+if [[ $1 == "held" ]]; then
   [[ ${TEST_LOCK_HELD:-1} == 1 ]]
   exit
 fi
@@ -793,3 +796,47 @@ grep -Fq "$channel_record repeats kernel" "$test_tmp/err" || fail "the malformed
 expect_untouched "a malformed stable record under omarchy-update-system-pkgs"
 [[ ! -e $root/run ]] || fail "no lock file is created"
 pass "a malformed stable record stops omarchy-update-system-pkgs before pacman -Syu"
+
+# Re-entry trusts no flag: the inherited descriptor must be open on the record's
+# directory and hold its lock, and the update lock must be held too.
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+printf 'linux-aurora\n' >"$marker"
+rc_record
+reentry_refused() {
+  local description=$1 message=$2
+  (( status == 2 )) || fail "$description stops the updater" "status $status: $(cat "$test_tmp/err")"
+  grep -Fq "$message" "$test_tmp/err" || fail "$description is explained" "$(cat "$test_tmp/err")"
+  [[ ! -s $test_tmp/out && ! -s $curl_log ]] || fail "$description downloads nothing"
+  expect_untouched "$description"
+}
+reset_run
+OMARCHY_APPLE_SILICON_CHANNEL_LOCKED=1 run_status
+reentry_refused "a preset lock flag without a descriptor" "OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD is not a descriptor number"
+reset_run
+OMARCHY_APPLE_SILICON_CHANNEL_LOCKED=1 OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD=97 run_status
+reentry_refused "a lock flag naming a closed descriptor" "descriptor 97 is not open"
+mkdir -p "$test_tmp/elsewhere"
+reset_run
+{ OMARCHY_APPLE_SILICON_CHANNEL_LOCKED=1 OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD=97 run_status; } 97<"$test_tmp/elsewhere"
+reentry_refused "a descriptor open on another directory" "descriptor 97 is not open on $channel_dir"
+(
+  exec 9<"$channel_dir"
+  flock -x 9
+  : >"$test_tmp/other-holder-ready"
+  exec sleep 30
+) &
+other_holder=$!
+until [[ -e $test_tmp/other-holder-ready ]]; do sleep 0.05; done
+reset_run
+{ OMARCHY_APPLE_SILICON_CHANNEL_LOCKED=1 OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD=97 run_status; } 97<"$channel_dir"
+kill "$other_holder" 2>/dev/null || true
+wait "$other_holder" 2>/dev/null || true
+reentry_refused "a descriptor on the directory whose lock another process holds" "descriptor 97 does not hold the lock on $channel_dir"
+reset_run
+TEST_LOCK_HELD=0 TEST_SCRIPT="$ROOT/bin/omarchy-apple-silicon-channel" run_status locked bash "$updater"
+reentry_refused "a real channel lock without the update lock" "the update lock is not held"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
+reset_run
+TEST_SCRIPT="$ROOT/bin/omarchy-apple-silicon-channel" run_status locked bash "$updater"
+expect_repinned "an updater that inherited the channel lock from locked"
+pass "re-entry needs a descriptor that holds the channel lock on the record's directory, and the update lock"
