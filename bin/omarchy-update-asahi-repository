@@ -148,8 +148,12 @@ read_channel() {
 
 # Preserved pins and older channels are not updates, and nothing is written for them.
 leave() {
+  # A check's stdout is the update list, so a pin that is not moving explains itself on stderr there.
+  if [[ $mode == "check" ]]; then
+    echo "Apple Silicon package repository: $*" >&2
+    exit 1
+  fi
   echo "Apple Silicon package repository: $*"
-  [[ $mode != "check" ]] || exit 1
   exit 0
 }
 

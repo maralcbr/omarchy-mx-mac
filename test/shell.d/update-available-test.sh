@@ -57,8 +57,20 @@ chmod +x "$stub_bin/pacman"
 
 cat >"$stub_bin/omarchy-hw-apple-silicon" <<'SH'
 #!/bin/bash
-exit 1
+[[ ${TEST_APPLE_SILICON:-0} == 1 ]]
 SH
+for asahi_check in omarchy-update-asahi-bundle omarchy-update-asahi-repository; do
+  cat >"$stub_bin/$asahi_check" <<'SH'
+#!/bin/bash
+name=${0##*/}
+name=${name#omarchy-update-asahi-}
+output_var="TEST_${name^^}_OUTPUT"
+status_var="TEST_${name^^}_STATUS"
+[[ -z ${!output_var:-} ]] || printf '%s\n' "${!output_var}"
+exit "${!status_var:-1}"
+SH
+  chmod +x "$stub_bin/$asahi_check"
+done
 chmod +x "$stub_bin/omarchy-hw-apple-silicon"
 
 cat >"$stub_bin/git" <<'SH'
@@ -219,3 +231,31 @@ grep -Fx 'omarchy-dev-checkout 1 new commit on origin/quattro' "$stdout" >/dev/n
   fail "update checker reports cached dev commits after a fetch failure" "$(cat "$stdout")"
 [[ ! -s $stderr ]] || fail "update checker keeps dev fetch failures quiet" "$(cat "$stderr")"
 pass "update checker uses cached dev state when fetching is unavailable"
+
+# A repository check that exits 1 is not an update, whatever it printed.
+if capture_checker "$stdout" "$stderr" \
+  TEST_APPLE_SILICON=1 \
+  TEST_INSTALLED_PACKAGE=omarchy-dev \
+  TEST_REPOSITORY_OUTPUT='Apple Silicon package repository: unrecognised [omarchy] Server; not moving it' \
+  TEST_REPOSITORY_STATUS=1; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 1 ]] || fail "a repository check with no update is reported as one" "$(cat "$stdout")"
+grep -qx 'Omarchy is up to date' "$stdout" || fail "an Apple Silicon Mac with no updates says so" "$(cat "$stdout")"
+pass "Apple Silicon checks that exit 1 never become updates"
+
+if capture_checker "$stdout" "$stderr" \
+  TEST_APPLE_SILICON=1 \
+  TEST_INSTALLED_PACKAGE=omarchy-dev \
+  TEST_REPOSITORY_OUTPUT='Apple Silicon package repository asahi-packages-stable-abc is available' \
+  TEST_REPOSITORY_STATUS=0; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "an available repository update is not reported"
+grep -qx 'Apple Silicon package repository asahi-packages-stable-abc is available' "$stdout" ||
+  fail "an available repository update is listed" "$(cat "$stdout")"
+pass "an available Apple Silicon repository update is listed"

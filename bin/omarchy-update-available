@@ -11,11 +11,11 @@ if omarchy-hw-apple-silicon; then
   asahi=1
   for asahi_check in omarchy-update-asahi-bundle omarchy-update-asahi-repository; do
     set +e
-    update=$("$asahi_check" --check)
+    asahi_update=$("$asahi_check" --check)
     asahi_status=$?
     set -e
     if (( asahi_status == 0 )); then
-      updates+=("$update")
+      updates+=("$asahi_update")
     elif (( asahi_status == 3 )); then
       : # Transport outages must not hide unrelated package updates.
     elif (( asahi_status != 1 )); then

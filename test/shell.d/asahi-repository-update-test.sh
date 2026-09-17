@@ -661,8 +661,9 @@ pass "repository state that contradicts the signed channel is never overwritten"
 write_pacman_conf "asahi-packages-stable-$hand_commit"
 TEST_POINTER=pointer-3 run hand-check --check
 expect_status hand-check 1 "a pinned snapshot the channel does not supersede reports no update"
+[[ ! -s $test_tmp/hand-check.out ]] || fail "a preserved snapshot check prints nothing an update list would pick up" "$(cat "$test_tmp/hand-check.out")"
 grep -Fxq "Apple Silicon package repository: the pinned package set ${hand_commit:0:8} is not older than channel 3 (${new_commit:0:8}); leaving it" \
-  "$test_tmp/hand-check.out" || fail "a preserved snapshot explains itself" "$(cat "$test_tmp/hand-check.out")"
+  "$test_tmp/hand-check.err" || fail "a preserved snapshot explains itself" "$(cat "$test_tmp/hand-check.err")"
 before_conf=$(sha256sum "$pacman_conf")
 TEST_POINTER=pointer-3 run hand-yes --yes
 expect_status hand-yes 0 "an update leaves a snapshot the channel does not supersede"
@@ -688,8 +689,9 @@ for server in \
   before_conf=$(sha256sum "$pacman_conf")
   TEST_POINTER=pointer-3 run unknown-check --check
   expect_status unknown-check 1 "an unrecognised Server reports no update ($server)"
-  grep -Fxq 'Apple Silicon package repository: unrecognised [omarchy] Server; not moving it' "$test_tmp/unknown-check.out" ||
-    fail "an unrecognised Server explains itself" "$(cat "$test_tmp/unknown-check.out")"
+  [[ ! -s $test_tmp/unknown-check.out ]] || fail "an unrecognised Server check prints nothing an update list would pick up ($server)"
+  grep -Fxq 'Apple Silicon package repository: unrecognised [omarchy] Server; not moving it' "$test_tmp/unknown-check.err" ||
+    fail "an unrecognised Server explains itself" "$(cat "$test_tmp/unknown-check.err")"
   TEST_POINTER=pointer-3 run unknown-yes --yes
   expect_status unknown-yes 0 "an update leaves an unrecognised Server ($server)"
   [[ $(sha256sum "$pacman_conf") == "$before_conf" ]] || fail "an unrecognised Server is kept ($server)"
@@ -763,8 +765,9 @@ pass "a legacy install-time pin the channel supersedes moves to the stable set e
 write_legacy_pacman_conf
 TEST_POINTER=pointer-3 run legacy-kept-check --check
 expect_status legacy-kept-check 1 "a legacy pin the channel does not supersede reports no update"
+[[ ! -s $test_tmp/legacy-kept-check.out ]] || fail "a preserved legacy pin check prints nothing an update list would pick up"
 grep -Fxq "Apple Silicon package repository: the pinned package set ${legacy_commit:0:8} is not older than channel 3 (${new_commit:0:8}); leaving it" \
-  "$test_tmp/legacy-kept-check.out" || fail "a preserved legacy pin explains itself" "$(cat "$test_tmp/legacy-kept-check.out")"
+  "$test_tmp/legacy-kept-check.err" || fail "a preserved legacy pin explains itself" "$(cat "$test_tmp/legacy-kept-check.err")"
 TEST_POINTER=pointer-3 run legacy-kept-yes --yes
 expect_status legacy-kept-yes 0 "an update leaves a legacy pin the channel does not supersede"
 [[ $(cat "$pacman_conf") == "$legacy_conf" ]] || fail "a preserved legacy pin keeps its Server"
@@ -792,10 +795,11 @@ write_state "$hand_commit" 5
 before=$(state_digest)
 TEST_POINTER=pointer-3 TEST_API=up run floor-check --check
 expect_status floor-check 1 "a channel below this Mac's reports no update even when it supersedes the pin"
+[[ ! -s $test_tmp/floor-check.out ]] || fail "a channel below this Mac prints nothing an update list would pick up"
 grep -Fq 'package channel pointer (3) is behind this Mac (5)' "$test_tmp/floor-check.err" ||
   fail "the pointer below this Mac is reported first" "$(cat "$test_tmp/floor-check.err")"
 grep -Fxq 'Apple Silicon package repository: package channel 3 is older than channel 5 on this Mac; leaving [omarchy] unchanged' \
-  "$test_tmp/floor-check.out" || fail "a channel below this Mac explains itself" "$(cat "$test_tmp/floor-check.out")"
+  "$test_tmp/floor-check.err" || fail "a channel below this Mac explains itself" "$(cat "$test_tmp/floor-check.err")"
 no_system_changes "a channel below this Mac" "$before"
 TEST_POINTER=pointer-3 TEST_API=up run floor-yes --yes
 expect_status floor-yes 0 "an update does not move to a channel below this Mac"
