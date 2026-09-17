@@ -172,7 +172,7 @@ Download the stable-channel installer, verify its signing key and detached
 signature, then run it. No downloaded code runs before these checks pass:
 
 ```bash
-release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-25
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-35
 curl -fLO "$release/install-asahi-quattro"
 curl -fLO "$release/install-asahi-quattro.sig"
 curl -fLO https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/default/omarchy-release.gpg
@@ -185,11 +185,11 @@ bash install-asahi-quattro --fresh
 
 The former `asahi-quattro-channel` release is an immutable sequence-21
 bootstrap and cannot be repointed. Existing sequence-21 installations must use
-the same verified sequence-25 installer once before returning to normal
-updates:
+a current verified installer once, pinned to the sequence-25 release, before
+returning to normal updates:
 
 ```bash
-release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-25
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-35
 curl -fLO "$release/install-asahi-quattro"
 curl -fLO "$release/install-asahi-quattro.sig"
 curl -fLO https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/default/omarchy-release.gpg
@@ -202,7 +202,7 @@ omarchy update
 ```
 
 The installer verifies and installs the exact immutable sequence-25 release;
-the final `omarchy update` then uses numbered-channel discovery normally.
+the final `omarchy update` then follows the signed channel normally.
 
 The signed installer will:
 
@@ -302,7 +302,7 @@ complete output and open a verified bug report with the commands above.
 ## Releases And Support
 
 - [Latest product release and validation notes](https://github.com/maralcbr/omarchy-mx-mac/releases/latest)
-- [Current signed installer and package channel](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-25)
+- [Current signed installer and package channel](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-35)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
 

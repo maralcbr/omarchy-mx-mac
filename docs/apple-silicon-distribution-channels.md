@@ -136,8 +136,10 @@ What the pointer can and cannot do, accepted deliberately:
   date", the same as a frozen GitHub listing would.
 - **A pointer naming a channel that does not exist** makes updates defer
   (exit 3) until it is repaired.
-- **Fresh installs do not read it.** The installer and bootstrap still find
-  the runtime through the GitHub API.
+- **Fresh installs read it too.** `install-omarchy-mx-mac` and the VM harness
+  resolve the channel through the same pointer and only fall back to the
+  listing; a pointer naming a channel that does not exist fails the install
+  rather than silently pinning an old one.
 
 Publishing and repairing it are in
 [`apple-silicon-deployment.md`](apple-silicon-deployment.md#the-runtime-channel-pointer).
@@ -243,22 +245,58 @@ What this accepts, deliberately:
   a set built from a later commit on `asahi-quattro`; that does not prove every
   package version went up.
 
-### Not covered yet (phase 3)
+### The install-time `[omarchy]` pin
 
-The bootstrap and the VM harness still read the GitHub API and fail or defer
-when its quota runs out, and the install-time writer still pins the legacy
-release:
+`install/hardware/pacman.sh` writes the `[omarchy]` block on a fresh install
+(`install/hardware/all.sh`, `install/post-install/pacman.sh`) and again on
+every existing Mac through migration `1787560726`. It repairs the section
+around the `Server` that is already there rather than replacing it:
 
-- `install/hardware/pacman.sh` (run at install and by migration `1787560726`)
-  still pins `[omarchy]` to the legacy `asahi-packages-784daa3…` release and
-  rewrites any other `Server` when it runs. The package channel moves those
-  Macs on their next update; the writer itself is fixed with the bootstrap.
-- The bootstrap (`install-omarchy-mx-mac`, `install-omarchy-mx-mac.sh`, and
-  `install-asahi-quattro` in `omarchy-pkgs`) needs the chosen release passed
-  through the wrapper and `--verify-only`, and a new bootstrap release.
-- The VM harness (`test/vm/asahi-fresh`) installs through that bootstrap.
-  `OMARCHY_VM_ASAHI_CHANNEL_URL` only affects `guest/verify`, not the
-  installation.
+| `[omarchy]` in `/etc/pacman.conf` | Result |
+| --- | --- |
+| one recognised `Server`, or several byte-identical copies of one | that `Server` is kept; the section, its `SigLevel` and the key trust are repaired around it |
+| several `Server` lines that are not identical | refused, naming them; nothing is written |
+| more than one `[omarchy]` section | refused; nothing is written |
+| exactly one unrecognised `Server`, or no section at all | written with the bootstrap default |
+
+Recognised means exactly the two forms the package channel moves,
+`…/releases/download/asahi-packages-stable-<commit>` and
+`…/releases/download/asahi-packages-<commit>`. The release key is added and
+locally signed in every case, and the cached `omarchy.db`/`.sig` are dropped
+only when the `Server` actually changes.
+
+The bootstrap default stays the legacy `asahi-packages-784daa3…` release. It
+is signed by the release key, which is the only key trusted when the fresh
+installer runs its first repository transaction, and it is in every package
+channel's `supersedes`, so the first `omarchy update` moves the Mac to the
+promoted set. Modernising it to a stable snapshot needs ARM repository key
+trust and a configured repository earlier in `bin/omarchy-install-asahi-fresh`
+than the pin writer runs today; that is deferred, and the runbook records why.
+
+The effect is that a Mac the package channel already moved forward keeps its
+set when the migration reruns, instead of being pinned backwards and moved
+forward again on the next update.
+
+### What still reads the GitHub API
+
+Four files, each only as the fallback behind a pointer:
+
+- `bin/omarchy-update-asahi-bundle` and `bin/omarchy-update-asahi-repository`,
+  behind the runtime and package channel pointers.
+- `install-omarchy-mx-mac`, behind the runtime channel pointer. With neither
+  resolvable the install fails rather than silently pinning an old release.
+- `test/vm/asahi-fresh/guest/install`, behind the same pointer.
+
+`install-omarchy-mx-mac.sh` resolves nothing itself. It downloads the
+bootstrap from the mx-mac `releases/latest` assets, creates an empty handover
+file, exports `OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE` and runs the bootstrap
+twice with the same arguments: once with `--verify-only`, then to install. The
+first run records the selection it made in that file
+(`format=1`, `selector=release|channel|base-url`, `value=…`) and the signed
+installer appends the `release_tag=` it resolved. The second run installs what
+the first verified: a pointer that advanced in between changes nothing, an
+explicit override that differs between the runs is refused, and a verification
+run whose installer recorded no release refuses to install rather than drift.
 
 ## The signed envelope
 

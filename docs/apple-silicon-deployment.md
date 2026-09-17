@@ -115,8 +115,9 @@ export OMARCHY_VM_CANDIDATE_FINGERPRINT=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 export OMARCHY_VM_CANDIDATE_PACKAGE_COUNT=<package_count from CANDIDATE>
 export OMARCHY_VM_RUNTIME_MANIFEST_SHA256=<sha of the candidate's asahi-quattro-bundle.manifest>
 export OMARCHY_VM_RUNTIME_SOURCE=<source_commit from that manifest>
-# optional: pin the channel guest/verify checks; installation in the guest still reads the GitHub API
+# optional: pin the channel guest/verify checks, and the pointer both guest stages read
 export OMARCHY_VM_ASAHI_CHANNEL_URL=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-<N>/asahi-quattro-channel
+export OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL=https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel
 # default mirror is the snapshot the payload pins; a live mirror needs its own shape:
 export OMARCHY_VM_ALARM_MIRROR='https://ca.us.mirror.archlinuxarm.org/$arch/$repo'
 test/vm/asahi-fresh/run --optional-packages
@@ -155,6 +156,24 @@ channel's set, signs and publishes `asahi-packages-channel-<S+1>`, and points
 `pointers/asahi-packages-channel` at it. `omarchy-update-asahi-repository`
 then moves installed Macs on their next update. If it fails part way, see
 [the package channel](#the-package-channel).
+
+**Never withdraw the bootstrap package release.**
+`asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24` is what
+`install/hardware/pacman.sh` pins at install time, and it must stay published,
+non-draft, non-prerelease and byte-for-byte immutable. Those are exactly the
+conditions under which `bin/publish-asahi-packages-channel` keeps its commit in
+every new channel's `supersedes`, and `supersedes` is what lets
+`omarchy-update-asahi-repository` move a freshly installed Mac onto the
+promoted set. Withdraw it and fresh installs cannot install; drop it from
+`supersedes` and they install but never move.
+
+The pin is not bumped when a set is promoted, and that is deliberate. A stable
+snapshot is signed by the ARM repository subkey `CAB18E17…`, which nothing
+trusts at that point in a fresh install: `bin/omarchy-install-asahi-fresh` runs
+its first repository transaction before the pin writer, so modernising the
+default needs key trust and a configured repository moved earlier in that
+installer. Until that happens the bootstrap release is the default, the package
+channel does the moving, and there is nothing to bump here.
 
 ### 4. Runtime channel
 
