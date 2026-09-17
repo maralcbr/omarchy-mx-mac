@@ -11,7 +11,7 @@
 # proof that the qualified kernel is installed. A hold stops [omarchy-aurora]
 # moving; packages still upgrade against the repository it has. locked runs a
 # command holding the channel lock, which is on the record's directory, and
-# verify-locked proves such a command really inherited it.
+# verify-locked checks the inherited descriptor and makes sure it holds that lock.
 #
 # Exit 2: the record, its storage, the lock or the evidence cannot be trusted.
 # Exit 3: there is no record, and for ensure none could be inferred.
@@ -215,7 +215,7 @@ lock_state_dir() {
 }
 
 # The flags locked exports are only claims: an inherited or preset environment
-# proves nothing until the descriptor is open on this directory and holds its lock.
+# counts for nothing until the descriptor is open on this directory and holds its lock.
 verify_locked() {
   local fd=${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_FD:-} fd_id dir_id
 
