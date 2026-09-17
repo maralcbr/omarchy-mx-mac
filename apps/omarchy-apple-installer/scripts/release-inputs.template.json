@@ -1,11 +1,11 @@
 {
   "payload_name": "omarchy-2026.09.13-aarch64-apple-silicon-asahi-os-package.zip",
-  "engine_name": "installer-v0.9.1-omarchy.16.tar.gz",
+  "engine_name": "installer-v0.9.2-omarchy.17.tar.gz",
   "metadata_name": "installer_data.json",
-  "engine_version": "v0.9.1-omarchy.16",
+  "engine_version": "v0.9.2-omarchy.17",
   "evidence_revision": "4.0.3-mac.1.20260913",
-  "asahi_installer_tag": "v0.9.1",
-  "asahi_installer_revision": "99dff2e968dafcabc2a940865b051e91ffcfafd3",
+  "asahi_installer_tag": "v0.9.2",
+  "asahi_installer_revision": "dffbb38ef0c00c0431c609ecd8a00f42deb5b24c",
   "asahi_installer_data_revision": "42648e71423eba308d2e3e6228253eff679b068b",
   "downstream_revision": "dff6311446439e1f29f0f2e6c0cf82a9a190e5bc",
   "device_identifiers": [

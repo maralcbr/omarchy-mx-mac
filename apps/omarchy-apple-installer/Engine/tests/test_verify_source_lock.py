@@ -1,9 +1,11 @@
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "verify-source-lock.py"
+ENGINE_ROOT = Path(__file__).resolve().parents[1]
+MODULE_PATH = ENGINE_ROOT / "verify-source-lock.py"
 SPEC = importlib.util.spec_from_file_location("verify_source_lock", MODULE_PATH)
 VERIFY_SOURCE_LOCK = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -89,6 +91,105 @@ class M1N1BrandingOverlayLockTests(unittest.TestCase):
                     }
                 ]
             )
+
+
+PATCH = """diff --git a/build.sh b/build.sh
+--- a/build.sh
++++ b/build.sh
+diff --git a/src/main.py b/src/main.py
+--- a/src/main.py
++++ b/src/main.py
+"""
+
+
+def delta_record(path, patched, **overrides):
+    return {
+        "path": path,
+        "downstream_patched": patched,
+        "upstream_base_sha256": "1" * 64,
+        "upstream_sha256": "2" * 64,
+        "base_sha256": ("3" if patched else "1") * 64,
+        "sha256": ("4" if patched else "2") * 64,
+        **overrides,
+    }
+
+
+def delta(*records):
+    return {
+        "base_commit": "f0469cea0899f3efed8efead604174c7a53c4451",
+        "files": list(records),
+    }
+
+
+class UpstreamDeltaLockTests(unittest.TestCase):
+    def test_patched_and_unpatched_files_are_accepted(self):
+        VERIFY_SOURCE_LOCK.require_upstream_delta(
+            delta(
+                delta_record("asahi_firmware/bluetooth.py", False),
+                delta_record("src/main.py", True),
+            ),
+            PATCH,
+        )
+
+    def test_repository_lock_matches_the_downstream_patch(self):
+        lock = json.loads((ENGINE_ROOT / "source-lock.json").read_text())
+        patch = ENGINE_ROOT / lock["downstream_overlay"]["patch"]["path"]
+        VERIFY_SOURCE_LOCK.require_upstream_delta(
+            lock["incremental_build"]["upstream_delta"], patch.read_text()
+        )
+
+    def test_patch_paths_are_read_from_git_headers(self):
+        self.assertEqual(
+            VERIFY_SOURCE_LOCK.patched_paths(PATCH), {"build.sh", "src/main.py"}
+        )
+
+    def test_patched_file_declared_unpatched_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "patch coverage"):
+            VERIFY_SOURCE_LOCK.require_upstream_delta(
+                delta(delta_record("src/main.py", False)), PATCH
+            )
+
+    def test_unpatched_file_declared_patched_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "patch coverage"):
+            VERIFY_SOURCE_LOCK.require_upstream_delta(
+                delta(delta_record("asahi_firmware/bluetooth.py", True)), PATCH
+            )
+
+    def test_unpatched_file_with_distinct_shipped_digest_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "unpatched upstream delta digests"):
+            VERIFY_SOURCE_LOCK.require_upstream_delta(
+                delta(
+                    delta_record(
+                        "asahi_firmware/bluetooth.py", False, sha256="5" * 64
+                    )
+                ),
+                PATCH,
+            )
+
+    def test_non_python_file_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Python only"):
+            VERIFY_SOURCE_LOCK.require_upstream_delta(
+                delta(delta_record("build.sh", True)), PATCH
+            )
+
+    def test_record_without_upstream_digests_is_rejected(self):
+        record = delta_record("asahi_firmware/bluetooth.py", False)
+        del record["upstream_sha256"]
+        with self.assertRaisesRegex(ValueError, "file record"):
+            VERIFY_SOURCE_LOCK.require_upstream_delta(delta(record), PATCH)
+
+    def test_duplicate_or_escaping_paths_are_rejected(self):
+        record = delta_record("asahi_firmware/bluetooth.py", False)
+        for records in (
+            [record, record],
+            [delta_record("../main.py", False)],
+        ):
+            with self.assertRaisesRegex(ValueError, "upstream delta path"):
+                VERIFY_SOURCE_LOCK.require_upstream_delta(delta(*records), PATCH)
+
+    def test_empty_delta_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "upstream delta lock record"):
+            VERIFY_SOURCE_LOCK.require_upstream_delta(delta(), PATCH)
 
 
 if __name__ == "__main__":

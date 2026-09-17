@@ -93,6 +93,61 @@ def require_m1n1_branding_overlay(records: list[dict]) -> None:
         raise ValueError("invalid m1n1 branding overlay")
 
 
+def patched_paths(patch: str) -> set[str]:
+    return set(re.findall(r"^diff --git a/(\S+) b/\S+$", patch, re.MULTILINE))
+
+
+def require_upstream_delta(delta: dict, patch: str) -> None:
+    required = {
+        "path",
+        "downstream_patched",
+        "upstream_base_sha256",
+        "upstream_sha256",
+        "base_sha256",
+        "sha256",
+    }
+    if set(delta) != {"base_commit", "files"} or not COMMIT.fullmatch(
+        str(delta["base_commit"])
+    ):
+        raise ValueError("invalid upstream delta lock record")
+    if not isinstance(delta["files"], list) or not delta["files"]:
+        raise ValueError("invalid upstream delta lock record")
+    patched = patched_paths(patch)
+    seen = set()
+    for record in delta["files"]:
+        if (
+            not isinstance(record, dict)
+            or set(record) != required
+            or not isinstance(record["downstream_patched"], bool)
+        ):
+            raise ValueError("invalid upstream delta file record")
+        path = record["path"]
+        if (
+            not isinstance(path, str)
+            or path in seen
+            or path.startswith("/")
+            or ".." in path.split("/")
+        ):
+            raise ValueError("invalid upstream delta path")
+        seen.add(path)
+        if not path.endswith(".py"):
+            raise ValueError("upstream delta must be Python only: " + path)
+        if not all(
+            isinstance(record[key], str) and SHA256.fullmatch(record[key])
+            for key in required - {"path", "downstream_patched"}
+        ):
+            raise ValueError("invalid upstream delta digest: " + path)
+        if record["downstream_patched"] is not (path in patched):
+            raise ValueError(
+                "downstream patch coverage differs from source lock: " + path
+            )
+        if not record["downstream_patched"] and (
+            record["base_sha256"] != record["upstream_base_sha256"]
+            or record["sha256"] != record["upstream_sha256"]
+        ):
+            raise ValueError("unpatched upstream delta digests differ: " + path)
+
+
 def verify_upstream(engine_root: Path, lock: dict, checkout: Path) -> None:
     upstream = lock["upstream_installer"]
     expected_head = upstream["commit"]
@@ -164,6 +219,10 @@ def verify(engine_root: Path, checkout: Path) -> None:
             raise ValueError("overlay destination is invalid")
     for item in lock["build_recipe"]:
         require_digest(engine_root, item, "build recipe")
+    require_upstream_delta(
+        lock["incremental_build"]["upstream_delta"],
+        (engine_root / overlay["patch"]["path"]).read_text(encoding="utf-8"),
+    )
 
 
 def main() -> None:

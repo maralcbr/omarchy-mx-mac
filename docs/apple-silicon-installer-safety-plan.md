@@ -170,10 +170,12 @@ be persisted atomically; production still needs to choose the app-owned state
 location and connect the guard to the live trust root before catalogs can be
 updated over a channel.
 
-The reviewed source baseline is Asahi installer `v0.9.1` at
-`99dff2e968dafcabc2a940865b051e91ffcfafd3` (`v0.9.0` at
-`f0469cea0899f3efed8efead604174c7a53c4451` plus one Bluetooth module vendor,
-Amkor, in `asahi_firmware/bluetooth.py`) and installer-data at
+The reviewed source baseline is Asahi installer `v0.9.2` at
+`dffbb38ef0c00c0431c609ecd8a00f42deb5b24c` (`v0.9.0` at
+`f0469cea0899f3efed8efead604174c7a53c4451` plus two Python changes: one
+Bluetooth module vendor, Amkor, in `asahi_firmware/bluetooth.py`, and M3, M3
+Pro and M3 Max Macs no longer needing expert mode in `src/main.py`) and
+installer-data at
 `42648e71423eba308d2e3e6228253eff679b068b`. This records upstream identity; it
 does not claim a production-signed Omarchy engine or physical M1 Pro success.
 No production public key or catalog is bundled, so the live adapter uses an

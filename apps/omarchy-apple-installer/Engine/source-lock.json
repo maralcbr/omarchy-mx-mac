@@ -4,14 +4,14 @@
   "source_acquisition": "verified-git-object-graph",
   "upstream_installer": {
     "repository": "https://github.com/AsahiLinux/asahi-installer.git",
-    "tag": "v0.9.1",
-    "tag_object": "7d57f737ff313682e2c83c5a1ad3f5482e7e0498",
-    "commit": "99dff2e968dafcabc2a940865b051e91ffcfafd3",
+    "tag": "v0.9.2",
+    "tag_object": "e9cea671bedf3e6f6ec9d638523adf0df32be2b5",
+    "commit": "dffbb38ef0c00c0431c609ecd8a00f42deb5b24c",
     "tag_signature": {
-      "verification": "good_signature_key_source_copy_expired_github_verified",
-      "primary_fingerprint": "8B336A6BE4E5695E89B8532B81E806F586338419",
-      "signing_subkey_fingerprint": "622BE98800AB7C215C7DE056A11B3CDB8D2F6566",
-      "key_source": "https://github.com/jannau.gpg"
+      "verification": "good_signature_github_verified",
+      "primary_fingerprint": "B08212489B3206D98F1479BDD43632D151F77960",
+      "signing_subkey_fingerprint": "B08212489B3206D98F1479BDD43632D151F77960",
+      "key_source": "https://github.com/chadmed.gpg"
     },
     "submodules": [
       {
@@ -141,7 +141,7 @@
     }
   },
   "downstream_overlay": {
-    "version": "v0.9.1-omarchy.16",
+    "version": "v0.9.2-omarchy.17",
     "capability": "candidate_bound_full_os_stage_one_authenticated_recovery",
     "engine_modes": [
       "inspect",
@@ -270,17 +270,17 @@
     },
     {
       "path": "verify-source-lock.py",
-      "sha256": "a87a46bac3f541e55400776d4d0a700e59b0b8e57711396e29d0830aaea951bf"
+      "sha256": "e8f3eca8404fefb79ccf47b21abdc9e88c6c2ad549136ba7f74397f9205846fa"
     },
     {
       "path": "rebuild-python-overlay.py",
-      "sha256": "6031509f6bb729549ba9f082d391b49c13ecb1e9e99cc537df17c9a5a311fe90"
+      "sha256": "bcec78818b863693ae5733ad1cefad130f3c01eea9898c43f0167c1b3c2ebd77"
     }
   ],
   "validation_artifact": {
-    "filename": "installer-v0.9.1-omarchy.16.tar.gz",
-    "size_bytes": 17840677,
-    "sha256": "b30bf7206863ce6b6857d97937727a7a9c9dec5ab5a434209489ca6dfc039844",
+    "filename": "installer-v0.9.2-omarchy.17.tar.gz",
+    "size_bytes": 17838045,
+    "sha256": "ecb61645a9c75ba733425fb300b8b53b09f9dbc297a86acce1e0ee41f36e32e5",
     "reproducibility_scope": "two-identical-python-overlay-repacks-authenticated-base",
     "signature": "absent"
   },
@@ -294,8 +294,19 @@
       "files": [
         {
           "path": "asahi_firmware/bluetooth.py",
+          "downstream_patched": false,
+          "upstream_base_sha256": "c7e7fb63d4a2c3281ccd28eb413006cb8daab9dce070b5422142a06edf6c9cb2",
+          "upstream_sha256": "aa12e6cd684ed5b55d732db1f040d84570537bacc991d03ee6f854cbb232c369",
           "base_sha256": "c7e7fb63d4a2c3281ccd28eb413006cb8daab9dce070b5422142a06edf6c9cb2",
           "sha256": "aa12e6cd684ed5b55d732db1f040d84570537bacc991d03ee6f854cbb232c369"
+        },
+        {
+          "path": "src/main.py",
+          "downstream_patched": true,
+          "upstream_base_sha256": "c8d4d2a80f3a88a9ba4d6d4024c0001062e35d15d72ae530681a0612e6525984",
+          "upstream_sha256": "894fb8cd2ffc672bb96a14969ee9de2879d250c8c5990fee122ccf66d9b50024",
+          "base_sha256": "95760ed02d44b5457acb81559a4e2d892ffbb7f0f2b7417c0b2eb02937945ae7",
+          "sha256": "d7fb4fcc9bdc13cba5a9f9c9ecace6317c60d816915950d9dfa05f826737afbd"
         }
       ]
     }
