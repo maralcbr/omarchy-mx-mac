@@ -15,7 +15,7 @@
   ],
   "engine_artifact": {
     "source_lock": "apps/omarchy-apple-installer/Engine/source-lock.json",
-    "source_lock_sha256": "a0dbb6d9dd627398a53266a7a8ebcd78f91bbea19a1fc22554a0e3d1d4c15b9f",
+    "source_lock_sha256": "753d38a881d89224391d7840a5bbe81ff444dc334e3ba5b5f3db81997779bc02",
     "status": "python-overlay-validation-artifact-unsigned",
     "filename": "installer-v0.9.2-omarchy.17.tar.gz",
     "size_bytes": 17838045,

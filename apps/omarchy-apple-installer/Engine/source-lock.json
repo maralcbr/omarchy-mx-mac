@@ -274,7 +274,7 @@
     },
     {
       "path": "rebuild-python-overlay.py",
-      "sha256": "bcec78818b863693ae5733ad1cefad130f3c01eea9898c43f0167c1b3c2ebd77"
+      "sha256": "a549d14d1778879a75b68bf9e2081187986299efc09110ca76a9a5caf286bdf6"
     }
   ],
   "validation_artifact": {

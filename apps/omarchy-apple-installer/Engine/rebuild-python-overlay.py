@@ -14,6 +14,7 @@ import tarfile
 import tempfile
 
 BASE_SHA256 = '9e9277384b6c9e8b269cc79b1b24df7bfcdcbb898a596a677b74d1d18050aebe'
+BASE_COMMIT = 'f0469cea0899f3efed8efead604174c7a53c4451'
 VERSION = 'v0.9.2-omarchy.17'
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -78,12 +79,20 @@ def upstream_delta(checkout, delta, archive, patch):
     return overlay
 
 
+def require_base(data, lock):
+    if sha256(data) != BASE_SHA256:
+        raise ValueError('base must be the exact deployed omarchy.14 engine')
+    # The archive digest alone does not say which upstream it was built from; the delta must start there too.
+    build = lock['incremental_build']
+    if build['base_sha256'] != BASE_SHA256 or build['upstream_delta']['base_commit'] != BASE_COMMIT:
+        raise ValueError('source lock names a different base than the deployed omarchy.14 engine')
+
+
 def rebuild(checkout, base, output):
     root = Path(__file__).resolve().parent
     data = base.read_bytes()
-    if sha256(data) != BASE_SHA256:
-        raise ValueError('base must be the exact deployed omarchy.14 engine')
     lock = json.loads((root / 'source-lock.json').read_text())
+    require_base(data, lock)
     VERIFY.verify_upstream(root, lock, checkout)
     records = lock['downstream_overlay']['files']
     expected = {item['path'] for item in records if item['destination'].startswith('src/')}

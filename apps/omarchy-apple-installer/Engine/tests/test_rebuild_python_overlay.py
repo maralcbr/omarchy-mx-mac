@@ -231,3 +231,34 @@ class UpstreamDeltaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BaseIdentityTest(unittest.TestCase):
+    def lock(self, base_sha256=None, base_commit=None):
+        return {"incremental_build": {
+            "base_sha256": base_sha256 or REBUILD.BASE_SHA256,
+            "upstream_delta": {"base_commit": base_commit or REBUILD.BASE_COMMIT, "files": []},
+        }}
+
+    def setUp(self):
+        self.data = b"deployed base engine"
+        self.saved = REBUILD.BASE_SHA256
+        REBUILD.BASE_SHA256 = digest(self.data)
+
+    def tearDown(self):
+        REBUILD.BASE_SHA256 = self.saved
+
+    def test_pinned_base_and_commit_are_accepted(self):
+        REBUILD.require_base(self.data, self.lock())
+
+    def test_other_base_archive_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "exact deployed omarchy.14 engine"):
+            REBUILD.require_base(b"another engine", self.lock())
+
+    def test_delta_from_another_upstream_commit_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "different base"):
+            REBUILD.require_base(self.data, self.lock(base_commit="99dff2e968dafcabc2a940865b051e91ffcfafd3"))
+
+    def test_lock_naming_another_base_archive_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "different base"):
+            REBUILD.require_base(self.data, self.lock(base_sha256="0" * 64))
