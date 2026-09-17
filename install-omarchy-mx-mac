@@ -102,7 +102,7 @@ fi
 recorded_release_tag=""
 if [[ -n $identity_file && -s $identity_file ]]; then
   (( $(wc -c <"$identity_file") <= identity_size_limit )) || fail "The release identity handed over by the wrapper is malformed"
-  recorded_format="" recorded_selector="" recorded_value=""
+  recorded_format="" recorded_selector="" recorded_value="" line=""
   # The installer appends its record, so read a last line without a newline too.
   while IFS= read -r line || [[ -n $line ]]; do
     case "$line" in
