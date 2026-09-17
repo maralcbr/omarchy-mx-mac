@@ -71,6 +71,8 @@ if runuser -u omarchy -- env HOME=/home/omarchy omarchy-migrate --pending >/tmp/
 fi
 [[ ! -s /tmp/migrations.pending ]] || fail "pending migrations"
 
+# A pinned channel skips discovery through the anonymous GitHub API; the updater still verifies it.
+[[ -z ${OMARCHY_VM_ASAHI_CHANNEL_URL:-} ]] || export OMARCHY_ASAHI_CHANNEL_URL=$OMARCHY_VM_ASAHI_CHANNEL_URL
 set +e
 OMARCHY_ASAHI_TESTING=1 \
   OMARCHY_ASAHI_ROOT=/root/omarchy-fresh-vm/apple-root \

@@ -18,6 +18,7 @@ candidate_sha256=${OMARCHY_VM_CANDIDATE_SHA256:-}
 candidate_fingerprint=${OMARCHY_VM_CANDIDATE_FINGERPRINT:-}
 candidate_package_count=${OMARCHY_VM_CANDIDATE_PACKAGE_COUNT:-}
 candidate_key=${OMARCHY_VM_CANDIDATE_KEY_FILE:-$root/default/omarchy-arm-repository.asc}
+channel_url=${OMARCHY_VM_ASAHI_CHANNEL_URL:-}
 # The guest installs Arch Linux ARM packages from a dated, immutable copy of the
 # repositories rather than the live mirrors, so a mirror mid-transition cannot
 # fail a run that has nothing to do with it. The date is the one the current
@@ -32,6 +33,10 @@ alarm_mirror=${OMARCHY_VM_ALARM_MIRROR:-'https://downloads.aicodelabs.com.au/mir
 alarm_mirror_quoted=$(printf '%q' "$alarm_mirror")
 [[ $vm_memory_mb =~ ^[1-9][0-9]*$ ]] || {
   echo "OMARCHY_VM_MEMORY_MB must be a positive integer" >&2
+  exit 1
+}
+[[ -z $channel_url || $channel_url =~ ^https://github\.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-[1-9][0-9]*/asahi-quattro-channel$ ]] || {
+  echo "OMARCHY_VM_ASAHI_CHANNEL_URL must be an asahi-quattro-channel-<N>/asahi-quattro-channel release asset of maralcbr/omarchy-pkgs" >&2
   exit 1
 }
 
@@ -176,7 +181,7 @@ boot_id=$(ssh "${ssh_args[@]}" root@127.0.0.1 cat /proc/sys/kernel/random/boot_i
 ssh "${ssh_args[@]}" root@127.0.0.1 systemctl reboot --no-block || true
 wait_for_reboot "$boot_id" || { tail -200 "$state/run/serial.log"; exit 1; }
 scp "${scp_args[@]}" "$harness/guest/verify" root@127.0.0.1:/root/omarchy-vm-verify
-ssh "${ssh_args[@]}" root@127.0.0.1 bash /root/omarchy-vm-verify | tee "$state/run/verify.log"
+ssh "${ssh_args[@]}" root@127.0.0.1 env OMARCHY_VM_ASAHI_CHANNEL_URL="$channel_url" bash /root/omarchy-vm-verify | tee "$state/run/verify.log"
 
 if (( optional_packages )); then
   scp "${scp_args[@]}" \

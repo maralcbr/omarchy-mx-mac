@@ -110,3 +110,15 @@ grep -Fq 'valid_fingerprint == "${signing_fingerprint^^}"' "$vm_candidate" || fa
 grep -Fq -- '--ignore linux-asahi,linux-asahi-headers,m1n1,grub "${packages[@]}"' "$vm_candidate" || fail "VM candidate gate installs the descriptor packages without upgrading its boot fixture"
 grep -Fq 'candidate package version: $package' "$vm_verify" || fail "VM verifies candidate versions after reboot"
 pass "fresh-install VM can consume an exact signed package candidate"
+
+grep -Fq '/usr/bin/mkinitcpio -p "$preset"' "$vm_candidate" || fail "VM candidate gate builds every preset with the real mkinitcpio"
+grep -Fq 'lsinitcpio "$image"' "$vm_candidate" || fail "VM candidate gate inspects every preset image"
+grep -Fq 'usr/lib/omarchy/initcpio/omarchy-vendorfw.sh usr/lib/systemd/system/omarchy-vendorfw.service' "$vm_candidate" ||
+  fail "VM candidate gate requires the vendor firmware hook and its initrd unit"
+pass "fresh-install VM builds every initramfs preset right after the candidate transaction"
+
+grep -Fq 'channel_url=${OMARCHY_VM_ASAHI_CHANNEL_URL:-}' "$vm_runner" || fail "VM runner accepts a pinned channel URL"
+grep -Fq 'asahi-quattro-channel-[1-9][0-9]*/asahi-quattro-channel$' "$vm_runner" || fail "VM runner accepts only a numbered channel asset"
+grep -Fq 'env OMARCHY_VM_ASAHI_CHANNEL_URL="$channel_url" bash /root/omarchy-vm-verify' "$vm_runner" || fail "VM runner passes the channel URL to verification"
+grep -Fq 'export OMARCHY_ASAHI_CHANNEL_URL=$OMARCHY_VM_ASAHI_CHANNEL_URL' "$vm_verify" || fail "VM verification hands the channel URL to the updater"
+pass "fresh-install VM can pin the signed channel instead of discovering it"

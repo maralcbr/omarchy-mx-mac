@@ -79,6 +79,31 @@ while IFS='|' read -r _ package version _ _ _ _ _; do
   [[ $(pacman -Q "$package" | cut -d' ' -f2) == "$version" ]]
 done < <(sed -n 's/^package=//p' "$work/CANDIDATE")
 
+# Pacman succeeds even when its initramfs hook fails; build every preset before anything repairs it.
+vendorfw_dropin=/etc/mkinitcpio.conf.d/90-omarchy-asahi.conf
+presets=(/etc/mkinitcpio.d/*.preset)
+[[ -f ${presets[0]} ]] || { echo "No mkinitcpio preset to build" >&2; exit 1; }
+for preset_file in "${presets[@]}"; do
+  preset=$(basename "$preset_file" .preset)
+  # limine-mkinitcpio-hook's /usr/local/bin/mkinitcpio discards this exit status.
+  /usr/bin/mkinitcpio -p "$preset" || { echo "mkinitcpio preset $preset failed after the candidate transaction" >&2; exit 1; }
+  mapfile -t images < <(bash -c 'source "$1"; for name in "${PRESETS[@]}"; do image=${name}_image; [[ -z ${!image:-} ]] || printf "%s\n" "${!image}"; done' _ "$preset_file")
+  (( ${#images[@]} > 0 )) || { echo "mkinitcpio preset $preset names no image" >&2; exit 1; }
+  for image in "${images[@]}"; do
+    [[ -s $image ]] || { echo "mkinitcpio preset $preset did not write $image" >&2; exit 1; }
+    [[ -f $vendorfw_dropin ]] || continue
+    lsinitcpio "$image" >"$work/initramfs-contents"
+    for entry in usr/lib/omarchy/initcpio/omarchy-vendorfw.sh usr/lib/systemd/system/omarchy-vendorfw.service; do
+      grep -Fxq "$entry" "$work/initramfs-contents" || { echo "$image lacks $entry" >&2; exit 1; }
+    done
+  done
+  if [[ -f $vendorfw_dropin ]]; then
+    echo "Initramfs preset $preset built with the vendor firmware hook: ${images[*]}"
+  else
+    echo "Initramfs preset $preset built: ${images[*]}"
+  fi
+done
+
 install -Dm644 "$work/CANDIDATE" /var/lib/omarchy/vm-package-candidate
 printf '%s\n' "$descriptor_sha256" | install -Dm644 /dev/stdin /var/lib/omarchy/vm-package-candidate.sha256
 printf '%s\n' "$primary_fingerprint" | install -Dm644 /dev/stdin /var/lib/omarchy/vm-package-candidate-primary-fingerprint

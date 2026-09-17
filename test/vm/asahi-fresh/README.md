@@ -63,6 +63,13 @@ the declared candidate packages through the exact release repository, and checks
 versions again after the full install and reboot. It does not alter the stable
 repository pin used by the production installer or the default VM path.
 
+Pacman does not fail a transaction whose initramfs hook fails, so right after
+the candidate transaction the guest runs `/usr/bin/mkinitcpio -p` for every
+preset and stops on the first failure. Each image a preset names must exist
+and, when `90-omarchy-asahi.conf` is installed, contain `omarchy-vendorfw.sh`
+and its initrd unit. It bypasses the `/usr/local/bin/mkinitcpio` wrapper from
+`limine-mkinitcpio-hook`, which discards the exit status.
+
 When the candidate also contains a new runtime that is not yet published on the
 stable channel, additionally set `OMARCHY_VM_RUNTIME_MANIFEST_SHA256` to the
 trusted SHA-256 of `asahi-quattro-bundle.manifest` and `OMARCHY_VM_RUNTIME_SOURCE`
@@ -77,3 +84,10 @@ candidate bytes; it does not claim to test a published runtime-channel descripto
 or public channel promotion. Omitting the runtime pins retains the published
 stable-channel path. The VM allows SSH before applying the firewall defaults
 and removes that test-only rule in the final rerun stage.
+
+The post-reboot updater check normally discovers the live channel through the
+anonymous GitHub API, whose quota a shared office IP can exhaust. Set
+`OMARCHY_VM_ASAHI_CHANNEL_URL` to
+`https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-<N>/asahi-quattro-channel`
+to skip that lookup; the updater still verifies the channel's signature,
+sequence and manifest. Any other value stops the run before the VM starts.

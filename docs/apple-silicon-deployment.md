@@ -106,11 +106,18 @@ then:
 export OMARCHY_VM_CANDIDATE_TAG=asahi-packages-candidate-<commit>
 export OMARCHY_VM_CANDIDATE_SHA256=<sha of CANDIDATE>
 export OMARCHY_VM_CANDIDATE_FINGERPRINT=CAB18E175BFB9ACCE185234474DE0C737AC186E4
-export OMARCHY_VM_CANDIDATE_PACKAGE_COUNT=55
+export OMARCHY_VM_CANDIDATE_PACKAGE_COUNT=<package_count from CANDIDATE>
+export OMARCHY_VM_RUNTIME_MANIFEST_SHA256=<sha of the candidate's asahi-quattro-bundle.manifest>
+export OMARCHY_VM_RUNTIME_SOURCE=<source_commit from that manifest>
+# optional: pin the live channel so a shared IP's anonymous GitHub API quota cannot fail the run
+export OMARCHY_VM_ASAHI_CHANNEL_URL=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-<N>/asahi-quattro-channel
 # default mirror is the snapshot the payload pins; a live mirror needs its own shape:
 export OMARCHY_VM_ALARM_MIRROR='https://ca.us.mirror.archlinuxarm.org/$arch/$repo'
 test/vm/asahi-fresh/run --optional-packages
 ```
+
+Without the two runtime exports the harness installs the last published
+runtime release and fails on its version mismatch with the candidate.
 
 Passing means 23 `ok` lines and exit 0. Record it as
 `docs/releases/asahi-packages-candidate-<8hex>-acceptance.txt` (copy the
