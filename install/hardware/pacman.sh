@@ -3,8 +3,15 @@
 if omarchy-hw-apple-silicon; then
   release_key="${OMARCHY_ASAHI_PACKAGE_KEY_FILE:-$OMARCHY_PATH/default/omarchy-release.gpg}"
   release_fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
-  release_tag=asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24
-  release_server="https://github.com/maralcbr/omarchy-pkgs/releases/download/$release_tag"
+  # The set a Mac starts from. It is deliberately the legacy release-key signed
+  # snapshot: the first repository transaction of a fresh install runs before
+  # anything trusts the ARM repository subkey a stable snapshot is signed with.
+  # The signed package channel moves the Mac to the promoted set on its first
+  # update, so this release must never be withdrawn; see
+  # docs/apple-silicon-deployment.md.
+  bootstrap_release_tag=asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24
+  package_repo=maralcbr/omarchy-pkgs
+  bootstrap_server="https://github.com/$package_repo/releases/download/$bootstrap_release_tag"
   pacman_conf="${OMARCHY_PACMAN_CONF:-/etc/pacman.conf}"
 
   actual_fingerprint=$(gpg --batch --show-keys --with-colons "$release_key" |
@@ -16,9 +23,49 @@ if omarchy-hw-apple-silicon; then
   fi
   pacman-key --lsign-key "$release_fingerprint"
 
+  omarchy_blocks=$(grep -Ec '^[[:space:]]*\[omarchy\][[:space:]]*$' "$pacman_conf" || true)
+  if (( omarchy_blocks > 1 )); then
+    echo "Several [omarchy] sections in $pacman_conf; resolve them before reconfiguring the repository" >&2
+    return 1
+  fi
+
+  # Whatever else the section needs repaired, a Server the package channel
+  # recognises is kept: the channel moves it forward from there, and rewriting
+  # it would pin a Mac that has already moved back to the bootstrap set.
+  current_servers=$(awk '
+    /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; next }
+    inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
+    inside && /^[[:space:]]*Server[[:space:]]*=/ {
+      sub(/^[[:space:]]*Server[[:space:]]*=[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      print
+    }
+  ' "$pacman_conf")
+  current_server=""
+  if [[ -n $current_servers ]]; then
+    distinct_servers=$(sort -u <<<"$current_servers")
+    if (( $(wc -l <<<"$distinct_servers") > 1 )); then
+      echo "Several [omarchy] Servers in $pacman_conf; resolve them before reconfiguring the repository" >&2
+      while IFS= read -r duplicate_server; do
+        printf '  %s\n' "$duplicate_server" >&2
+      done <<<"$distinct_servers"
+      return 1
+    fi
+    current_server=$distinct_servers
+  fi
+
+  stable_prefix="https://github.com/$package_repo/releases/download/asahi-packages-stable-"
+  legacy_prefix="https://github.com/$package_repo/releases/download/asahi-packages-"
+  release_server=$bootstrap_server
+  if [[ $current_server == "$stable_prefix"* && ${current_server#"$stable_prefix"} =~ ^[0-9a-f]{40}$ ]]; then
+    release_server=$current_server
+  elif [[ $current_server == "$legacy_prefix"* && ${current_server#"$legacy_prefix"} =~ ^[0-9a-f]{40}$ ]]; then
+    release_server=$current_server
+  fi
+
   if ! awk -v server="$release_server" '
-    /^\[omarchy\][[:space:]]*$/ { inside = 1; blocks++; next }
-    inside && /^\[[^]]+\][[:space:]]*$/ { inside = 0 }
+    /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; blocks++; next }
+    inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
     inside && NF { entries++ }
     inside && $0 == "SigLevel = Required DatabaseOptional" { signature = 1 }
     inside && $0 == "Server = " server { url = 1 }
@@ -26,11 +73,11 @@ if omarchy-hw-apple-silicon; then
   ' "$pacman_conf"; then
     tmp="${pacman_conf}.omarchy.$$"
     awk '
-      /^\[omarchy\][[:space:]]*$/ { skip = 1; next }
-      skip && /^\[[^]]+\][[:space:]]*$/ { skip = 0 }
+      /^[[:space:]]*\[omarchy\][[:space:]]*$/ { skip = 1; next }
+      skip && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { skip = 0 }
       !skip { print }
     ' "$pacman_conf" >"$tmp"
-    # omarchy:heredoc-expands paths=none -- $release_server is assembled from fixed literals in this root-owned script
+    # omarchy:heredoc-expands paths=none -- $release_server is a literal prefix plus a Server this script already matched against it
     cat >>"$tmp" <<EOF
 
 [omarchy]
@@ -40,14 +87,16 @@ EOF
     chmod --reference="$pacman_conf" "$tmp"
     chown --reference="$pacman_conf" "$tmp"
     mv "$tmp" "$pacman_conf"
-    # A GitHub release serves every tag's database under the same name
-    # (omarchy.db), and their upload times are not ordered by tag, so when the
-    # repository is repointed to a tag whose asset is older than the cached one
-    # pacman keeps the stale database while fetching the new tag's signature and
-    # rejects the pair as an invalid signature. Drop the cached database so it
-    # and its signature are always fetched together for the tag now pinned.
-    db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2 }' "$pacman_conf")
-    rm -f "${db_path:-/var/lib/pacman}/sync/omarchy.db" "${db_path:-/var/lib/pacman}/sync/omarchy.db.sig"
+    if [[ $current_server != "$release_server" ]]; then
+      # A GitHub release serves every tag's database under the same name
+      # (omarchy.db), and their upload times are not ordered by tag, so when the
+      # repository is repointed to a tag whose asset is older than the cached one
+      # pacman keeps the stale database while fetching the new tag's signature and
+      # rejects the pair as an invalid signature. Drop the cached database so it
+      # and its signature are always fetched together for the tag now pinned.
+      db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2 }' "$pacman_conf")
+      rm -f "${db_path:-/var/lib/pacman}/sync/omarchy.db" "${db_path:-/var/lib/pacman}/sync/omarchy.db.sig"
+    fi
     pacman -Sy --noconfirm
   fi
 fi
