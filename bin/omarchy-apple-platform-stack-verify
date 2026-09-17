@@ -62,9 +62,9 @@ jq -e --argjson required_ids "$required_ids" '
     source_lock: "apps/omarchy-apple-installer/Engine/source-lock.json",
     source_lock_sha256: .engine_artifact.source_lock_sha256,
     status: "python-overlay-validation-artifact-unsigned",
-    filename: "installer-v0.9.0-omarchy.15.tar.gz",
-    size_bytes: 17840637,
-    sha256: "8672182b3a60eecab83a7a1f014d257047f77d065432b3da9ea29509a57eb28f",
+    filename: "installer-v0.9.2-omarchy.17.tar.gz",
+    size_bytes: 17838045,
+    sha256: "ecb61645a9c75ba733425fb300b8b53b09f9dbc297a86acce1e0ee41f36e32e5",
     signature: null,
     reproducibility_scope: "two-identical-python-overlay-repacks-authenticated-base"
   } and
