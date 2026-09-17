@@ -24,6 +24,8 @@ Artifacts, in the order they are produced:
 | --- | --- | --- |
 | package candidate `asahi-packages-candidate-<pkgs commit>` | GitHub release, immutable, prerelease | `release-asahi-package-incremental.yml` |
 | promoted packages `asahi-packages-stable-<pkgs commit>` | GitHub release, byte-identical copy | `bin/promote-asahi-package-candidate --publish` |
+| package channel `asahi-packages-channel-<S>` | GitHub release, immutable, signed; `omarchy update` moves `[omarchy]` to the set it names | `publish-asahi-packages-channel.yml` |
+| package channel pointer `pointers/asahi-packages-channel` | R2, mutable; names the highest S | the last step of the same workflow, see [below](#the-package-channel) |
 | runtime channel `asahi-quattro-channel-<N>` | GitHub release; `omarchy update` follows the highest N | `promote-asahi-quattro-runtime.yml mode=publish` |
 | runtime channel pointer `pointers/asahi-quattro-channel` | R2, mutable; names the highest N | the last step of the same publish job, see [below](#the-runtime-channel-pointer) |
 | Arch Linux ARM snapshot `mirror/alarm/<YYYYMMDD>/` | R2 | rsync + rclone, see below |
@@ -139,8 +141,20 @@ bin/promote-asahi-package-candidate --publish maralcbr/omarchy-pkgs \
   default/omarchy-arm-repository.asc <acceptance file> <sha256 of the acceptance file>
 ```
 
-Creates `asahi-packages-stable-<commit>`; `omarchy-update-asahi-repository`
-moves installed Macs to it on their next update.
+This creates `asahi-packages-stable-<commit>`. Installed Macs do not see it
+until it is published on the package channel:
+
+```bash
+gh workflow run publish-asahi-packages-channel.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro \
+  -f stable_tag=asahi-packages-stable-<commit>
+```
+
+Approve the `asahi-quattro-release` gate. The workflow checks the stable and
+candidate releases, refuses a set that does not descend from the current
+channel's set, signs and publishes `asahi-packages-channel-<S+1>`, and points
+`pointers/asahi-packages-channel` at it. `omarchy-update-asahi-repository`
+then moves installed Macs on their next update. If it fails part way, see
+[the package channel](#the-package-channel).
 
 ### 4. Runtime channel
 
@@ -282,6 +296,58 @@ sees the old pointer after a successful publish, wait and retry, rerun the
 repair command (it writes nothing when the bytes already match and verifies
 again), or purge that URL from the Cloudflare cache. Do not treat one good
 readback as proof that every Mac sees the new pointer.
+
+## The package channel
+
+`asahi-packages-channel-<S>` and `pointers/asahi-packages-channel` tell
+installed Macs which promoted package set to move `[omarchy]` to, without the
+GitHub API. The format and the move rules are in
+[`apple-silicon-distribution-channels.md`](apple-silicon-distribution-channels.md#the-package-channel).
+Full lane step 3 publishes both.
+
+Check what is live:
+
+```bash
+curl -fsS https://downloads.aicodelabs.com.au/pointers/asahi-packages-channel
+```
+
+### Repair it
+
+Rerun the same dispatch with the same `stable_tag`. It is the repair for every
+failure after the checks passed (draft created, an upload, publication,
+readback, or the pointer): it reuses channel `S` if it already names that set,
+replaces its own leftover draft, and writes nothing that already matches.
+
+```bash
+gh workflow run publish-asahi-packages-channel.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro \
+  -f stable_tag=asahi-packages-stable-<commit>
+```
+
+If it reports that the current pointer object is malformed, rerun with
+`-f replace_malformed_pointer=true`. To republish only the pointer (`S` must be
+the highest published package channel):
+
+```bash
+gh workflow run publish-asahi-channel-pointer.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro \
+  -f kind=packages -f sequence=<S>
+```
+
+Approve the gate each time. The workflows share the publish jobs' concurrency
+group, and a queued dispatch can be replaced by a newer one; if yours never
+ran, dispatch it again.
+
+One failure a rerun cannot fix: a git tag `asahi-packages-channel-<S>` that has
+no published release. Check that no release uses it, delete the tag by hand,
+then rerun:
+
+```bash
+gh release view asahi-packages-channel-<S> -R maralcbr/omarchy-pkgs    # must report no release
+gh api -X DELETE repos/maralcbr/omarchy-pkgs/git/refs/tags/asahi-packages-channel-<S>
+```
+
+Nothing is broken while the channel or pointer lags: Macs stay on the set they
+have, and a Mac whose recorded channel is above the pointer reads the GitHub
+listing instead. The [cache note](#cache) above applies to this pointer too.
 
 ## Cutting an Arch Linux ARM snapshot
 
@@ -442,6 +508,7 @@ byte for byte, which is how to check it.
 | candidate build | shell tests on the source commit; signing check; upgrade lifecycle (predecessor from its snapshot, upgrade against live) | 15 min incremental, 60 full |
 | VM acceptance | fresh install, interruption/resume, reboot, verify, optional packages, rerun rejection | 10–15 min |
 | promotion | acceptance file bound to the candidate identity; byte-identical copy | 2 min |
+| package channel | stable and candidate verified; set descends from the current channel's; channel and pointer read back | 2 min |
 | runtime channel | candidate verified; sequence strictly increasing; pointer read back | 2 min |
 | payload | checkpointed stages; content evidence; drift gate between cache and repository | 60–90 min |
 | publish + rc | readback of every object; catalog signature; sequence above the live channel | 15 min |
