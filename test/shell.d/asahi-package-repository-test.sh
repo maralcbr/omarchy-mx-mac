@@ -222,6 +222,8 @@ fi
 grep -Fq 'Several [omarchy] Servers' "$test_tmp/conflict.err" || fail "a conflicting Server list is named in the refusal"
 [[ $(sha256sum "$pacman_conf") == "$config_hash" ]] || fail "conflicting Servers are refused without mutating pacman.conf"
 ! grep -Fq 'pacman:-Sy --noconfirm' "$calls" || fail "conflicting Servers are refused before any repository sync"
+grep -Fxq 'pacman-key:--lsign-key 5983B1CA32CB778F4D74D24ECFF35022CA5B5959' "$calls" ||
+  fail "a refused repository still leaves the release key trusted"
 pass "conflicting [omarchy] Servers are refused without mutation"
 
 write_conf "$(printf '[omarchy]\nSigLevel = Required DatabaseOptional\nServer = %s\n\n[omarchy]\nSigLevel = Never\nServer = %s' "$stable_server" "$legacy_server")"
