@@ -25,9 +25,10 @@ Artifacts, in the order they are produced:
 | package candidate `asahi-packages-candidate-<pkgs commit>` | GitHub release, immutable, prerelease | `release-asahi-package-incremental.yml` |
 | promoted packages `asahi-packages-stable-<pkgs commit>` | GitHub release, byte-identical copy | `bin/promote-asahi-package-candidate --publish` |
 | runtime channel `asahi-quattro-channel-<N>` | GitHub release; `omarchy update` follows the highest N | `promote-asahi-quattro-runtime.yml mode=publish` |
+| runtime channel pointer `pointers/asahi-quattro-channel` | R2, mutable; names the highest N | the last step of the same publish job, see [below](#the-runtime-channel-pointer) |
 | Arch Linux ARM snapshot `mirror/alarm/<YYYYMMDD>/` | R2 | rsync + rclone, see below |
 | OS release `releases/os-v4.0.2-mac.1.<date>/` + signed catalog | R2, immutable (7-day age lock) | `publish-m1-release` + `make-unsigned-catalog.py` + `catalog-signing.swift` |
-| channel `channels/rc` or `channels/stable` | R2, the only mutable keys | `publish-channels os-promote` |
+| channel `channels/rc` or `channels/stable` | R2, mutable | `publish-channels os-promote` |
 | installer `installer/<version>/` and `installer/rc|stable/` | R2 | `publish-channels app-publish` |
 
 Machines: **this Mac (M4)** builds the payload and publishes to R2; **GitHub**
@@ -56,7 +57,10 @@ Applies when the change is confined to what `omarchy-dev` and
    runtime pair rebuilds; the gate installs the predecessor set from its dated
    snapshot and upgrades over it), approves the `asahi-quattro-release` gates,
    checks the candidate rebuilt nothing outside the runtime, and publishes
-   `asahi-quattro-channel-<N+1>`.
+   `asahi-quattro-channel-<N+1>`. The publish job's last step points
+   `pointers/asahi-quattro-channel` at it. If that step fails, the command
+   prints the [repair command](#the-runtime-channel-pointer) and exits
+   non-zero.
 3. Installed Macs receive it on their next `omarchy update`. Verify on one:
 
    ```bash
@@ -109,7 +113,7 @@ export OMARCHY_VM_CANDIDATE_FINGERPRINT=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 export OMARCHY_VM_CANDIDATE_PACKAGE_COUNT=<package_count from CANDIDATE>
 export OMARCHY_VM_RUNTIME_MANIFEST_SHA256=<sha of the candidate's asahi-quattro-bundle.manifest>
 export OMARCHY_VM_RUNTIME_SOURCE=<source_commit from that manifest>
-# optional: pin the live channel so a shared IP's anonymous GitHub API quota cannot fail the run
+# optional: pin the channel guest/verify checks; installation in the guest still reads the GitHub API
 export OMARCHY_VM_ASAHI_CHANNEL_URL=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-<N>/asahi-quattro-channel
 # default mirror is the snapshot the payload pins; a live mirror needs its own shape:
 export OMARCHY_VM_ALARM_MIRROR='https://ca.us.mirror.archlinuxarm.org/$arch/$repo'
@@ -146,7 +150,8 @@ gh workflow run promote-asahi-quattro-runtime.yml -R maralcbr/omarchy-pkgs --ref
 ```
 
 Approve the gate. The sequence must be exactly one above the highest
-published channel.
+published channel. The job's last step points the runtime channel pointer at
+the new channel.
 
 ### 5. Repoint the image
 
@@ -217,6 +222,62 @@ R2 credentials come from the login Keychain (`omarchy-r2-access-key-id`,
 deliberate step, and prunes unreferenced release sets afterwards. The
 installer app has its own lane (`publish-channels app-publish`) and only
 changes when the app does; the README download link never changes.
+
+## The runtime channel pointer
+
+`pointers/asahi-quattro-channel` on R2 tells installed Macs which runtime
+channel is newest, so `omarchy update` does not need the rate-limited GitHub
+API. The format and what a Mac does with it are in
+[`apple-silicon-distribution-channels.md`](apple-silicon-distribution-channels.md#the-runtime-channel-pointer).
+
+Both runtime publish jobs (`promote-asahi-quattro-runtime.yml` and
+`release-asahi-quattro.yml`) update it as their last step, through
+`bin/publish-asahi-channel-pointer` in `omarchy-pkgs`. That script checks
+channel `N` completely, refuses unless `N` is the highest published channel,
+refuses to move the pointer backwards or to rewrite `N` with different bytes,
+and always reads the object back, including when nothing needed writing.
+
+Check what it says:
+
+```bash
+curl -fsS https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel
+```
+
+### Repair it
+
+When a publish job failed at the pointer step, or `asahi-runtime-release`
+printed this command, the channel release is public but the pointer still
+names the previous channel:
+
+```bash
+gh workflow run publish-asahi-channel-pointer.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro -f sequence=<N>
+```
+
+Approve the `asahi-quattro-release` gate. It shares the publish jobs'
+concurrency group, so it waits for any running publish. Nothing is broken
+while the pointer lags: Macs on the previous channel stay there until the
+repair, and Macs already on `N` ignore the lower pointer and use the GitHub
+listing. Use the same command for the first publication.
+
+If the script reports that the current object is malformed, replace it
+(`N` must still be the highest published channel):
+
+```bash
+gh workflow run publish-asahi-channel-pointer.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro -f sequence=<N> -f replace_malformed=true
+```
+
+Until then, Macs warn `release channel pointer is malformed; using the GitHub
+release listing` and fall back to the listing.
+
+### Cache
+
+`downloads.aicodelabs.com.au` sits behind Cloudflare's cache. The readback
+proves only what the edge that answered serves; another edge can keep an
+older copy or a cached 404 for a while despite `no-cache`. If a Mac still
+sees the old pointer after a successful publish, wait and retry, rerun the
+repair command (it writes nothing when the bytes already match and verifies
+again), or purge that URL from the Cloudflare cache. Do not treat one good
+readback as proof that every Mac sees the new pointer.
 
 ## Cutting an Arch Linux ARM snapshot
 
@@ -377,7 +438,7 @@ byte for byte, which is how to check it.
 | candidate build | shell tests on the source commit; signing check; upgrade lifecycle (predecessor from its snapshot, upgrade against live) | 15 min incremental, 60 full |
 | VM acceptance | fresh install, interruption/resume, reboot, verify, optional packages, rerun rejection | 10–15 min |
 | promotion | acceptance file bound to the candidate identity; byte-identical copy | 2 min |
-| runtime channel | candidate verified; sequence strictly increasing | 2 min |
+| runtime channel | candidate verified; sequence strictly increasing; pointer read back | 2 min |
 | payload | checkpointed stages; content evidence; drift gate between cache and repository | 60–90 min |
 | publish + rc | readback of every object; catalog signature; sequence above the live channel | 15 min |
 

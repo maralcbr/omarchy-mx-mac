@@ -29,10 +29,14 @@ Everything is served from `https://downloads.aicodelabs.com.au`.
 | `installer/<channel>/Omarchy-MX-Mac-Installer.pkg` | **yes** | the download the README links to |
 | `installer/<channel>/installer.json` | **yes** | that package's version, digest and size |
 | `mirror/alarm/<YYYYMMDD>/<repo>/os/aarch64/` | no | a dated copy of the Arch Linux ARM repositories, see below |
+| `pointers/asahi-quattro-channel` | **yes** | the newest runtime channel installed Macs update to, see [the runtime channel pointer](#the-runtime-channel-pointer) |
 
-Exactly those four mutable keys may ever be overwritten, and only through
-`scripts/publish-channels`, which refuses any other key and is covered by
-`test/shell.d/apple-installer-channel-publish-test.sh`.
+Exactly five mutable keys may ever be overwritten. The four `channels/` and
+`installer/<channel>/` keys change only through `scripts/publish-channels`,
+which refuses any other key and is covered by
+`test/shell.d/apple-installer-channel-publish-test.sh`. The pointer changes
+only through `bin/publish-asahi-channel-pointer` in `omarchy-pkgs`, run by its
+workflows.
 
 `<channel>` is `stable` or `rc`. Nothing else is accepted anywhere in the
 tooling or the app.
@@ -78,6 +82,81 @@ really wants. The choices above are interim. When omarchy-pool is adopted,
 redesign `edge` on top of it: floating builds from its package factory,
 ring-scoped signing instead of one key for every channel, and installer support
 for `edge`.
+
+## The runtime channel pointer
+
+Installed Macs used to find the newest runtime channel
+(`asahi-quattro-channel-<N>` releases in `maralcbr/omarchy-pkgs`) through the
+anonymous GitHub API, which allows 60 requests an hour per IP address. Macs
+behind a shared office address used that up, `omarchy-update-asahi-bundle`
+exited 3, and `omarchy update` deferred the runtime step on every run.
+
+`pointers/asahi-quattro-channel` names that channel instead. Its body is
+exactly three lines, served as `text/plain` with
+`Cache-Control: no-cache, max-age=0, must-revalidate`:
+
+```
+format=1
+sequence=<N>
+tag=asahi-quattro-channel-<N>
+```
+
+The pointer is not signed. It only decides which channel release to download;
+the Mac still downloads the signed channel file from that GitHub release,
+checks it with the release key, and requires its signed `sequence` to be `N`.
+Every other check (pending migrations, rollback, reused sequence, package
+signatures and versions) runs exactly as before.
+
+`omarchy-update-asahi-bundle`, for both an update and `--check`:
+
+| Pointer | What the Mac does |
+| --- | --- |
+| names `N` at or above what this Mac has installed or pending | uses `N`, no GitHub API call |
+| missing or unreachable | reads the GitHub release listing, as before, without a message |
+| malformed (anything but the exact bytes above, or over 256 bytes) | warns `release channel pointer is malformed; using the GitHub release listing`, then reads the listing |
+| names `N` below what this Mac has installed or pending | warns that the pointer is behind this Mac, then reads the listing |
+
+If the listing is also unavailable the update exits 3 and `omarchy update`
+carries on without the runtime step, as it already did. A stale or malformed
+pointer on its own never makes the update fail with 2; the listing fallback
+still can, for the same reasons as before (a lower signed channel, a bad
+signature, no channel, a pending mismatch). A signed-content failure on the
+channel the pointer named stops the update; it does not retry through the
+listing. `OMARCHY_ASAHI_CHANNEL_URL` skips the pointer and the listing
+entirely, and `OMARCHY_ASAHI_CHANNEL_POINTER_URL` points the updater at a
+different pointer.
+
+What the pointer can and cannot do, accepted deliberately:
+
+- **It can hold Macs back, never move them back.** Until the pointer moves, a
+  Mac below its `N` updates to `N` and a Mac at `N` reports up to date, even if
+  a newer channel exists. That includes a freshly installed Mac whose image
+  predates `N`. A pointer held at a Mac's own channel looks exactly like "up to
+  date", the same as a frozen GitHub listing would.
+- **A pointer naming a channel that does not exist** makes updates defer
+  (exit 3) until it is repaired.
+- **Fresh installs do not read it.** The installer and bootstrap still find
+  the runtime through the GitHub API.
+
+Publishing and repairing it are in
+[`apple-silicon-deployment.md`](apple-silicon-deployment.md#the-runtime-channel-pointer).
+
+### Not covered yet (phase 2)
+
+These still read the GitHub API and fail or defer when its quota runs out:
+
+- `omarchy-update-asahi-repository` finds the promoted `[omarchy]` release
+  through the API (up to five pages). It exits 3 on failure and `omarchy
+  update` keeps the pinned snapshot, but the six-hourly update check still
+  calls the API through it; only the runtime half of that check is now free
+  of the API. Moving it needs a signed record, written by a gated job, of
+  which repository release is promoted. The runtime lanes do not produce one.
+- The bootstrap (`install-omarchy-mx-mac`, `install-omarchy-mx-mac.sh`, and
+  `install-asahi-quattro` in `omarchy-pkgs`) needs the chosen release passed
+  through the wrapper and `--verify-only`, and a new bootstrap release.
+- The VM harness (`test/vm/asahi-fresh`) installs through that bootstrap.
+  `OMARCHY_VM_ASAHI_CHANNEL_URL` only affects `guest/verify`, not the
+  installation.
 
 ## The signed envelope
 
@@ -267,7 +346,7 @@ is deleted. A never-promoted candidate set is not rollback material and goes.
 `os-promote --to stable` runs this prune itself once the promotion has been verified, so
 cleanup happens at the moment the old release stops mattering; pass `--no-prune` to skip it. A
 bucket lock that still protects the old set is reported after the promotion, never treated as a
-failed release. Channel objects, the stable/rc/edge downloads, the Arch Linux ARM snapshots
+failed release. Channel objects, the runtime channel pointer, the stable/rc/edge downloads, the Arch Linux ARM snapshots
 under `mirror/`, and folders published by other lanes (the generic ISO releases) are never candidates, and the
 references are re-read immediately before each deletion so a promotion in between cannot be
 undone by a stale plan.
