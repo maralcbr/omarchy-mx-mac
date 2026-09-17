@@ -115,6 +115,12 @@ grep -Fq '/usr/bin/mkinitcpio -p "$preset"' "$vm_candidate" || fail "VM candidat
 grep -Fq 'lsinitcpio "$image"' "$vm_candidate" || fail "VM candidate gate inspects every preset image"
 grep -Fq 'usr/lib/omarchy/initcpio/omarchy-vendorfw.sh usr/lib/systemd/system/omarchy-vendorfw.service' "$vm_candidate" ||
   fail "VM candidate gate requires the vendor firmware hook and its initrd unit"
+grep -Fq 'usr/lib/systemd/system/initrd.target.wants/omarchy-vendorfw.service; do' "$vm_candidate" ||
+  fail "VM candidate gate requires the initrd unit to be wanted"
+grep -Fq 'sha256sum /boot/Image /boot/initramfs-linux-vm.img /boot/vmlinuz-linux-asahi /boot/grub/grub.cfg' "$vm_candidate" ||
+  fail "VM candidate gate protects the generic VM boot image"
+[[ $(sed -n '/^# Pacman succeeds even when its initramfs hook fails/,$p' "$vm_candidate" | grep -c 'sha256sum --check --status "$work/protected-boot.before"') == 1 ]] ||
+  fail "VM candidate gate re-checks the protected boot files after building presets"
 pass "fresh-install VM builds every initramfs preset right after the candidate transaction"
 
 grep -Fq 'channel_url=${OMARCHY_VM_ASAHI_CHANNEL_URL:-}' "$vm_runner" || fail "VM runner accepts a pinned channel URL"

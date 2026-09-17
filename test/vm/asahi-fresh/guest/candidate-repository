@@ -70,7 +70,7 @@ done < <(sed -n 's/^package=//p' "$work/CANDIDATE")
 # installer has established its own protected-boot boundary.
 protected_packages=(linux-asahi linux-asahi-headers m1n1 grub)
 pacman -Q "${protected_packages[@]}" >"$work/protected-packages.before"
-sha256sum /boot/Image /boot/vmlinuz-linux-asahi /boot/grub/grub.cfg >"$work/protected-boot.before"
+sha256sum /boot/Image /boot/initramfs-linux-vm.img /boot/vmlinuz-linux-asahi /boot/grub/grub.cfg >"$work/protected-boot.before"
 pacman -Syu --needed --noconfirm --ignore linux-asahi,linux-asahi-headers,m1n1,grub "${packages[@]}"
 pacman -Q "${protected_packages[@]}" >"$work/protected-packages.after"
 cmp "$work/protected-packages.before" "$work/protected-packages.after"
@@ -87,13 +87,16 @@ for preset_file in "${presets[@]}"; do
   preset=$(basename "$preset_file" .preset)
   # limine-mkinitcpio-hook's /usr/local/bin/mkinitcpio discards this exit status.
   /usr/bin/mkinitcpio -p "$preset" || { echo "mkinitcpio preset $preset failed after the candidate transaction" >&2; exit 1; }
-  mapfile -t images < <(bash -c 'source "$1"; for name in "${PRESETS[@]}"; do image=${name}_image; [[ -z ${!image:-} ]] || printf "%s\n" "${!image}"; done' _ "$preset_file")
+  bash -c 'set -e; source "$1"; for name in "${PRESETS[@]}"; do image=${name}_image; [[ -z ${!image:-} ]] || printf "%s\n" "${!image}"; done' _ "$preset_file" >"$work/preset-images" ||
+    { echo "mkinitcpio preset $preset could not be read" >&2; exit 1; }
+  mapfile -t images <"$work/preset-images"
   (( ${#images[@]} > 0 )) || { echo "mkinitcpio preset $preset names no image" >&2; exit 1; }
   for image in "${images[@]}"; do
     [[ -s $image ]] || { echo "mkinitcpio preset $preset did not write $image" >&2; exit 1; }
     [[ -f $vendorfw_dropin ]] || continue
     lsinitcpio "$image" >"$work/initramfs-contents"
-    for entry in usr/lib/omarchy/initcpio/omarchy-vendorfw.sh usr/lib/systemd/system/omarchy-vendorfw.service; do
+    for entry in usr/lib/omarchy/initcpio/omarchy-vendorfw.sh usr/lib/systemd/system/omarchy-vendorfw.service \
+      usr/lib/systemd/system/initrd.target.wants/omarchy-vendorfw.service; do
       grep -Fxq "$entry" "$work/initramfs-contents" || { echo "$image lacks $entry" >&2; exit 1; }
     done
   done
@@ -103,6 +106,8 @@ for preset_file in "${presets[@]}"; do
     echo "Initramfs preset $preset built: ${images[*]}"
   fi
 done
+# mkinitcpio post hooks run on a direct build too; the VM's own boot files must survive them.
+sha256sum --check --status "$work/protected-boot.before" || { echo "Building the presets changed the VM's protected boot files" >&2; exit 1; }
 
 install -Dm644 "$work/CANDIDATE" /var/lib/omarchy/vm-package-candidate
 printf '%s\n' "$descriptor_sha256" | install -Dm644 /dev/stdin /var/lib/omarchy/vm-package-candidate.sha256

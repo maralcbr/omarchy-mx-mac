@@ -68,7 +68,9 @@ the candidate transaction the guest runs `/usr/bin/mkinitcpio -p` for every
 preset and stops on the first failure. Each image a preset names must exist
 and, when `90-omarchy-asahi.conf` is installed, contain `omarchy-vendorfw.sh`
 and its initrd unit. It bypasses the `/usr/local/bin/mkinitcpio` wrapper from
-`limine-mkinitcpio-hook`, which discards the exit status.
+`limine-mkinitcpio-hook`, which discards the exit status. Unified kernel images
+are not covered: `*_uki` outputs are not inspected, and a preset that names no
+`*_image` stops the run.
 
 When the candidate also contains a new runtime that is not yet published on the
 stable channel, additionally set `OMARCHY_VM_RUNTIME_MANIFEST_SHA256` to the
