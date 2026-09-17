@@ -80,6 +80,8 @@ first_commit=0123456789abcdef0123456789abcdef01234567
 old_commit=afd72814b7b29dddef2e07c7ed125101de34d4f4
 new_commit=901e39bdc0dd42a93644bce14a07eeb9bb18a12c
 hand_commit=e7574274c0ffee0123456789abcdef0123456789
+legacy_commit=784daa3efaecfa81b5b4da888b524e6ec4574d24
+legacy_server="https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-$legacy_commit"
 old_tag="asahi-packages-stable-$old_commit"
 new_tag="asahi-packages-stable-$new_commit"
 pointer_url="https://downloads.example.test/pointers/asahi-packages-channel"
@@ -676,7 +678,10 @@ pass "a stable snapshot the signed channel does not supersede is preserved witho
 
 for server in \
   "https://mirror.example.test/omarchy/aarch64" \
-  "https://github.com/$repo/releases/download/asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24" \
+  "https://github.com/$repo/releases/download/asahi-packages-candidate-$old_commit" \
+  "https://github.com/$repo/releases/download/asahi-packages-channel-3" \
+  "https://github.com/$repo/releases/download/asahi-packages-$legacy_commit/extra" \
+  "https://github.com/someone/omarchy-pkgs/releases/download/asahi-packages-$legacy_commit" \
   "https://github.com/someone/omarchy-pkgs/releases/download/$old_tag" \
   "https://github.com/$repo/releases/download/$old_tag/extra"; do
   write_pacman_conf_server "$server"
@@ -692,6 +697,96 @@ for server in \
 done
 write_pacman_conf "$old_tag"
 pass "an unrecognised [omarchy] Server is never moved and nothing is recorded for it"
+
+# The same shape install/hardware/pacman.sh leaves: its own [omarchy] block appended at the end.
+write_legacy_pacman_conf() {
+  write_pacman_conf "$old_tag"
+  awk '
+    /^\[omarchy\][[:space:]]*$/ { skip = 1; next }
+    skip && /^\[[^]]+\][[:space:]]*$/ { skip = 0 }
+    !skip { print }
+  ' "$pacman_conf" >"$pacman_conf.legacy"
+  printf '\n[omarchy]\nSigLevel = Required DatabaseOptional\nServer = %s\n' "$legacy_server" >>"$pacman_conf.legacy"
+  mv "$pacman_conf.legacy" "$pacman_conf"
+}
+
+normalized_calls() {
+  sed -E -e "s|$test_tmp|TEST|g" -e 's|TEST/root/var/lib/omarchy/backups/asahi-repository-[0-9]{14}|BACKUP|g' \
+    -e 's|[^ ]*/tmp\.[A-Za-z0-9]+|WORK|g' "$calls"
+}
+
+write_descriptor "$legacy_commit" 31000000000
+write_channel 5 "$new_commit" "$first_commit,$legacy_commit,$old_commit"
+write_channel 6 "$legacy_commit" "$first_commit"
+write_pointer 5
+write_pointer 6
+
+write_legacy_pacman_conf
+legacy_conf=$(cat "$pacman_conf")
+TEST_POINTER=pointer-5 run legacy-check --check
+expect_status legacy-check 0 "a legacy pin the channel supersedes is offered the channel's set"
+grep -Fxq "Apple Silicon package repository $new_tag is available" "$test_tmp/legacy-check.out" ||
+  fail "a legacy pin is offered the channel's stable set" "$(cat "$test_tmp/legacy-check.out")"
+no_system_changes "a legacy --check"
+rm -f "$test_tmp/key-trusted"
+TEST_POINTER=pointer-5 run legacy-yes --yes
+expect_status legacy-yes 0 "a legacy pin the channel supersedes moves"
+grep -Fq "Switched the Apple Silicon package repository to $new_tag" "$test_tmp/legacy-yes.out" ||
+  fail "a legacy move reports the new set" "$(cat "$test_tmp/legacy-yes.out")"
+[[ $(cat "$pacman_conf") == "${legacy_conf/"Server = $legacy_server"/"Server = https://github.com/$repo/releases/download/$new_tag"}" ]] ||
+  fail "a legacy move changes only the Server line and keeps SigLevel" "$(diff <(echo "$legacy_conf") "$pacman_conf" || true)"
+fetched "https://github.com/$repo/releases/download/$new_tag/omarchy.db" && fetched "https://github.com/$repo/releases/download/$new_tag/omarchy.db.sig" ||
+  fail "a legacy move verifies the new repository database first"
+expected_calls="sudo:find TEST/root/etc/pacman.conf TEST/root/etc/pacman.d -type f -exec sha256sum {} +
+sudo:install -d -o root -g root -m 0700 BACKUP
+sudo:cp -a WORK/. BACKUP/
+sudo:pacman-key --finger $primary_fingerprint
+pacman-key:--finger $primary_fingerprint
+sudo:pacman-key --add TEST/omarchy-arm-repository.asc
+pacman-key:--add TEST/omarchy-arm-repository.asc
+sudo:pacman-key --lsign-key $primary_fingerprint
+pacman-key:--lsign-key $primary_fingerprint
+sudo:install -o root -g root -m 0644 WORK/pacman.conf TEST/root/etc/pacman.conf
+sudo:env OMARCHY_UPDATE_PACMAN=1 pacman -Sy --noconfirm
+pacman:-Sy --noconfirm OMARCHY_UPDATE_PACMAN=1
+sudo:install -D -o root -g root -m 0644 WORK/state TEST/state"
+[[ $(normalized_calls) == "$expected_calls" ]] ||
+  fail "a legacy move backs up, trusts the ARM repository key, rewrites, syncs and records state as the old updater did" \
+    "$(diff <(echo "$expected_calls") <(normalized_calls) || true)"
+legacy_backup=$(grep -Eo "$root/var/lib/omarchy/backups/asahi-repository-[0-9]{14}" "$calls" | head -1)
+[[ $(cat "$legacy_backup/pacman.conf") == "$legacy_conf" ]] || fail "a legacy move backs up the legacy pacman.conf"
+grep -Fxq "tag=$new_tag" "$state" && grep -Fxq 'channel_sequence=5' "$state" ||
+  fail "a legacy move records the channel's set" "$(cat "$state")"
+rm -f "$state"
+pass "a legacy install-time pin the channel supersedes moves to the stable set exactly as the old updater moved it"
+
+write_legacy_pacman_conf
+TEST_POINTER=pointer-3 run legacy-kept-check --check
+expect_status legacy-kept-check 1 "a legacy pin the channel does not supersede reports no update"
+grep -Fxq "Apple Silicon package repository: the pinned package set ${legacy_commit:0:8} is not older than channel 3 (${new_commit:0:8}); leaving it" \
+  "$test_tmp/legacy-kept-check.out" || fail "a preserved legacy pin explains itself" "$(cat "$test_tmp/legacy-kept-check.out")"
+TEST_POINTER=pointer-3 run legacy-kept-yes --yes
+expect_status legacy-kept-yes 0 "an update leaves a legacy pin the channel does not supersede"
+[[ $(cat "$pacman_conf") == "$legacy_conf" ]] || fail "a preserved legacy pin keeps its Server"
+no_system_changes "a preserved legacy pin"
+pass "a legacy pin the signed channel does not supersede is preserved without writes"
+
+TEST_POINTER=pointer-6 run legacy-target-check --check
+expect_status legacy-target-check 0 "a legacy pin on the target's commit is not up to date"
+grep -Fxq "Apple Silicon package repository asahi-packages-stable-$legacy_commit is available" "$test_tmp/legacy-target-check.out" ||
+  fail "a legacy pin on the target's commit is offered its stable release" "$(cat "$test_tmp/legacy-target-check.out")"
+no_system_changes "a legacy --check on the target's commit"
+TEST_POINTER=pointer-6 run legacy-target-yes --yes
+expect_status legacy-target-yes 0 "a legacy pin on the target's commit moves"
+[[ $(cat "$pacman_conf") == "${legacy_conf/"Server = $legacy_server"/"Server = https://github.com/$repo/releases/download/asahi-packages-stable-$legacy_commit"}" ]] ||
+  fail "a legacy pin on the target's commit moves to the stable URL" "$(diff <(echo "$legacy_conf") "$pacman_conf" || true)"
+grep -Fxq 'pacman:-Sy --noconfirm OMARCHY_UPDATE_PACMAN=1' "$calls" && grep -Fxq 'channel_sequence=6' "$state" ||
+  fail "a legacy pin on the target's commit syncs and records state" "$(cat "$calls" "$state")"
+TEST_POINTER=pointer-6 run legacy-target-again --check
+expect_status legacy-target-again 1 "the stable URL on the target's commit is then up to date"
+rm -f "$state"
+write_pacman_conf "$old_tag"
+pass "a legacy pin on the channel's own commit moves to that commit's stable URL"
 
 write_state "$hand_commit" 5
 before=$(state_digest)

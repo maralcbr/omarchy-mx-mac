@@ -166,7 +166,8 @@ supersedes=<commit>,<commit>,…
 ```
 
 `supersedes` lists every older promoted set whose commit is an ancestor of
-`<commit>` on `asahi-quattro`, sorted, and may be empty. It is the Mac's proof
+`<commit>` on `asahi-quattro`, including the legacy install-time
+`asahi-packages-<commit>` release, sorted, and may be empty. It is the Mac's proof
 that a move goes forward, so the Mac needs neither git nor the API. The file
 must be exactly these six lines in this order, with no other bytes, at most
 128 KiB and 2048 `supersedes` entries.
@@ -209,15 +210,22 @@ Otherwise the result depends on the `Server` line actually in `[omarchy]`:
 
 | Current `Server` | Result |
 | --- | --- |
-| the set the channel names | up to date; the channel and its descriptor are still checked, and an update records the channel |
-| a set in `supersedes` | moves: descriptor and database checks, backup, rewrite of that one line, `pacman -Sy`, restore on failure |
-| another `asahi-packages-stable-<commit>` | left alone: `the pinned package set <commit> is not older than channel <S> (<commit>); leaving it` |
-| anything else: a mirror, a legacy `asahi-packages-<commit>` tag, another repository | left alone: `unrecognised [omarchy] Server; not moving it` |
+| the stable release the channel names | up to date; the channel and its descriptor are still checked, and an update records the channel |
+| a stable or legacy release whose commit is in `supersedes` | moves: descriptor and database checks, backup, rewrite of that one line, `pacman -Sy`, restore on failure |
+| the legacy release of the channel's own commit | moves to the stable release of that commit, the same way |
+| any other stable or legacy release | left alone: `the pinned package set <commit> is not older than channel <S> (<commit>); leaving it` |
+| anything else: a mirror, a candidate or channel tag, another repository | left alone: `unrecognised [omarchy] Server; not moving it` |
 
 Up to date and left alone both give `--check` 1 and update 0, and nothing is
 written for a set that is left alone. `--check` never writes. A set is only
 recognised at exactly
-`https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-stable-<commit>`.
+`https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-stable-<commit>`
+(stable) or `…/releases/download/asahi-packages-<commit>` (legacy). The legacy
+form is what `install/hardware/pacman.sh` pins at install time, and it still
+does on fresh installs; a Mac that ran its migration but never reached the old
+API updater can also still be on it. Moving off it keeps the block's `SigLevel`
+and imports and locally signs the ARM repository key, exactly as the old
+updater did.
 Before a move or a refresh, that release's `CANDIDATE` must hash to
 `descriptor_sha256` and pass the same subkey and field checks as before. If the
 state file names the channel's set with another descriptor digest, or records
@@ -237,8 +245,14 @@ What this accepts, deliberately:
 
 ### Not covered yet (phase 3)
 
-These still read the GitHub API and fail or defer when its quota runs out:
+The bootstrap and the VM harness still read the GitHub API and fail or defer
+when its quota runs out, and the install-time writer still pins the legacy
+release:
 
+- `install/hardware/pacman.sh` (run at install and by migration `1787560726`)
+  still pins `[omarchy]` to the legacy `asahi-packages-784daa3…` release and
+  rewrites any other `Server` when it runs. The package channel moves those
+  Macs on their next update; the writer itself is fixed with the bootstrap.
 - The bootstrap (`install-omarchy-mx-mac`, `install-omarchy-mx-mac.sh`, and
   `install-asahi-quattro` in `omarchy-pkgs`) needs the chosen release passed
   through the wrapper and `--verify-only`, and a new bootstrap release.

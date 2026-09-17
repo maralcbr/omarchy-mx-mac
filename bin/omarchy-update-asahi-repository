@@ -199,9 +199,13 @@ current_servers=$(awk '
 (( $(wc -l <<<"$current_servers") == 1 )) || fail "[omarchy] repository must have exactly one Server"
 current_server=$current_servers
 stable_prefix="https://github.com/$repo/releases/download/asahi-packages-stable-"
+# install/hardware/pacman.sh pins the legacy asahi-packages-<commit> release; candidate and channel tags never match 40 hex.
+legacy_prefix="https://github.com/$repo/releases/download/asahi-packages-"
 current_commit=""
 if [[ $current_server == "$stable_prefix"* && ${current_server#"$stable_prefix"} =~ ^[0-9a-f]{40}$ ]]; then
   current_commit=${current_server#"$stable_prefix"}
+elif [[ $current_server == "$legacy_prefix"* && ${current_server#"$legacy_prefix"} =~ ^[0-9a-f]{40}$ ]]; then
+  current_commit=${current_server#"$legacy_prefix"}
 fi
 
 channel_tag=""
@@ -288,7 +292,8 @@ fi
 
 if [[ $current_server != "$server" ]]; then
   [[ -n $current_commit ]] || leave "unrecognised [omarchy] Server; not moving it"
-  [[ -n ${superseded[$current_commit]:-} ]] ||
+  # A legacy pin on the target's own commit is still moved, onto the stable release of that commit.
+  [[ -n ${superseded[$current_commit]:-} || $current_commit == "$stable_commit" ]] ||
     leave "the pinned package set ${current_commit:0:8} is not older than channel $channel_sequence (${stable_commit:0:8}); leaving it"
 fi
 
