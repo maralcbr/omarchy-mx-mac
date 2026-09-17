@@ -19,12 +19,27 @@ class ValidationArtifactLockTests(unittest.TestCase):
                 "filename": "installer-v0.9.0-omarchy.7.tar.gz",
                 "size_bytes": 22071040,
                 "sha256": "3e86e003c65f5dc2f90e78b656d1cc959f3d9ff7865c6c76d494d335c6867a66",
+                "metadata_sha256": "2e6181ce6b6e17c11039e04bfadade8d10ae0e11889885ad8c9960b68f179a5d",
                 "reproducibility_scope": (
                     "two-clean-builds-same-host-pinned-toolchain"
                 ),
                 "signature": "absent",
             }
         )
+
+    def test_missing_engine_metadata_digest_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "metadata digest"):
+            VERIFY_SOURCE_LOCK.require_validation_artifact(
+                {
+                    "filename": "installer-v0.9.0-omarchy.7.tar.gz",
+                    "size_bytes": 22071040,
+                    "sha256": "3e86e003c65f5dc2f90e78b656d1cc959f3d9ff7865c6c76d494d335c6867a66",
+                    "reproducibility_scope": (
+                        "two-clean-builds-same-host-pinned-toolchain"
+                    ),
+                    "signature": "absent",
+                }
+            )
 
     def test_missing_size_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "validation artifact"):

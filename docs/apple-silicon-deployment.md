@@ -212,6 +212,8 @@ In `apps/omarchy-apple-installer` of this repository:
 A=apps/omarchy-apple-installer; W=~/omarchy-cutover/release-<date>; TAG=os-v4.0.2-mac.1.<date>
 P=../omarchy-iso/release/omarchy-<date>-aarch64-apple-silicon-asahi-os-package.zip
 cp "$P.installer-data.json" $W/installer_data.json          # names this payload; also copy it to $A/Engine/
+# That copy is per payload and is not pinned by the engine source lock, which pins the
+# metadata inside the engine artifact (validation_artifact.metadata_sha256) instead.
 python3 - <<'PY'                                             # inputs: payload_name, evidence_revision
 …
 PY

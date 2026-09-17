@@ -105,6 +105,9 @@ def rebuild(checkout, base, output):
     overlay = {Path(name).name: (root / name).read_bytes() for name in sorted(expected)}
     overlay['version.tag'] = (VERSION + '\n').encode()
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
+        # The engine carries its own installer metadata; the per-payload copy in the repository is a different file.
+        if sha256(archive.extractfile('./installer_data.json').read()) != lock['validation_artifact']['metadata_sha256']:
+            raise ValueError('base engine metadata differs from the source lock')
         delta = upstream_delta(checkout, lock['incremental_build']['upstream_delta'], archive,
                                root / lock['downstream_overlay']['patch']['path'])
         # The hook below rewrites the base archive's osinstall.py, so an upstream osinstall.py change would be lost.

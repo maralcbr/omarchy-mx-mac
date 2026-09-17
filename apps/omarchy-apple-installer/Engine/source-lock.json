@@ -152,10 +152,6 @@
       "path": "patches/0001-omarchy-engine-runtime.patch",
       "sha256": "c6f625c62250993fe8dd11f210225d2667b6ab341fa8922209ce0b435a3b60a7"
     },
-    "metadata": {
-      "path": "installer_data.json",
-      "sha256": "2e6181ce6b6e17c11039e04bfadade8d10ae0e11889885ad8c9960b68f179a5d"
-    },
     "files": [
       {
         "path": "overlay/m1n1/data/bootlogo_128.bin",
@@ -270,11 +266,11 @@
     },
     {
       "path": "verify-source-lock.py",
-      "sha256": "e8f3eca8404fefb79ccf47b21abdc9e88c6c2ad549136ba7f74397f9205846fa"
+      "sha256": "21c230c7120388e0691ccd34ad621073c7c677b3f3d55028ec78249f4805597f"
     },
     {
       "path": "rebuild-python-overlay.py",
-      "sha256": "a549d14d1778879a75b68bf9e2081187986299efc09110ca76a9a5caf286bdf6"
+      "sha256": "5bacc4476d3dbc1d01fb8caf4a5aff9d8e9d2a189bb4ac3abaadcaf185189d9a"
     }
   ],
   "validation_artifact": {
@@ -282,7 +278,8 @@
     "size_bytes": 17838045,
     "sha256": "ecb61645a9c75ba733425fb300b8b53b09f9dbc297a86acce1e0ee41f36e32e5",
     "reproducibility_scope": "two-identical-python-overlay-repacks-authenticated-base",
-    "signature": "absent"
+    "signature": "absent",
+    "metadata_sha256": "2e6181ce6b6e17c11039e04bfadade8d10ae0e11889885ad8c9960b68f179a5d"
   },
   "incremental_build": {
     "base_filename": "installer-v0.9.0-omarchy.14.tar.gz",

@@ -66,7 +66,8 @@ jq -e --argjson required_ids "$required_ids" '
     size_bytes: 17838045,
     sha256: "ecb61645a9c75ba733425fb300b8b53b09f9dbc297a86acce1e0ee41f36e32e5",
     signature: null,
-    reproducibility_scope: "two-identical-python-overlay-repacks-authenticated-base"
+    reproducibility_scope: "two-identical-python-overlay-repacks-authenticated-base",
+    metadata_sha256: "2e6181ce6b6e17c11039e04bfadade8d10ae0e11889885ad8c9960b68f179a5d"
   } and
   (.engine_artifact.source_lock_sha256 | test("^[0-9a-f]{64}$")) and
   (.readiness.blockers | index("signed-engine-artifact-absent")) != null and
@@ -197,6 +198,7 @@ jq -e --argjson engine "$(jq -c '.engine_artifact' "$contract")" '
     filename: $engine.filename,
     size_bytes: $engine.size_bytes,
     sha256: $engine.sha256,
+    metadata_sha256: $engine.metadata_sha256,
     reproducibility_scope: $engine.reproducibility_scope,
     signature: "absent"
   }

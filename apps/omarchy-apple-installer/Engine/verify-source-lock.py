@@ -56,8 +56,11 @@ def require_digest(engine_root: Path, record: dict, role: str) -> None:
 
 
 def require_validation_artifact(record: dict) -> None:
+    if not SHA256.fullmatch(str(record.get("metadata_sha256", ""))):
+        raise ValueError("invalid validation artifact metadata digest")
     required = {
         "filename",
+        "metadata_sha256",
         "size_bytes",
         "sha256",
         "reproducibility_scope",
@@ -210,7 +213,11 @@ def verify(engine_root: Path, checkout: Path) -> None:
 
     overlay = lock["downstream_overlay"]
     require_digest(engine_root, overlay["patch"], "downstream patch")
-    require_digest(engine_root, overlay["metadata"], "downstream metadata")
+    if "metadata" in overlay:
+        raise ValueError(
+            "the engine metadata is pinned by validation_artifact.metadata_sha256, "
+            "not by the per-payload Engine/installer_data.json copy"
+        )
     require_m1n1_branding_overlay(overlay["files"])
     for item in overlay["files"]:
         require_digest(engine_root, item, "overlay file")
