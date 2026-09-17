@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Keep this Mac's Apple Silicon channel record
-# omarchy:args=ensure|status|current|hold <reason>|release
+# omarchy:args=ensure|status|current|hold <reason>|release|locked <command> [args...]
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
@@ -9,7 +9,8 @@
 # linux-aurora. A Mac without one is given one on update, but only when the
 # installed kernel and the image's kernel marker agree. channel=rc is policy, not
 # proof that the qualified kernel is installed. A hold stops [omarchy-aurora]
-# moving; packages still upgrade against the repository it has.
+# moving; packages still upgrade against the repository it has. locked runs a
+# command holding the channel lock, which is on the record's directory.
 #
 # Exit 2: the record, its storage, the lock or the evidence cannot be trusted.
 # Exit 3: there is no record, and for ensure none could be inferred.
@@ -20,12 +21,11 @@ root=${OMARCHY_APPLE_SILICON_CHANNEL_ROOT:-}
 state_dir="$root/var/lib/omarchy"
 record="$state_dir/apple-silicon-channel"
 kernel_marker="$root/usr/share/omarchy/apple-silicon-kernel"
-lock_path="$root/run/lock/omarchy-apple-silicon-channel.lock"
 lock_timeout=${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT:-60}
 testing=${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-0}
 
 usage() {
-  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release>"
+  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release|locked <command> [args...]>"
 }
 
 fail() {
@@ -196,23 +196,21 @@ checked_record() {
   fi
 }
 
-# Machine-wide, unlike omarchy-update-lock, which is per runtime directory.
-take_lock() {
-  local attempt
-  for attempt in 1 2 3; do
-    if [[ ! -e $lock_path && ! -L $lock_path ]]; then
-      sudo install -m 0644 -o root -g root /dev/null "$lock_path" || fail "could not create $lock_path"
-    fi
-    if [[ -L $lock_path || ! -f $lock_path ]] || ! exec {lock_fd}<"$lock_path"; then
-      fail "could not open $lock_path"
-    fi
-    flock -x -w "$lock_timeout" "$lock_fd" ||
-      fail "could not lock $lock_path within ${lock_timeout}s; another update or channel change holds it"
-    # A concurrent first run can replace the file between creating and locking it.
-    [[ /dev/fd/$lock_fd -ef $lock_path ]] && return 0
-    exec {lock_fd}<&-
-  done
-  fail "could not lock $lock_path"
+# Machine-wide, unlike omarchy-update-lock, which is per runtime directory. A
+# directory is never replaced the way a lock file can be. $1 == create makes it.
+lock_state_dir() {
+  [[ ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} != 1 ]] ||
+    fail "the channel lock is already held by a caller; taking it again would wait for itself"
+  if [[ ${1:-} == create && ! -e $state_dir && ! -L $state_dir ]]; then
+    sudo install -d -o root -g root -m 0755 "$state_dir" || fail "could not create $state_dir"
+  fi
+  safe_state_dir || fail "$problem"
+  exec {lock_fd}<"$state_dir" || fail "could not open $state_dir"
+  flock -x -w "$lock_timeout" "$lock_fd" ||
+    fail "could not lock $state_dir within ${lock_timeout}s; another update or channel change holds it"
+  if [[ ! /dev/fd/$lock_fd -ef $state_dir ]] || ! safe_state_dir; then
+    fail "$state_dir changed while waiting for its lock"
+  fi
 }
 
 staging=""
@@ -221,9 +219,6 @@ trap '[[ -z $staging ]] || sudo rm -f "$staging"' EXIT
 write_record() {
   local channel=$1 kernel=$2 hold=${3:-}
 
-  if [[ ! -e $state_dir && ! -L $state_dir ]]; then
-    sudo install -d -o root -g root -m 0755 "$state_dir" || fail "could not create $state_dir"
-  fi
   safe_state_dir || fail "$problem"
   staging=$(sudo mktemp -p "$state_dir" .apple-silicon-channel.XXXXXX) || fail "could not stage $record"
   {
@@ -239,6 +234,7 @@ command=${1:-}
 case "$command" in
   ensure | status | current | release) (( $# == 1 )) || { usage >&2; exit 2; } ;;
   hold) (( $# == 2 )) || { usage >&2; exit 2; } ;;
+  locked) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
   -h | --help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -247,7 +243,7 @@ result=0
 case "$command" in
   ensure)
     omarchy-hw-apple-silicon || exit 0
-    take_lock
+    lock_state_dir create
     checked_record || result=$?
     if (( result == 3 )); then
       result=0
@@ -287,7 +283,10 @@ case "$command" in
     if [[ $command == hold ]] && ! valid_reason "$2"; then
       fail "a hold reason is one line of 1 to 200 printable ASCII characters"
     fi
-    take_lock
+    if [[ ! -e $state_dir && ! -L $state_dir ]]; then
+      fail "$record does not exist yet; omarchy update records it"
+    fi
+    lock_state_dir
     read_record || result=$?
     (( result != 3 )) || fail "$record does not exist yet; omarchy update records it"
     (( result == 0 )) || fail "$problem"
@@ -298,5 +297,11 @@ case "$command" in
       [[ -z $record_hold ]] || write_record "$record_channel" "$record_kernel"
       echo "This Mac's Apple Silicon channel is not held."
     fi
+    ;;
+  locked)
+    shift
+    lock_state_dir
+    export OMARCHY_APPLE_SILICON_CHANNEL_LOCKED=1
+    exec "$@"
     ;;
 esac

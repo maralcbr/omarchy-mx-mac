@@ -47,28 +47,27 @@ root_path() {
 # Only a Mac whose channel record says rc reads [omarchy-aurora]. A record that
 # cannot be trusted stops the update; evidence too ambiguous to record skips this.
 omarchy-hw-apple-silicon || exit 0
-channel_status=0
-omarchy-apple-silicon-channel ensure || channel_status=$?
-case $channel_status in
-  0) ;;
-  3) exit 0 ;;
-  *) exit 2 ;;
-esac
-# Stable Macs leave before taking either lock; the decision below is re-read under both.
-[[ $(omarchy-apple-silicon-channel current) != stable ]] || exit 0
+# Locks nest update lock, then channel lock, and nothing waits for the update lock
+# while holding the channel lock, so ensure and the re-execs below cannot deadlock.
+if [[ ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} != 1 ]]; then
+  channel_status=0
+  omarchy-apple-silicon-channel ensure || channel_status=$?
+  case $channel_status in
+    0) ;;
+    3) exit 0 ;;
+    *) exit 2 ;;
+  esac
+  # ensure took and released the channel lock; a stable Mac stops before the update lock.
+  [[ $(omarchy-apple-silicon-channel current) != stable ]] || exit 0
 
-# omarchy update already holds the update lock; run on its own, take it here.
-if ! omarchy-update-lock held; then
-  exec env OMARCHY_AURORA_REPOSITORY_STANDALONE=1 omarchy-update-lock run "$0" "$@"
-fi
+  # omarchy update already holds the update lock; run on its own, take it here.
+  if ! omarchy-update-lock held; then
+    exec env OMARCHY_AURORA_REPOSITORY_STANDALONE=1 omarchy-update-lock run "$0" "$@"
+  fi
 
-# Held until exit, so a hold cannot land between reading the record and repinning.
-channel_lock="${OMARCHY_APPLE_SILICON_CHANNEL_ROOT:-}/run/lock/omarchy-apple-silicon-channel.lock"
-if [[ -L $channel_lock || ! -f $channel_lock ]] || ! exec {channel_lock_fd}<"$channel_lock"; then
-  fail "could not open $channel_lock"
+  # The rest holds the channel lock, so a hold cannot land between reading the record and repinning.
+  exec omarchy-apple-silicon-channel locked "$0" "$@"
 fi
-flock -x -w "${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT:-60}" "$channel_lock_fd" ||
-  fail "could not lock $channel_lock; another update or channel change holds it"
 
 channel_status=0
 channel_record=$(omarchy-apple-silicon-channel status) || channel_status=$?

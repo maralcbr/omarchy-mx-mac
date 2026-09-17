@@ -85,7 +85,7 @@ key_file="$omarchy_path/default/omarchy-arm-repository.asc"
 pacman_conf="$root/etc/pacman.conf"
 marker="$root/usr/share/omarchy/apple-silicon-kernel"
 channel_record="$root/var/lib/omarchy/apple-silicon-channel"
-channel_lock="$root/run/lock/omarchy-apple-silicon-channel.lock"
+channel_dir="$root/var/lib/omarchy"
 channel_calls="$test_tmp/channel-calls"
 sync_dir="$root/var/lib/pacman/sync"
 calls="$test_tmp/calls"
@@ -100,9 +100,8 @@ new_server="https://github.com/$repo/releases/download/$new_tag"
 candidate_server="https://github.com/$repo/releases/download/$candidate_tag"
 asahi_server="https://github.com/$repo/releases/download/asahi-packages-stable-83973903b7deb9b56ce75f02b432fba0561d6293"
 comment='# Aurora kernel and bootloader, kept on the qualified release by omarchy update'
-mkdir -p "$stub_bin" "$assets" "$root/etc/pacman.d" "$(dirname "$marker")" "$sync_dir" "$omarchy_path/default" \
-  "$(dirname "$channel_record")" "$(dirname "$channel_lock")"
-chmod 0755 "$(dirname "$channel_record")"
+mkdir -p "$stub_bin" "$assets" "$root/etc/pacman.d" "$(dirname "$marker")" "$sync_dir" "$omarchy_path/default" "$channel_dir"
+chmod 0755 "$channel_dir"
 printf 'Server = http://mirror.archlinuxarm.org/$arch/$repo\n' >"$root/etc/pacman.d/mirrorlist"
 
 write_release() {
@@ -170,6 +169,10 @@ while (($#)); do
   esac
 done
 printf '%s\n' "$url" >>"$TEST_CURL_LOG"
+if [[ -n ${TEST_CURL_GATE:-} ]]; then
+  : >"$TEST_CURL_GATE.waiting"
+  until [[ -e $TEST_CURL_GATE.go ]]; do sleep 0.05; done
+fi
 [[ ${TEST_CURL_OFFLINE:-0} != 1 ]] || exit 7
 path=${url#https://github.com/maralcbr/omarchy-pkgs/releases/download/}
 [[ -f $TEST_ASSETS/$path ]] || exit 22
@@ -269,7 +272,7 @@ run_status() {
     TEST_LOCK_LOG="$lock_log" \
     TEST_CHANNEL_CALLS="$channel_calls" \
     TEST_CHANNEL_RECORD="$channel_record" \
-    TEST_CHANNEL_LOCK="$channel_lock" \
+    TEST_CHANNEL_LOCK="$channel_dir" \
     TEST_CHANNEL_LOCK_READY="$test_tmp/channel-lock-ready" \
     TEST_CHANNEL_LOCK_HOLDER="$test_tmp/channel-lock-holder" \
     OMARCHY_APPLE_SILICON_CHANNEL_ROOT="$root" \
@@ -280,7 +283,7 @@ run_status() {
     OMARCHY_AURORA_ROOT="$root" \
     OMARCHY_PATH="${TEST_OMARCHY_PATH:-$omarchy_path}" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
-    bash "$updater" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
+    bash "${TEST_SCRIPT:-$updater}" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
   status=$?
   set -e
 }
@@ -705,9 +708,9 @@ printf 'format=1\nchannel=edge\nkernel=linux-aurora\n' >"$channel_record"
 record_refused "a record naming an unknown channel" "$channel_record pairs channel edge with kernel linux-aurora"
 printf 'format=1\nchannel=rc\nkernel=linux-aurora\nhold=\n' >"$channel_record"
 TEST_LOCK_HELD=0 record_refused "a standalone run with an empty hold" "$channel_record line 4 is not key=value"
-rc_record
+rc_record "a hold does not excuse a contradicted record"
 rm -f "$marker"
-TEST_INSTALLED="linux-asahi linux-asahi-headers m1n1" record_refused "an rc record on an Asahi Mac" \
+TEST_INSTALLED="linux-asahi linux-asahi-headers m1n1" record_refused "a held rc record on an Asahi Mac" \
   "$channel_record names linux-aurora, but this Mac runs linux-asahi"
 printf 'linux-aurora\n' >"$marker"
 pass "an invalid or contradicted channel record stops the update before any pacman.conf change"
@@ -723,10 +726,70 @@ holder=$(cat "$test_tmp/channel-lock-holder")
 kill "$holder" 2>/dev/null || true
 while kill -0 "$holder" 2>/dev/null; do sleep 0.05; done
 (( status == 2 )) || fail "a repin that cannot take the channel lock stops" "status $status: $(cat "$test_tmp/err")"
-grep -Fq "could not lock $channel_lock" "$test_tmp/err" || fail "a busy channel lock is explained" "$(cat "$test_tmp/err")"
+grep -Fq "could not lock $channel_dir" "$test_tmp/err" || fail "a busy channel lock is explained" "$(cat "$test_tmp/err")"
 [[ ! -s $curl_log ]] || fail "a busy channel lock downloads nothing"
 expect_untouched "a busy channel lock"
 reset_run
 run_status
 expect_repinned "the rerun once the channel lock is free"
 pass "the updater holds the machine channel lock, and waits no longer than its timeout for it"
+
+# A hold that arrives mid-repin waits for the updater's channel lock and then
+# governs the next run.
+channel_helper() {
+  TEST_CALLS="$calls" \
+    TEST_CHANNEL_CALLS="$channel_calls" \
+    TEST_INSTALLED="${TEST_INSTALLED-linux-aurora linux-aurora-headers m1n1-aurora}" \
+    OMARCHY_APPLE_SILICON_CHANNEL_ROOT="$root" \
+    OMARCHY_APPLE_SILICON_CHANNEL_TESTING=1 \
+    OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT=30 \
+    PATH="$stub_bin:$ROOT/bin:$PATH" \
+    bash "$ROOT/bin/omarchy-apple-silicon-channel" "$@"
+}
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
+rc_record
+reset_run
+gate="$test_tmp/curl-gate"
+rm -f "$gate".*
+( TEST_CURL_GATE="$gate" run_status; echo "$status" >"$gate.status" ) &
+updater_pid=$!
+for _ in $(seq 200); do
+  [[ -e $gate.waiting ]] && break
+  sleep 0.05
+done
+[[ -e $gate.waiting ]] || fail "the updater reached its download inside the channel lock"
+channel_helper hold "arrived mid-repin" >"$test_tmp/hold.out" 2>"$test_tmp/hold.err" &
+hold_pid=$!
+sleep 1
+kill -0 "$hold_pid" 2>/dev/null || fail "a hold started mid-repin waits for the updater" "$(cat "$test_tmp/hold.out" "$test_tmp/hold.err")"
+! grep -q '^hold=' "$channel_record" || fail "a hold started mid-repin does not land during it"
+: >"$gate.go"
+wait "$updater_pid"
+status=$(cat "$gate.status")
+wait "$hold_pid" || fail "the waiting hold succeeds once the updater finishes" "$(cat "$test_tmp/hold.err")"
+expect_repinned "the repin that was underway when the hold arrived"
+grep -Fxq 'hold=arrived mid-repin' "$channel_record" || fail "the hold is committed after the repin" "$(cat "$channel_record")"
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+reset_run
+run_status
+expect_held "the run after a hold that waited" "arrived mid-repin"
+pass "the updater's critical section holds the channel lock: a concurrent hold waits, then governs the next run"
+
+# End to end: omarchy-update-system-pkgs stops before pacman -Syu on a record it cannot trust.
+{ options_conf; omarchy_conf; remaining_conf; } >"$pacman_conf"
+rm -f "$marker"
+printf 'format=1\nchannel=stable\nkernel=linux-asahi\n' >"$channel_record"
+reset_run
+OMARCHY_APPLE_BOOT_UNAVAILABLE=1 TEST_SCRIPT="$system_packages" TEST_INSTALLED="linux-asahi linux-asahi-headers m1n1" run_status
+(( status == 0 )) || fail "a valid stable record lets the system upgrade run" "status $status: $(cat "$test_tmp/err")"
+grep -q '^pacman:-Syu' "$calls" || fail "the system upgrade reaches pacman -Syu with a valid record" "$(cat "$calls")"
+printf 'format=1\nchannel=stable\nkernel=linux-asahi\nkernel=linux-asahi\n' >"$channel_record"
+reset_run
+OMARCHY_APPLE_BOOT_UNAVAILABLE=1 TEST_SCRIPT="$system_packages" TEST_INSTALLED="linux-asahi linux-asahi-headers m1n1" run_status
+(( status == 1 )) || fail "a malformed stable record fails the system upgrade" "status $status: $(cat "$test_tmp/err")"
+grep -Fq "$channel_record repeats kernel" "$test_tmp/err" || fail "the malformed record is named" "$(cat "$test_tmp/err")"
+! grep -q -- '-Syu' "$calls" || fail "a malformed stable record stops before pacman -Syu" "$(cat "$calls")"
+expect_untouched "a malformed stable record under omarchy-update-system-pkgs"
+[[ ! -e $root/run ]] || fail "no lock file is created"
+pass "a malformed stable record stops omarchy-update-system-pkgs before pacman -Syu"
