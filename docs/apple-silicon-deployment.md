@@ -230,9 +230,13 @@ channel is newest, so `omarchy update` does not need the rate-limited GitHub
 API. The format and what a Mac does with it are in
 [`apple-silicon-distribution-channels.md`](apple-silicon-distribution-channels.md#the-runtime-channel-pointer).
 
-Both runtime publish jobs (`promote-asahi-quattro-runtime.yml` and
-`release-asahi-quattro.yml`) update it as their last step, through
-`bin/publish-asahi-channel-pointer` in `omarchy-pkgs`. That script checks
+The runtime publish job (`promote-asahi-quattro-runtime.yml`) updates it as
+its last step, through `bin/publish-asahi-channel-pointer` in `omarchy-pkgs`.
+The legacy `release-asahi-quattro.yml` lane runs the same step, but that step
+refuses its releases: the lane signs the bundle manifest and packages with the
+release key, and installed Macs (and the publisher) require the ARM repository
+key, so those releases were never installable. Publish through the promote
+lane. That script checks
 channel `N` completely, refuses unless `N` is the highest published channel,
 refuses to move the pointer backwards or to rewrite `N` with different bytes,
 and always reads the object back, including when nothing needed writing.

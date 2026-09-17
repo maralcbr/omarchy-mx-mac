@@ -529,7 +529,7 @@ TEST_POINTER=pointer-2 TEST_API=down discover pointer-install --yes
 expect_status pointer-install 3 "an update from the pointer reaches the signed manifest download"
 grep -Fxq "$manifest_asset" "$test_tmp/curl.log" || fail "an update from the pointer downloads the signed manifest"
 ! listing_read || fail "an update from the pointer does not read the GitHub release listing"
-pass "an update installs the channel a current pointer names"
+pass "an update proceeds with the channel a current pointer names, up to its manifest download"
 
 write_state "$state" 2 "$source_commit"
 write_channel 3 "$newer_commit"
@@ -537,8 +537,8 @@ TEST_POINTER=pointer-1 TEST_API_TAG=asahi-quattro-channel-3 discover behind-inst
 expect_status behind-install 3 "an update with a stale pointer reaches the listed manifest download"
 listing_read || fail "an update with a stale pointer reads the GitHub release listing"
 grep -Fxq "$(channel_asset 3)" "$test_tmp/curl.log" && grep -Fxq "$manifest_asset" "$test_tmp/curl.log" ||
-  fail "an update with a stale pointer installs the newer listed channel" "$(cat "$test_tmp/curl.log")"
-pass "an update with a stale pointer installs the newer listed channel"
+  fail "an update with a stale pointer proceeds with the newer listed channel" "$(cat "$test_tmp/curl.log")"
+pass "an update with a stale pointer proceeds with the newer listed channel, up to its manifest download"
 
 cat >"$stub_bin/gpg" <<'SH'
 #!/bin/bash
