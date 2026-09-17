@@ -1,0 +1,302 @@
+#!/bin/bash
+
+# omarchy:summary=Keep this Mac's Apple Silicon channel record
+# omarchy:args=ensure|status|current|hold <reason>|release
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# The record says which channel this Mac follows: stable on linux-asahi, rc on
+# linux-aurora. A Mac without one is given one on update, but only when the
+# installed kernel and the image's kernel marker agree. channel=rc is policy, not
+# proof that the qualified kernel is installed. A hold stops [omarchy-aurora]
+# moving; packages still upgrade against the repository it has.
+#
+# Exit 2: the record, its storage, the lock or the evidence cannot be trusted.
+# Exit 3: there is no record, and for ensure none could be inferred.
+
+set -euo pipefail
+
+root=${OMARCHY_APPLE_SILICON_CHANNEL_ROOT:-}
+state_dir="$root/var/lib/omarchy"
+record="$state_dir/apple-silicon-channel"
+kernel_marker="$root/usr/share/omarchy/apple-silicon-kernel"
+lock_path="$root/run/lock/omarchy-apple-silicon-channel.lock"
+lock_timeout=${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT:-60}
+testing=${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-0}
+
+usage() {
+  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release>"
+}
+
+fail() {
+  echo "Apple Silicon channel: $*" >&2
+  exit 2
+}
+
+problem=""
+record_channel="" record_kernel="" record_hold=""
+evidence=""
+
+# $2 is "file" or "directory"; a directory only needs a root owner.
+root_controlled() {
+  local path=$1 owner group mode
+  if ! read -r owner group mode < <(stat -c '%u %g %a' "$path" 2>/dev/null); then
+    problem="cannot inspect $path"
+    return 1
+  fi
+  if [[ $testing != 1 ]] && [[ $owner != 0 || ($2 == file && $group != 0) ]]; then
+    problem="$path is not owned by root"
+    return 1
+  fi
+  if (( (8#$mode & 8#022) != 0 )); then
+    problem="$path is writable by users other than root"
+    return 1
+  fi
+}
+
+safe_state_dir() {
+  if [[ -L $state_dir || ! -d $state_dir ]]; then
+    problem="$state_dir is not a directory"
+    return 1
+  fi
+  root_controlled "$state_dir" directory
+}
+
+valid_reason() {
+  [[ -n $1 && $1 != *$'\n'* ]] && (( ${#1} <= 200 )) &&
+    LC_ALL=C grep -qxE '[[:print:]]+' <<<"$1"
+}
+
+# 0 with record_* set, 3 when there is no record, 2 with problem set.
+read_record() {
+  local line key value bad_line
+  local -A seen=()
+  record_channel="" record_kernel="" record_hold=""
+
+  if [[ -e $state_dir || -L $state_dir ]]; then
+    safe_state_dir || return 2
+  fi
+  [[ -e $record || -L $record ]] || return 3
+  if [[ -L $record || ! -f $record ]]; then
+    problem="$record is not a regular file"
+    return 2
+  fi
+  root_controlled "$record" file || return 2
+  if [[ ! -r $record ]]; then
+    problem="$record is not readable"
+    return 2
+  fi
+  if bad_line=$(LC_ALL=C grep -m 1 -naxvE '[a-z_]+=[[:print:]]+' "$record"); then
+    problem="$record line ${bad_line%%:*} is not key=value with a printable value"
+    return 2
+  fi
+
+  while IFS= read -r line || [[ -n $line ]]; do
+    key=${line%%=*}
+    value=${line#*=}
+    if [[ -n ${seen[$key]:-} ]]; then
+      problem="$record repeats $key"
+      return 2
+    fi
+    seen[$key]=1
+    case "$key" in
+      format)
+        if [[ $value != 1 ]]; then
+          problem="$record has unsupported format $value"
+          return 2
+        fi
+        ;;
+      channel) record_channel=$value ;;
+      kernel) record_kernel=$value ;;
+      hold) record_hold=$value ;;
+      *)
+        problem="$record has unknown key $key"
+        return 2
+        ;;
+    esac
+  done <"$record"
+
+  for key in format channel kernel; do
+    if [[ -z ${seen[$key]:-} ]]; then
+      problem="$record has no $key"
+      return 2
+    fi
+  done
+  case "$record_channel:$record_kernel" in
+    stable:linux-asahi | rc:linux-aurora) ;;
+    *)
+      problem="$record pairs channel $record_channel with kernel $record_kernel"
+      return 2
+      ;;
+  esac
+  if [[ -n ${seen[hold]:-} ]] && ! valid_reason "$record_hold"; then
+    problem="$record has a hold longer than 200 characters"
+    return 2
+  fi
+}
+
+# Sets evidence to the one kernel this Mac runs; 1 with problem set when that is
+# ambiguous, 2 when it cannot be read.
+classify() {
+  local installed aurora=0 asahi=0 marker=none kernel
+
+  evidence=""
+  # linux-aurora provides linux-asahi, so only exact installed names count.
+  if ! installed=$(pacman -Qq 2>/dev/null); then
+    problem="could not list installed packages"
+    return 2
+  fi
+  grep -Fxq linux-aurora <<<"$installed" && aurora=1
+  grep -Fxq linux-asahi <<<"$installed" && asahi=1
+
+  if [[ -e $kernel_marker || -L $kernel_marker ]]; then
+    if [[ -L $kernel_marker || ! -f $kernel_marker || ! -r $kernel_marker ]]; then
+      problem="$kernel_marker is not a readable regular file"
+      return 1
+    fi
+    marker=""
+    for kernel in linux-aurora linux-asahi; do
+      if cmp -s "$kernel_marker" <(printf '%s\n' "$kernel") || cmp -s "$kernel_marker" <(printf '%s' "$kernel"); then
+        marker=$kernel
+      fi
+    done
+    if [[ -z $marker ]]; then
+      problem="$kernel_marker names neither linux-aurora nor linux-asahi"
+      return 1
+    fi
+  fi
+
+  if (( aurora && asahi )); then
+    problem="both linux-aurora and linux-asahi are installed"
+    return 1
+  fi
+  if (( ! aurora && ! asahi )); then
+    problem="neither linux-aurora nor linux-asahi is installed"
+    return 1
+  fi
+  evidence=linux-asahi
+  (( ! aurora )) || evidence=linux-aurora
+  if [[ $marker != none && $marker != "$evidence" ]]; then
+    problem="$kernel_marker names $marker, but $evidence is installed"
+    return 1
+  fi
+}
+
+# 0 when the record is valid and the evidence names its kernel, 3 without a
+# record, 2 otherwise.
+checked_record() {
+  read_record || return
+  if ! classify; then
+    problem="$record names $record_kernel, which this Mac does not confirm: $problem"
+    return 2
+  fi
+  if [[ $evidence != "$record_kernel" ]]; then
+    problem="$record names $record_kernel, but this Mac runs $evidence"
+    return 2
+  fi
+}
+
+# Machine-wide, unlike omarchy-update-lock, which is per runtime directory.
+take_lock() {
+  local attempt
+  for attempt in 1 2 3; do
+    if [[ ! -e $lock_path && ! -L $lock_path ]]; then
+      sudo install -m 0644 -o root -g root /dev/null "$lock_path" || fail "could not create $lock_path"
+    fi
+    if [[ -L $lock_path || ! -f $lock_path ]] || ! exec {lock_fd}<"$lock_path"; then
+      fail "could not open $lock_path"
+    fi
+    flock -x -w "$lock_timeout" "$lock_fd" ||
+      fail "could not lock $lock_path within ${lock_timeout}s; another update or channel change holds it"
+    # A concurrent first run can replace the file between creating and locking it.
+    [[ /dev/fd/$lock_fd -ef $lock_path ]] && return 0
+    exec {lock_fd}<&-
+  done
+  fail "could not lock $lock_path"
+}
+
+staging=""
+trap '[[ -z $staging ]] || sudo rm -f "$staging"' EXIT
+
+write_record() {
+  local channel=$1 kernel=$2 hold=${3:-}
+
+  if [[ ! -e $state_dir && ! -L $state_dir ]]; then
+    sudo install -d -o root -g root -m 0755 "$state_dir" || fail "could not create $state_dir"
+  fi
+  safe_state_dir || fail "$problem"
+  staging=$(sudo mktemp -p "$state_dir" .apple-silicon-channel.XXXXXX) || fail "could not stage $record"
+  {
+    printf 'format=1\nchannel=%s\nkernel=%s\n' "$channel" "$kernel"
+    [[ -z $hold ]] || printf 'hold=%s\n' "$hold"
+  } | sudo tee "$staging" >/dev/null || fail "could not write $record"
+  sudo chown root:root "$staging" && sudo chmod 0644 "$staging" || fail "could not write $record"
+  sudo mv -f "$staging" "$record" || fail "could not write $record"
+  staging=""
+}
+
+command=${1:-}
+case "$command" in
+  ensure | status | current | release) (( $# == 1 )) || { usage >&2; exit 2; } ;;
+  hold) (( $# == 2 )) || { usage >&2; exit 2; } ;;
+  -h | --help) usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+result=0
+case "$command" in
+  ensure)
+    omarchy-hw-apple-silicon || exit 0
+    take_lock
+    checked_record || result=$?
+    if (( result == 3 )); then
+      result=0
+      classify || result=$?
+      if (( result == 1 )); then
+        printf '\e[33mCannot tell which Apple Silicon channel this Mac follows, so channel handling is skipped: %s.\e[0m\n' "$problem" >&2
+        exit 3
+      fi
+      (( result == 0 )) || fail "$problem"
+      if [[ $evidence == linux-aurora ]]; then
+        write_record rc linux-aurora
+      else
+        write_record stable linux-asahi
+      fi
+      exit 0
+    fi
+    (( result == 0 )) || fail "$problem"
+    ;;
+  status)
+    checked_record || result=$?
+    (( result != 2 )) || fail "$problem"
+    (( result == 0 )) || exit 3
+    printf 'channel=%s\nkernel=%s\n' "$record_channel" "$record_kernel"
+    [[ -z $record_hold ]] || printf 'hold=%s\n' "$record_hold"
+    ;;
+  current)
+    checked_record || result=$?
+    if (( result == 0 )); then
+      echo "$record_channel"
+    else
+      (( result != 2 )) || echo "Apple Silicon channel: $problem" >&2
+      echo unknown
+    fi
+    exit 0
+    ;;
+  hold | release)
+    if [[ $command == hold ]] && ! valid_reason "$2"; then
+      fail "a hold reason is one line of 1 to 200 printable ASCII characters"
+    fi
+    take_lock
+    read_record || result=$?
+    (( result != 3 )) || fail "$record does not exist yet; omarchy update records it"
+    (( result == 0 )) || fail "$problem"
+    if [[ $command == hold ]]; then
+      [[ $record_hold == "$2" ]] || write_record "$record_channel" "$record_kernel" "$2"
+      echo "This Mac's Apple Silicon channel is held: $2"
+    else
+      [[ -z $record_hold ]] || write_record "$record_channel" "$record_kernel"
+      echo "This Mac's Apple Silicon channel is not held."
+    fi
+    ;;
+esac

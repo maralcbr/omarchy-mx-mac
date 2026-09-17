@@ -295,6 +295,17 @@ release — such as a candidate pinned by hand for qualification — is left alo
 with a warning. Asahi installs and x86 are untouched; a failed check stops the
 update before any package moves.
 
+Only a Mac whose channel record says so follows the pin. The record,
+`/var/lib/omarchy/apple-silicon-channel`, holds `format=1`, `channel=stable|rc`,
+`kernel=linux-asahi|linux-aurora` and an optional `hold=<reason>`. A Mac without
+one gets it on its first update, inferred from the installed kernel and the
+image's kernel marker; ambiguous evidence writes nothing and skips the pin with
+a warning, while a malformed or contradicted record stops the update.
+`channel=rc` is the policy, not proof that the qualified kernel is installed.
+`omarchy-apple-silicon-channel hold "<reason>"` stops `[omarchy-aurora]` moving
+and `release` resumes it. A hold is not a package freeze: `pacman -Syu` still
+runs against the repository the section already names.
+
 1. Publish the kernel release (step 1 above); record the tag and `AURORA`
    digest.
 2. Qualify it on real hardware: on the M2 Max, point `[omarchy-aurora]` at the

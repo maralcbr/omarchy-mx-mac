@@ -78,7 +78,12 @@ printf "%s\n" "${OMARCHY_TEST_VERSION_CHANNEL:-unknown}"
 '
 
 write_stub omarchy-hw-apple-silicon '#!/bin/bash
-exit 1
+[[ ${OMARCHY_TEST_APPLE_SILICON:-0} == 1 ]]
+'
+
+write_stub omarchy-apple-silicon-channel '#!/bin/bash
+[[ $* == "current" ]] || exit 2
+printf "%s\n" "${OMARCHY_TEST_APPLE_CHANNEL:-unknown}"
 '
 
 write_stub pacman '#!/bin/bash
@@ -189,3 +194,14 @@ pass "current channel detects package-backed edge"
 
 [[ $(current_channel edge dev "$test_tmp/dev-checkout") == "dev" ]] || fail "current channel detects dev from OMARCHY_PATH"
 pass "current channel honors a dev link outside ~/omarchy"
+
+# omarchy-dev ships on every Mac, so the packages would read as edge there.
+[[ $(OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=rc current_channel edge dev /usr/share/omarchy) == "rc" ]] ||
+  fail "current channel on Apple Silicon is the channel record's"
+[[ $(OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=unknown current_channel stable stable /usr/share/omarchy) == "unknown" ]] ||
+  fail "current channel on Apple Silicon without a trustworthy record is unknown"
+pass "current channel on Apple Silicon comes from the channel record, not the installed packages"
+
+[[ $(OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=rc current_channel edge dev "$test_tmp/dev-checkout") == "dev" ]] ||
+  fail "a dev checkout on Apple Silicon is still dev"
+pass "a dev checkout on Apple Silicon is still reported as dev"

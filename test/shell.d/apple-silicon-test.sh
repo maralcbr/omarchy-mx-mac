@@ -38,7 +38,11 @@ cat >"$stub_bin/omarchy-hw-apple-silicon" <<'EOF'
 #!/bin/bash
 exit 0
 EOF
-chmod +x "$stub_bin/omarchy-hw-apple-silicon"
+cat >"$stub_bin/omarchy-apple-silicon-channel" <<'EOF'
+#!/bin/bash
+[[ $* == "current" ]] && echo rc
+EOF
+chmod +x "$stub_bin/omarchy-hw-apple-silicon" "$stub_bin/omarchy-apple-silicon-channel"
 
 for command_name in sudo pacman gum git omarchy-refresh-pacman omarchy-dev-link omarchy-dev-unlink omarchy-state omarchy-update efibootmgr; do
   cat >"$stub_bin/$command_name" <<'EOF'
@@ -66,8 +70,8 @@ grep -F "preserving the existing Arch Linux ARM repositories" "$test_tmp/error" 
 pass "pacman refresh rejects Apple Silicon before mutation"
 
 run_guarded "$ROOT/bin/omarchy-channel-set" dev
-grep -F "package channels are not available for Apple Silicon" "$test_tmp/error" >/dev/null ||
-  fail "channel setup explains the missing Apple Silicon package repository"
+grep -Fx "Error: Switching channels on Apple Silicon is not available yet; this Mac follows rc." "$test_tmp/error" >/dev/null ||
+  fail "channel setup explains that switching is not available yet and names the channel this Mac follows" "$(cat "$test_tmp/error")"
 pass "channel setup rejects Apple Silicon before checkout or package mutation"
 
 run_guarded "$ROOT/bin/omarchy-setup-direct-boot"

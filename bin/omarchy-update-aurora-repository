@@ -15,8 +15,8 @@
 # ahead of [omarchy] or moves it forward from one of those predecessors. Commit
 # hashes carry no order, so a section on any other release -- a candidate pinned
 # by hand for qualification, say -- is left exactly as it is. Every other byte of
-# pacman.conf stays as it was, and a machine that is not an Aurora install is
-# never touched.
+# pacman.conf stays as it was, and a machine whose channel record is not an
+# unheld rc is never touched.
 
 set -euo pipefail
 
@@ -44,23 +44,52 @@ root_path() {
   printf '%s%s\n' "${OMARCHY_AURORA_ROOT:-}" "$1"
 }
 
-# Only an Aurora install reads [omarchy-aurora]. Anything else, including a
-# machine whose evidence disagrees, is not this command's to change.
+# Only a Mac whose channel record says rc reads [omarchy-aurora]. A record that
+# cannot be trusted stops the update; evidence too ambiguous to record skips this.
 omarchy-hw-apple-silicon || exit 0
-kernel_marker=$(root_path /usr/share/omarchy/apple-silicon-kernel)
-if [[ -e $kernel_marker || -L $kernel_marker ]]; then
-  [[ $(OMARCHY_APPLE_KERNEL_FILE="$kernel_marker" omarchy-hw-apple-kernel) == "linux-aurora" ]] || exit 0
-  omarchy-pkg-present linux-aurora || exit 0
-else
-  # Aurora payloads from before the marker: the kernel package is the evidence.
-  omarchy-pkg-present linux-aurora || exit 0
-  omarchy-pkg-missing linux-asahi || exit 0
-fi
+channel_status=0
+omarchy-apple-silicon-channel ensure || channel_status=$?
+case $channel_status in
+  0) ;;
+  3) exit 0 ;;
+  *) exit 2 ;;
+esac
+# Stable Macs leave before taking either lock; the decision below is re-read under both.
+[[ $(omarchy-apple-silicon-channel current) != stable ]] || exit 0
 
 # omarchy update already holds the update lock; run on its own, take it here.
 if ! omarchy-update-lock held; then
   exec env OMARCHY_AURORA_REPOSITORY_STANDALONE=1 omarchy-update-lock run "$0" "$@"
 fi
+
+# Held until exit, so a hold cannot land between reading the record and repinning.
+channel_lock="${OMARCHY_APPLE_SILICON_CHANNEL_ROOT:-}/run/lock/omarchy-apple-silicon-channel.lock"
+if [[ -L $channel_lock || ! -f $channel_lock ]] || ! exec {channel_lock_fd}<"$channel_lock"; then
+  fail "could not open $channel_lock"
+fi
+flock -x -w "${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT:-60}" "$channel_lock_fd" ||
+  fail "could not lock $channel_lock; another update or channel change holds it"
+
+channel_status=0
+channel_record=$(omarchy-apple-silicon-channel status) || channel_status=$?
+case $channel_status in
+  0) ;;
+  3) exit 0 ;;
+  *) exit 2 ;;
+esac
+channel="" channel_hold=""
+while IFS= read -r line; do
+  case "$line" in
+    channel=*) channel=${line#channel=} ;;
+    hold=*) channel_hold=${line#hold=} ;;
+  esac
+done <<<"$channel_record"
+[[ $channel != stable ]] || exit 0
+if [[ -n $channel_hold ]]; then
+  printf "\e[33mLeaving [omarchy-aurora] as it is: this Mac's channel is held (%s).\e[0m\n" "$channel_hold" >&2
+  exit 0
+fi
+[[ $channel == rc ]] || fail "unexpected Apple Silicon channel '$channel'"
 
 pin_file="$OMARCHY_PATH/default/aurora-qualified-release"
 trusted_key_file="$OMARCHY_PATH/default/omarchy-arm-repository.asc"

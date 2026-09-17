@@ -69,9 +69,11 @@ run_system_packages
 OMARCHY_UPDATE_CONFLICT=1 OMARCHY_UPDATE_INTERACTIVE=1 run_system_packages
 [[ $(head -1 "$test_tmp/order") == aurora && $(sed -n 2p "$test_tmp/order") == "pacman -Syu"* ]] ||
   fail "the Aurora repository is pinned before the interactive conflict retry" "$(cat "$test_tmp/order")"
-TEST_AURORA_STATUS=3 run_system_packages
-(( status == 1 )) || fail "a failed Aurora repin fails the system update without its own status" "status $status"
-! grep -q '^pacman' "$test_tmp/order" || fail "a failed Aurora repin stops before pacman" "$(cat "$test_tmp/order")"
+for aurora_status in 2 3; do
+  TEST_AURORA_STATUS=$aurora_status run_system_packages
+  (( status == 1 )) || fail "a failed Aurora repin fails the system update without its own status" "status $status"
+  ! grep -q '^pacman' "$test_tmp/order" || fail "a failed Aurora repin stops before pacman" "$(cat "$test_tmp/order")"
+done
 pass "omarchy-update-system-pkgs pins the Aurora repository before pacman and stops when it cannot"
 
 stub_bin="$test_tmp/bin"
@@ -82,6 +84,9 @@ pin_file="$omarchy_path/default/aurora-qualified-release"
 key_file="$omarchy_path/default/omarchy-arm-repository.asc"
 pacman_conf="$root/etc/pacman.conf"
 marker="$root/usr/share/omarchy/apple-silicon-kernel"
+channel_record="$root/var/lib/omarchy/apple-silicon-channel"
+channel_lock="$root/run/lock/omarchy-apple-silicon-channel.lock"
+channel_calls="$test_tmp/channel-calls"
 sync_dir="$root/var/lib/pacman/sync"
 calls="$test_tmp/calls"
 curl_log="$test_tmp/curl.log"
@@ -95,7 +100,9 @@ new_server="https://github.com/$repo/releases/download/$new_tag"
 candidate_server="https://github.com/$repo/releases/download/$candidate_tag"
 asahi_server="https://github.com/$repo/releases/download/asahi-packages-stable-83973903b7deb9b56ce75f02b432fba0561d6293"
 comment='# Aurora kernel and bootloader, kept on the qualified release by omarchy update'
-mkdir -p "$stub_bin" "$assets" "$root/etc/pacman.d" "$(dirname "$marker")" "$sync_dir" "$omarchy_path/default"
+mkdir -p "$stub_bin" "$assets" "$root/etc/pacman.d" "$(dirname "$marker")" "$sync_dir" "$omarchy_path/default" \
+  "$(dirname "$channel_record")" "$(dirname "$channel_lock")"
+chmod 0755 "$(dirname "$channel_record")"
 printf 'Server = http://mirror.archlinuxarm.org/$arch/$repo\n' >"$root/etc/pacman.d/mirrorlist"
 
 write_release() {
@@ -131,6 +138,19 @@ cat >"$stub_bin/omarchy-update-lock" <<'SH'
 #!/bin/bash
 printf '%s\n' "$1" >>"$TEST_LOCK_LOG"
 if [[ $1 == "held" ]]; then
+  if [[ -n ${TEST_HOLD_BEFORE_LOCK:-} ]]; then
+    printf 'hold=%s\n' "$TEST_HOLD_BEFORE_LOCK" >>"$TEST_CHANNEL_RECORD"
+  fi
+  if [[ ${TEST_TAKE_CHANNEL_LOCK:-0} == 1 ]]; then
+    (
+      exec 9<"$TEST_CHANNEL_LOCK"
+      flock -x 9
+      : >"$TEST_CHANNEL_LOCK_READY"
+      exec sleep 30
+    ) >/dev/null 2>&1 &
+    echo $! >"$TEST_CHANNEL_LOCK_HOLDER"
+    until [[ -e $TEST_CHANNEL_LOCK_READY ]]; do sleep 0.05; done
+  fi
   [[ ${TEST_LOCK_HELD:-1} == 1 ]]
   exit
 fi
@@ -179,8 +199,14 @@ signer=$subkey
 [[ ${TEST_GPG_SIGNER:-subkey} == "subkey" ]] || signer=$primary
 echo "[GNUPG:] VALIDSIG $signer 2026-01-01 0 4 0 1 22 00 $primary"
 SH
+# The channel record's own writes are logged apart, so "nothing privileged runs"
+# keeps meaning pacman.conf, its backup and its cache.
 cat >"$stub_bin/sudo" <<'SH'
 #!/bin/bash
+if [[ $* == *apple-silicon-channel* ]]; then
+  printf 'sudo:%s\n' "$*" >>"$TEST_CHANNEL_CALLS"
+  exec "$@"
+fi
 printf 'sudo:%s\n' "$*" >>"$TEST_CALLS"
 if [[ $1 == "rm" && ${TEST_RM_FAIL:-0} == 1 ]]; then
   echo "rm: cannot remove: Read-only file system" >&2
@@ -208,6 +234,10 @@ while (($#)); do
 done
 exec /usr/bin/install "${args[@]}"
 SH
+cat >"$stub_bin/chown" <<'SH'
+#!/bin/bash
+exit 0
+SH
 cat >"$stub_bin/pacman-key" <<'SH'
 #!/bin/bash
 printf 'pacman-key:%s\n' "$*" >>"$TEST_CALLS"
@@ -219,6 +249,10 @@ fi
 SH
 cat >"$stub_bin/pacman" <<'SH'
 #!/bin/bash
+if [[ $* == "-Qq" ]]; then
+  printf '%s\n' $TEST_INSTALLED
+  exit 0
+fi
 if [[ $1 == "-Q" ]]; then
   [[ " $TEST_INSTALLED " == *" $2 "* ]]
   exit
@@ -233,6 +267,14 @@ run_status() {
     TEST_CURL_LOG="$curl_log" \
     TEST_CALLS="$calls" \
     TEST_LOCK_LOG="$lock_log" \
+    TEST_CHANNEL_CALLS="$channel_calls" \
+    TEST_CHANNEL_RECORD="$channel_record" \
+    TEST_CHANNEL_LOCK="$channel_lock" \
+    TEST_CHANNEL_LOCK_READY="$test_tmp/channel-lock-ready" \
+    TEST_CHANNEL_LOCK_HOLDER="$test_tmp/channel-lock-holder" \
+    OMARCHY_APPLE_SILICON_CHANNEL_ROOT="$root" \
+    OMARCHY_APPLE_SILICON_CHANNEL_TESTING=1 \
+    OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT="${TEST_CHANNEL_LOCK_TIMEOUT:-10}" \
     TEST_KEY_STATE="$test_tmp/key-trusted" \
     TEST_INSTALLED="${TEST_INSTALLED-linux-aurora linux-aurora-headers m1n1-aurora}" \
     OMARCHY_AURORA_ROOT="$root" \
@@ -247,6 +289,7 @@ reset_run() {
   : >"$curl_log"
   : >"$calls"
   : >"$lock_log"
+  : >"$channel_calls"
   rm -f "$test_tmp/key-trusted"
   rm -rf "$root/var/lib/omarchy/backups"
   printf 'fixture key\n' >"$key_file"
@@ -312,32 +355,45 @@ write_release "$new_tag"
 new_digest=$(sha256sum "$assets/$new_tag/AURORA" | cut -d' ' -f1)
 write_pin "$new_tag" "$new_digest"
 
-# Machines that are not Aurora installs.
+# Machines that do not follow rc, each without a channel record yet. Evidence
+# too ambiguous to record says so once and still leaves the update running.
 { options_conf; omarchy_conf; remaining_conf; } >"$pacman_conf"
 not_aurora() {
-  local description=$1
+  local description=$1 notice=${2:-}
   reset_run
+  rm -f "$channel_record"
   run_status
   (( status == 0 )) || fail "$description exits cleanly" "status $status: $(cat "$test_tmp/err")"
-  [[ ! -s $test_tmp/out && ! -s $test_tmp/err ]] || fail "$description is silent" "$(cat "$test_tmp/out" "$test_tmp/err")"
+  [[ ! -s $test_tmp/out ]] || fail "$description prints nothing" "$(cat "$test_tmp/out")"
+  if [[ -z $notice ]]; then
+    [[ ! -s $test_tmp/err ]] || fail "$description is silent" "$(cat "$test_tmp/err")"
+  else
+    (( $(wc -l <"$test_tmp/err") == 1 )) && grep -Fq "$notice" "$test_tmp/err" ||
+      fail "$description says in one line why no channel is recorded" "$(cat "$test_tmp/err")"
+    [[ ! -e $channel_record ]] || fail "$description records no channel" "$(cat "$channel_record")"
+  fi
   [[ ! -s $curl_log && ! -s $lock_log ]] || fail "$description downloads nothing and takes no lock"
   expect_untouched "$description"
 }
 rm -f "$marker"
 TEST_INSTALLED="linux-asahi linux-asahi-headers m1n1" not_aurora "an Asahi install without the marker"
+printf 'format=1\nchannel=stable\nkernel=linux-asahi\n' | cmp -s - "$channel_record" ||
+  fail "an Asahi install is recorded as stable" "$(cat "$channel_record")"
 printf 'linux-asahi\n' >"$marker"
-not_aurora "an Asahi marker, even with linux-aurora installed"
+not_aurora "an Asahi marker, even with linux-aurora installed" "names linux-asahi, but linux-aurora is installed"
 printf 'linux-aurora\n' >"$marker"
-TEST_INSTALLED="linux-asahi" not_aurora "an Aurora marker without linux-aurora installed"
+TEST_INSTALLED="linux-asahi" not_aurora "an Aurora marker without linux-aurora installed" "names linux-aurora, but linux-asahi is installed"
 printf 'linux-aurora\n' >"$test_tmp/linked-marker"
 rm -f "$marker"
 ln -s "$test_tmp/linked-marker" "$marker"
-not_aurora "a symlinked kernel marker"
+not_aurora "a symlinked kernel marker" "is not a readable regular file"
 rm -f "$marker"
-TEST_INSTALLED="linux-aurora linux-asahi" not_aurora "linux-aurora and linux-asahi both installed without a marker"
+TEST_INSTALLED="linux-aurora linux-asahi" not_aurora "linux-aurora and linux-asahi both installed without a marker" \
+  "both linux-aurora and linux-asahi are installed"
 { options_conf; remaining_conf; } >"$pacman_conf"
 TEST_APPLE_SILICON=0 not_aurora "an x86 machine"
-pass "only Aurora installs are touched, and everything else is a silent no-op"
+[[ ! -e $channel_record && ! -s $channel_calls ]] || fail "an x86 machine records no channel"
+pass "only Aurora installs are touched: Asahi and x86 are silent no-ops, and ambiguous kernel evidence says why once"
 
 # The pin that ships is one the updater accepts.
 shipped_tag=$(sed -n 's/^tag=//p' "$shipped_pin")
@@ -347,6 +403,8 @@ TEST_OMARCHY_PATH="$ROOT" run_status
 (( status == 0 )) || fail "the shipped pin parses" "status $status: $(cat "$test_tmp/err")"
 [[ ! -s $test_tmp/out && ! -s $test_tmp/err ]] || fail "a Mac already on the shipped pin is silent" "$(cat "$test_tmp/out" "$test_tmp/err")"
 expect_untouched "a Mac already on the shipped pin"
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' | cmp -s - "$channel_record" ||
+  fail "an Aurora install without a marker is recorded as rc" "$(cat "$channel_record")"
 pass "the shipped pin is accepted and a Mac already on it is left alone"
 
 # A missing section is added right before [omarchy], with the legacy evidence.
@@ -580,3 +638,95 @@ expect_repinned "a standalone repin"
 grep -Fxq run "$lock_log" || fail "an updater run outside omarchy update takes the update lock" "$(cat "$lock_log")"
 grep -Fxq 'omarchy update will sync it.' "$test_tmp/out" || fail "a standalone repin says omarchy update will sync it" "$(cat "$test_tmp/out")"
 pass "a standalone run takes the update lock and leaves the sync to omarchy update"
+
+# The channel record decides whether the pin applies at all.
+rc_record() {
+  printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$channel_record"
+  [[ -z ${1:-} ]] || printf 'hold=%s\n' "$1" >>"$channel_record"
+}
+
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+printf 'format=1\nchannel=stable\nkernel=linux-asahi\n' >"$channel_record"
+rm -f "$marker"
+reset_run
+TEST_INSTALLED="linux-asahi linux-asahi-headers m1n1" run_status
+(( status == 0 )) || fail "a stable record is a successful no-op" "status $status: $(cat "$test_tmp/err")"
+[[ ! -s $test_tmp/out && ! -s $test_tmp/err && ! -s $curl_log && ! -s $lock_log ]] ||
+  fail "a stable Mac is silent, offline and takes no update lock" "$(cat "$test_tmp/err" "$lock_log")"
+expect_untouched "a stable Mac with an [omarchy-aurora] on a predecessor"
+pass "a Mac recorded as stable leaves even a predecessor [omarchy-aurora] alone"
+
+expect_held() {
+  local description=$1 reason=$2
+  (( status == 0 )) || fail "$description does not stop the update" "status $status: $(cat "$test_tmp/err")"
+  printf "\e[33mLeaving [omarchy-aurora] as it is: this Mac's channel is held (%s).\e[0m\n" "$reason" | cmp -s - "$test_tmp/err" ||
+    fail "$description says, in one line, that the channel is held and why" "$(cat -v "$test_tmp/err")"
+  [[ ! -s $test_tmp/out && ! -s $curl_log ]] || fail "$description downloads nothing"
+  expect_untouched "$description"
+}
+printf 'linux-aurora\n' >"$marker"
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+rc_record "qualifying aurora-packages-4439238 by hand"
+reset_run
+run_status
+expect_held "a held Mac on a predecessor" "qualifying aurora-packages-4439238 by hand"
+{ options_conf; omarchy_conf; remaining_conf; } >"$pacman_conf"
+reset_run
+run_status
+expect_held "a held Mac without [omarchy-aurora]" "qualifying aurora-packages-4439238 by hand"
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+reset_run
+TEST_LOCK_HELD=0 run_status
+expect_held "a held Mac run on its own" "qualifying aurora-packages-4439238 by hand"
+grep -Fxq run "$lock_log" || fail "a standalone run on a held Mac still takes the update lock" "$(cat "$lock_log")"
+pass "a held rc Mac keeps [omarchy-aurora] exactly as it is and says why, standalone too"
+
+# A hold that lands after the early checks but before the machine lock is honoured.
+rc_record
+reset_run
+TEST_HOLD_BEFORE_LOCK="held while the update waited" run_status
+expect_held "a hold that lands while the update waits for its locks" "held while the update waited"
+pass "the pin decision reads the record under the machine lock"
+
+record_refused() {
+  local description=$1 message=$2
+  cp "$channel_record" "$test_tmp/record-before"
+  reset_run
+  run_status
+  (( status == 2 )) || fail "$description stops the update" "status $status: $(cat "$test_tmp/err")"
+  grep -Fq "$message" "$test_tmp/err" || fail "$description is explained" "$(cat "$test_tmp/err")"
+  [[ ! -s $test_tmp/out && ! -s $curl_log ]] || fail "$description downloads nothing"
+  cmp -s "$test_tmp/record-before" "$channel_record" || fail "$description leaves the record as it was"
+  expect_untouched "$description"
+}
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\nchannel=rc\n' >"$channel_record"
+record_refused "a record with a repeated key" "$channel_record repeats channel"
+printf 'format=1\nchannel=edge\nkernel=linux-aurora\n' >"$channel_record"
+record_refused "a record naming an unknown channel" "$channel_record pairs channel edge with kernel linux-aurora"
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\nhold=\n' >"$channel_record"
+TEST_LOCK_HELD=0 record_refused "a standalone run with an empty hold" "$channel_record line 4 is not key=value"
+rc_record
+rm -f "$marker"
+TEST_INSTALLED="linux-asahi linux-asahi-headers m1n1" record_refused "an rc record on an Asahi Mac" \
+  "$channel_record names linux-aurora, but this Mac runs linux-asahi"
+printf 'linux-aurora\n' >"$marker"
+pass "an invalid or contradicted channel record stops the update before any pacman.conf change"
+
+# The updater takes the machine lock itself, so a channel change cannot slip in.
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
+rc_record
+reset_run
+rm -f "$test_tmp/channel-lock-ready"
+TEST_TAKE_CHANNEL_LOCK=1 TEST_CHANNEL_LOCK_TIMEOUT=0.3 run_status
+holder=$(cat "$test_tmp/channel-lock-holder")
+kill "$holder" 2>/dev/null || true
+while kill -0 "$holder" 2>/dev/null; do sleep 0.05; done
+(( status == 2 )) || fail "a repin that cannot take the channel lock stops" "status $status: $(cat "$test_tmp/err")"
+grep -Fq "could not lock $channel_lock" "$test_tmp/err" || fail "a busy channel lock is explained" "$(cat "$test_tmp/err")"
+[[ ! -s $curl_log ]] || fail "a busy channel lock downloads nothing"
+expect_untouched "a busy channel lock"
+reset_run
+run_status
+expect_repinned "the rerun once the channel lock is free"
+pass "the updater holds the machine channel lock, and waits no longer than its timeout for it"
