@@ -30,7 +30,18 @@
     "apple,j416s",
     "apple,j416c",
     "apple,j475c",
-    "apple,j475d"
+    "apple,j475d",
+    "apple,j433",
+    "apple,j434",
+    "apple,j504",
+    "apple,j613",
+    "apple,j615",
+    "apple,j514s",
+    "apple,j514c",
+    "apple,j514m",
+    "apple,j516s",
+    "apple,j516c",
+    "apple,j516m"
   ],
   "installer": {
     "minimum_version": "2.0.4",
