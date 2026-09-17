@@ -228,11 +228,6 @@ class UpstreamDeltaTests(unittest.TestCase):
                 {"asahi_firmware/bluetooth.py": b"old\n"},
             )
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class BaseIdentityTest(unittest.TestCase):
     def lock(self, base_sha256=None, base_commit=None):
         return {"incremental_build": {
@@ -262,3 +257,7 @@ class BaseIdentityTest(unittest.TestCase):
     def test_lock_naming_another_base_archive_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "different base"):
             REBUILD.require_base(self.data, self.lock(base_sha256="0" * 64))
+
+
+if __name__ == "__main__":
+    unittest.main()

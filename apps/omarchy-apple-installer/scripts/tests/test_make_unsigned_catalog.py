@@ -65,7 +65,7 @@ class CatalogGeneratorTests(unittest.TestCase):
         self.assertNotIn("expiresAt", catalog)
         self.assertEqual(catalog["issuedAt"], NOW)
         self.assertEqual(catalog["sequence"], 1788480000)
-        self.assertEqual(len(catalog["models"]), 22)
+        self.assertEqual(len(catalog["models"]), len(self.inputs["device_identifiers"]))
 
     def test_carries_the_installer_compatibility_block(self) -> None:
         self.inputs["installer"]["minimum_version"] = "2.1.0"
