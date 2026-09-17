@@ -61,12 +61,12 @@ jq -e --argjson required_ids "$required_ids" '
   .engine_artifact == {
     source_lock: "apps/omarchy-apple-installer/Engine/source-lock.json",
     source_lock_sha256: .engine_artifact.source_lock_sha256,
-    status: "reproducible-validation-artifact-unsigned",
-    filename: "installer-v0.9.0-omarchy.7.tar.gz",
-    size_bytes: 17904504,
-    sha256: "063fd0765fb2057384d9653f7bf547b0471af31fc764e039d578d4fef6dce4d5",
+    status: "python-overlay-validation-artifact-unsigned",
+    filename: "installer-v0.9.0-omarchy.15.tar.gz",
+    size_bytes: 17840637,
+    sha256: "8672182b3a60eecab83a7a1f014d257047f77d065432b3da9ea29509a57eb28f",
     signature: null,
-    reproducibility_scope: "two-clean-builds-same-host-pinned-toolchain"
+    reproducibility_scope: "two-identical-python-overlay-repacks-authenticated-base"
   } and
   (.engine_artifact.source_lock_sha256 | test("^[0-9a-f]{64}$")) and
   (.readiness.blockers | index("signed-engine-artifact-absent")) != null and
@@ -192,7 +192,7 @@ expected_source_lock_sha256=$(jq -r '.engine_artifact.source_lock_sha256' "$cont
   fail "Apple engine source lock digest does not match the platform contract"
 
 jq -e --argjson engine "$(jq -c '.engine_artifact' "$contract")" '
-  .status == "reproducible_validation_artifact_unsigned" and
+  .status == "python_overlay_validation_artifact_unsigned" and
   .validation_artifact == {
     filename: $engine.filename,
     size_bytes: $engine.size_bytes,
