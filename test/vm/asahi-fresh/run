@@ -19,6 +19,7 @@ candidate_fingerprint=${OMARCHY_VM_CANDIDATE_FINGERPRINT:-}
 candidate_package_count=${OMARCHY_VM_CANDIDATE_PACKAGE_COUNT:-}
 candidate_key=${OMARCHY_VM_CANDIDATE_KEY_FILE:-$root/default/omarchy-arm-repository.asc}
 channel_url=${OMARCHY_VM_ASAHI_CHANNEL_URL:-}
+channel_pointer_url=${OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL:-}
 # The guest installs Arch Linux ARM packages from a dated, immutable copy of the
 # repositories rather than the live mirrors, so a mirror mid-transition cannot
 # fail a run that has nothing to do with it. The date is the one the current
@@ -37,6 +38,18 @@ alarm_mirror_quoted=$(printf '%q' "$alarm_mirror")
 }
 [[ -z $channel_url || $channel_url =~ ^https://github\.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-[1-9][0-9]*/asahi-quattro-channel$ ]] || {
   echo "OMARCHY_VM_ASAHI_CHANNEL_URL must be an asahi-quattro-channel-<N>/asahi-quattro-channel release asset of maralcbr/omarchy-pkgs" >&2
+  exit 1
+}
+[[ -z $channel_pointer_url || ( $channel_pointer_url == https://* && $channel_pointer_url != *[[:space:]]* ) ]] || {
+  echo "OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL must be an https URL" >&2
+  exit 1
+}
+
+# guest/verify must not learn the expected pin from the system it is checking,
+# so the bootstrap default is read from this repository before the guest runs.
+expected_repository=$(sed -n 's/^[[:space:]]*bootstrap_release_tag=//p' "$root/install/hardware/pacman.sh")
+[[ $expected_repository =~ ^asahi-packages-(stable-)?[0-9a-f]{40}$ ]] || {
+  echo "install/hardware/pacman.sh does not name a recognised bootstrap package release" >&2
   exit 1
 }
 
@@ -174,14 +187,18 @@ scp "${scp_args[@]}" "$harness/guest/install" root@127.0.0.1:/root/omarchy-vm-in
 scp "${scp_args[@]}" "$harness/guest/candidate-runtime" root@127.0.0.1:/root/omarchy-vm-candidate-runtime
 stable_version=$(<"$root/version")
 ssh -tt "${ssh_args[@]}" root@127.0.0.1 \
-  env OMARCHY_VM_RUNTIME_MANIFEST_SHA256="${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-}" OMARCHY_VM_RUNTIME_SOURCE="${OMARCHY_VM_RUNTIME_SOURCE:-}" OMARCHY_VM_STABLE_VERSION="$stable_version" OMARCHY_VM_ALARM_MIRROR="$alarm_mirror_quoted" bash /root/omarchy-vm-install |
+  env OMARCHY_VM_RUNTIME_MANIFEST_SHA256="${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-}" OMARCHY_VM_RUNTIME_SOURCE="${OMARCHY_VM_RUNTIME_SOURCE:-}" OMARCHY_VM_STABLE_VERSION="$stable_version" OMARCHY_VM_ALARM_MIRROR="$alarm_mirror_quoted" OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL="$channel_pointer_url" bash /root/omarchy-vm-install |
   tee "$state/run/install.log" || exit 1
 
 boot_id=$(ssh "${ssh_args[@]}" root@127.0.0.1 cat /proc/sys/kernel/random/boot_id)
 ssh "${ssh_args[@]}" root@127.0.0.1 systemctl reboot --no-block || true
 wait_for_reboot "$boot_id" || { tail -200 "$state/run/serial.log"; exit 1; }
 scp "${scp_args[@]}" "$harness/guest/verify" root@127.0.0.1:/root/omarchy-vm-verify
-ssh "${ssh_args[@]}" root@127.0.0.1 env OMARCHY_VM_ASAHI_CHANNEL_URL="$channel_url" bash /root/omarchy-vm-verify | tee "$state/run/verify.log"
+ssh "${ssh_args[@]}" root@127.0.0.1 env \
+  OMARCHY_VM_ASAHI_CHANNEL_URL="$channel_url" \
+  OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL="$channel_pointer_url" \
+  OMARCHY_VM_EXPECTED_REPOSITORY="$expected_repository" \
+  bash /root/omarchy-vm-verify | tee "$state/run/verify.log"
 
 if (( optional_packages )); then
   scp "${scp_args[@]}" \

@@ -125,6 +125,38 @@ pass "fresh-install VM builds every initramfs preset right after the candidate t
 
 grep -Fq 'channel_url=${OMARCHY_VM_ASAHI_CHANNEL_URL:-}' "$vm_runner" || fail "VM runner accepts a pinned channel URL"
 grep -Fq 'asahi-quattro-channel-[1-9][0-9]*/asahi-quattro-channel$' "$vm_runner" || fail "VM runner accepts only a numbered channel asset"
-grep -Fq 'env OMARCHY_VM_ASAHI_CHANNEL_URL="$channel_url" bash /root/omarchy-vm-verify' "$vm_runner" || fail "VM runner passes the channel URL to verification"
+grep -Fq 'OMARCHY_VM_ASAHI_CHANNEL_URL="$channel_url" \' "$vm_runner" || fail "VM runner passes the channel URL to verification"
 grep -Fq 'export OMARCHY_ASAHI_CHANNEL_URL=$OMARCHY_VM_ASAHI_CHANNEL_URL' "$vm_verify" || fail "VM verification hands the channel URL to the updater"
 pass "fresh-install VM can pin the signed channel instead of discovering it"
+
+# A run must be pinnable end to end: the pointer the guest reads is the one the
+# operator named, in the installation stage and in the updater check afterwards.
+grep -Fq 'channel_pointer_url=${OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL:-}' "$vm_runner" ||
+  fail "VM runner accepts a pinned channel pointer"
+[[ $(grep -c 'OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL="$channel_pointer_url"' "$vm_runner") == 2 ]] ||
+  fail "VM runner forwards the pointer override to installation and verification"
+grep -Fq 'export OMARCHY_ASAHI_CHANNEL_POINTER_URL=$OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL' "$vm_verify" ||
+  fail "VM verification hands the pointer override to the updater"
+grep -Fq 'pointer_url=${OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL:-https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel}' "$vm_installer" ||
+  fail "VM installation reads the published pointer by default"
+installer_pointer_line=$(grep -nF 'downloads.aicodelabs.com.au/pointers/' "$vm_installer" | cut -d: -f1)
+installer_api_line=$(grep -nF 'api.github.com' "$vm_installer" | cut -d: -f1)
+(( installer_pointer_line < installer_api_line )) || fail "VM installation reads the pointer before the GitHub API"
+grep -Fq 'ASAHI_QUATTRO_CHANNEL_TAG="$channel_tag" \' "$vm_installer" ||
+  fail "VM installation hands the resolved channel to the installer it verifies with"
+pass "fresh-install VM discovers its channel through the pointer and hands it on"
+
+# guest/verify must not learn what to expect from the system it is checking.
+grep -Fq 'expected_repository=${OMARCHY_VM_EXPECTED_REPOSITORY:-}' "$vm_verify" ||
+  fail "VM verification takes its expected repository from pre-install inputs"
+! grep -Fq 'expected_repository=asahi-packages-784daa3' "$vm_verify" ||
+  fail "VM verification no longer hard-codes the bootstrap release"
+grep -Fq "expected_repository =~ ^asahi-packages-candidate-[0-9a-f]{40}\$" "$vm_verify" ||
+  fail "VM verification requires an exact candidate repository tag"
+grep -Fq 'C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC' "$vm_verify" ||
+  fail "VM verification asserts the ARM repository key for a stable snapshot"
+grep -Fq "sed -n 's/^[[:space:]]*bootstrap_release_tag=//p'" "$vm_runner" ||
+  fail "VM runner reads the bootstrap pin from install/hardware/pacman.sh"
+grep -Fq 'OMARCHY_VM_EXPECTED_REPOSITORY="$expected_repository"' "$vm_runner" ||
+  fail "VM runner passes the expected repository to verification"
+pass "fresh-install VM checks the install-time pin against the repository's own default"

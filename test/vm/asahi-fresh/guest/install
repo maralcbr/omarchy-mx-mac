@@ -25,6 +25,20 @@ trap 'report_failure $LINENO' ERR
 [[ ${OMARCHY_VM_STABLE_VERSION:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$ ]]
 [[ -n ${OMARCHY_VM_ALARM_MIRROR:-} ]]
 
+# Compare raw bytes with the canonical body so newline stripping cannot hide trailing junk, CRs or NULs.
+read_pointer_tag() {
+  local file="$1" body="" size sequence canonical
+  local pattern=$'^format=1\nsequence=([1-9][0-9]{0,8})\n'
+  [[ -f $file ]] && size=$(wc -c <"$file") || return 1
+  (( size <= 256 )) || return 1
+  IFS= read -r -d '' body <"$file" || true
+  [[ $body =~ $pattern ]] || return 1
+  sequence=${BASH_REMATCH[1]}
+  printf -v canonical 'format=1\nsequence=%s\ntag=asahi-quattro-channel-%s\n' "$sequence" "$sequence"
+  [[ $body == "$canonical" ]] && (( size == ${#canonical} )) || return 1
+  printf 'asahi-quattro-channel-%s\n' "$sequence"
+}
+
 rm -rf "$work"
 mkdir -p "$work"
 cd "$work"
@@ -38,12 +52,23 @@ if [[ -n ${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-} ]]; then
   source /root/omarchy-vm-candidate-runtime
 else
   stable=https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download
-  # The un-numbered asahi-quattro-channel release is an immutable legacy pointer;
-  # the live channel is the highest-numbered asahi-quattro-channel-N release.
-  channel_tag=$(curl --fail --location --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors \
-    "https://api.github.com/repos/maralcbr/omarchy-pkgs/releases?per_page=100" |
-    grep -oE '"tag_name": *"asahi-quattro-channel-[1-9][0-9]*"' |
-    grep -oE 'asahi-quattro-channel-[0-9]+' | sort -t- -k4,4n | tail -1)
+  # The published bootstrap reads the R2 pointer first and only falls back to
+  # the GitHub release listing, so a quota-exhausted API must not fail a run.
+  pointer_url=${OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL:-https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel}
+  channel_tag=""
+  pointer_status=0
+  curl --proto '=https' --tlsv1.2 --fail --location --silent --connect-timeout 15 --max-time 20 \
+    --max-filesize 256 "$pointer_url" --output "$work/channel-pointer" || pointer_status=$?
+  if (( pointer_status == 0 )); then
+    channel_tag=$(read_pointer_tag "$work/channel-pointer") || channel_tag=""
+  fi
+  if [[ -z $channel_tag ]]; then
+    echo "Release channel pointer unusable; falling back to the GitHub release listing" >&2
+    channel_tag=$(curl --fail --location --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors \
+      "https://api.github.com/repos/maralcbr/omarchy-pkgs/releases?per_page=100" |
+      grep -oE '"tag_name": *"asahi-quattro-channel-[1-9][0-9]*"' |
+      grep -oE 'asahi-quattro-channel-[0-9]+' | sort -u -t- -k4,4n | tail -1)
+  fi
   [[ $channel_tag =~ ^asahi-quattro-channel-[1-9][0-9]*$ ]]
   channel=https://github.com/maralcbr/omarchy-pkgs/releases/download/$channel_tag
   curl --fail --location --connect-timeout 15 --max-time 300 --retry 3 --retry-all-errors -O "$stable/install-omarchy-mx-mac"
@@ -67,7 +92,10 @@ else
     -e "s#^trap 'rm -rf \"\$work_dir\"' EXIT#trap ':' EXIT#" \
     install-asahi-quattro.vm
   mkdir verified
-  TMPDIR="$work/verified" bash install-asahi-quattro.vm --fresh --user omarchy --verify-only
+  # The installer is given the channel the pointer named rather than letting it
+  # rediscover one; an asset that predates the variable ignores it.
+  TMPDIR="$work/verified" ASAHI_QUATTRO_CHANNEL_TAG="$channel_tag" \
+    bash install-asahi-quattro.vm --fresh --user omarchy --verify-only
   verified_dir=$(find "$work/verified" -mindepth 1 -maxdepth 1 -type d -name 'asahi-quattro.*' -print -quit)
   [[ -n $verified_dir ]]
 fi
