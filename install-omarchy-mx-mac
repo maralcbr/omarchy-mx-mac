@@ -174,5 +174,14 @@ gpg --batch --homedir "$gnupg_dir" --verify "$signature" "$installer" >/dev/null
 [[ $selector != "channel" ]] || export ASAHI_QUATTRO_CHANNEL_TAG="$value"
 
 installer_args=("$@")
+# A base URL can serve a different signed installer between the two runs, so the
+# release the verification run recorded is named explicitly rather than rediscovered.
+if [[ -n $recorded_release_tag ]]; then
+  explicit_release=0
+  for argument in "$@"; do
+    [[ $argument == "--release-tag" || $argument == --release-tag=* ]] && explicit_release=1
+  done
+  (( explicit_release )) || installer_args=(--release-tag "$recorded_release_tag" "${installer_args[@]}")
+fi
 (( EUID != 0 )) || installer_args=(--fresh "${installer_args[@]}")
 exec bash "$installer" "${installer_args[@]}"

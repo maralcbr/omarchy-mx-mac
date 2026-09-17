@@ -18,11 +18,6 @@ if omarchy-hw-apple-silicon; then
     awk -F: '$1 == "pub" { primary=1; next } primary && $1 == "fpr" { print $10; exit }')
   [[ $actual_fingerprint == "$release_fingerprint" ]] || return 1
 
-  if ! pacman-key --finger "$release_fingerprint" >/dev/null 2>&1; then
-    pacman-key --add "$release_key"
-  fi
-  pacman-key --lsign-key "$release_fingerprint"
-
   omarchy_blocks=$(grep -Ec '^[[:space:]]*\[omarchy\][[:space:]]*$' "$pacman_conf" || true)
   if (( omarchy_blocks > 1 )); then
     echo "Several [omarchy] sections in $pacman_conf; resolve them before reconfiguring the repository" >&2
@@ -53,6 +48,13 @@ if omarchy-hw-apple-silicon; then
     fi
     current_server=$distinct_servers
   fi
+
+  # Only once the configuration is known to be repairable: a refusal above must leave
+  # the keyring untouched.
+  if ! pacman-key --finger "$release_fingerprint" >/dev/null 2>&1; then
+    pacman-key --add "$release_key"
+  fi
+  pacman-key --lsign-key "$release_fingerprint"
 
   stable_prefix="https://github.com/$package_repo/releases/download/asahi-packages-stable-"
   legacy_prefix="https://github.com/$package_repo/releases/download/asahi-packages-"
