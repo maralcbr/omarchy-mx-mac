@@ -93,16 +93,7 @@ def require_m1n1_branding_overlay(records: list[dict]) -> None:
         raise ValueError("invalid m1n1 branding overlay")
 
 
-def verify(engine_root: Path, checkout: Path) -> None:
-    lock = json.loads(
-        (engine_root / "source-lock.json").read_text(encoding="utf-8")
-    )
-    if lock.get("schema_version") != 2:
-        raise ValueError("unsupported source lock schema")
-    if lock.get("source_acquisition") != "verified-git-object-graph":
-        raise ValueError("source lock must require verified Git objects")
-    require_validation_artifact(lock.get("validation_artifact", {}))
-
+def verify_upstream(engine_root: Path, lock: dict, checkout: Path) -> None:
     upstream = lock["upstream_installer"]
     expected_head = upstream["commit"]
     if (
@@ -136,6 +127,32 @@ def verify(engine_root: Path, checkout: Path) -> None:
     if observed_submodules != expected_submodules:
         raise ValueError("submodule object graph does not match source lock")
 
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "apply",
+            "--check",
+            str(engine_root / lock["downstream_overlay"]["patch"]["path"]),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+
+
+def verify(engine_root: Path, checkout: Path) -> None:
+    lock = json.loads(
+        (engine_root / "source-lock.json").read_text(encoding="utf-8")
+    )
+    if lock.get("schema_version") != 2:
+        raise ValueError("unsupported source lock schema")
+    if lock.get("source_acquisition") != "verified-git-object-graph":
+        raise ValueError("source lock must require verified Git objects")
+    require_validation_artifact(lock.get("validation_artifact", {}))
+    verify_upstream(engine_root, lock, checkout)
+
     overlay = lock["downstream_overlay"]
     require_digest(engine_root, overlay["patch"], "downstream patch")
     require_digest(engine_root, overlay["metadata"], "downstream metadata")
@@ -147,20 +164,6 @@ def verify(engine_root: Path, checkout: Path) -> None:
             raise ValueError("overlay destination is invalid")
     for item in lock["build_recipe"]:
         require_digest(engine_root, item, "build recipe")
-
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(checkout),
-            "apply",
-            "--check",
-            str(engine_root / overlay["patch"]["path"]),
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
 
 
 def main() -> None:

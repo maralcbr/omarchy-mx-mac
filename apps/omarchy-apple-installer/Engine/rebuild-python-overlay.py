@@ -5,32 +5,69 @@ import argparse
 import difflib
 import gzip
 import hashlib
+import importlib.util
 import io
 import json
 from pathlib import Path
+import subprocess
 import tarfile
 
 BASE_SHA256 = '9e9277384b6c9e8b269cc79b1b24df7bfcdcbb898a596a677b74d1d18050aebe'
-VERSION = 'v0.9.0-omarchy.15'
+VERSION = 'v0.9.1-omarchy.16'
 
 
-def rebuild(base, output):
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def verify_checkout(root, lock, checkout):
+    spec = importlib.util.spec_from_file_location('verify_source_lock', root / 'verify-source-lock.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.verify_upstream(root, lock, checkout)
+
+
+def upstream_delta(checkout, delta, archive):
+    # The base keeps its native runtime and m1n1, so upstream may only have changed the listed Python files.
+    changed = subprocess.run(
+        ['git', '-C', str(checkout), 'diff', '--name-only', delta['base_commit'], 'HEAD'],
+        check=True, text=True, stdout=subprocess.PIPE,
+    ).stdout.splitlines()
+    if sorted(changed) != sorted(item['path'] for item in delta['files']):
+        raise ValueError('upstream changes since the base differ from the source lock')
+    overlay = {}
+    for item in delta['files']:
+        path = item['path']
+        if not path.endswith('.py'):
+            raise ValueError('upstream delta must be Python only: ' + path)
+        if sha256(archive.extractfile('./' + path).read()) != item['base_sha256']:
+            raise ValueError('base engine differs from the upstream base: ' + path)
+        content = (checkout / path).read_bytes()
+        if sha256(content) != item['sha256']:
+            raise ValueError('upstream delta digest mismatch: ' + path)
+        overlay[path] = content
+    return overlay
+
+
+def rebuild(checkout, base, output):
     root = Path(__file__).resolve().parent
     data = base.read_bytes()
-    if hashlib.sha256(data).hexdigest() != BASE_SHA256:
+    if sha256(data) != BASE_SHA256:
         raise ValueError('base must be the exact deployed omarchy.14 engine')
     lock = json.loads((root / 'source-lock.json').read_text())
+    verify_checkout(root, lock, checkout)
     records = lock['downstream_overlay']['files']
     expected = {item['path'] for item in records if item['destination'].startswith('src/')}
     actual = {str(p.relative_to(root)) for p in (root / 'overlay/src').glob('*.py')}
     if expected != actual:
         raise ValueError('Python overlay inventory differs from source lock')
     for item in records + lock['build_recipe'] + [lock['downstream_overlay']['patch']]:
-        if hashlib.sha256((root / item['path']).read_bytes()).hexdigest() != item['sha256']:
+        if sha256((root / item['path']).read_bytes()) != item['sha256']:
             raise ValueError('source lock digest mismatch: ' + item['path'])
     overlay = {Path(name).name: (root / name).read_bytes() for name in sorted(expected)}
     overlay['version.tag'] = (VERSION + '\n').encode()
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
+        overlay.update(upstream_delta(checkout, lock['incremental_build']['upstream_delta'], archive))
         old = archive.extractfile('./osinstall.py').read().decode()
         block = '''                zinfo = self.pkg.getinfo(image)
                 if zinfo.file_size % (4 * 1024) != 0:
@@ -74,13 +111,14 @@ def rebuild(base, output):
                     result.addfile(member, io.BytesIO(content))
     artifact = output.read_bytes()
     print(json.dumps({'file': str(output), 'size': len(artifact),
-                      'sha256': hashlib.sha256(artifact).hexdigest(),
+                      'sha256': sha256(artifact),
                       'base_sha256': BASE_SHA256}, sort_keys=True))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('checkout', type=Path, help='asahi-installer checkout at the locked commit')
     parser.add_argument('base', type=Path)
     parser.add_argument('output', type=Path)
     args = parser.parse_args()
-    rebuild(args.base, args.output)
+    rebuild(args.checkout.resolve(), args.base, args.output)

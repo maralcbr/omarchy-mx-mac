@@ -216,7 +216,7 @@ python3 - <<'PY'                                             # inputs: payload_n
 …
 PY
 git tag -a $TAG -m "…" && git push origin $TAG                # publish-r2 requires the tag on origin
-bash $A/scripts/publish-m1-release prepare --payload "$P" --engine $A/Engine/artifacts/installer-v0.9.0-omarchy.14.tar.gz \
+bash $A/scripts/publish-m1-release prepare --payload "$P" --engine $A/Engine/artifacts/installer-v0.9.1-omarchy.16.tar.gz \
   --metadata $W/installer_data.json --tag $TAG --repo maralcbr/omarchy-mx-mac --out-dir $W/staged --no-split \
   --base-url https://downloads.aicodelabs.com.au/releases/$TAG
 python3 $A/scripts/make-unsigned-catalog.py --base-url https://downloads.aicodelabs.com.au/releases/$TAG \
@@ -228,6 +228,16 @@ OMARCHY_PUBLISH_ASSUME_YES=$TAG bash $A/scripts/publish-m1-release publish-r2 --
   --bucket omarchy-releases --endpoint https://ab85a8b9d88f084e66bf9d4a8ee5cf66.r2.cloudflarestorage.com \
   --base-url https://downloads.aicodelabs.com.au/releases/$TAG --catalog-dir $W/catalog
 OMARCHY_PUBLISH_ASSUME_YES=$TAG $A/scripts/publish-channels os-promote --tag $TAG --to rc
+```
+
+The engine is a Python-only repack of the deployed `omarchy.14` engine, so it
+needs no re-signing. Rebuild it from an `asahi-installer` checkout at the
+commit in `Engine/source-lock.json` (submodules initialised); the lock records
+the expected size and SHA-256:
+
+```bash
+python3 $A/Engine/rebuild-python-overlay.py <asahi-installer checkout> \
+  $A/Engine/artifacts/installer-v0.9.0-omarchy.14.tar.gz $A/Engine/artifacts/installer-v0.9.1-omarchy.16.tar.gz
 ```
 
 R2 credentials come from the login Keychain (`omarchy-r2-access-key-id`,

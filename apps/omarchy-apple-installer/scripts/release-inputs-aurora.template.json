@@ -1,11 +1,11 @@
 {
   "payload_name": "omarchy-2026.09.13-aarch64-apple-silicon-aurora-os-package.zip",
-  "engine_name": "installer-v0.9.0-omarchy.15.tar.gz",
+  "engine_name": "installer-v0.9.1-omarchy.16.tar.gz",
   "metadata_name": "installer_data.json",
-  "engine_version": "v0.9.0-omarchy.15",
+  "engine_version": "v0.9.1-omarchy.16",
   "evidence_revision": "4.0.3-mac.2.20260913-aurora",
-  "asahi_installer_tag": "v0.9.0",
-  "asahi_installer_revision": "f0469cea0899f3efed8efead604174c7a53c4451",
+  "asahi_installer_tag": "v0.9.1",
+  "asahi_installer_revision": "99dff2e968dafcabc2a940865b051e91ffcfafd3",
   "asahi_installer_data_revision": "42648e71423eba308d2e3e6228253eff679b068b",
   "downstream_revision": "dff6311446439e1f29f0f2e6c0cf82a9a190e5bc",
   "device_identifiers": [
