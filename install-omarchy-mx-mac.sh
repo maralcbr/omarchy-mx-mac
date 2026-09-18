@@ -22,9 +22,19 @@ cd "$work_dir"
 # The verification and installation runs below must select the same release.
 # This wrapper resolves nothing itself, so it owns the file they hand that
 # selection over in, and starts it empty: the root work directory survives a
-# previous attempt, and a stale selection would pin this one to it.
+# previous attempt, and a stale selection would pin this one to it. First boot
+# (--deferred-user) selects once and hands every attempt its own file, kept as is.
 identity_file="$work_dir/channel-identity"
-: >"$identity_file"
+deferred_user=0
+for argument in "$@"; do
+  [[ $argument != "--deferred-user" ]] || deferred_user=1
+done
+if (( deferred_user )) && [[ -n ${OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE:-} ]]; then
+  identity_file=$OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE
+  [[ $identity_file == /* ]] || fail "The release selection handed over for first boot must be an absolute path."
+else
+  : >"$identity_file"
+fi
 export OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE="$identity_file"
 
 release="https://github.com/maralcbr/omarchy-mx-mac/releases/latest/download"

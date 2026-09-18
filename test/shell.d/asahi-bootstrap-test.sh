@@ -104,3 +104,38 @@ mapfile -t invocations <"$test_tmp/invocations"
 [[ ${invocations[0]} == "--verify-only --verify-only" && ${invocations[1]} == "--verify-only" ]] || \
   fail "bootstrap preserves the verify-only request"
 pass "bootstrap preserves the verify-only request"
+
+# First boot selects its release once and hands every attempt the same file,
+# with the matching --release-tag, so the wrapper keeps that file as it is.
+handover="$test_tmp/first-boot-selection"
+selection=$'format=1\nselector=release\nvalue=asahi-quattro-fe8d2bf8\nrelease_tag=asahi-quattro-fe8d2bf8\n'
+printf '%s' "$selection" >"$handover"
+for attempt in 1 2; do
+  : >"$test_tmp/invocations"
+  : >"$test_tmp/identities"
+  OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE="$handover" \
+    run_bootstrap --deferred-user --release-tag asahi-quattro-fe8d2bf8 >/dev/null
+  mapfile -t invocations <"$test_tmp/invocations"
+  [[ ${invocations[0]} == "--verify-only --deferred-user --release-tag asahi-quattro-fe8d2bf8" &&
+    ${invocations[1]} == "--deferred-user --release-tag asahi-quattro-fe8d2bf8" ]] ||
+    fail "a first-boot attempt forwards --deferred-user and its release to both runs" "${invocations[*]}"
+  mapfile -t identities <"$test_tmp/identities"
+  [[ ${identities[0]} == "identity:$handover:$(( ${#selection} + (attempt - 1) * 8 ))" &&
+    ${identities[1]} == "identity:$handover:$(( ${#selection} + (attempt - 1) * 8 + 4 ))" ]] ||
+    fail "attempt $attempt hands both runs the first-boot selection without truncating it" "${identities[*]}"
+done
+[[ $(head -c "${#selection}" "$handover") == "${selection%$'\n'}" ]] || fail "the first-boot selection survives every attempt"
+pass "a first-boot attempt keeps its handed-over selection across invocations"
+
+: >"$test_tmp/invocations"
+: >"$test_tmp/identities"
+printf '%s' "$selection" >"$handover"
+OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE="$handover" run_bootstrap --user example >/dev/null
+mapfile -t identities <"$test_tmp/identities"
+[[ ${identities[0]} == */channel-identity:0 ]] || fail "without --deferred-user the wrapper uses its own empty file" "${identities[*]}"
+[[ $(<"$handover") == "${selection%$'\n'}" ]] || fail "without --deferred-user a handed-over file is left alone"
+if OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE=first-boot-selection run_bootstrap --deferred-user >"$test_tmp/relative.out" 2>&1; then
+  fail "a relative first-boot selection is refused"
+fi
+grep -Fq 'must be an absolute path' "$test_tmp/relative.out" || fail "a relative first-boot selection says why"
+pass "only a first-boot run keeps a handed-over file, and only by absolute path"

@@ -262,6 +262,34 @@ grep -Fq 'was pinned to a release and this run was not' "$test_tmp/unpinned.out"
   fail "dropping the pin explains itself" "$(cat "$test_tmp/unpinned.out")"
 pass "an installation run that drops the verification run's exact release is refused"
 
+# First boot writes its selection before the first attempt and passes the
+# matching --release-tag with --deferred-user on every attempt.
+first_boot=$'format=1\nselector=release\nvalue=asahi-quattro-fe8d2bf8\nrelease_tag=asahi-quattro-fe8d2bf8\n'
+printf '%s' "$first_boot" >"$identity"
+: >"$invocations"
+for attempt in 1 2; do
+  run_bootstrap OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE="$identity" POINTER_SEQUENCE=35 \
+    --verify-only --deferred-user --release-tag asahi-quattro-fe8d2bf8 >/dev/null
+  run_bootstrap OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE="$identity" POINTER_SEQUENCE=36 \
+    --deferred-user --release-tag asahi-quattro-fe8d2bf8 >/dev/null
+done
+[[ $(grep -c '^args=.*--deferred-user --release-tag asahi-quattro-fe8d2bf8$' "$invocations") == 4 ]] ||
+  fail "every run forwards --deferred-user and the first-boot release" "$(cat "$invocations")"
+[[ $(<"$identity") == "${first_boot%$'\n'}" ]] || fail "the first-boot selection is used as is" "$(cat "$identity")"
+if run_bootstrap OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE="$identity" POINTER_SEQUENCE=35 \
+  --deferred-user >"$test_tmp/first-boot-unpinned.out" 2>&1; then
+  fail "a first-boot attempt without its --release-tag is refused"
+fi
+grep -Fq 'was pinned to a release and this run was not' "$test_tmp/first-boot-unpinned.out" ||
+  fail "a first-boot attempt without its --release-tag explains itself" "$(cat "$test_tmp/first-boot-unpinned.out")"
+if run_bootstrap OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE="$identity" POINTER_SEQUENCE=35 \
+  --deferred-user --release-tag asahi-quattro-00c0ffee >"$test_tmp/first-boot-other.out" 2>&1; then
+  fail "a first-boot attempt naming another release is refused"
+fi
+grep -Fq 'were given different releases' "$test_tmp/first-boot-other.out" ||
+  fail "a first-boot attempt naming another release explains itself" "$(cat "$test_tmp/first-boot-other.out")"
+pass "a first-boot selection with its matching --release-tag pins every attempt and is never rewritten"
+
 printf 'format=2\nselector=channel\nvalue=asahi-quattro-channel-35\n' >"$identity"
 if run_bootstrap OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE="$identity" \
   POINTER_SEQUENCE=35 >"$test_tmp/malformed-identity.out" 2>&1; then
@@ -292,6 +320,8 @@ grep -Fq 'identity_file="$work_dir/channel-identity"' "$wrapper" ||
   fail "the wrapper keeps the handover file in its own work directory"
 grep -Fq ': >"$identity_file"' "$wrapper" ||
   fail "the wrapper starts the handover file empty"
+grep -Fq 'if (( deferred_user )) && [[ -n ${OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE:-} ]]; then' "$wrapper" ||
+  fail "only a first-boot run keeps a handed-over file"
 grep -Fq 'bash install-omarchy-mx-mac --verify-only "$@"' "$wrapper" ||
   fail "the wrapper forwards its arguments to the verification run"
 pass "the wrapper owns the handover file and pins both of its runs"

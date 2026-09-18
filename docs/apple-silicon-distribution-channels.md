@@ -385,6 +385,13 @@ the first verified: a pointer that advanced in between changes nothing, an
 explicit override that differs between the runs is refused, and a verification
 run whose installer recorded no release refuses to install rather than drift.
 
+A first-boot run (`--deferred-user`) is the exception: when the caller exports
+an absolute `OMARCHY_ASAHI_CHANNEL_IDENTITY_FILE`, the wrapper uses that file
+as it is instead of its own empty one. First boot writes its selection there
+once (`selector=release`, `value=<tag>`, `release_tag=<tag>`) and passes the
+matching `--release-tag` on every attempt, so a retry installs the same release
+and the bootstrap's selector check refuses any other.
+
 ## The signed envelope
 
 `catalog.signed.json` carries the catalog and its signature together:
