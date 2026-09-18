@@ -18,10 +18,12 @@
 
     private let directory: URL
     private let channel: ReleaseChannel
+    private let sealedCatalog: Bool
 
-    public init(directory: URL, channel: ReleaseChannel) {
+    public init(directory: URL, channel: ReleaseChannel, sealedCatalog: Bool = false) {
       self.directory = directory
       self.channel = channel
+      self.sealedCatalog = sealedCatalog
     }
 
     /// Each channel keeps its own accepted sequence. Without this, a tester who
@@ -32,7 +34,10 @@
     }
 
     private var fileName: String {
-      Self.fileName(for: channel)
+      // Bundled test catalogs have an independent sequence timeline. Never let
+      // them advance public channel history, or consume its legacy receipt.
+      sealedCatalog
+        ? "accepted-sealed-catalog-\(channel.rawValue).json" : Self.fileName(for: channel)
     }
 
     public func load() throws -> AcceptedCatalogIdentity? {
@@ -40,7 +45,7 @@
       if let identity = try read(fileName: fileName) {
         return identity
       }
-      guard channel == .stable else {
+      guard channel == .stable, !sealedCatalog else {
         return nil
       }
       return try read(fileName: Self.legacyFileName)
@@ -160,7 +165,7 @@
         throw AcceptedCatalogIdentityStoreError.writeFailed
       }
       try synchronizeDirectory()
-      if channel == .stable {
+      if channel == .stable, !sealedCatalog {
         // The channel file now carries what the legacy file said, so retire it
         // rather than leave two records that can disagree.
         try? FileManager.default.removeItem(

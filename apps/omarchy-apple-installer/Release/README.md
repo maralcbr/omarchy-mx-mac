@@ -29,3 +29,15 @@ For a private or offline build the directory may also contain a signed
 `catalog.json` and `catalog.json.sig` pair. The app then verifies that sealed
 catalog with the same trust root instead of fetching a channel. Production
 builds omit the pair so the app reads its channel at run time.
+
+Sealed catalogs keep their rollback receipts in
+`accepted-sealed-catalog-<channel>.json`, separate from public
+`accepted-catalog-<channel>.json` history. Both histories enforce increasing
+sequences and reject sequence reuse with different contents. Public stable
+history retains the pre-channel legacy-file migration.
+
+Older private builds shared the public receipt. Do not automatically clear or
+migrate a public receipt after a rollback error: its origin is not recorded.
+An operator must first prove that its payload digest belongs to the exact
+private catalog used on that test machine, preserve a backup, and isolate only
+that matching receipt. Unknown receipts must remain protected.

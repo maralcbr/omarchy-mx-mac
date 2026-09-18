@@ -124,7 +124,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       .resolve(descriptorDefault: configuration.defaultChannel)
     let catalogStore = AcceptedCatalogIdentityStore(
       directory: workspace.state,
-      channel: channel
+      channel: channel,
+      sealedCatalog: configuration.sealedCatalogDocuments != nil
     )
     let previouslyAcceptedCatalog = try catalogStore.load()
     let validationTime = Date()

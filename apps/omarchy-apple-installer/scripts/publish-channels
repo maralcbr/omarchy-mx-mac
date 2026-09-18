@@ -23,7 +23,11 @@ R2_BUCKET="${OMARCHY_R2_BUCKET:-omarchy-releases}"
 R2_ENDPOINT="${OMARCHY_R2_ENDPOINT:-https://ab85a8b9d88f084e66bf9d4a8ee5cf66.r2.cloudflarestorage.com}"
 PUBLIC_BASE="${OMARCHY_PUBLIC_BASE:-https://downloads.aicodelabs.com.au}"
 TRUST_ROOT="${OMARCHY_TRUST_ROOT:-$script_directory/../Release/trust-root.ed25519.pub}"
-SIGNING_TOOL="${OMARCHY_CATALOG_SIGNING_TOOL:-xcrun swift $script_directory/catalog-signing.swift}"
+if [[ -n ${OMARCHY_CATALOG_SIGNING_TOOL:-} ]]; then
+  read -r -a SIGNING_TOOL <<< "$OMARCHY_CATALOG_SIGNING_TOOL"
+else
+  SIGNING_TOOL=(xcrun swift "$script_directory/catalog-signing.swift")
+fi
 PKG_FILE_NAME="Omarchy-MX-Mac-Installer.pkg"
 PKG_DOWNLOAD_NAME="Omarchy MX Mac Installer.pkg"
 NO_CACHE="no-cache, max-age=0, must-revalidate"
@@ -43,7 +47,7 @@ channels_usage() {
   cat <<'USAGE'
 Usage:
   publish-channels envelope --catalog FILE --signature FILE --output FILE
-  publish-channels os-promote --tag TAG --to stable|rc|rc-aurora [--minimum-sequence N] [--no-prune]
+  publish-channels os-promote --tag TAG --to stable|rc|rc-aurora [--minimum-sequence N] [--catalog-name NAME] [--no-prune]
   publish-channels app-publish --pkg FILE --version X.Y.Z [--to stable|rc]
   publish-channels channel-status [--channel stable|rc|rc-aurora|all]
   publish-channels prune [--confirm]
@@ -123,7 +127,7 @@ PY
 verify_catalog() {
   local catalog=$1 signature=$2 result
   require_file "$TRUST_ROOT"
-  result=$($SIGNING_TOOL verify "$TRUST_ROOT" "$catalog" "$signature" 2>/dev/null) ||
+  result=$("${SIGNING_TOOL[@]}" verify "$TRUST_ROOT" "$catalog" "$signature" 2>/dev/null) ||
     die "catalog signature does not verify against $TRUST_ROOT"
   [[ $result == "catalog_signature=passed" ]] ||
     die "unexpected verification result: $result"
@@ -226,11 +230,13 @@ verify_back() {
 
 os_promote() {
   local tag="" channel="" minimum_sequence=0 prune_after=1
+  local catalog_name="catalog.signed.json"
   while (( $# > 0 )); do
     case $1 in
       --tag) tag=${2:-}; shift 2 ;;
       --to) channel=${2:-}; shift 2 ;;
       --minimum-sequence) minimum_sequence=${2:-}; shift 2 ;;
+      --catalog-name) catalog_name=${2:-}; shift 2 ;;
       --no-prune) prune_after=0; shift ;;
       *) channels_usage ;;
     esac
@@ -238,16 +244,21 @@ os_promote() {
   [[ -n $tag && -n $channel ]] || channels_usage
   validate_os_tag "$tag"
   validate_channel "$channel"
+  [[ $catalog_name =~ ^catalog(-[a-z0-9.-]+)?\.signed\.json$ ]] ||
+    die "invalid catalog revision filename"
   command -v aws >/dev/null || die "missing command: aws"
 
   local work
   work=$(make_scratch)
 
-  echo "Reading releases/$tag/catalog.signed.json"
-  fetch_public "releases/$tag/catalog.signed.json" "$work/candidate.json" ||
-    die "releases/$tag/catalog.signed.json is not published"
+  echo "Reading releases/$tag/$catalog_name"
+  fetch_public "releases/$tag/$catalog_name" "$work/candidate.json" ||
+    die "releases/$tag/$catalog_name is not published"
   decode_envelope "$work/candidate.json" "$work/catalog" "$work/signature"
   verify_catalog "$work/catalog" "$work/signature"
+
+  python3 "$script_directory/execution_engine_release.py" --catalog "$work/catalog" ||
+    die "candidate execution engine is not the qualified release artifact"
 
   local sequence
   sequence=$(catalog_field "$work/catalog" sequence)

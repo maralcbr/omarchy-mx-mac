@@ -5,6 +5,33 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class AcceptedCatalogIdentityStoreTests: XCTestCase {
+    func testSealedCatalogDoesNotPoisonPublicChannelHistory() throws {
+      let directory = try privateDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let sealed = AcceptedCatalogIdentityStore(
+        directory: directory, channel: .rc, sealedCatalog: true)
+      let published = AcceptedCatalogIdentityStore(directory: directory, channel: .rc)
+      try sealed.store(try catalogIdentity(sequence: 90, digit: "b"))
+      XCTAssertNil(try published.load())
+      try published.store(try catalogIdentity(sequence: 10, digit: "a"))
+      XCTAssertEqual(try sealed.load()?.sequence, 90)
+      XCTAssertEqual(try published.load()?.sequence, 10)
+      XCTAssertThrowsError(try sealed.store(try catalogIdentity(sequence: 89, digit: "c")))
+      XCTAssertThrowsError(try published.store(try catalogIdentity(sequence: 9, digit: "c")))
+    }
+
+    func testSealedStableDoesNotReadOrRetirePublicLegacyHistory() throws {
+      let directory = try privateDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+      try writeLegacyState(try catalogIdentity(sequence: 42, digit: "c"), in: directory)
+      let sealed = AcceptedCatalogIdentityStore(
+        directory: directory, channel: .stable, sealedCatalog: true)
+      XCTAssertNil(try sealed.load())
+      try sealed.store(try catalogIdentity(sequence: 43, digit: "d"))
+      let published = AcceptedCatalogIdentityStore(directory: directory, channel: .stable)
+      XCTAssertEqual(try published.load()?.sequence, 42)
+    }
+
     func testMissingStateThenAtomicRoundTrip() throws {
       let directory = try privateDirectory()
       defer { try? FileManager.default.removeItem(at: directory) }

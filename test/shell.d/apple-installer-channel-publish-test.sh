@@ -107,6 +107,11 @@ SHIM
 cat >"$BIN_DIR/xcrun" <<'SHIM'
 #!/bin/bash
 printf 'xcrun %s\n' "$*" >>"$CALLS"
+if [[ $1 == "swift" ]]; then
+  [[ -f $2 ]] || exit 1
+  shift 2
+  exec "$OMARCHY_TEST_SIGNER" "$@"
+fi
 if [[ $1 == "stapler" ]]; then
   [[ -f $STAPLE_FAILS ]] && exit 1
   exit 0
@@ -141,6 +146,12 @@ export OMARCHY_R2_ENDPOINT=https://example.r2.cloudflarestorage.com
 export OMARCHY_PUBLIC_BASE=https://downloads.example.test
 export OMARCHY_TRUST_ROOT="$WORK/trust-root.pub"
 export OMARCHY_CATALOG_SIGNING_TOOL="$BIN_DIR/signing-tool"
+export OMARCHY_ENGINE_SOURCE_LOCK="$WORK/engine-lock.json"
+python3 - "$OMARCHY_ENGINE_SOURCE_LOCK" <<'PYLOCK'
+import hashlib, json, sys
+json.dump({'validation_artifact': {'filename': 'installer-v0.9.0-omarchy.15.tar.gz',
+    'size_bytes': 1, 'sha256': hashlib.sha256(bytes(1)).hexdigest()}}, open(sys.argv[1], 'w'))
+PYLOCK
 
 # A stand-in for the Ed25519 tool: a signature is the catalog digest, which is
 # enough to prove the publisher refuses content whose signature does not match.
@@ -156,6 +167,7 @@ fi
 exit 64
 SHIM
 chmod +x "$BIN_DIR/signing-tool"
+export OMARCHY_TEST_SIGNER="$BIN_DIR/signing-tool"
 printf 'trust root' >"$OMARCHY_TRUST_ROOT"
 
 sign_catalog() {
@@ -169,8 +181,10 @@ write_catalog() {
   python3 - "$output" "$sequence" "$payload_url" "$payload_size" <<'PY'
 import json
 import sys
+import os
 
 output, sequence, payload_url, payload_size = sys.argv[1:5]
+engine = json.load(open(os.environ['OMARCHY_ENGINE_SOURCE_LOCK']))['validation_artifact']
 catalog = {
     "schemaVersion": 4,
     "sequence": int(sequence),
@@ -179,6 +193,10 @@ catalog = {
         {
             "deviceIdentifier": "apple,j314s",
             "status": "enabled",
+            "engineVersion": "v0.9.0-omarchy.15",
+            "engineDigest": "sha256:" + engine['sha256'],
+            "engineArtifact": {'fileName': engine['filename'], 'sizeBytes': engine['size_bytes'],
+                'sourceURL': payload_url.rsplit('/', 1)[0] + '/' + engine['filename']},
             "payloadArtifact": {
                 "sourceURL": payload_url,
                 "fileName": "payload.zip",
@@ -206,6 +224,7 @@ stage_payload() {
   local tag=$1 size=$2
   mkdir -p "$BUCKET_DIR/releases/$tag"
   head -c "$size" /dev/zero >"$BUCKET_DIR/releases/$tag/payload.zip"
+  head -c 1 /dev/zero >"$BUCKET_DIR/releases/$tag/installer-v0.9.0-omarchy.15.tar.gz"
 }
 
 BASE=https://downloads.example.test
@@ -224,6 +243,34 @@ json.loads(base64.b64decode(d["catalog"]))
 ' "$BUCKET_DIR/releases/os-v4.0.2-mac.1.20260902/catalog.signed.json" ||
   fail "envelope decodes to a catalog and a signature"
 pass "an envelope holds the catalog and its signature in one object"
+
+# A valid signature and newer sequence cannot accidentally publish an old engine.
+python3 - "$WORK/os-v4.0.2-mac.1.20260902.catalog" "$WORK/old-engine.catalog" <<'PYOLD'
+import json, sys
+catalog = json.load(open(sys.argv[1]))
+catalog['models'][0]['engineVersion'] = 'v0.9.0-omarchy.14'
+json.dump(catalog, open(sys.argv[2], 'w'))
+PYOLD
+sign_catalog "$WORK/old-engine.catalog" "$WORK/old-engine.sig"
+"$PUBLISHER" envelope --catalog "$WORK/old-engine.catalog" --signature "$WORK/old-engine.sig" \
+  --output "$BUCKET_DIR/releases/os-v4.0.2-mac.1.20260902/catalog.signed.json" >/dev/null
+: >"$CALLS"
+if OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260902 "$PUBLISHER" os-promote \
+  --tag os-v4.0.2-mac.1.20260902 --to stable >"$WORK/old-engine.log" 2>&1; then
+  fail "an obsolete execution engine is refused"
+fi
+grep -q 'qualified execution engine' "$WORK/old-engine.log" || fail "engine rejection is explained"
+grep -q '^aws s3 cp' "$CALLS" && fail "engine rejection must precede publication"
+publish_candidate "os-v4.0.2-mac.1.20260902" 100 "$BASE/releases/os-v4.0.2-mac.1.20260902/payload.zip" 128
+pass "an obsolete execution engine cannot be promoted"
+
+# The default Swift signer must retain a source path containing spaces.
+env -u OMARCHY_CATALOG_SIGNING_TOOL "$PUBLISHER" envelope \
+  --catalog "$WORK/os-v4.0.2-mac.1.20260902.catalog" \
+  --signature "$WORK/os-v4.0.2-mac.1.20260902.sig" \
+  --output "$WORK/default-signer-envelope.json" >"$WORK/default-signer.log" 2>&1 ||
+  fail "default signer handles the project path" "$(cat "$WORK/default-signer.log")"
+pass "default signer preserves paths with spaces"
 
 # --- promotion writes both channel objects and verifies them back -----------
 OMARCHY_PUBLISH_ASSUME_YES=os-v4.0.2-mac.1.20260902 "$PUBLISHER" os-promote --tag os-v4.0.2-mac.1.20260902 --to stable \
@@ -490,3 +537,21 @@ while read -r key; do
   esac
 done < <(grep -E "^aws s3 cp " "$CALLS" | grep -oE "s3://test-bucket/[^ ]+" | sed 's|s3://test-bucket/||' | sort -u)
 pass "only immutable keys and the documented mutable keys are written"
+
+# A new immutable catalog revision can retain an existing OS image set.
+revision_tag=os-v4.0.2-mac.1.20260930
+stage_payload "$revision_tag" 128
+publish_candidate "$revision_tag" 900 "$BASE/releases/$revision_tag/payload.zip" 128
+write_catalog "$WORK/revision.catalog" 901 "$BASE/releases/$revision_tag/payload.zip" 128
+sign_catalog "$WORK/revision.catalog" "$WORK/revision.sig"
+"$PUBLISHER" envelope --catalog "$WORK/revision.catalog" --signature "$WORK/revision.sig" \
+  --output "$BUCKET_DIR/releases/$revision_tag/catalog-engine.15.signed.json" >/dev/null
+OMARCHY_PUBLISH_ASSUME_YES="$revision_tag" "$PUBLISHER" os-promote --tag "$revision_tag" \
+  --catalog-name catalog-engine.15.signed.json --to rc --no-prune >"$WORK/revision.log" 2>&1 ||
+  fail "an immutable engine-only catalog revision is promotable" "$(cat "$WORK/revision.log")"
+grep -q 'channel_sequence=901' "$WORK/revision.log" || fail "selected catalog revision is promoted"
+if "$PUBLISHER" os-promote --tag "$revision_tag" --catalog-name ../catalog.signed.json --to rc \
+  >"$WORK/unsafe-revision.log" 2>&1; then
+  fail "catalog revision path traversal must fail"
+fi
+pass "catalog revisions preserve OS assets and reject unsafe filenames"

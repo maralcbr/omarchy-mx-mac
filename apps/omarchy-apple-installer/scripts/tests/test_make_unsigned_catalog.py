@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -27,6 +28,13 @@ class CatalogGeneratorTests(unittest.TestCase):
         for key in ("engine_name", "metadata_name", "payload_name"):
             (self.assets / self.inputs[key]).write_bytes(key.encode() * 64)
 
+        engine = self.assets / self.inputs['engine_name']
+        self.lock = self.directory / 'source-lock.json'
+        self.lock.write_text(json.dumps({'validation_artifact': {
+            'filename': engine.name, 'size_bytes': engine.stat().st_size,
+            'sha256': hashlib.sha256(engine.read_bytes()).hexdigest(),
+        }}))
+
     def write_inputs(self, document: dict | None = None) -> Path:
         path = self.directory / "inputs.json"
         path.write_text(json.dumps(document or self.inputs, indent=2))
@@ -48,6 +56,7 @@ class CatalogGeneratorTests(unittest.TestCase):
                 "--now",
                 NOW,
             ],
+            env=dict(os.environ, OMARCHY_ENGINE_SOURCE_LOCK=str(self.lock)),
             capture_output=True,
             text=True,
         )
@@ -56,6 +65,11 @@ class CatalogGeneratorTests(unittest.TestCase):
         result = self.generate(document)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn(fragment, result.stderr)
+
+    def test_rejects_an_execution_engine_outside_the_qualified_lock(self):
+        document = dict(self.inputs, engine_version='v0.9.0-omarchy.14')
+        self.assertRejected(document, 'qualified execution engine')
+        self.assertFalse((self.directory / 'catalog.json').exists())
 
     def test_emits_schema_four_without_an_expiry(self) -> None:
         result = self.generate()
@@ -74,7 +88,7 @@ class CatalogGeneratorTests(unittest.TestCase):
             catalog["installer"],
             {
                 "minimumVersion": "2.0.0",
-                "latestVersion": "2.0.0",
+                "latestVersion": self.inputs["installer"]["latest_version"],
                 "downloadURL": self.inputs["installer"]["download_url"],
             },
         )

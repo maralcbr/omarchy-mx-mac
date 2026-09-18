@@ -32,6 +32,8 @@ import json
 import re
 from pathlib import Path
 
+from execution_engine_release import verify_catalog_file
+
 SCHEMA_VERSION = 4
 
 REQUIRED_INPUT_KEYS = frozenset(
@@ -352,6 +354,7 @@ def main() -> None:
         ],
     }
 
+    verify_catalog_file(catalog)
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
     arguments.output.write_text(json.dumps(catalog, indent=2) + "\n")
     print(f"unsigned_catalog={arguments.output}")
