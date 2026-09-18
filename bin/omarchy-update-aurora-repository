@@ -373,7 +373,7 @@ if [[ $mode == complete ]]; then
     [[ $installed == "${package_version[$package]}" ]] ||
       unverified "$package $installed is installed, but $target_tag has ${package_version[$package]}"
   done
-  omarchy-update-aurora-boot-check || unverified "the boot files do not match the installed kernel"
+  omarchy-apple-silicon-boot-check linux-aurora || unverified "the boot files do not match the installed kernel"
 
   if [[ $lane == rc ]]; then
     omarchy-apple-silicon-channel lane-write switch= edge_pending= || exit 2

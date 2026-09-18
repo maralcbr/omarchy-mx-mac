@@ -59,9 +59,9 @@ fi
 shift
 TEST_LOCK_HELD=1 exec bash "$@"
 SH
-cat >"$stub_bin/omarchy-update-aurora-boot-check" <<'SH'
+cat >"$stub_bin/omarchy-apple-silicon-boot-check" <<'SH'
 #!/bin/bash
-echo boot-check >>"$TEST_CALLS"
+echo "boot-check $*" >>"$TEST_CALLS"
 [[ ${TEST_BOOT_STATUS:-0} == 0 ]] || echo "Aurora boot check: m1n1/boot.bin on the system ESP is stale" >&2
 exit "${TEST_BOOT_STATUS:-0}"
 SH
@@ -297,7 +297,7 @@ expect_no_targets "an rc Mac without a switch"
 [[ ! -e $lane_file ]] || fail "an rc Mac gets no lane file"
 run_step --complete
 expect_status 0 "completing on an rc Mac with nothing open"
-! grep -qx boot-check "$calls" || fail "nothing open, nothing to check"
+! grep -q boot-check "$calls" || fail "nothing open, nothing to check"
 pass "an rc Mac without a lane keeps its pin, stages its descriptor and has nothing to complete"
 
 # rc -> edge, first contact: the listing's highest full release, whatever the pointer says.
@@ -330,7 +330,7 @@ grep -Fq "the boot files do not match the installed kernel" "$test_tmp/err" || f
 expect_lane "a failed boot check keeps the journal" 'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\n' "$(digest aurora-edge-5)"
 run_step --complete
 expect_status 0 "completing an installed, bootable edge release"
-grep -qx boot-check "$calls" || fail "completion checks the boot chain"
+grep -qx 'boot-check linux-aurora' "$calls" || fail "completion checks linux-aurora's boot chain" "$(cat "$calls")"
 expect_lane "completion accepts the release and closes the switch" 'format=1\nlane=edge\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
 [[ ! -e $reboot_blocked ]] || fail "a verified move lifts the reboot block"
 grep -Fq "now runs aurora-edge-5 from edge" "$test_tmp/out" || fail "completion says what the Mac runs" "$(cat "$test_tmp/out")"
