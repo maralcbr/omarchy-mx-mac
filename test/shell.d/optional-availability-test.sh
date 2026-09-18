@@ -20,7 +20,6 @@ case $1 in
 esac`)
   stub('uname', 'echo uname >> "$CALLS"; echo "${ARCH:-x86_64}"')
   stub('omarchy-hw-apple-silicon', '[[ ${APPLE:-0} == 1 ]]')
-  stub('omarchy-hw-apple-kernel', 'echo linux-asahi')
   const env = {...process.env, OMARCHY_PATH:root, CALLS:calls, PATH:bin+':'+root+'/bin:'+process.env.PATH}
   function run(script, extra={}) { return cp.spawnSync('bash', ['-euo','pipefail','-c',script], {env:{...env,...extra},encoding:'utf8'}) }
   const prelude = menu.guardScript({probe:{id:'probe',when:'true'}}).split('\n').filter(l=>!l.startsWith('if {')).join('\n')
@@ -45,10 +44,12 @@ esac`)
   checkRow('install.editor.zed',0)
   checkRow('install.editor.zed',1,{MISSING:'zed'})
   for (const apple of ['0','1']) {
-    const selected=apple==='1'?'linux-asahi-headers':'linux-headers'
     checkRow('install.gaming.xbox-controllers',0,{APPLE:apple})
-    checkRow('install.gaming.xbox-controllers',1,{APPLE:apple,MISSING:selected})
-    checkRow('install.gaming.xbox-controllers',0,{APPLE:apple,MISSING:apple==='1'?'linux-headers':'linux-asahi-headers'})
+    checkRow('install.gaming.xbox-controllers',1,{APPLE:apple,MISSING:'xpadneo-dkms'})
+    // Matching headers are a base-system guarantee, not Xbox transaction targets.
+    for (const header of ['linux-headers','linux-asahi-headers']) {
+      checkRow('install.gaming.xbox-controllers',0,{APPLE:apple,MISSING:header})
+    }
   }
   fs.writeFileSync(calls,'')
   const cacheItems={}
