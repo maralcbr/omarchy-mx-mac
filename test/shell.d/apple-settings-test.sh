@@ -8,9 +8,10 @@ cat >"$work/bin/omarchy-hw-apple-silicon" <<'STUB'
 #!/bin/bash
 [[ ${APPLE:-0} == 1 ]]
 STUB
-cat >"$work/bin/sudo" <<'STUB'
+cat >"$work/bin/omarchy-update-pacman" <<'STUB'
 #!/bin/bash
-"$@"
+echo "update-pacman $*" >>"$CALLS"
+exit "${PKG_STATUS:-0}"
 STUB
 cat >"$work/bin/pacman" <<'STUB'
 #!/bin/bash
@@ -30,7 +31,7 @@ for apple in 0 1; do
   APPLE=$apple bash -euo pipefail "$ROOT/migrations/1789275235.sh"
 done
 [[ $(grep -c -- '^-Q omarchy-settings-asahi$' "$CALLS") == 1 ]] || fail 'only Apple setup requires the add-on'
-[[ $(grep -c -- '^-S --needed --noconfirm omarchy-settings-asahi$' "$CALLS") == 1 ]] || fail 'only Apple migration installs the add-on'
+[[ $(grep -c -- '^update-pacman -S --needed --noconfirm omarchy-settings-asahi$' "$CALLS") == 1 ]] || fail 'only Apple migration installs the add-on through the protected transaction wrapper'
 status=0
 APPLE=1 PKG_STATUS=42 bash -euo pipefail "$ROOT/migrations/1789275235.sh" || status=$?
 [[ $status == 42 ]] || fail 'failed package installation leaves migration pending'
