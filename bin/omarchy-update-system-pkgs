@@ -8,9 +8,25 @@ set -e
 # Aurora Macs take their kernel from [omarchy-aurora], which only this step
 # pins. It runs ahead of every upgrade below, retries included, and a release it
 # cannot prove stops the update: upgrading against the wrong pin would move the
-# kernel. Elsewhere it does nothing. Its statuses are its own; 3 here would read
-# as a repository mid-transition.
-omarchy-update-aurora-repository || exit 1
+# kernel. Elsewhere it does nothing. 3 is edge that could not be followed this
+# time, and the upgrade goes on against the pin it has; any other failure is its
+# own, since 3 from here would read as a repository mid-transition.
+aurora_targets_file=$(mktemp)
+aurora_status=0
+OMARCHY_AURORA_TARGETS=$aurora_targets_file omarchy-update-aurora-repository || aurora_status=$?
+mapfile -t aurora_targets <"$aurora_targets_file"
+rm -f "$aurora_targets_file"
+case $aurora_status in
+  0) ;;
+  3) aurora_targets=() ;;
+  *) exit 1 ;;
+esac
+for target in "${aurora_targets[@]}"; do
+  case "$target" in
+    omarchy-aurora/linux-aurora | omarchy-aurora/linux-aurora-headers | omarchy-aurora/m1n1-aurora) ;;
+    *) echo "Unexpected Aurora upgrade target: $target" >&2; exit 1 ;;
+  esac
+done
 
 # The boot files an Apple Silicon image wrote are adopted by naming their package in this same upgrade, retries included.
 pacman_targets=()
@@ -21,13 +37,32 @@ if omarchy-hw-apple-silicon && [[ -z ${OMARCHY_APPLE_BOOT_UNAVAILABLE:-} ]]; the
     pacman_targets+=(--needed omarchy-apple-boot)
   fi
 fi
+# A kernel switch names its repository's packages, so pacman installs that
+# release's versions even where they are older than the installed ones.
+if ((${#aurora_targets[@]})); then
+  [[ " ${pacman_targets[*]} " == *" --needed "* ]] || pacman_targets+=(--needed)
+  pacman_targets+=("${aurora_targets[@]}")
+fi
+
+# pacman exits 0 even when a hook after the transaction failed, so the switch
+# is finished only by proving what it installed boots. Until then the reboot
+# the update would offer stays blocked.
+reboot_blocked=${OMARCHY_REBOOT_BLOCKED:-/run/omarchy-reboot-blocked}
+finish_aurora_switch() {
+  ((${#aurora_targets[@]})) || return 0
+  omarchy-update-aurora-repository --complete && return 0
+  [[ -e $reboot_blocked ]] ||
+    sudo tee "$reboot_blocked" >/dev/null <<<"the Aurora kernel switch could not be verified" || true
+}
 
 # The conflict handler's last resort: pacman puts its questions to the person
 # running the update instead of answering them itself. Nothing here may capture
 # a stream, because an upgrade without --noconfirm prompts on stderr. The
 # handler has already said why, so no heading here either.
 if [[ ${OMARCHY_UPDATE_CONFLICT:-} == 1 && ${OMARCHY_UPDATE_INTERACTIVE:-} == 1 ]]; then
-  exec sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Syu --overwrite '/usr/share/omarchy/*' "${pacman_targets[@]}"
+  sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Syu --overwrite '/usr/share/omarchy/*' "${pacman_targets[@]}" || exit
+  finish_aurora_switch
+  exit 0
 fi
 
 echo -e "\e[32m\nUpdate system packages\e[0m"
@@ -52,6 +87,7 @@ fi
 if sudo env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm \
   --overwrite '/usr/share/omarchy/*' "${pacman_args[@]}" "${pacman_targets[@]}" 2>"$errors"; then
   cat "$errors" >&2
+  finish_aurora_switch
   exit 0
 fi
 cat "$errors" >&2

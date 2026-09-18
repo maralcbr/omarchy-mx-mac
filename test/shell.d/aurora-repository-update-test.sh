@@ -69,12 +69,15 @@ run_system_packages
 OMARCHY_UPDATE_CONFLICT=1 OMARCHY_UPDATE_INTERACTIVE=1 run_system_packages
 [[ $(head -1 "$test_tmp/order") == aurora && $(sed -n 2p "$test_tmp/order") == "pacman -Syu"* ]] ||
   fail "the Aurora repository is pinned before the interactive conflict retry" "$(cat "$test_tmp/order")"
-for aurora_status in 2 3; do
+for aurora_status in 1 2; do
   TEST_AURORA_STATUS=$aurora_status run_system_packages
   (( status == 1 )) || fail "a failed Aurora repin fails the system update without its own status" "status $status"
   ! grep -q '^pacman' "$test_tmp/order" || fail "a failed Aurora repin stops before pacman" "$(cat "$test_tmp/order")"
 done
-pass "omarchy-update-system-pkgs pins the Aurora repository before pacman and stops when it cannot"
+TEST_AURORA_STATUS=3 run_system_packages
+(( status == 0 )) || fail "edge that cannot be followed this time leaves the upgrade running" "status $status: $(cat "$test_tmp/pkgs.err")"
+[[ $(sed -n 2p "$test_tmp/order") == "pacman -Syu"* ]] || fail "a deferred edge move still upgrades on the current pin" "$(cat "$test_tmp/order")"
+pass "omarchy-update-system-pkgs pins the Aurora repository before pacman, stops when it cannot, and upgrades on the current pin when edge is deferred"
 
 stub_bin="$test_tmp/bin"
 assets="$test_tmp/assets"
@@ -87,6 +90,7 @@ marker="$root/usr/share/omarchy/apple-silicon-kernel"
 channel_record="$root/var/lib/omarchy/apple-silicon-channel"
 channel_dir="$root/var/lib/omarchy"
 channel_calls="$test_tmp/channel-calls"
+staged_descriptor="$root/var/lib/omarchy/aurora-target.descriptor"
 sync_dir="$root/var/lib/pacman/sync"
 calls="$test_tmp/calls"
 curl_log="$test_tmp/curl.log"
@@ -116,6 +120,11 @@ workflow_run=34750870698
 runner_arch=aarch64
 signing_fingerprint=$subkey_fingerprint
 package_count=3
+package=1|linux-aurora|6.17.0.aurora1-1|aarch64|linux-aurora-6.17.0.aurora1-1-aarch64.pkg.tar.zst|$(printf '%064d' 1)|linux-aurora-6.17.0.aurora1-1-aarch64.pkg.tar.zst.sig|$(printf '%064d' 2)
+package=2|linux-aurora-headers|6.17.0.aurora1-1|aarch64|linux-aurora-headers-6.17.0.aurora1-1-aarch64.pkg.tar.zst|$(printf '%064d' 3)|linux-aurora-headers-6.17.0.aurora1-1-aarch64.pkg.tar.zst.sig|$(printf '%064d' 4)
+package=3|m1n1-aurora|1.5.2-1|aarch64|m1n1-aurora-1.5.2-1-aarch64.pkg.tar.zst|$(printf '%064d' 5)|m1n1-aurora-1.5.2-1-aarch64.pkg.tar.zst.sig|$(printf '%064d' 6)
+asset=omarchy-aurora.db|$(printf '%s' "$tag" | sha256sum | cut -d' ' -f1)
+asset=omarchy-aurora.db.sig|$(printf '%064d' 7)
 EOF
   printf 'signature\n' >"$assets/$tag/AURORA.sig"
 }
@@ -205,11 +214,12 @@ signer=$subkey
 [[ ${TEST_GPG_SIGNER:-subkey} == "subkey" ]] || signer=$primary
 echo "[GNUPG:] VALIDSIG $signer 2026-01-01 0 4 0 1 22 00 $primary"
 SH
-# The channel record's own writes are logged apart, so "nothing privileged runs"
-# keeps meaning pacman.conf, its backup and its cache.
+# The channel helper's own writes (the record, the lane, the staged descriptor)
+# are logged apart, so "nothing privileged runs" keeps meaning pacman.conf, its
+# backup and its cache.
 cat >"$stub_bin/sudo" <<'SH'
 #!/bin/bash
-if [[ $* == *apple-silicon-channel* ]]; then
+if [[ $* == *apple-silicon-channel* || $* == *apple-silicon-aurora-lane* || $* == *aurora-target.descriptor* ]]; then
   printf 'sudo:%s\n' "$*" >>"$TEST_CHANNEL_CALLS"
   exec "$@"
 fi
@@ -401,17 +411,21 @@ TEST_APPLE_SILICON=0 not_aurora "an x86 machine"
 [[ ! -e $channel_record && ! -s $channel_calls ]] || fail "an x86 machine records no channel"
 pass "only Aurora installs are touched: Asahi and x86 are silent no-ops, and ambiguous kernel evidence says why once"
 
-# The pin that ships is one the updater accepts.
+# The pin that ships is one the updater accepts. Even a Mac already on it
+# stages that release's descriptor, which is not among the test's assets, so it
+# gets as far as asking for it and changes nothing.
 shipped_tag=$(sed -n 's/^tag=//p' "$shipped_pin")
 { options_conf; aurora_conf "https://github.com/$repo/releases/download/$shipped_tag"; omarchy_conf; remaining_conf; } >"$pacman_conf"
 reset_run
 TEST_OMARCHY_PATH="$ROOT" run_status
-(( status == 0 )) || fail "the shipped pin parses" "status $status: $(cat "$test_tmp/err")"
-[[ ! -s $test_tmp/out && ! -s $test_tmp/err ]] || fail "a Mac already on the shipped pin is silent" "$(cat "$test_tmp/out" "$test_tmp/err")"
+(( status == 2 )) || fail "the shipped pin parses" "status $status: $(cat "$test_tmp/err")"
+grep -Fxq "https://github.com/$repo/releases/download/$shipped_tag/AURORA" "$curl_log" ||
+  fail "a Mac already on the shipped pin stages its descriptor" "$(cat "$curl_log" "$test_tmp/err")"
 expect_untouched "a Mac already on the shipped pin"
+[[ ! -e $staged_descriptor ]] || fail "nothing is staged without the descriptor"
 printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' | cmp -s - "$channel_record" ||
   fail "an Aurora install without a marker is recorded as rc" "$(cat "$channel_record")"
-pass "the shipped pin is accepted and a Mac already on it is left alone"
+pass "the shipped pin is accepted, and a Mac already on it asks for its descriptor before anything else"
 
 # A missing section is added right before [omarchy], with the legacy evidence.
 { options_conf; omarchy_conf; remaining_conf; } >"$pacman_conf"
@@ -521,13 +535,27 @@ left_alone "an [omarchy-aurora] that includes a server list" "Include = /etc/pac
 left_alone "an [omarchy-aurora] without a server" "no server"
 pass "a newer candidate, an unknown server, mixed releases, Include and no server are left alone with a warning"
 
+# A descriptor proven under the pin's digest is staged, and the pin's digest is
+# proof enough to reuse it: the section moves without going back to the network.
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
+cmp -s "$assets/$new_tag/AURORA" "$staged_descriptor" || fail "the pinned release's descriptor is staged" "$(cat "$staged_descriptor" 2>&1)"
+[[ $(stat -c '%a' "$staged_descriptor") == 644 ]] || fail "the staged descriptor is 0644"
+reset_run
+TEST_CURL_OFFLINE=1 run_status
+expect_repinned "a repin with the pinned descriptor already staged"
+[[ ! -s $curl_log ]] || fail "a descriptor staged under the pin's digest is not downloaded again" "$(cat "$curl_log")"
+pass "the pinned release's descriptor is staged, and reused while it has the pin's digest"
+
 # Nothing is written unless the pinned release is proven.
 { options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+rm -f "$staged_descriptor"
 failed_closed() {
   local description=$1 expected_status=$2 message=$3
   (( status == expected_status )) || fail "$description fails closed" "status $status: $(cat "$test_tmp/err")"
   grep -Fq "$message" "$test_tmp/err" || fail "$description is explained" "$(cat "$test_tmp/err")"
   expect_untouched "$description"
+  [[ ! -e $staged_descriptor ]] || fail "$description stages nothing"
 }
 reset_run
 write_pin "$new_tag" "$(printf '%064d' 0)"
@@ -543,7 +571,7 @@ TEST_GPG_SIGNER=primary run_status
 failed_closed "a primary-key signature" 2 'was not signed by the Omarchy ARM repository signing subkey'
 reset_run
 TEST_CURL_OFFLINE=1 run_status
-failed_closed "a download failure" 3 "could not download $new_server/AURORA"
+failed_closed "a download failure" 2 "could not download $new_server/AURORA"
 
 reset_run
 printf 'malformed' >"$key_file"
@@ -753,6 +781,7 @@ channel_helper() {
 { options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
 rc_record
 reset_run
+rm -f "$staged_descriptor"
 gate="$test_tmp/curl-gate"
 rm -f "$gate".*
 ( TEST_CURL_GATE="$gate" run_status; echo "$status" >"$gate.status" ) &

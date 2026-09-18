@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# omarchy:summary=Stop a pacman transaction whose Aurora database is not the staged release's
+# omarchy:hidden=true
+
+# Runs from 01-omarchy-aurora-verify.hook before pacman installs or upgrades
+# linux-aurora, its headers or m1n1-aurora. omarchy update stages the verified
+# descriptor of the release it keeps [omarchy-aurora] on; this proves the
+# database pacman just synced is the one that descriptor names, and pacman
+# proves each package's signature. A section on any other release (a hold, a
+# release pinned by hand) or nothing staged yet is the owner's choice: one
+# notice, and the transaction goes on. pacman -U archives never came from the
+# repository and are outside this check.
+
+set -euo pipefail
+
+root=${OMARCHY_AURORA_ROOT:-}
+state_dir="$root/var/lib/omarchy"
+descriptor="$state_dir/aurora-target.descriptor"
+pacman_conf="$root/etc/pacman.conf"
+release_url='^https://github\.com/maralcbr/omarchy-pkgs/releases/download/(aurora-packages-[0-9a-f]{40}|aurora-edge-[1-9][0-9]{0,8})/?[[:space:]]*$'
+
+notice() {
+  echo "Aurora kernel check: $*; the repository is not checked."
+  exit 0
+}
+
+abort() {
+  echo "Aurora kernel check: $*. Nothing was installed; run omarchy update to stage the release again." >&2
+  exit 1
+}
+
+root_only() {
+  local owner group mode
+  read -r owner group mode < <(stat -c '%u %g %a' "$1" 2>/dev/null) || return 1
+  if [[ ${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-0} != 1 ]] && [[ $owner != 0 || $group != 0 ]]; then
+    return 1
+  fi
+  (( (8#$mode & 8#022) == 0 ))
+}
+
+[[ -r $pacman_conf ]] || abort "$pacman_conf cannot be read"
+section="" section_tag="" servers=0 other=0
+header='^[[:space:]]*\[([^]]+)\][[:space:]]*$'
+setting='^[[:space:]]*(Server|Include)[[:space:]]*=[[:space:]]*(.*)$'
+while IFS= read -r line || [[ -n $line ]]; do
+  line=${line%$'\r'}
+  if [[ $line =~ $header ]]; then
+    section=${BASH_REMATCH[1]}
+    continue
+  fi
+  [[ $section == omarchy-aurora && $line =~ $setting ]] || continue
+  (( servers += 1 ))
+  if [[ ${BASH_REMATCH[1]} == Server && ${BASH_REMATCH[2]} =~ $release_url ]]; then
+    section_tag=${BASH_REMATCH[1]}
+  else
+    other=1
+  fi
+done <"$pacman_conf"
+
+[[ -e $descriptor || -L $descriptor ]] || notice "omarchy update has not staged a release yet"
+(( servers == 1 && ! other )) && [[ -n $section_tag ]] ||
+  notice "[omarchy-aurora] is not on a single release omarchy update manages"
+
+[[ -d $state_dir && ! -L $state_dir ]] && root_only "$state_dir" &&
+  [[ -f $descriptor && ! -L $descriptor ]] && root_only "$descriptor" ||
+  abort "$descriptor is not a file only root can change"
+
+staged_tag="" database="" tags=0 databases=0
+while IFS= read -r line || [[ -n $line ]]; do
+  case "$line" in
+    release_tag=*)
+      staged_tag=${line#release_tag=}
+      (( tags += 1 ))
+      ;;
+    asset=omarchy-aurora.db\|*)
+      database=${line#asset=omarchy-aurora.db|}
+      (( databases += 1 ))
+      ;;
+  esac
+done <"$descriptor"
+(( tags == 1 && databases == 1 )) && [[ $database =~ ^[0-9a-f]{64}$ ]] || abort "$descriptor is malformed"
+
+[[ $staged_tag == "$section_tag" ]] ||
+  notice "[omarchy-aurora] is on $section_tag, not $staged_tag, the release omarchy update staged"
+
+db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2 }' "$pacman_conf")
+synced="$root${db_path:-/var/lib/pacman}/sync/omarchy-aurora.db"
+[[ -f $synced ]] || abort "$synced is missing"
+[[ $(sha256sum "$synced" | cut -d' ' -f1) == "$database" ]] ||
+  abort "the synced omarchy-aurora database is not the one $section_tag's signed descriptor names"

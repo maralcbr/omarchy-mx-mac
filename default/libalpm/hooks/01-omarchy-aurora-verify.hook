@@ -1,0 +1,13 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = linux-aurora
+Target = linux-aurora-headers
+Target = m1n1-aurora
+
+[Action]
+Description = Checking the Aurora kernel repository against its signed descriptor...
+When = PreTransaction
+Exec = /usr/bin/omarchy-update-aurora-verify
+AbortOnFail

@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Pin the Aurora kernel repository at the qualified signed release
+# omarchy:args=[--complete]
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
@@ -17,6 +18,18 @@
 # by hand for qualification, say -- is left exactly as it is. Every other byte of
 # pacman.conf stays as it was, and a machine whose channel record is not an
 # unheld rc is never touched.
+#
+# An rc Mac whose Aurora lane is edge follows the newest aurora-edge-<N> release
+# instead, never one below the release it last accepted. The release it picks is
+# journaled as pending before the section moves, so an interrupted update comes
+# back to the same one. An edge section goes back to the pin only once a switch
+# to rc is asked for. Whichever release the section ends on, its verified
+# descriptor is staged for the pacman hook that checks the synced database.
+#
+# While a switch or an edge move is open, the three packages are written to
+# $OMARCHY_AURORA_TARGETS so the upgrade installs that release's versions, older
+# or not. --complete then proves they are installed and boot before the move
+# counts as done. Exit 3: edge could not be followed this time; nothing moved.
 
 set -euo pipefail
 
@@ -24,17 +37,24 @@ repo=maralcbr/omarchy-pkgs
 trusted_key=C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC
 trusted_subkey=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 release_tag_pattern='^aurora-packages-[0-9a-f]{40}$'
+edge_tag_pattern='^aurora-edge-([1-9][0-9]{0,8})$'
+edge_pointer_url=https://downloads.aicodelabs.com.au/pointers/aurora-edge-channel
+releases_api_url="https://api.github.com/repos/$repo/releases?per_page=100"
+listing_page_limit=10
 comment_line="# Aurora kernel and bootloader, kept on the qualified release by omarchy update"
+aurora_packages=(linux-aurora linux-aurora-headers m1n1-aurora)
 
 fail() {
   echo "Aurora kernel repository update: $*" >&2
   exit 2
 }
 
+mode=update
 case "${1:-}" in
   "") ;;
+  --complete) mode=complete ;;
   -h|--help)
-    echo "Usage: omarchy-update-aurora-repository"
+    echo "Usage: omarchy-update-aurora-repository [--complete]"
     exit 0
     ;;
   *) fail "unknown option '$1'" ;;
@@ -88,14 +108,30 @@ while IFS= read -r line; do
   esac
 done <<<"$channel_record"
 [[ $channel != stable ]] || exit 0
-if [[ -n $channel_hold ]]; then
+if [[ -n $channel_hold && $mode == update ]]; then
   printf "\e[33mLeaving [omarchy-aurora] as it is: this Mac's channel is held (%s).\e[0m\n" "$channel_hold" >&2
   exit 0
 fi
 [[ $channel == rc ]] || fail "unexpected Apple Silicon channel '$channel'"
 
+lane_state=$(omarchy-apple-silicon-channel lane) ||
+  fail "this Mac's Aurora lane cannot be read; omarchy-apple-silicon-channel reset-rc returns it to rc"
+lane=rc switch="" accepted="" pending=""
+while IFS= read -r line; do
+  case "$line" in
+    lane=*) lane=${line#lane=} ;;
+    switch=*) switch=${line#switch=} ;;
+    edge_accepted=*) accepted=${line#edge_accepted=} ;;
+    edge_pending=*) pending=${line#edge_pending=} ;;
+  esac
+done <<<"$lane_state"
+accepted_sequence=${accepted%%:*} accepted_digest=${accepted#*:}
+pending_sequence=${pending%%:*} pending_digest=${pending#*:}
+
 pin_file="$OMARCHY_PATH/default/aurora-qualified-release"
 trusted_key_file="$OMARCHY_PATH/default/omarchy-arm-repository.asc"
+staged_descriptor="$(root_path /var/lib/omarchy)/aurora-target.descriptor"
+reboot_blocked=${OMARCHY_REBOOT_BLOCKED:-/run/omarchy-reboot-blocked}
 
 malformed_pin() {
   fail "the qualified Aurora release pin is malformed"
@@ -126,7 +162,6 @@ done <"$pin_file"
 for predecessor in "${predecessors[@]}"; do
   [[ $predecessor =~ $release_tag_pattern && $predecessor != "$tag" ]] || malformed_pin
 done
-server="https://github.com/$repo/releases/download/$tag"
 
 pacman_conf=$(root_path /etc/pacman.conf)
 [[ -r $pacman_conf ]] || fail "pacman configuration is missing"
@@ -136,7 +171,6 @@ mapfile -t lines <"$pacman_conf"
 eol=""
 [[ ${lines[0]:-} != *$'\r' ]] || eol=$'\r'
 signature_line="SigLevel = Required DatabaseOptional$eol"
-server_line="Server = $server$eol"
 
 header='^[[:space:]]*\[([^]]+)\][[:space:]]*$'
 setting='^[[:space:]]*([A-Za-z]+)[[:space:]]*=[[:space:]]*(.*)$'
@@ -163,7 +197,7 @@ for line in "${lines[@]}"; do
   [[ $section == "options" && $line =~ $setting ]] || continue
   [[ ${BASH_REMATCH[1]} == "IgnorePkg" || ${BASH_REMATCH[1]} == "IgnoreGroup" ]] || continue
   read -ra patterns <<<"${BASH_REMATCH[2]%$'\r'}"
-  for package in linux-aurora linux-aurora-headers m1n1-aurora; do
+  for package in "${aurora_packages[@]}"; do
     for pattern in "${patterns[@]}"; do
       if [[ $package == $pattern && " ${held[*]} " != *" $package "* ]]; then
         held+=("$package")
@@ -171,7 +205,7 @@ for line in "${lines[@]}"; do
     done
   done
 done
-if (( ${#held[@]} )); then
+if (( ${#held[@]} )) && [[ $mode == update ]]; then
   echo -e "\e[33mIgnorePkg/IgnoreGroup in /etc/pacman.conf holds ${held[*]}, so omarchy update cannot install a newer Aurora kernel until that hold is removed.\e[0m" >&2
 fi
 
@@ -200,18 +234,14 @@ section_end() {
   echo "$end"
 }
 
-omarchy_start=$(comments_above "${omarchy[0]}")
-if (( ${#aurora[@]} == 0 )); then
-  updated=(
-    "${lines[@]:0:omarchy_start}"
-    "$comment_line$eol" "[omarchy-aurora]$eol" "$signature_line" "$server_line" "$eol"
-    "${lines[@]:omarchy_start}"
-  )
-else
+# What the section names now: none, the pin, a predecessor, an edge release, or
+# something else, which is somebody's decision and is never moved.
+section_kind=none start="" end="" current=() kept=()
+if (( ${#aurora[@]} )); then
   start=${aurora[0]}
   end=$(section_end "$start")
-  release_url="^https://github\.com/$repo/releases/download/(aurora-packages-[0-9a-f]{40})/?[[:space:]]*$"
-  current=() recognised=1 kept=()
+  release_url="^https://github\.com/$repo/releases/download/(aurora-packages-[0-9a-f]{40}|aurora-edge-[1-9][0-9]{0,8})/?[[:space:]]*$"
+  recognised=1
   for (( i = start + 1; i < end; i++ )); do
     if [[ ${lines[i]} =~ $setting ]]; then
       name=${BASH_REMATCH[1]}
@@ -237,14 +267,342 @@ else
     kept+=("${lines[i]}")
   done
 
-  # Only the pin itself or a release it names as replaced may move. Anything
-  # else may be newer, and a hand-pinned candidate is somebody's decision.
-  if (( ! recognised || ${#current[@]} != 1 )) ||
-    [[ ${current[0]} != "$tag" && " ${predecessors[*]} " != *" ${current[0]} "* ]]; then
-    echo -e "\e[33mLeaving [omarchy-aurora] on ${current[*]:-no server}: it is neither the runtime's qualified release $tag nor a release that one replaces.\e[0m" >&2
+  if (( ! recognised || ${#current[@]} != 1 )); then
+    section_kind=other
+  elif [[ ${current[0]} == "$tag" ]]; then
+    section_kind=pin
+  elif [[ " ${predecessors[*]} " == *" ${current[0]} "* ]]; then
+    section_kind=predecessor
+  elif [[ ${current[0]} =~ $edge_tag_pattern ]]; then
+    section_kind=edge
+  else
+    section_kind=other
+  fi
+fi
+current_tag=""
+[[ $section_kind == none || $section_kind == other ]] || current_tag=${current[0]}
+
+declare -A package_version=()
+database_sha256=""
+target_tag="" target_digest=""
+
+# Proven once, and trusted only while root controls it and it has the digest expected of it.
+trusted_staged() {
+  local owner group mode
+  [[ -n $1 && -f $staged_descriptor && ! -L $staged_descriptor ]] || return 1
+  read -r owner group mode < <(stat -c '%u %g %a' "$staged_descriptor" 2>/dev/null) || return 1
+  if [[ ${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-0} != 1 ]] && [[ $owner != 0 || $group != 0 ]]; then
+    return 1
+  fi
+  (( (8#$mode & 8#022) == 0 )) || return 1
+  [[ $(sha256sum "$staged_descriptor" | cut -d' ' -f1) == "$1" ]]
+}
+
+# 0 when $1 describes exactly $target_tag: its channel, tag and sequence agree,
+# and it names each Aurora package and the repository database once.
+read_descriptor() {
+  local line key value name version database_lines=0
+  local -A fields=() counts=() package_lines=()
+  package_version=() database_sha256=""
+
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ $line == *=* ]] || return 1
+    key=${line%%=*}
+    value=${line#*=}
+    case "$key" in
+      package)
+        IFS='|' read -r _ name version _ <<<"$value"
+        [[ -n $name && -n $version ]] || return 1
+        package_lines[$name]=$(( ${package_lines[$name]:-0} + 1 ))
+        package_version[$name]=$version
+        ;;
+      asset)
+        if [[ ${value%%|*} == omarchy-aurora.db ]]; then
+          database_sha256=${value#*|}
+          (( database_lines += 1 ))
+        fi
+        ;;
+      *)
+        counts[$key]=$(( ${counts[$key]:-0} + 1 ))
+        fields[$key]=$value
+        ;;
+    esac
+  done <"$1"
+
+  for key in format channel release_tag signing_fingerprint; do
+    [[ ${counts[$key]:-0} == 1 ]] || return 1
+  done
+  [[ ${fields[format]} == 1 && ${fields[release_tag]} == "$target_tag" && ${fields[signing_fingerprint]} == "$trusted_subkey" ]] || return 1
+  if [[ $target_tag =~ $edge_tag_pattern ]]; then
+    [[ ${fields[channel]} == aurora-edge && ${counts[sequence]:-0} == 1 && ${fields[sequence]} == "${BASH_REMATCH[1]}" ]] || return 1
+  else
+    [[ ${fields[channel]} == aurora && -z ${counts[sequence]:-} ]] || return 1
+  fi
+  for name in "${aurora_packages[@]}"; do
+    [[ ${package_lines[$name]:-0} == 1 ]] || return 1
+  done
+  (( database_lines == 1 )) && [[ $database_sha256 =~ ^[0-9a-f]{64}$ ]]
+}
+
+if [[ $mode == complete ]]; then
+  # Only an open switch, or an edge release journaled as pending, has anything to prove.
+  if [[ $lane == rc ]]; then
+    [[ $switch == rc ]] || exit 0
+    target_tag=$tag target_digest=$pinned_sha256
+  elif [[ -n $pending ]]; then
+    target_tag=aurora-edge-$pending_sequence target_digest=$pending_digest
+  elif [[ $switch == edge && -n $accepted ]]; then
+    target_tag=aurora-edge-$accepted_sequence target_digest=$accepted_digest
+  else
     exit 0
   fi
 
+  unverified() {
+    echo -e "\e[31mThe move to $target_tag is not verified: $1.\e[0m" >&2
+    echo "Do not reboot yet. Fix that and run omarchy update again, or run omarchy-apple-silicon-channel reset-rc to go back to rc." >&2
+    sudo tee "$reboot_blocked" >/dev/null <<<"the move to $target_tag is not verified: $1" || true
+    exit 1
+  }
+
+  [[ $current_tag == "$target_tag" ]] || unverified "[omarchy-aurora] is on ${current[*]:-no server}"
+  trusted_staged "$target_digest" && read_descriptor "$staged_descriptor" ||
+    unverified "the staged descriptor is not $target_tag's"
+  for package in "${aurora_packages[@]}"; do
+    installed=$(pacman -Q "$package" 2>/dev/null) || unverified "$package is not installed"
+    installed=${installed#"$package "}
+    [[ $installed == "${package_version[$package]}" ]] ||
+      unverified "$package $installed is installed, but $target_tag has ${package_version[$package]}"
+  done
+  omarchy-update-aurora-boot-check || unverified "the boot files do not match the installed kernel"
+
+  if [[ $lane == rc ]]; then
+    omarchy-apple-silicon-channel lane-write switch= edge_pending= || exit 2
+    message="This Mac is back on rc ($target_tag), and its boot files match."
+  else
+    omarchy-apple-silicon-channel lane-write "edge_accepted=${target_tag#aurora-edge-}:$target_digest" edge_pending= switch= || exit 2
+    message="This Mac now runs $target_tag from edge, and its boot files match."
+  fi
+  [[ ! -e $reboot_blocked ]] || sudo rm -f "$reboot_blocked"
+  echo "$message"
+  exit 0
+fi
+
+leave() {
+  local status=$1
+  shift
+  echo -e "\e[33m$*\e[0m" >&2
+  exit "$status"
+}
+
+workdir=$(mktemp -d)
+trap 'rm -rf "$workdir"' EXIT
+descriptor="$workdir/AURORA"
+
+# A pointer exactly as the publisher writes it, compared byte for byte.
+read_edge_pointer() {
+  local file="$1" body="" size sequence canonical
+  local pattern=$'^format=1\nsequence=([1-9][0-9]{0,8})\n'
+  [[ -f $file ]] && size=$(wc -c <"$file") || return 1
+  (( size <= 256 )) || return 1
+  IFS= read -r -d '' body <"$file" || true
+  [[ $body =~ $pattern ]] || return 1
+  sequence=${BASH_REMATCH[1]}
+  printf -v canonical 'format=1\nsequence=%s\ntag=aurora-edge-%s\n' "$sequence" "$sequence"
+  [[ $body == "$canonical" ]] && (( size == ${#canonical} )) || return 1
+  printf '%s\n' "$sequence"
+}
+
+# The highest edge sequence published as a full release, or nothing when there
+# is none. Fails unless the listing is read to an empty page within the cap.
+listed_edge_sequence() {
+  local page highest="" found
+  for (( page = 1; page <= listing_page_limit; page++ )); do
+    curl --fail --location --silent --proto '=https' --tlsv1.2 --max-time 30 \
+      "$releases_api_url&page=$page" --output "$workdir/releases.json" || return 1
+    jq -e 'type == "array"' "$workdir/releases.json" >/dev/null 2>&1 || return 1
+    if (( $(jq 'length' "$workdir/releases.json") == 0 )); then
+      printf '%s\n' "$highest"
+      return 0
+    fi
+    found=$(jq -r '
+      [ .[]
+        | select(.draft == false and .prerelease == false)
+        | .tag_name
+        | select(type == "string" and test("^aurora-edge-[1-9][0-9]{0,8}$"))
+        | sub("^aurora-edge-"; "") | tonumber ]
+      | max // empty
+    ' "$workdir/releases.json" 2>/dev/null) || return 1
+    if [[ -n $found ]] && (( found > ${highest:-0} )); then
+      highest=$found
+    fi
+  done
+  return 1
+}
+
+# Sets edge_sequence, or defer when edge cannot be followed this time. The
+# pointer can hold a Mac back, never move it below the release it accepted.
+discover_edge() {
+  local pointer_status=0 pointer_sequence="" listed="" listing=1
+  curl --fail --location --silent --proto '=https' --tlsv1.2 --max-time 20 --max-filesize 256 \
+    "$edge_pointer_url" --output "$workdir/pointer" || pointer_status=$?
+  if (( pointer_status == 0 || pointer_status == 63 )); then
+    pointer_sequence=$(read_edge_pointer "$workdir/pointer") ||
+      echo "Aurora edge: the edge pointer is malformed; using the release listing." >&2
+  fi
+  if [[ -n $accepted && -n $pointer_sequence ]] && (( pointer_sequence >= accepted_sequence )); then
+    edge_sequence=$pointer_sequence
+    return 0
+  fi
+
+  listed=$(listed_edge_sequence) || listing=0
+  if (( listing )) && [[ -n $accepted ]]; then
+    edge_sequence=$accepted_sequence
+    if [[ -n $listed ]] && (( listed > accepted_sequence )); then
+      edge_sequence=$listed
+    fi
+  elif (( listing )) && [[ -n $listed ]]; then
+    edge_sequence=$listed
+  elif (( listing )); then
+    defer="no edge release is published yet"
+  elif [[ -z $accepted && -n $pointer_sequence ]]; then
+    echo "Aurora edge: the release listing is unavailable, so this follows the edge pointer to aurora-edge-$pointer_sequence." >&2
+    edge_sequence=$pointer_sequence
+  else
+    defer="the edge release listing is unavailable"
+  fi
+}
+
+# Without edge this time, the section stays where it can be proven: the edge
+# release this Mac accepted, or the qualified rc release.
+plan_defer() {
+  defer=$1
+  if [[ $section_kind == edge && -n $accepted && $current_tag == "aurora-edge-$accepted_sequence" ]]; then
+    target_tag=$current_tag target_digest=$accepted_digest
+  elif [[ $section_kind != edge ]]; then
+    target_tag=$tag target_digest=$pinned_sha256
+  else
+    leave 3 "Aurora edge: $defer; [omarchy-aurora] stays on $current_tag for this update."
+  fi
+  echo -e "\e[33mAurora edge: $defer; [omarchy-aurora] stays on $target_tag for this update.\e[0m" >&2
+}
+
+gpg_ready=0
+prepare_gpg() {
+  (( ! gpg_ready )) || return 0
+  for command in curl gpg sha256sum; do
+    omarchy-cmd-present "$command" || fail "$command is required"
+  done
+  gnupg_dir="$workdir/gnupg"
+  mkdir -m 0700 "$gnupg_dir"
+  [[ -r $trusted_key_file ]] || fail "trusted Omarchy ARM repository key is not installed"
+  actual_fingerprint=$(gpg --batch --show-keys --with-colons "$trusted_key_file" 2>/dev/null |
+    awk -F: '$1 == "fpr" && !found { print $10; found = 1 }') ||
+    fail "could not read the trusted Omarchy ARM repository key"
+  [[ $actual_fingerprint == "$trusted_key" ]] || fail "trusted Omarchy ARM repository key fingerprint does not match"
+  gpg --batch --homedir "$gnupg_dir" --import "$trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy ARM repository key"
+  subkey_kind=$(gpg --batch --homedir "$gnupg_dir" --with-colons --list-keys 2>/dev/null |
+    awk -F: -v wanted="$trusted_subkey" '
+      $1 == "pub" || $1 == "sub" { kind = $1; next }
+      $1 == "fpr" && $10 == wanted && !found { print kind; found = 1 }
+    ') ||
+    fail "could not list the trusted Omarchy ARM repository key"
+  [[ $subkey_kind == "sub" ]] || fail "trusted Omarchy ARM repository key does not carry the signing subkey"
+  gpg_ready=1
+}
+
+verify_signature() {
+  local file="$1" signature="$2" status
+  [[ -s $file && -s $signature ]] || fail "missing signed asset $(basename "$file")"
+  status=$(gpg --batch --homedir "$gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
+    fail "signature verification failed for $(basename "$file")"
+  awk -v key="$trusted_subkey" '$2 == "VALIDSIG" && $3 == key { valid=1 } END { exit !valid }' <<<"$status" ||
+    fail "$(basename "$file") was not signed by the Omarchy ARM repository signing subkey"
+}
+
+# 0 with $descriptor holding $target_tag's proven descriptor, 1 when it could not
+# be downloaded. The pin's digest is its proof, so an rc descriptor staged
+# under that digest is reused; an edge one is fetched again each time.
+obtain_descriptor() {
+  local server="https://github.com/$repo/releases/download/$target_tag" digest
+  if [[ ! $target_tag =~ $edge_tag_pattern ]] && trusted_staged "$target_digest"; then
+    cp "$staged_descriptor" "$descriptor"
+    read_descriptor "$descriptor" || fail "the staged descriptor for $target_tag is malformed"
+    return 0
+  fi
+  prepare_gpg
+  if ! curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$server/AURORA" --output "$descriptor" ||
+    ! curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$server/AURORA.sig" --output "$descriptor.sig"; then
+    if trusted_staged "$target_digest"; then
+      cp "$staged_descriptor" "$descriptor"
+      read_descriptor "$descriptor" || fail "the staged descriptor for $target_tag is malformed"
+      return 0
+    fi
+    echo "Aurora kernel repository update: could not download $server/AURORA" >&2
+    return 1
+  fi
+  digest=$(sha256sum "$descriptor" | cut -d' ' -f1)
+  if [[ -n $target_digest && $digest != "$target_digest" ]]; then
+    [[ $target_tag =~ $edge_tag_pattern ]] || fail "AURORA in $target_tag does not match the qualified digest"
+    fail "AURORA in $target_tag is not the one this Mac already verified for that release; refusing a release that changed after publication"
+  fi
+  verify_signature "$descriptor" "$descriptor.sig"
+  read_descriptor "$descriptor" || fail "AURORA in $target_tag does not describe that Aurora release"
+  target_digest=$digest
+}
+
+defer="" edge_sequence=""
+if [[ $lane == rc ]]; then
+  # Only the pin itself or a release it names as replaced may move, and an edge
+  # release only once a switch to rc was asked for. Anything else may be newer,
+  # and a hand-pinned candidate is somebody's decision.
+  if [[ $section_kind == other || ($section_kind == edge && $switch != rc) ]]; then
+    leave 0 "Leaving [omarchy-aurora] on ${current[*]:-no server}: it is neither the runtime's qualified release $tag nor a release that one replaces."
+  fi
+  target_tag=$tag target_digest=$pinned_sha256
+  obtain_descriptor || exit 2
+else
+  [[ $section_kind != other ]] ||
+    leave 0 "Leaving [omarchy-aurora] on ${current[*]:-no server}: this Mac follows edge, but omarchy update only moves it from the qualified release $tag, a release that one replaces, or an edge release."
+  omarchy-cmd-present jq || fail "jq is required"
+  # A release already journaled is finished before anything is discovered again.
+  if [[ -n $pending ]]; then
+    edge_sequence=$pending_sequence
+    target_digest=$pending_digest
+  else
+    discover_edge
+    [[ -z $edge_sequence || $edge_sequence != "$accepted_sequence" ]] || target_digest=$accepted_digest
+  fi
+  if [[ -n $defer ]]; then
+    plan_defer "$defer"
+  else
+    target_tag=aurora-edge-$edge_sequence
+  fi
+  if ! obtain_descriptor; then
+    [[ -z $defer && $target_tag =~ $edge_tag_pattern ]] || exit 2
+    plan_defer "$target_tag could not be downloaded"
+    obtain_descriptor || exit 2
+  fi
+fi
+
+# Journaled before the section moves, so an interrupted update resumes this release.
+if [[ $target_tag =~ $edge_tag_pattern && $current_tag != "$target_tag" ]] &&
+  [[ $pending != "${BASH_REMATCH[1]}:$target_digest" ]]; then
+  pending="${BASH_REMATCH[1]}:$target_digest"
+  omarchy-apple-silicon-channel lane-write "edge_pending=$pending" || exit 2
+fi
+if ! cmp -s "$descriptor" "$staged_descriptor"; then
+  omarchy-apple-silicon-channel stage-descriptor "$descriptor" || exit 2
+fi
+
+server_line="Server = https://github.com/$repo/releases/download/$target_tag$eol"
+omarchy_start=$(comments_above "${omarchy[0]}")
+if [[ -z $start ]]; then
+  updated=(
+    "${lines[@]:0:omarchy_start}"
+    "$comment_line$eol" "[omarchy-aurora]$eol" "$signature_line" "$server_line" "$eol"
+    "${lines[@]:omarchy_start}"
+  )
+else
   block=("${lines[start]}" "$signature_line" "$server_line" "${kept[@]}")
   if (( start < ${omarchy[0]} )); then
     updated=("${lines[@]:0:start}" "${block[@]}" "${lines[@]:end}")
@@ -265,91 +623,54 @@ else
   fi
 fi
 
-workdir=$(mktemp -d)
-trap 'rm -rf "$workdir"' EXIT
 printf '%s\n' "${updated[@]}" >"$workdir/pacman.conf"
 # A file that ended without a newline keeps ending that way.
 if [[ -s $pacman_conf && -n $(tail -c 1 "$pacman_conf") ]]; then
   truncate -s -1 "$workdir/pacman.conf"
 fi
-cmp -s "$workdir/pacman.conf" "$pacman_conf" && exit 0
 
-for command in curl gpg sha256sum; do
-  omarchy-cmd-present "$command" || fail "$command is required"
-done
+if ! cmp -s "$workdir/pacman.conf" "$pacman_conf"; then
+  prepare_gpg
+  backup="$(root_path /var/lib/omarchy/backups)/aurora-repository-$(date +%Y%m%d%H%M%S)"
+  mkdir "$workdir/backup"
+  cp "$pacman_conf" "$workdir/backup/pacman.conf"
+  config_paths=("$pacman_conf")
+  [[ ! -d $(root_path /etc/pacman.d) ]] || config_paths+=("$(root_path /etc/pacman.d)")
+  sudo find "${config_paths[@]}" -type f -exec sha256sum {} + >"$workdir/backup/config-sha256.txt"
+  sudo install -d -o root -g root -m 0700 "$backup"
+  sudo cp -a "$workdir/backup"/. "$backup/"
 
-gnupg_dir="$workdir/gnupg"
-mkdir -m 0700 "$gnupg_dir"
-[[ -r $trusted_key_file ]] || fail "trusted Omarchy ARM repository key is not installed"
-actual_fingerprint=$(gpg --batch --show-keys --with-colons "$trusted_key_file" 2>/dev/null |
-  awk -F: '$1 == "fpr" && !found { print $10; found = 1 }') ||
-  fail "could not read the trusted Omarchy ARM repository key"
-[[ $actual_fingerprint == "$trusted_key" ]] || fail "trusted Omarchy ARM repository key fingerprint does not match"
-gpg --batch --homedir "$gnupg_dir" --import "$trusted_key_file" >/dev/null 2>&1 || fail "could not load the trusted Omarchy ARM repository key"
-subkey_kind=$(gpg --batch --homedir "$gnupg_dir" --with-colons --list-keys 2>/dev/null |
-  awk -F: -v wanted="$trusted_subkey" '
-    $1 == "pub" || $1 == "sub" { kind = $1; next }
-    $1 == "fpr" && $10 == wanted && !found { print kind; found = 1 }
-  ') ||
-  fail "could not list the trusted Omarchy ARM repository key"
-[[ $subkey_kind == "sub" ]] || fail "trusted Omarchy ARM repository key does not carry the signing subkey"
+  if ! sudo pacman-key --finger "$trusted_key" >/dev/null 2>&1; then
+    sudo pacman-key --add "$trusted_key_file"
+    sudo pacman-key --lsign-key "$trusted_key"
+  fi
 
-download() {
-  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$1" --output "$2" || {
-    echo "Aurora kernel repository update: could not download $1" >&2
-    exit 3
-  }
-}
+  # The package upgrade after this step does the sync. Every release serves its
+  # database as omarchy-aurora.db, and upload times are not ordered by release,
+  # so that sync could keep a cached database from the previous release and
+  # reject it against the new signature. Drop it before the new pin lands: no
+  # cache beside the old pin only means the next sync downloads it again, but a
+  # stale one beside the new pin would outlive a rerun, which finds nothing left
+  # to change.
+  db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2 }' "$pacman_conf")
+  sync_dir="$(root_path "${db_path:-/var/lib/pacman}")/sync"
+  sudo rm -f "$sync_dir/omarchy-aurora.db" "$sync_dir/omarchy-aurora.db.sig" ||
+    fail "could not remove the cached Aurora database in $sync_dir; pacman.conf is unchanged"
 
-verify_signature() {
-  local file="$1" signature="$2" status
-  [[ -s $file && -s $signature ]] || fail "missing signed asset $(basename "$file")"
-  status=$(gpg --batch --homedir "$gnupg_dir" --status-fd 1 --verify "$signature" "$file" 2>/dev/null) ||
-    fail "signature verification failed for $(basename "$file")"
-  awk -v key="$trusted_subkey" '$2 == "VALIDSIG" && $3 == key { valid=1 } END { exit !valid }' <<<"$status" ||
-    fail "$(basename "$file") was not signed by the Omarchy ARM repository signing subkey"
-}
+  # Staged beside the original so the rename is atomic.
+  sudo install -o root -g root -m 0644 "$workdir/pacman.conf" "$pacman_conf.omarchy-aurora"
+  sudo mv -f "$pacman_conf.omarchy-aurora" "$pacman_conf"
 
-download "$server/AURORA" "$workdir/AURORA"
-download "$server/AURORA.sig" "$workdir/AURORA.sig"
-[[ $(sha256sum "$workdir/AURORA" | cut -d' ' -f1) == "$pinned_sha256" ]] ||
-  fail "AURORA in $tag does not match the qualified digest"
-verify_signature "$workdir/AURORA" "$workdir/AURORA.sig"
-for entry in format=1 channel=aurora "release_tag=$tag" "signing_fingerprint=$trusted_subkey"; do
-  grep -Fxq "$entry" "$workdir/AURORA" || fail "AURORA in $tag does not describe that Aurora release"
-done
-
-backup="$(root_path /var/lib/omarchy/backups)/aurora-repository-$(date +%Y%m%d%H%M%S)"
-mkdir "$workdir/backup"
-cp "$pacman_conf" "$workdir/backup/pacman.conf"
-config_paths=("$pacman_conf")
-[[ ! -d $(root_path /etc/pacman.d) ]] || config_paths+=("$(root_path /etc/pacman.d)")
-sudo find "${config_paths[@]}" -type f -exec sha256sum {} + >"$workdir/backup/config-sha256.txt"
-sudo install -d -o root -g root -m 0700 "$backup"
-sudo cp -a "$workdir/backup"/. "$backup/"
-
-if ! sudo pacman-key --finger "$trusted_key" >/dev/null 2>&1; then
-  sudo pacman-key --add "$trusted_key_file"
-  sudo pacman-key --lsign-key "$trusted_key"
+  echo "Pinned the Aurora kernel repository to $target_tag (backup: $backup)"
+  if [[ ${OMARCHY_AURORA_REPOSITORY_STANDALONE:-} == 1 ]]; then
+    echo "omarchy update will sync it."
+  fi
 fi
 
-# The package upgrade after this step does the sync. Every aurora-packages
-# release serves its database as omarchy-aurora.db, and upload times are not
-# ordered by release, so that sync could keep a cached database from the
-# previous release and reject it against the new signature. Drop it before the
-# new pin lands: no cache beside the old pin only means the next sync downloads
-# it again, but a stale one beside the new pin would outlive a rerun, which
-# finds nothing left to change.
-db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2 }' "$pacman_conf")
-sync_dir="$(root_path "${db_path:-/var/lib/pacman}")/sync"
-sudo rm -f "$sync_dir/omarchy-aurora.db" "$sync_dir/omarchy-aurora.db.sig" ||
-  fail "could not remove the cached Aurora database in $sync_dir; pacman.conf is unchanged"
+[[ -z $defer ]] || exit 3
 
-# Staged beside the original so the rename is atomic.
-sudo install -o root -g root -m 0644 "$workdir/pacman.conf" "$pacman_conf.omarchy-aurora"
-sudo mv -f "$pacman_conf.omarchy-aurora" "$pacman_conf"
-
-echo "Pinned the Aurora kernel repository to $tag (backup: $backup)"
-if [[ ${OMARCHY_AURORA_REPOSITORY_STANDALONE:-} == 1 ]]; then
-  echo "omarchy update will sync it."
+# An open move installs exactly the staged release's packages, older or not.
+if [[ -n ${OMARCHY_AURORA_TARGETS:-} ]] &&
+  [[ ($lane == rc && $switch == rc) || ($lane == edge && ($switch == edge || -n $pending)) ]]; then
+  printf 'omarchy-aurora/%s\n' "${aurora_packages[@]}" >"$OMARCHY_AURORA_TARGETS"
 fi
