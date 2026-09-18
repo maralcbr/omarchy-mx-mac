@@ -98,7 +98,8 @@ asahi_migration_disposition() {
     1784961000.sh|1785013000.sh) printf 'handled\tzram config and reclaim tuning ship in the settings package and apply at boot\n' ;;
     1785090473.sh) printf 'skipped\tfingerprint hardware is unsupported on this Apple Silicon path\n' ;;
     1785273276.sh) printf 'skipped\tT2 Limine and mkinitcpio repair is not applicable to Apple Silicon\n' ;;
-    1785424256.sh) printf 'skipped\tsystemd-oomd reclaim tuning is held until validated on Asahi\n' ;;
+    1785424256.sh) printf 'skipped\tApple Silicon enables systemd-oomd through migration 1789479600\n' ;;
+    1789479600.sh) printf 'run\treviewed systemd-oomd enablement; self-gating to Apple Silicon hardware\n' ;;
     1785637426.sh) printf 'run\treviewed: omacalc is built for aarch64 in the Apple Silicon package repository\n' ;;
     1785944594.sh|1786137597.sh) printf 'skipped\tT2 Limine and mkinitcpio repair is not applicable to Apple Silicon\n' ;;
     1786273938.sh) printf 'run\treviewed: herdr is built for aarch64 in the Apple Silicon package repository\n' ;;
