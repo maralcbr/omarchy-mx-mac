@@ -13,11 +13,13 @@ if omarchy-hw-apple-silicon; then
   platform_ring=archlinuxarm
 fi
 
-# Restore installed trust and revocation metadata before fetching updates.
-sudo pacman-key --populate "$platform_ring"
-if ! omarchy-pkg-missing omarchy-keyring; then
-  sudo pacman-key --populate omarchy
-fi
+# Restore trust from installed keyring files when available. A missing package
+# or deleted payload must not prevent reinstalling it below.
+for ring in "$platform_ring" omarchy; do
+  if [[ -f /usr/share/pacman/keyrings/$ring.gpg ]]; then
+    sudo pacman-key --populate "$ring"
+  fi
+done
 
 if ! sudo pacman-key --list-keys "$trusted_key" >/dev/null 2>&1; then
   sudo pacman-key --recv-keys "$trusted_key" --keyserver keys.openpgp.org
@@ -35,5 +37,6 @@ sudo pacman-key --lsign-key "$trusted_key"
 echo "Update signing keys"
 sudo pacman -Sy --noconfirm omarchy-keyring "$platform_keyring"
 sudo pacman-key --populate omarchy "$platform_ring"
+# Keep the upstream final check: never report success with a missing key.
 sudo pacman-key --list-keys "$trusted_key" >/dev/null
 echo "Keys are correct"
