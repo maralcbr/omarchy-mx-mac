@@ -298,7 +298,13 @@ SH
 cat >"$stub_bin/pacman" <<'SH'
 #!/bin/bash
 printf 'pacman:%s OMARCHY_UPDATE_PACMAN=%s\n' "$*" "${OMARCHY_UPDATE_PACMAN:-}" >>"$TEST_CALLS"
-[[ ${TEST_PACMAN_FAIL:-0} != 1 ]]
+[[ ${TEST_PACMAN_FAIL:-0} != 1 ]] || exit 1
+# A successful sync caches the configured Server's database, as pacman does.
+if [[ -n ${TEST_PACMAN_SYNC_DIR:-} && " $* " == *" -Sy "* ]]; then
+  mkdir -p "$TEST_PACMAN_SYNC_DIR"
+  printf 'database synced from the new Server' >"$TEST_PACMAN_SYNC_DIR/omarchy.db"
+  printf 'signature synced from the new Server' >"$TEST_PACMAN_SYNC_DIR/omarchy.db.sig"
+fi
 SH
 cat >"$stub_bin/gum" <<'SH'
 #!/bin/bash
@@ -1072,6 +1078,18 @@ grep -Fq '[omarchy] does not come before every other repository; restored the pr
   fail "a bootstrap behind an included repository explains the restore" "$(cat "$test_tmp/bootstrap-order.err")"
 [[ $(cat "$pacman_conf") == "$original" && ! -e $state ]] || fail "a bootstrap behind an included repository restores pacman.conf"
 pass "a bootstrap pacman cannot read, or one pacman would not put first, restores pacman.conf"
+
+# A sync can succeed before the order check fails: the rollback must not leave the new
+# Server's database cached under the restored one.
+write_bootstrap_conf "$(printf '[omarchy]\nSigLevel = Required DatabaseOptional\nServer = %s' "$old_server")"
+original=$(cat "$pacman_conf")
+rm -f "$sync_dir/omarchy.db" "$sync_dir/omarchy.db.sig"
+TEST_POINTER=pointer-3 TEST_INCLUDED_REPOSITORY=testing TEST_PACMAN_SYNC_DIR="$sync_dir" run bootstrap-order-after-sync --yes --bootstrap
+expect_status bootstrap-order-after-sync 2 "a bootstrap that advanced and then failed the order check fails"
+[[ $(cat "$pacman_conf") == "$original" ]] || fail "the advanced pin is restored after the order check fails"
+[[ ! -e $sync_dir/omarchy.db && ! -e $sync_dir/omarchy.db.sig ]] ||
+  fail "the rollback leaves the new Server's database cached under the restored Server"
+pass "a rollback after a successful sync drops the new Server's cached database"
 
 write_bootstrap_conf "$(printf '[omarchy]\nSigLevel = Never\nServer = %s' "$old_server")"
 seed_sync_cache

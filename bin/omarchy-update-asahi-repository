@@ -503,6 +503,11 @@ fi
 restore() {
   sudo install -o root -g root -m 0644 "$backup/pacman.conf" "$pacman_conf" ||
     fail "$1; could not restore $pacman_conf from $backup"
+  # A sync that succeeded before the failure cached the new Server's database under the same name.
+  if [[ $final_server != "$current_server" ]]; then
+    sudo rm -f "$sync_dir/omarchy.db" "$sync_dir/omarchy.db.sig" ||
+      fail "$1; restored $pacman_conf but could not remove the cached Omarchy database in $sync_dir"
+  fi
   fail "$1; restored the previous repository (backup: $backup)"
 }
 
