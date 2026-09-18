@@ -24,6 +24,7 @@ printf "refresh-path\t%s\n" "$OMARCHY_PATH" >>"$OMARCHY_CHANNEL_TEST_LOG"
 printf "refresh" >>"$OMARCHY_CHANNEL_TEST_LOG"
 for arg in "$@"; do printf "\t%s" "$arg" >>"$OMARCHY_CHANNEL_TEST_LOG"; done
 printf "\n" >>"$OMARCHY_CHANNEL_TEST_LOG"
+exit "${OMARCHY_TEST_REFRESH_STATUS:-0}"
 '
 
 write_stub sudo '#!/bin/bash
@@ -206,7 +207,17 @@ pass "current channel detects package-backed edge"
 pass "current channel honors a dev link outside ~/omarchy"
 
 for channel in stable rc edge dev; do
-  if APPLE_SILICON=1 run_channel "$channel"; then fail 'unqualified ARM channel must be refused'; fi
+  if APPLE_SILICON=1 run_channel "$channel" >"$test_tmp/refused.out" 2>"$test_tmp/refused.err"; then fail 'unqualified ARM channel must be refused'; fi
   [[ ! -s $log_file ]] || fail 'unqualified ARM switch has no side effects'
+  grep -q 'is not qualified' "$test_tmp/refused.err" || fail 'refusal explains qualification requirement'
+  if grep -q 'rerun:' "$test_tmp/refused.err"; then fail 'refusal does not suggest retrying an unchanged qualification gate'; fi
 done
 pass 'unqualified ARM channels are refused before prompts, links or transactions'
+
+status=0
+OMARCHY_TEST_REFRESH_STATUS=42 run_channel dev >"$test_tmp/refresh.out" 2>"$test_tmp/refresh.err" || status=$?
+[[ $status == 42 ]] || fail 'post-link refresh failure propagates'
+assert_log_line $'link\t'"$checkout"$'\t--no-reboot' 'refresh failure occurs after activating the dev checkout'
+grep -q 'rerun: omarchy-channel-set dev' "$test_tmp/refresh.err" || fail 'post-link failure retains recovery guidance'
+if grep -q '^update-pacman' "$log_file"; then fail 'failed refresh prevents the package transaction'; fi
+pass 'partial dev switch retains recovery guidance'

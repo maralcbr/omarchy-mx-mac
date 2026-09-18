@@ -75,10 +75,11 @@ case "$channel" in
     ;;
 esac
 
+omarchy_pacman_channel_qualified "$pacman_channel"
+
 # A failure past this point leaves the channel switch half-applied, so say how
 # to pick it back up rather than dying silently under set -e.
 trap 'echo -e "\nThe channel switch did not complete. Review the error above, then rerun: omarchy-channel-set '"$channel"'" >&2' ERR
-omarchy_pacman_channel_qualified "$pacman_channel"
 
 if [[ -z $dev_checkout && $OMARCHY_PATH != "/usr/share/omarchy" ]]; then
   leaving_dev=1
