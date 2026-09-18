@@ -28,7 +28,7 @@ case $1 in
 esac`)
   stub('pacman', `echo "pacman $*" >> "$CALLS"
 [[ \${PACMAN_STATUS:-0} == 0 ]] || exit "$PACMAN_STATUS"
-touch "$RINGS/omarchy.gpg" "$RINGS/archlinux.gpg" "$RINGS/archlinuxarm.gpg" "$RINGS/refreshed"`)
+touch "$RINGS/omarchy.gpg" "$RINGS/archlinux.gpg" "$RINGS/archlinuxarm.gpg" "$RINGS/asahi-alarm.gpg" "$RINGS/refreshed"`)
   stub('gpg', `echo "pub:::::::::"
 echo "fpr:::::::::\${FINGERPRINT:-${trusted}}:"`)
   // Redirect only the system keyring payload directory to a disposable fixture.
@@ -36,7 +36,7 @@ echo "fpr:::::::::\${FINGERPRINT:-${trusted}}:"`)
   fs.writeFileSync(script, fs.readFileSync(path.join(root, 'bin/omarchy-update-keyring'), 'utf8')
     .replaceAll('/usr/share/pacman/keyrings/', rings + '/'))
   const env = {...process.env, PATH: bin + ':' + process.env.PATH, CALLS: log, RINGS: rings}
-  function run(extra = {}, payloads = ['omarchy', 'archlinux', 'archlinuxarm']) {
+  function run(extra = {}, payloads = ['omarchy', 'archlinux', 'archlinuxarm', 'asahi-alarm']) {
     fs.rmSync(rings, {recursive: true, force: true})
     fs.mkdirSync(rings)
     for (const ring of payloads) fs.writeFileSync(path.join(rings, ring + '.gpg'), '')
@@ -46,16 +46,19 @@ echo "fpr:::::::::\${FINGERPRINT:-${trusted}}:"`)
   }
   for (const apple of ['0', '1']) {
     const ring = apple === '1' ? 'archlinuxarm' : 'archlinux'
-    for (const payloads of [[ring, 'omarchy'], [ring], ['omarchy'], []]) {
+    const activeRings = apple === '1' ? ['omarchy', ring, 'asahi-alarm'] : ['omarchy', ring]
+    const packages = activeRings.map(name => name + '-keyring').join(' ')
+    const populated = activeRings.join(' ')
+    for (const payloads of [activeRings, [ring], ['omarchy'], []]) {
       for (const missing of ['0', '1']) {
         const r = run({APPLE: apple, MISSING_KEY: missing}, payloads)
         assertEqual(r.status, 0, `${ring} recovers with payloads [${payloads}] and missing key ${missing}`, r.stderr)
-        assert(r.log.includes(`pacman -Sy --noconfirm omarchy-keyring ${ring}-keyring`), 'both keyring packages are refreshed')
+        assert(r.log.includes(`pacman -Sy --noconfirm ${packages}`), 'all repository keyring packages are refreshed')
         const beforeInstall = r.log.split('pacman -Sy')[0]
-        for (const candidate of [ring, 'omarchy']) {
+        for (const candidate of activeRings) {
           assertEqual(beforeInstall.includes(`key --populate ${candidate}\n`), payloads.includes(candidate), 'only available payloads are populated before reinstall')
         }
-        assert(r.log.indexOf(`key --populate omarchy ${ring}`) > r.log.indexOf('pacman -Sy'), 'updated payloads are populated after reinstall')
+        assert(r.log.indexOf(`key --populate ${populated}`) > r.log.indexOf('pacman -Sy'), 'updated payloads are populated after reinstall')
         assertEqual(r.log.includes('--recv-keys'), missing === '1', 'bootstrap fetch is limited to missing keys')
         assert(r.stdout.includes('Keys are correct'), 'healthy keyring reports success')
       }
@@ -64,7 +67,7 @@ echo "fpr:::::::::\${FINGERPRINT:-${trusted}}:"`)
       {PACMAN_STATUS: '42'},
       {FAIL_STEP: `--populate ${ring}`},
       {FAIL_STEP: '--populate omarchy'},
-      {FAIL_STEP: `--populate omarchy ${ring}`},
+      {FAIL_STEP: `--populate ${populated}`},
       {FAIL_STEP: `--lsign-key ${trusted}`},
       {MISSING_KEY: '1', FAIL_STEP: `--recv-keys ${trusted} --keyserver keys.openpgp.org`}
     ]) {
@@ -74,6 +77,11 @@ echo "fpr:::::::::\${FINGERPRINT:-${trusted}}:"`)
       if (extra.FAIL_STEP?.startsWith('--recv-keys')) {
         assert(!r.log.includes('--lsign-key') && !r.log.includes('pacman -Sy'), 'failed key retrieval stops signing and package installation')
       }
+    }
+    if (apple === '1') {
+      const asahi = run({APPLE: apple, FAIL_STEP: '--populate asahi-alarm'})
+      assertEqual(asahi.status, 42, 'Asahi keyring population failures stop the update')
+      assert(!asahi.stdout.includes('Keys are correct'), 'Asahi failure cannot report success')
     }
     const final = run({APPLE: apple, FINAL_LIST_FAIL: '1'})
     assertEqual(final.status, 44, 'upstream final key check failure propagates')

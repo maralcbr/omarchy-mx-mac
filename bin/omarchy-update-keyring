@@ -6,16 +6,16 @@
 set -euo pipefail
 
 trusted_key=40DFB630FF42BCFFB047046CF0134EE680CAC571
-platform_keyring=archlinux-keyring
-platform_ring=archlinux
+keyring_packages=(omarchy-keyring archlinux-keyring)
+keyrings=(omarchy archlinux)
 if omarchy-hw-apple-silicon; then
-  platform_keyring=archlinuxarm-keyring
-  platform_ring=archlinuxarm
+  keyring_packages=(omarchy-keyring archlinuxarm-keyring asahi-alarm-keyring)
+  keyrings=(omarchy archlinuxarm asahi-alarm)
 fi
 
 # Restore trust from installed keyring files when available. A missing package
 # or deleted payload must not prevent reinstalling it below.
-for ring in "$platform_ring" omarchy; do
+for ring in "${keyrings[@]}"; do
   if [[ -f /usr/share/pacman/keyrings/$ring.gpg ]]; then
     sudo pacman-key --populate "$ring"
   fi
@@ -35,8 +35,8 @@ sudo pacman-key --lsign-key "$trusted_key"
 # Keyring refresh precedes the full system upgrade. Reinstall even when the
 # version is unchanged, since key material can change without a version bump.
 echo "Update signing keys"
-sudo pacman -Sy --noconfirm omarchy-keyring "$platform_keyring"
-sudo pacman-key --populate omarchy "$platform_ring"
+sudo pacman -Sy --noconfirm "${keyring_packages[@]}"
+sudo pacman-key --populate "${keyrings[@]}"
 # Keep the upstream final check: never report success with a missing key.
 sudo pacman-key --list-keys "$trusted_key" >/dev/null
 echo "Keys are correct"
