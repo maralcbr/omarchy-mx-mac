@@ -4,7 +4,7 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
-# The manifest is hand-curated, but its contents must keep matching what the
+# Menu guards are hand-curated, but their targets must keep matching what the
 # recipes really request: an installer that gains a package without its
 # transaction following would show a row the architecture cannot install.
 # Deriving the transactions independently from the menu actions and the
@@ -23,9 +23,6 @@ const overrides = {
   'install.terminal.ghostty': ['ghostty'],
   'install.terminal.kitty': ['kitty']
 }
-
-// Rows that build from the AUR instead of the sync database.
-const aurOnly = new Set(items.filter(item => (item.when || '').startsWith('[[ $(uname -m)')).map(item => item.id))
 
 // Split a menu action the way the shell would, honouring single quotes.
 function tokenize(text) {
@@ -52,22 +49,23 @@ function tokenize(text) {
 // of script lines, with continuations joined and comments dropped. A shell
 // metacharacter ends the command; a variable is a name the recipe resolves
 // itself, so it is left to the overrides.
-function packageNamesIn(lines) {
+function packageTargetsIn(lines) {
   const joined = lines.join('\n').replace(/\\\n/g, ' ')
-  const names = []
+  const targets = {sync: [], aur: []}
   for (let line of joined.split('\n')) {
     line = line.replace(/#.*/, '')
-    const pattern = /omarchy-pkg-(?:aur-)?add\s+([^;&|<>]*)/g
+    const pattern = /omarchy-pkg-(aur-)?add\s+([^;&|<>]*)/g
     let match
     while ((match = pattern.exec(line))) {
-      for (const token of match[1].trim().split(/\s+/)) {
+      const names = match[1] ? targets.aur : targets.sync
+      for (const token of match[2].trim().split(/\s+/)) {
         const name = token.replace(/^["']|["']$/g, '')
         if (!name || name.includes('$')) continue
         if (!names.includes(name)) names.push(name)
       }
     }
   }
-  return names
+  return targets
 }
 
 // A recipe taking a selector installs from one case arm; the arm may hand
@@ -99,7 +97,7 @@ function scriptTransaction(command, selector) {
   const file = path.join(root, 'bin', command)
   if (!fs.existsSync(file)) return null
   const lines = fs.readFileSync(file, 'utf8').split('\n')
-  if (!selector) return packageNamesIn(lines)
+  if (!selector) return packageTargetsIn(lines)
   const arm = caseArm(lines, selector)
   if (!arm) return null
   const bodies = functionBodies(lines)
@@ -109,18 +107,18 @@ function scriptTransaction(command, selector) {
     if (call && bodies[call[1]]) expanded.push(...bodies[call[1]])
     else expanded.push(line)
   }
-  return packageNamesIn(expanded)
+  return packageTargetsIn(expanded)
 }
 
 function deriveTransaction(item) {
-  if (overrides[item.id]) return overrides[item.id]
+  if (overrides[item.id]) return {sync: overrides[item.id], aur: []}
   const action = item.action || ''
 
   // The packages sit in the action itself, right after the display name.
   const direct = action.match(/omarchy-install-(?:and-launch|app|font) (.*)$/)
   if (direct) {
     const tokens = tokenize(direct[1])
-    return tokens.length > 1 ? tokens[1].split(/\s+/) : null
+    return tokens.length > 1 ? {sync: tokens[1].split(/\s+/), aur: []} : null
   }
 
   // The action runs a recipe, possibly through the floating terminal, which
@@ -134,28 +132,50 @@ function deriveTransaction(item) {
   return scriptTransaction(command, selector)
 }
 
+// An architecture-only guard can exempt a recipe from sync availability only
+// when its actual package helpers use the AUR exclusively. AUR recipes may
+// still choose an availability guard, as Emacs does.
+function isAurException(item, targets) {
+  return (item.when || '').startsWith('[[ $(uname -m)') &&
+    targets.sync.length === 0 && targets.aur.length > 0
+}
+
+const architecture = {when: '[[ $(uname -m) == "aarch64" ]]'}
+const availability = {when: 'omarchy-pkg-available example'}
+assert(!isAurException(architecture, {sync: ['example'], aur: []}), 'sync recipes cannot bypass availability with architecture guards')
+assert(isAurException(architecture, {sync: [], aur: ['example']}), 'pure AUR recipes can use architecture guards')
+assert(!isAurException(availability, {sync: [], aur: ['example']}), 'pure AUR availability guards still participate in target comparison')
+assert(!isAurException(architecture, {sync: ['primary'], aur: ['secondary']}), 'mixed recipes cannot bypass sync availability')
+assertDeepEqual(packageTargetsIn(['omarchy-pkg-aur-add example && omarchy-install-example']), {sync: [], aur: ['example']}, 'chained AUR commands retain their backend and targets')
+
 const derived = new Map()
+const aurOnly = new Set()
 for (const item of items) {
-  if (!item.id.startsWith('install.') || !item.action || aurOnly.has(item.id)) continue
-  const packages = deriveTransaction(item)
-  if (packages && packages.length) derived.set(item.id, packages)
+  if (!item.id.startsWith('install.') || !item.action) continue
+  const targets = deriveTransaction(item)
+  if (!targets) continue
+  if (isAurException(item, targets)) {
+    aurOnly.add(item.id)
+    continue
+  }
+  const packages = [...new Set([...targets.sync, ...targets.aur])]
+  if (packages.length) derived.set(item.id, packages)
 }
 assert(derived.size > 0, 'optional transactions can be derived from the install recipes')
 
 const committed = new Map(items.filter(item => (item.when || '').startsWith('omarchy-pkg-available ')).map(item => {
-  // The Xbox header is selected at runtime and tested separately.
-  const targets = item.when.replace(/^omarchy-pkg-available /, '').replace(/"\$\(if .*?fi\)" /, '')
+  const targets = item.when.replace(/^omarchy-pkg-available /, '')
   return [item.id, targets.split(/\s+/)]
 }))
 
-// Compare as sets: the manifest owns row order and comments, the recipes
+// Compare as sets: the menu owns row order and comments, the recipes
 // own the contents.
 const render = map => [...map.keys()].sort().map(id => `${id}|${[...map.get(id)].sort().join(' ')}`).join('\n')
 const wanted = render(derived)
 const actual = render(committed)
 assert(
   wanted === actual,
-  'optional menu targets matches the install recipes',
+  'optional menu targets match the install recipes',
   `derived from the recipes:\n${wanted}\n\ndeclared in menu conditions:\n${actual}`
 )
 

@@ -13,9 +13,11 @@ try {
   function stub(name, body) { fs.writeFileSync(path.join(bin, name), '#!/bin/bash\n'+body+'\n', {mode:0o755}) }
   stub('pacman', `echo "$*" >> "$CALLS"
 case $1 in
--Slq) for p in primary secondary zed omazed xpadneo-dkms linux-headers linux-asahi-headers; do [[ $p == "\${MISSING:-}" ]] || echo "$p"; done ;;
+-Slq) for p in primary secondary zed omazed xpadneo-dkms linux-headers linux-asahi-headers nordvpn-bin; do [[ $p == "\${MISSING:-}" ]] || echo "$p"; done ;;
 -Sp) [[ \${*: -1} == provided || \${*: -1} == 'provided>=1' ]] ;;
--Qq|-Qi) exit 0 ;;
+-Qq) if [[ \${INSTALLED:-0} == 1 ]]; then echo nordvpn-bin; fi ;;
+-Qi) exit 0 ;;
+-Q) [[ $2 == nordvpn-bin && \${INSTALLED:-0} == 1 ]] ;;
 *) exit 1 ;;
 esac`)
   stub('uname', 'echo uname >> "$CALLS"; echo "${ARCH:-x86_64}"')
@@ -40,6 +42,23 @@ esac`)
   for (const arch of ['x86_64','aarch64','riscv64']) {
     for (const browser of ['chrome','edge']) checkRow('install.browser.'+browser, arch==='x86_64'?0:1,{ARCH:arch})
     for (const browser of ['brave','brave-origin','zen']) checkRow('install.browser.'+browser,arch==='riscv64'?1:0,{ARCH:arch})
+  }
+  const nordvpn = byId['install.service.nordvpn']
+  for (const arch of ['x86_64','aarch64']) {
+    for (const installed of ['0','1']) {
+      for (const missing of ['', 'nordvpn-bin']) {
+        const extra = {ARCH:arch, INSTALLED:installed, MISSING:missing}
+        checkRow(nordvpn.id, missing ? 1 : 0, extra)
+        const direct = run(nordvpn.disabled, extra)
+        assertEqual(direct.status, installed === '1' ? 0 : 1, 'NordVPN presence remains independent of availability')
+        const batch = run(menu.guardScript({[nordvpn.id]:nordvpn}), extra)
+        assertEqual(batch.status, 0, 'NordVPN availability and presence batch completes', batch.stderr)
+        assertDeepEqual(batch.stdout.trim().split('\n').sort(), [
+          `${nordvpn.id}:d:${installed}`,
+          `${nordvpn.id}:w:${missing ? 0 : 1}`
+        ].sort(), `NordVPN states on ${arch}: installed=${installed}, missing=${!!missing}`)
+      }
+    }
   }
   checkRow('install.editor.zed',0)
   checkRow('install.editor.zed',1,{MISSING:'zed'})
