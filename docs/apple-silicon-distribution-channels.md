@@ -45,7 +45,8 @@ tooling or the app.
 ## Channel model
 
 Decided 2026-09-17. `stable` and `rc` have followed it since 2026-09-18;
-`edge` is not published yet.
+`edge` is not published yet. The runtime side of `edge` (an rc Mac opting in
+and out) is described [below](#the-edge-lane-on-an-installed-mac).
 
 | Channel | Kernel | How it moves |
 | --- | --- | --- |
@@ -87,6 +88,34 @@ package channels, not through these installer catalogs.
 - **Before `edge` builds may sign themselves**, two things must exist: an
   edge-only signing key that only `edge` Macs trust, and a boot-health check
   that runs before a Mac moves to a new kernel.
+
+### The edge lane on an installed Mac
+
+An rc Mac follows edge through its Aurora lane file
+(`/var/lib/omarchy/apple-silicon-aurora-lane`); the channel record stays
+`channel=rc kernel=linux-aurora`. The operator steps are in
+[`apple-silicon-deployment.md`](apple-silicon-deployment.md#the-edge-lane).
+
+- **Releases.** `aurora-edge-<N>` on `maralcbr/omarchy-pkgs`, full releases
+  (not draft, not prerelease), each with an `AURORA` descriptor signed by the
+  ARM repository subkey: `channel=aurora-edge`, `release_tag=aurora-edge-N`,
+  `sequence=N`, plus the usual package and database lines.
+- **Pointer.** `pointers/aurora-edge-channel`, exactly
+  `format=1\nsequence=N\ntag=aurora-edge-N\n`, at most 256 bytes. A Mac uses it
+  only when it is not behind the release it accepted; otherwise it reads the
+  GitHub release listing until an empty page, at most 10 pages, and takes the
+  highest full edge release. On first contact the listing decides and the
+  pointer is used only when the listing is down. Neither can move a Mac below
+  the release it accepted, and an accepted or journaled release whose
+  descriptor changed is refused.
+- **Proof.** The chosen release is journaled, its descriptor staged, and
+  `[omarchy-aurora]` moved; a pacman hook stops any Aurora package transaction
+  whose synced database is not the staged descriptor's. The release counts as
+  accepted only after the installed versions and the boot chain match it.
+- **Leaving.** `omarchy-channel-set rc` (or `omarchy-apple-silicon-channel
+  reset-rc`) moves the section back to the rc pin, installing its older
+  packages the same way. The accepted edge release is remembered, so a later
+  return to edge never accepts anything older.
 
 ### Revisit when omarchy-pool is adopted
 

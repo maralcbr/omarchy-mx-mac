@@ -502,13 +502,102 @@ runs against the repository the section already names.
 
 An `IgnorePkg` or `IgnoreGroup` hold on the Aurora packages keeps the old
 kernel: the updater warns and leaves the hold. A repin never downgrades an
-installed kernel.
+installed kernel; only a switch back from edge does (below).
+
+Every managed run also stages the verified `AURORA` at
+`/var/lib/omarchy/aurora-target.descriptor`, even when the section does not
+move. `01-omarchy-aurora-verify.hook` (a PreTransaction, AbortOnFail hook the
+runtime ships) then stops any pacman transaction that installs or upgrades
+`linux-aurora`, `linux-aurora-headers` or `m1n1-aurora` while the synced
+`omarchy-aurora.db` is not the database that descriptor names. A section on a
+different release (a hold, a hand pin) or nothing staged yet gets one notice
+and passes; archives installed with `pacman -U` are outside the check.
+
+### The edge lane
+
+An installed rc Mac can follow `edge` instead of the pin: each
+`aurora-edge-<N>` release, built from `aurora-wip` HEAD. There is no edge
+installer image. The channel record keeps `format=1 channel=rc`, so older
+runtimes still read it; the lane lives beside it in
+`/var/lib/omarchy/apple-silicon-aurora-lane` (root, 0644, written by rename
+under the channel lock):
+
+| Line | Meaning |
+| --- | --- |
+| `lane=rc` or `lane=edge` | what the Mac follows; no file means `rc` |
+| `switch=rc` or `switch=edge` | a requested switch, cleared once it is proven |
+| `edge_accepted=<N>:<sha256>` | the last edge release proven installed and bootable; the Mac never goes below it |
+| `edge_pending=<N>:<sha256>` | the edge release journaled before the section moved; an interrupted update finishes it |
+
+`omarchy-channel-current` reports `edge` for such a Mac (`dev` still wins).
+The runtime package must install the hook above: `omarchy-channel-set edge`
+refuses on a runtime without it.
+
+**Publish an edge release** (in `omarchy-pkgs`, with the owner's authorization
+like any publication):
+
+1. `gh workflow run release-aurora-edge.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro`,
+   then approve the `asahi-quattro-release` gate after checking what changed on
+   `aurora-wip` and that the build passed. The run number is the sequence `N`,
+   and the release is `aurora-edge-N` (not a draft, not a prerelease).
+2. `bin/publish-asahi-channel-pointer --kind aurora-edge` points
+   `pointers/aurora-edge-channel` at it once the release's signed descriptor
+   reads back correctly. Check it:
+   `curl -fsS https://downloads.aicodelabs.com.au/pointers/aurora-edge-channel`.
+   A lagging pointer only holds Macs back: one behind what a Mac accepted
+   sends that Mac to the release listing.
+3. Before the first edge release reaches anyone else, qualify rc → edge → rc
+   on the M2 Max and the M1 Pro with the owner present, cold boots only.
+
+**Opt a Mac in**: *Update > Channel > Edge*, or `omarchy-channel-set edge`. It
+takes the update lock, then the channel lock, refuses a held channel, a Mac on
+`linux-asahi`, an invalid record, and `IgnorePkg`/`IgnoreGroup` on any of the
+three packages, writes `lane=edge switch=edge`, and runs `omarchy update -y`.
+That update picks the release (the pointer if it is not behind the accepted
+release, else the listing read to its end within 10 pages; on first contact
+the listing's highest full release), verifies its signed descriptor
+(`channel=aurora-edge`, `release_tag=aurora-edge-N`, `sequence=N`; for an
+accepted or journaled `N`, the same digest), journals it, stages it, moves
+`[omarchy-aurora]`, and upgrades with `omarchy-aurora/linux-aurora
+omarchy-aurora/linux-aurora-headers omarchy-aurora/m1n1-aurora` named. After
+the transaction it checks the installed versions against the descriptor and
+the boot chain (`omarchy-update-aurora-boot-check`: `/boot` kernel,
+initramfs, GRUB entry, `m1n1/boot.bin` on a read-only ESP mount) and only
+then records `edge_accepted`. Later updates follow newer edge releases the
+same way. When neither pointer nor listing answers, the update says so,
+upgrades on the current pin, and leaves any switch open.
+
+**Leave edge**: `omarchy-channel-set rc`. The next update moves the section
+back to the pin and installs the pin's (older) packages through the same
+named targets and checks; `edge_accepted` is kept. When the menu or
+`omarchy-channel-set` is not an option, `omarchy-apple-silicon-channel
+reset-rc` records the same request, then run `omarchy update`.
+
+**Recovery**:
+
+- `Aurora kernel check: the synced omarchy-aurora database is not the one …`
+  from pacman: the transaction stopped before anything changed. Run
+  `omarchy update`, which restages the descriptor and syncs again.
+- `The move to <tag> is not verified: <reason>`: the packages installed but
+  what boots does not match them (a failed mkinitcpio, GRUB or update-m1n1
+  hook, or `M1N1_UPDATE_DISABLED` set). The switch and journal stay open,
+  `/run/omarchy-reboot-blocked` holds the reason, the reboot prompt refuses,
+  and `omarchy update` exits non-zero. Re-run what failed (`sudo mkinitcpio
+  -P`, `sudo grub-mkconfig -o /boot/grub/grub.cfg`, `sudo update-m1n1`), then
+  `omarchy update`, which checks again and lifts the block. Do not reboot
+  before that.
+- `this Mac's Aurora lane cannot be read`: `omarchy-apple-silicon-channel
+  reset-rc` rewrites the lane file as rc (its edge history is lost).
+- A runtime downgraded by hand ignores the lane file and leaves an
+  `aurora-edge-*` section alone: the Mac keeps its edge kernel until a newer
+  runtime is back.
 
 ### What the Aurora lane does not do
 
 The kernel is pinned by commit. A new Aurora kernel is a new
 `aurora-packages-<sha>` release, a new ISO pin, and a new payload; installed
-Aurora Macs move only when the runtime pin above is bumped, never on their own.
+rc Macs move only when the runtime pin above is bumped, never on their own.
+Only Macs that opted into edge follow edge releases.
 
 `test/vm/asahi-fresh` installs `linux-asahi` and boots a generic kernel, so it
 proves the runtime tolerates the Aurora name but cannot exercise the kernel.
@@ -524,8 +613,11 @@ aurora ignore rule in `bin/asahi-incremental-plan`); the `builder/*aurora*`,
 `products/omarchy-mx-mac-aurora.json`, `*-arm-aurora.conf` and
 `test/unit/aurora-product-test.sh` files from `omarchy-iso`; and
 `bin/omarchy-hw-apple-kernel`, `bin/omarchy-update-aurora-repository` (and its
-call in `bin/omarchy-update-system-pkgs`), `default/aurora-qualified-release`,
-`test/shell.d/aurora-repository-update-test.sh` and
+calls in `bin/omarchy-update-system-pkgs`), `bin/omarchy-update-aurora-verify`,
+`bin/omarchy-update-aurora-boot-check`,
+`default/libalpm/hooks/01-omarchy-aurora-verify.hook`,
+`default/aurora-qualified-release`, `test/shell.d/aurora-*-test.sh`,
+`test/shell.d/update-system-pkgs-aurora-test.sh` and
 `scripts/release-inputs-aurora.template.json` here. Everything else is a hook
 that defaults to the Asahi behaviour (the
 kernel name in the builder, orchestrator and verifiers; the per-kernel branding
