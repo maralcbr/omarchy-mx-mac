@@ -1,0 +1,232 @@
+#!/bin/bash
+
+# The boot check and the pacman hook against the real things they guard: a FAT
+# system ESP on a loop device, mounted and not, and a pacman transaction from a
+# throwaway [omarchy-aurora] repository. It mounts devices, replaces
+# /etc/pacman.conf and installs a package, so it runs only in a disposable
+# privileged container:
+#
+#   docker run --rm --privileged -e OMARCHY_INTEGRATION_CONTAINER=1 \
+#     -v "$PWD":/src -w /src omarchy-test:4.0.3 test/aurora-integration
+
+set -euo pipefail
+
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/shell.d/base-test.sh"
+
+if [[ ${OMARCHY_INTEGRATION_CONTAINER:-} != 1 || ! -f /.dockerenv ]] || (( EUID != 0 )); then
+  echo "test/aurora-integration runs only as root in a disposable container with OMARCHY_INTEGRATION_CONTAINER=1" >&2
+  exit 2
+fi
+for command in losetup sfdisk mkfs.fat findmnt pacman repo-add bsdtar zstd; do
+  require_command "$command"
+done
+
+work=$(mktemp -d /tmp/aurora-integration.XXXXXX)
+loop=""
+cleanup() {
+  for target in $(findmnt -n -r -o TARGET | grep -F "$work" | sort -r); do
+    umount "$target" 2>/dev/null || true
+  done
+  [[ -z $loop ]] || losetup -d "$loop" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# The boot check, with pacman's and lsinitcpio's answers from the fixture and
+# everything else real. cmp records whether the ESP mount it reads is read-only.
+stub_bin="$work/bin"
+root="$work/root"
+kver=6.17.0-aurora1-ARCH
+modules="$root/usr/lib/modules/$kver"
+partuuid=5f2b0c3e-1111-4a2b-9c3d-000000000002
+reads="$work/reads"
+mkdir -p "$stub_bin" "$modules/dtbs" "$root/boot/grub" "$root/boot/efi" "$root/usr/lib/asahi-boot" "$root/usr/bin" \
+  "$root/etc/default" "$root/run" "$root/proc/device-tree/chosen"
+cat >"$stub_bin/sudo" <<'SH'
+#!/bin/bash
+exec "$@"
+SH
+cat >"$stub_bin/pacman" <<'SH'
+#!/bin/bash
+case "$*" in
+  -Qq) printf '%s\n' linux-aurora linux-aurora-headers m1n1-aurora uboot-asahi ;;
+  "-Qlq linux-aurora") cat "$TEST_WORK/kernel-files" ;;
+  "-Qlq m1n1-aurora") printf '/usr/lib/asahi-boot/\n/usr/lib/asahi-boot/m1n1.bin\n' ;;
+  *) exit 1 ;;
+esac
+SH
+cat >"$stub_bin/lsinitcpio" <<'SH'
+#!/bin/bash
+printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\n' "$TEST_KVER"
+SH
+cat >"$stub_bin/cmp" <<'SH'
+#!/bin/bash
+if [[ ${@: -1} == */m1n1/boot.bin ]]; then
+  findmnt -n -o VFS-OPTIONS --target "${@: -1}" >>"$TEST_READS"
+fi
+exec /usr/bin/cmp "$@"
+SH
+chmod +x "$stub_bin"/*
+
+ln -s usr/lib "$root/lib"
+printf 'aurora kernel\n' >"$modules/vmlinuz"
+cp "$modules/vmlinuz" "$root/boot/vmlinuz-linux-aurora"
+printf 'initramfs\n' >"$root/boot/initramfs-linux-aurora.img"
+printf 'linux /vmlinuz-linux-aurora\ninitrd /initramfs-linux-aurora.img\n' >"$root/boot/grub/grub.cfg"
+dtbs=()
+for name in t6000-j314s t6020-j414s t8103-j274; do
+  printf 'device tree %s\n' "$name" >"$modules/dtbs/$name.dtb"
+  dtbs+=("$modules/dtbs/$name.dtb")
+done
+printf '/usr/lib/modules/%s/vmlinuz\n' "$kver" >"$work/kernel-files"
+printf '%s\n' "${dtbs[@]#"$root"}" >>"$work/kernel-files"
+printf 'm1n1 stage 2\n' >"$root/usr/lib/asahi-boot/m1n1.bin"
+printf 'u-boot\n' >"$root/usr/lib/asahi-boot/u-boot-nodtb.bin"
+printf 'display=2560x1600\n' >"$root/etc/m1n1.conf"
+cat >"$root/usr/bin/update-m1n1" <<'SH'
+#!/bin/sh
+: ${SOURCE:="/usr/lib/asahi-boot/"}
+: ${M1N1:="$SOURCE/m1n1.bin"}
+: ${U_BOOT:="$SOURCE/u-boot-nodtb.bin"}
+: ${TARGET:="$1"}
+: ${DTBS:=$(/bin/ls -d /lib/modules/*-ARCH | sort -rV | head -1)/dtbs/*.dtb}
+: ${CONFIG:=/etc/m1n1.conf}
+            chosen.*=*|display=*|mitigations=*)
+cat "$M1N1" $DTBS >"${TARGET}.new"
+gzip -c "$U_BOOT" >>"${TARGET}.new"
+SH
+printf '%s\0' "$partuuid" >"$root/proc/device-tree/chosen/asahi,efi-system-partition"
+
+# A GPT disk with one FAT ESP partition, found by its PARTUUID.
+truncate -s 48M "$work/disk.img"
+printf 'label: gpt\nsize=40M, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=%s\n' "$partuuid" | sfdisk -q "$work/disk.img"
+loop=$(losetup -P -f --show "$work/disk.img")
+partition=${loop}p1
+if [[ ! -b $partition ]]; then
+  node="/sys/block/${loop##*/}/${partition##*/}/dev"
+  mknod "$partition" b "$(cut -d: -f1 "$node")" "$(cut -d: -f2 "$node")"
+fi
+mkfs.fat -F 16 "$partition" >/dev/null
+
+write_esp_image() {
+  mkdir -p "$work/staging"
+  mount "$partition" "$work/staging"
+  mkdir -p "$work/staging/m1n1"
+  {
+    cat "$root/usr/lib/asahi-boot/m1n1.bin" "$@"
+    gzip -c "$root/usr/lib/asahi-boot/u-boot-nodtb.bin"
+    printf 'display=2560x1600\n'
+  } >"$work/staging/m1n1/boot.bin"
+  umount "$work/staging"
+}
+
+run_check() {
+  : >"$reads"
+  set +e
+  TEST_WORK="$work" TEST_KVER="$kver" TEST_READS="$reads" OMARCHY_BOOT_CHECK_ROOT="$root" \
+    PATH="$stub_bin:$ROOT/bin:$PATH" bash "$ROOT/bin/omarchy-apple-silicon-boot-check" linux-aurora \
+    >"$work/out" 2>"$work/err"
+  status=$?
+  set -e
+}
+
+device_mounts() {
+  findmnt -n -r -o TARGET --source "$partition" || true
+}
+
+write_esp_image "${dtbs[@]}"
+before=$(sha256sum "$partition" | cut -d' ' -f1)
+run_check
+(( status == 0 )) || fail "the boot check passes against an unmounted ESP" "status $status: $(cat "$work/err")"
+[[ $(cat "$reads") == ro,* ]] || fail "the unmounted ESP is read through a read-only mount" "$(cat "$reads")"
+[[ -z $(device_mounts) && -z $(ls -A "$root/run") ]] || fail "the check leaves the ESP unmounted" "$(device_mounts)"
+[[ $(sha256sum "$partition" | cut -d' ' -f1) == "$before" ]] || fail "the check does not write the ESP"
+pass "an unmounted loop ESP is mounted read-only by PARTUUID, compared, left unchanged and unmounted"
+
+mount "$partition" "$root/boot/efi"
+run_check
+(( status == 0 )) || fail "the boot check passes against a mounted ESP" "status $status: $(cat "$work/err")"
+[[ $(cat "$reads") == ro,* ]] || fail "a mounted ESP is read through a read-only bind" "$(cat "$reads")"
+[[ $(device_mounts) == "$root/boot/efi" ]] || fail "only the ESP's own mount remains" "$(device_mounts)"
+[[ $(findmnt -n -o VFS-OPTIONS --mountpoint "$root/boot/efi") == rw,* ]] || fail "the ESP's own mount stays writable"
+printf 'stale\n' >>"$root/boot/efi/m1n1/boot.bin"
+run_check
+(( status == 1 )) && grep -Fq "m1n1/boot.bin on the system ESP (PARTUUID=$partuuid) is not m1n1" "$work/err" ||
+  fail "a stale image on a mounted ESP fails the check" "status $status: $(cat "$work/err")"
+[[ $(device_mounts) == "$root/boot/efi" ]] || fail "a failed check leaves only the ESP's own mount" "$(device_mounts)"
+umount "$root/boot/efi"
+pass "a mounted loop ESP is read through a read-only bind of its mount, which stays as it was"
+
+# The pacman hook, on a real transaction from a throwaway repository whose
+# downloads resolve to local files under the release URL omarchy update pins.
+server=https://github.com/maralcbr/omarchy-pkgs/releases/download/aurora-edge-9
+repo="$work/repo"
+package="$work/package"
+mkdir -p "$repo" "$package/usr/share/aurora-fixture" /var/lib/omarchy
+chmod 0755 /var/lib/omarchy
+printf 'fixture\n' >"$package/usr/share/aurora-fixture/marker"
+cat >"$package/.PKGINFO" <<'INFO'
+pkgname = linux-aurora
+pkgbase = linux-aurora
+pkgver = 1.0-1
+pkgdesc = Aurora hook fixture
+url = https://example.test
+builddate = 1
+packager = Omarchy tests
+size = 8
+arch = any
+INFO
+(cd "$package" && bsdtar -cf - .PKGINFO usr | zstd -q -o "$repo/linux-aurora-1.0-1-any.pkg.tar.zst")
+repo-add -q "$repo/omarchy-aurora.db.tar.gz" "$repo/linux-aurora-1.0-1-any.pkg.tar.zst"
+cat >"$work/fetch" <<SH
+#!/bin/bash
+[[ \$2 == $server/* && -f $repo/\${2##*/} ]] || exit 1
+cp -L "$repo/\${2##*/}" "\$1"
+SH
+chmod +x "$work/fetch"
+cat >/etc/pacman.conf <<CONF
+[options]
+Architecture = auto
+SigLevel = Never
+LocalFileSigLevel = Never
+XferCommand = $work/fetch %o %u
+
+[omarchy-aurora]
+Server = $server
+CONF
+install -m 0755 "$ROOT/bin/omarchy-update-aurora-verify" /usr/bin/omarchy-update-aurora-verify
+install -m 0644 "$ROOT/default/libalpm/hooks/01-omarchy-aurora-verify.hook" /usr/share/libalpm/hooks/
+database=$(sha256sum "$repo/omarchy-aurora.db" | cut -d' ' -f1)
+
+stage() {
+  printf 'format=1\nchannel=aurora-edge\nrelease_tag=%s\nsequence=9\nasset=omarchy-aurora.db|%s\n' "$1" "$2" \
+    >/var/lib/omarchy/aurora-target.descriptor
+  chmod 0644 /var/lib/omarchy/aurora-target.descriptor
+}
+
+run_pacman() {
+  set +e
+  pacman -Sy --noconfirm linux-aurora >"$work/pacman.out" 2>&1
+  status=$?
+  set -e
+}
+
+stage aurora-edge-9 "$(printf '%064d' 0)"
+run_pacman
+(( status != 0 )) || fail "a database the staged descriptor does not name aborts the transaction" "$(cat "$work/pacman.out")"
+grep -Fq "the synced omarchy-aurora database is not the one aurora-edge-9's signed descriptor names" "$work/pacman.out" ||
+  fail "the abort says why" "$(cat "$work/pacman.out")"
+! pacman -Q linux-aurora >/dev/null 2>&1 && [[ ! -e /usr/share/aurora-fixture/marker ]] ||
+  fail "an aborted transaction installs nothing"
+[[ $(sha256sum /var/lib/pacman/sync/omarchy-aurora.db | cut -d' ' -f1) == "$database" ]] ||
+  fail "pacman synced the fixture database"
+pass "the PreTransaction hook aborts a real pacman transaction whose synced database does not match, before anything installs"
+
+stage aurora-edge-9 "$database"
+run_pacman
+(( status == 0 )) && pacman -Q linux-aurora >/dev/null && [[ -e /usr/share/aurora-fixture/marker ]] ||
+  fail "a database the staged descriptor names installs" "$(cat "$work/pacman.out")"
+stage aurora-edge-8 "$(printf '%064d' 0)"
+run_pacman
+(( status == 0 )) && grep -Fq "is on aurora-edge-9, not aurora-edge-8" "$work/pacman.out" ||
+  fail "a section on another release than the staged one passes with a notice" "$(cat "$work/pacman.out")"
+pass "a matching database installs, and a section on another release than the staged one passes with a notice"

@@ -107,7 +107,9 @@ An rc Mac follows edge through its Aurora lane file
   highest full edge release. On first contact the listing decides and the
   pointer is used only when the listing is down. Neither can move a Mac below
   the release it accepted, and an accepted or journaled release whose
-  descriptor changed is refused.
+  descriptor changed is refused. When neither answers, that update stays on
+  what it can prove: the accepted edge release, or the rc pin for a missing
+  section or one on a release the pin replaces.
 - **Proof.** The chosen release is journaled, its descriptor staged, and
   `[omarchy-aurora]` moved; a pacman hook stops any Aurora package transaction
   whose synced database is not the staged descriptor's. The release counts as
