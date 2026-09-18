@@ -20,6 +20,7 @@ write_stub() {
 }
 
 write_stub omarchy-refresh-pacman '#!/bin/bash
+printf "refresh-path\t%s\n" "$OMARCHY_PATH" >>"$OMARCHY_CHANNEL_TEST_LOG"
 printf "refresh" >>"$OMARCHY_CHANNEL_TEST_LOG"
 for arg in "$@"; do printf "\t%s" "$arg" >>"$OMARCHY_CHANNEL_TEST_LOG"; done
 printf "\n" >>"$OMARCHY_CHANNEL_TEST_LOG"
@@ -168,9 +169,10 @@ assert_log_line $'git\tclone\thttps://github.com/omacom/omarchy.git\t'"$checkout
 assert_log_line $'link\t'"$checkout"$'\t--no-reboot' "dev links ~/omarchy without an early reboot prompt"
 assert_log_line $'state\tset\treboot-required' "dev defers the reboot prompt to the update pipeline"
 assert_log_line $'update\t-y\tOMARCHY_PATH='"$checkout" "dev runs the normal update pipeline from the source checkout"
-[[ $(grep -E '^(git|link|state|refresh|sudo|update)' "$log_file") == $'git\tclone\thttps://github.com/omacom/omarchy.git\t'"$checkout"$'\nlink\t'"$checkout"$'\t--no-reboot\nstate\tset\treboot-required\nrefresh\tedge\nupdate-pacman\t-S\t--needed\t--noconfirm\t--ask\t4\tomarchy-dev\tomarchy-settings-dev\nupdate\t-y\tOMARCHY_PATH='"$checkout" ]] ||
+[[ $(grep -E $'^(git|link|state|refresh|sudo|update-pacman|update)\t' "$log_file") == $'git\tclone\thttps://github.com/omacom/omarchy.git\t'"$checkout"$'\nlink\t'"$checkout"$'\t--no-reboot\nstate\tset\treboot-required\nrefresh\tedge\nupdate-pacman\t-S\t--needed\t--noconfirm\t--ask\t4\tomarchy-dev\tomarchy-settings-dev\nupdate\t-y\tOMARCHY_PATH='"$checkout" ]] ||
   fail "dev activates the checkout before changing or updating packages" "$(cat "$log_file")"
 pass "dev activates the checkout before changing or updating packages"
+assert_log_line $'refresh-path\t'"$checkout" "dev refreshes using templates from the selected checkout"
 
 OMARCHY_TEST_PATH="$checkout" run_channel stable
 assert_log_line $'unlink\t--no-reboot' "switching from dev to stable unlinks without an early reboot prompt"
