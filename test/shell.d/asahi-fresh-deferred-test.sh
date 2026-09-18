@@ -34,28 +34,46 @@ stub() {
   chmod +x "$stub_bin/$1"
 }
 
+# Queries answer from an exact inventory of installed package names, so a
+# wrong name fails; transactions add what they install to it.
 stub pacman <<'EOF'
 #!/bin/bash
+installed="$FRESH_TEST_ROOT/installed"
 repositories() {
   awk '/^[[:space:]]*\[[^]]+\][[:space:]]*$/ { gsub(/[][[:space:]]/, ""); if ($0 != "options") { printf "%s%s", sep, $0; sep = "," } }' "$FRESH_TEST_ROOT/etc/pacman.conf"
 }
 case "$1" in
   -Q)
     shift
-    (($#)) || { echo "base 1"; exit 0; }
+    (($#)) || { sed 's/$/ 1/' "$installed"; exit 0; }
     for package in "$@"; do
-      [[ " ${FRESH_TEST_MISSING:-} " != *" $package "* ]] || exit 1
+      grep -Fxq -- "$package" "$installed" || { echo "error: package '$package' was not found" >&2; exit 1; }
     done
     ;;
   -Qlq)
+    grep -Fxq -- "$2" "$installed" || exit 1
     printf '/usr/lib/modules/%s/\n/usr/lib/modules/%s/vmlinuz\n' "$FRESH_TEST_KERNEL_VERSION" "$FRESH_TEST_KERNEL_VERSION"
     ;;
   -Syu)
-    echo "pacman -Syu repositories=$(repositories)" >>"$FRESH_TEST_LOG"
+    shift
+    ignored="" targets=()
+    while (($#)); do
+      case "$1" in
+        --ignore) ignored=$2; shift ;;
+        -*) ;;
+        *) targets+=("$1") ;;
+      esac
+      shift
+    done
+    echo "pacman -Syu ignore=$ignored repositories=$(repositories)" >>"$FRESH_TEST_LOG"
     [[ ${FRESH_TEST_FAIL:-} != pacman-Syu ]] || exit 1
+    printf '%s\n' "${targets[@]}" >>"$installed"
     ;;
   -U)
     echo "pacman -U" >>"$FRESH_TEST_LOG"
+    for archive in "$@"; do
+      [[ $archive == -* ]] || basename "$archive" | sed 's/-[^-]*-[^-]*-[^-]*\.pkg\.tar\..*$//' >>"$installed"
+    done
     ;;
   *) echo "unexpected pacman $*" >>"$FRESH_TEST_LOG"; exit 1 ;;
 esac
@@ -213,7 +231,8 @@ done
 builder_grub=$'# written by the image builder\nlinux /vmlinuz-KERNEL\ninitrd /initramfs-KERNEL.img'
 
 reset_sandbox() {
-  local kernel=${1:-linux-asahi} version=${2:-6.99.0-asahi}
+  local kernel=${1:-linux-asahi} version=${2:-6.99.0-asahi} m1n1=${3:-m1n1}
+  [[ $kernel != linux-aurora || -n ${3:-} ]] || m1n1=m1n1-aurora
 
   rm -rf "$sandbox"
   mkdir -p "$sandbox"/{proc/device-tree,boot/grub,etc/pacman.d,etc/NetworkManager,run/lock,sys/module/zswap/parameters,home,dev} \
@@ -246,6 +265,7 @@ CONF
   echo 'LANG=en_US.UTF-8' >"$sandbox/etc/locale.conf"
   printf 'UID_MIN 1000\nUID_MAX 60000\n' >"$sandbox/etc/login.defs"
   echo N >"$sandbox/sys/module/zswap/parameters/enabled"
+  printf '%s\n' base grub jq networkmanager iwd "$kernel" "$kernel-headers" "$m1n1" >"$sandbox/installed"
   printf 'root:x:0:0::/root:/bin/bash\nalarm:x:1000:1000::/home/alarm:/bin/bash\n' >"$sandbox/passwd"
   kernel_name=$kernel
   kernel_version=$version
@@ -261,7 +281,7 @@ run_installer() {
     shift
   done
   env -u FRESH_TEST_FAIL -u FRESH_TEST_CHANNEL -u FRESH_TEST_CHANNEL_STATUS -u FRESH_TEST_AURORA_CONF \
-    -u FRESH_TEST_GRUB -u FRESH_TEST_INITRAMFS -u FRESH_TEST_MISSING \
+    -u FRESH_TEST_GRUB -u FRESH_TEST_INITRAMFS \
     PATH="$stub_bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin" \
     TMPDIR="$test_tmp/tmp" \
     FRESH_TEST_ROOT="$sandbox" \
@@ -332,6 +352,8 @@ m1n1_line=$(call_line '^update-m1n1')
 [[ $(cat "$sandbox/boot/grub/grub.cfg") != "${builder_grub//KERNEL/$kernel_name}" ]] || fail "the builder's GRUB configuration is replaced"
 called '^gpasswd -d alarm wheel$' && called '^usermod -L alarm$' || fail "a deferred install still retires the stock administrator"
 [[ ! -e $state_dir && -f $sandbox/var/lib/omarchy/asahi-quattro-release ]] || fail "a deferred install completes its checkpoint and records the release"
+grep -Fxq 'pacman -Syu ignore=linux-asahi,linux-asahi-headers,m1n1 repositories=omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
+  fail "the first transaction holds the Asahi boot packages" "$(cat "$calls")"
 grep -Fq 'Fresh Omarchy 4 installation complete' "$test_tmp/deferred.out" || fail "a deferred install reports completion"
 ! grep -Fq 'Reboot' "$test_tmp/deferred.out" || fail "a deferred install gives no reboot instruction"
 pass "a deferred install sets up the system without an account, a terminal or a reboot instruction"
@@ -411,10 +433,22 @@ transaction_line=$(call_line '^pacman -Syu')
   fail "the Aurora updater runs after the [omarchy] bootstrap and before the first transaction" "$(cat "$calls")"
 grep -Eq '^aurora  sudo=[^ ]+/sudo/sudo path=[^ ]+/usr/share/omarchy$' "$calls" ||
   fail "the Aurora updater runs from the verified runtime with the sudo stand-in" "$(cat "$calls")"
-grep -Fxq 'pacman -Syu repositories=omarchy-aurora,omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
-  fail "the first transaction reads [omarchy-aurora] then [omarchy] ahead of Arch Linux ARM" "$(cat "$calls")"
+grep -Fxq 'pacman -Syu ignore=linux-aurora,linux-aurora-headers,m1n1-aurora repositories=omarchy-aurora,omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
+  fail "the first transaction holds the Aurora boot packages and reads [omarchy-aurora] then [omarchy] first" "$(cat "$calls")"
 called '^update-grub' || fail "an rc install regenerates GRUB for linux-aurora"
 pass "an rc Mac pins [omarchy-aurora] directly ahead of [omarchy] before its first transaction"
+
+# Each kernel requires its own m1n1 build; the other one's is no substitute.
+for mismatch in "linux-aurora 6.99.0-aurora m1n1 m1n1-aurora" "linux-asahi 6.99.0-asahi m1n1-aurora m1n1"; do
+  read -r kernel version installed_m1n1 required_m1n1 <<<"$mismatch"
+  reset_sandbox "$kernel" "$version" "$installed_m1n1"
+  status=0
+  run_installer m1n1-mismatch FRESH_TEST_CHANNEL=rc --deferred-user || status=$?
+  expect_failure "$status" m1n1-mismatch "Required Asahi package is not installed: $required_m1n1" \
+    "$kernel with $installed_m1n1 is refused"
+  [[ ! -s $calls ]] || fail "a missing m1n1 build changes nothing ($kernel)" "$(cat "$calls")"
+done
+pass "each kernel requires, holds and verifies its own m1n1 package"
 
 for channel in stable ""; do
   reset_sandbox

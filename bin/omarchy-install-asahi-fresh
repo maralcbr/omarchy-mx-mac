@@ -121,20 +121,36 @@ regenerate_boot_files() {
   update-m1n1 || fail "Could not regenerate the m1n1 boot image"
 }
 
-verify_boot_files() {
-  local kernel_files kernel_version initramfs_files
+verify_kernel_image() {
+  local kernel_files
 
   kernel_files=$(pacman -Qlq "$kernel_package") || fail "Could not list the files of $kernel_package"
   kernel_version=$(sed -n 's|^/usr/lib/modules/\([^/]*\)/vmlinuz$|\1|p' <<<"$kernel_files")
   [[ -n $kernel_version && $kernel_version != *$'\n'* ]] || fail "Could not identify the installed $kernel_package kernel"
   cmp -s "/boot/vmlinuz-$kernel_package" "/usr/lib/modules/$kernel_version/vmlinuz" ||
     fail "/boot/vmlinuz-$kernel_package is not the installed $kernel_package kernel"
+}
+
+verify_initramfs() {
+  local initramfs_files
+
   initramfs_files=$(lsinitcpio -l "/boot/initramfs-$kernel_package.img") ||
     fail "Could not read the $kernel_package initramfs"
   grep -Fq "usr/lib/modules/$kernel_version/" <<<"$initramfs_files" ||
     fail "The $kernel_package initramfs does not carry the modules of $kernel_version"
+}
+
+verify_grub_config() {
   grep -Fq "vmlinuz-$kernel_package" /boot/grub/grub.cfg && grep -Fq "initramfs-$kernel_package.img" /boot/grub/grub.cfg ||
     fail "The GRUB configuration does not boot $kernel_package"
+}
+
+# Phase B's B7 boot checks, one call each. The ESP m1n1/boot.bin check joins
+# this list once its verifier ships.
+verify_boot_files() {
+  verify_kernel_image
+  verify_initramfs
+  verify_grub_config
 }
 
 while (($#)); do
@@ -178,8 +194,11 @@ if [[ -f $kernel_marker && ! -L $kernel_marker ]]; then
   read -r kernel_package <"$kernel_marker" || true
 fi
 [[ $kernel_package =~ ^linux-[a-z0-9]+$ ]] || fail "Unreadable kernel package name"
+# The Aurora kernel boots through its own m1n1 build, which replaces m1n1.
+m1n1_package=m1n1
+[[ $kernel_package != linux-aurora ]] || m1n1_package=m1n1-aurora
 
-for package in "$kernel_package" "$kernel_package-headers" m1n1 grub; do
+for package in "$kernel_package" "$kernel_package-headers" "$m1n1_package" grub; do
   pacman -Q "$package" >/dev/null 2>&1 || fail "Required Asahi package is not installed: $package"
 done
 [[ -f /boot/vmlinuz-$kernel_package ]] || fail "/boot/vmlinuz-$kernel_package is unavailable"
@@ -330,7 +349,7 @@ repo_packages=()
 for package in "${runtime_packages[@]}"; do
   if [[ $package == "$kernel_package" || $package == "$kernel_package-headers" ||
     $package == "linux-asahi" || $package == "linux-asahi-headers" ||
-    $package == "m1n1" ]]; then
+    $package == "m1n1" || $package == "$m1n1_package" ]]; then
     continue
   fi
   repo_packages+=("$package")
@@ -339,7 +358,7 @@ done
 configure_package_repository /etc/pacman.conf "$settings_archive" "$omarchy_archive"
 
 echo "Installing the Omarchy 4 Apple Silicon package set"
-pacman -Syu --needed --noconfirm --ignore "$kernel_package,$kernel_package-headers,m1n1" \
+pacman -Syu --needed --noconfirm --ignore "$kernel_package,$kernel_package-headers,$m1n1_package" \
   base-devel sudo xdg-user-dirs "${repo_packages[@]}"
 
 echo "Installing the verified six-package Omarchy release"
@@ -421,7 +440,7 @@ fi
 
 ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
-pacman -Q omarchy-dev omarchy-settings-dev "$kernel_package" "$kernel_package-headers" m1n1 networkmanager iwd >/dev/null
+pacman -Q omarchy-dev omarchy-settings-dev "$kernel_package" "$kernel_package-headers" "$m1n1_package" networkmanager iwd >/dev/null
 [[ $(cat /usr/share/omarchy/version) == 4.* ]] || fail "Installed Omarchy version is not 4.x"
 NetworkManager --print-config 2>/dev/null | grep -Fxq 'wifi.backend=iwd' || fail "NetworkManager iwd backend was not configured"
 grep -Eqi '^[[:space:]]*LANG[[:space:]]*=[[:space:]]*"?[^"[:space:]#]*\.utf-?8(@[^"[:space:]#]+)?"?([[:space:]]*(#.*)?)?$' /etc/locale.conf || fail "The system locale is not UTF-8"
