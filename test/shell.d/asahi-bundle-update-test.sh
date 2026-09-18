@@ -260,11 +260,11 @@ pass "new signed release cannot leapfrog pending migrations"
 rm -f "$state.pending"
 
 api_users=$(cd "$ROOT" && grep -rlF 'api.github.com' bin | sort)
-[[ $api_users == $'bin/omarchy-update-asahi-bundle\nbin/omarchy-update-asahi-repository' ]] ||
-  fail "only the bundle and repository updaters' listing fallbacks read the GitHub API" "$api_users"
+[[ $api_users == $'bin/omarchy-update-asahi-bundle\nbin/omarchy-update-asahi-repository\nbin/omarchy-update-aurora-repository' ]] ||
+  fail "only the bundle, repository and Aurora edge updaters' listing fallbacks read the GitHub API" "$api_users"
 grep -Fq 'https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel' "$updater" ||
   fail "bundle updater reads the published release channel pointer"
-pass "installed Macs read the GitHub API only for the bundle and repository listing fallbacks"
+pass "installed Macs read the GitHub API only for the bundle, repository and Aurora edge listing fallbacks"
 
 pointer_url="https://downloads.example.test/pointers/asahi-quattro-channel"
 api_url="https://api.github.test/repos/example/releases?per_page=100"

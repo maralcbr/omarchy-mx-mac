@@ -29,7 +29,7 @@ api_line=$(grep -nF 'api.github.com' "$bootstrap" | cut -d: -f1)
 pass "bootstrap discovery is pointer first, listing second, and never the legacy release"
 
 api_users=$(cd "$ROOT" && grep -rlF 'api.github.com' bin install install-omarchy-mx-mac install-omarchy-mx-mac.sh migrations test/vm | sort)
-[[ $api_users == $'bin/omarchy-update-asahi-bundle\nbin/omarchy-update-asahi-repository\ninstall-omarchy-mx-mac\ntest/vm/asahi-fresh/guest/install\ntest/vm/asahi-fresh/run' ]] ||
+[[ $api_users == $'bin/omarchy-update-asahi-bundle\nbin/omarchy-update-asahi-repository\nbin/omarchy-update-aurora-repository\ninstall-omarchy-mx-mac\ntest/vm/asahi-fresh/guest/install\ntest/vm/asahi-fresh/run' ]] ||
   fail "only the documented listing fallbacks read the GitHub API" "$api_users"
 for harness_file in guest/install run; do
   harness_pointer_line=$(grep -nF 'https://downloads.aicodelabs.com.au/pointers/' "$ROOT/test/vm/asahi-fresh/$harness_file" | cut -d: -f1)

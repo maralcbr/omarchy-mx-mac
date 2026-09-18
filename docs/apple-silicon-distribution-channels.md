@@ -355,10 +355,12 @@ or mirror its bootstrap kept.
 
 ### What still reads the GitHub API
 
-Five files, each only as the fallback behind a pointer:
+Six files, each only as the fallback behind a pointer:
 
 - `bin/omarchy-update-asahi-bundle` and `bin/omarchy-update-asahi-repository`,
   behind the runtime and package channel pointers.
+- `bin/omarchy-update-aurora-repository`, behind the edge pointer, and only on
+  a Mac that follows edge.
 - `install-omarchy-mx-mac`, behind the runtime channel pointer. With neither
   resolvable the install fails rather than silently pinning an old release.
 - `test/vm/asahi-fresh/guest/install`, behind the same pointer.

@@ -57,7 +57,14 @@ grep -Fq '&page=$page' "$updater" || fail "repository updater pages through the 
 pass "Apple Silicon package repository updates are wired into the update flow"
 
 api_lines=$(cd "$ROOT" && grep -rnF 'api.github.com' bin | sort)
-(( $(wc -l <<<"$api_lines") == 2 )) || fail "only the two documented listing fallbacks in bin/ read the GitHub API" "$api_lines"
+(( $(wc -l <<<"$api_lines") == 3 )) || fail "only the three documented listing fallbacks in bin/ read the GitHub API" "$api_lines"
+aurora_updater="$ROOT/bin/omarchy-update-aurora-repository"
+aurora_api_line=$(grep -nF 'api.github.com' "$aurora_updater" || true)
+grep -Fq 'releases_api_url="https://api.github.com/repos/$repo/releases?per_page=100"' <<<"$aurora_api_line" ||
+  fail "the Aurora updater reads the GitHub API only as its edge release listing fallback" "$api_lines"
+aurora_pointer_line=$(grep -nF 'https://downloads.aicodelabs.com.au/pointers/aurora-edge-channel' "$aurora_updater" | cut -d: -f1)
+[[ -n $aurora_pointer_line ]] && (( aurora_pointer_line < ${aurora_api_line%%:*} )) ||
+  fail "the Aurora updater tries its R2 pointer before the GitHub API"
 for command in "$bundle_updater" "$updater"; do
   api_line=$(grep -nF 'api.github.com' "$command" || true)
   grep -Fq 'releases_api_url="${OMARCHY_ASAHI_RELEASES_API_URL:-https://api.github.com/repos/$repo/releases?per_page=100}"' <<<"$api_line" ||
@@ -66,7 +73,7 @@ for command in "$bundle_updater" "$updater"; do
   [[ -n $pointer_line ]] && (( pointer_line < ${api_line%%:*} )) ||
     fail "$(basename "$command") tries its R2 pointer before the GitHub API"
 done
-pass "installed Macs read the GitHub API only as the fallback behind the bundle and package channel pointers"
+pass "installed Macs read the GitHub API only as the fallback behind the bundle, package channel and Aurora edge pointers"
 
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
