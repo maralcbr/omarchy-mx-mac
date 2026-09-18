@@ -42,10 +42,10 @@ change only through `bin/publish-asahi-channel-pointer` in `omarchy-pkgs`
 `<channel>` is `stable` or `rc`. Nothing else is accepted anywhere in the
 tooling or the app.
 
-## Planned channel model
+## Channel model
 
-Decided 2026-09-17, not implemented yet. This is what the channel refactor
-builds towards; the rest of this document still describes what runs today.
+Decided 2026-09-17. `stable` and `rc` have followed it since 2026-09-18;
+`edge` is not published yet.
 
 | Channel | Kernel | How it moves |
 | --- | --- | --- |
@@ -53,10 +53,23 @@ builds towards; the rest of this document still describes what runs today.
 | `rc` | `linux-aurora` from `aurora-silicon/linux` branch `aurora-wip`, **pinned** to a commit qualified on real hardware | Moves only when a new pin passes hardware qualification. |
 | `edge` | `linux-aurora` from `aurora-wip`, **floating** on the branch head | Follows each new build. |
 
-Today's Asahi-based `rc` goes away and `rc-aurora` becomes `rc`. Macs already
-installed from a renamed channel are migrated, not stranded. Until then,
-`rc-aurora` offers only the models qualified on hardware: `apple,j314s` and
-`apple,j416c`, from release `os-v4.0.3-mac.2.20260913.1-aurora` on.
+The rename happened on 2026-09-18:
+
+- `stable` was published for the first time with the signed Asahi release that
+  `rc` served until then, `os-v4.0.3-mac.1.20260913`.
+- Installer 2.0.5 defaults to `stable`. Earlier installers default to `rc`.
+- `rc` and `rc-aurora` then moved to `os-v4.0.3-mac.2.20260913.2-aurora`. That
+  is the hardware-qualified Aurora release, offering only `apple,j314s` and
+  `apple,j416c`. Its catalog sets `installer.minimumVersion` to 2.0.5, so an
+  older installer still on `rc` asks its user to download the current
+  installer instead of silently installing Aurora.
+- `rc-aurora` stays as an alias of `rc` for installers built before the
+  rename, which list it by that name.
+
+Installed Macs are unaffected. Each one records its channel from its installed
+kernel (`linux-asahi` → `stable`, `linux-aurora` → `rc`, see
+`bin/omarchy-apple-silicon-channel`) and updates through the runtime and
+package channels, not through these installer catalogs.
 
 ### Edge, for now
 
