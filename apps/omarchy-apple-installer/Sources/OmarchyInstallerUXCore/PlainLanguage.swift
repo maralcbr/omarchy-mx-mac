@@ -402,6 +402,16 @@
             actionURL: URL(string: "https://support.apple.com/en-us/102154"),
             actionTitle: "Apple’s local-snapshot guidance"
           )
+        case .insufficientSpace(let required, let available):
+          return FailureDisplay(
+            headline:
+              "Omarchy needs \(bytes(required)); only \(bytes(available)) can be made available",
+            plainDetail:
+              "That is the most macOS can give up after keeping the room it needs for itself, so it is less than the free space macOS shows. The disk has not been changed.",
+            technicalDetail: technical,
+            remedy:
+              "Free up at least \(bytesRoundedUp(required - min(required, available))) in macOS and empty the Trash, then choose Check again."
+          )
         case .noEligibleCandidate:
           return FailureDisplay(
             headline: "There isn’t enough usable disk space",
@@ -576,6 +586,13 @@
       if count >= mb { return "\(Int((count / mb).rounded())) MB" }
       if count >= kb { return "\(Int((count / kb).rounded())) KB" }
       return "\(value) bytes"
+    }
+
+    /// Whole gigabytes, rounded up: for amounts the person must free, where
+    /// rounding down would ask for too little.
+    public static func bytesRoundedUp(_ value: UInt64) -> String {
+      let gb: UInt64 = 1_000_000_000
+      return "\(value / gb + (value % gb == 0 ? 0 : 1)) GB"
     }
 
     public static func shortDigest(_ value: String) -> String {

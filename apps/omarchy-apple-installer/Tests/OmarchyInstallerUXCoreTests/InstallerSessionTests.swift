@@ -92,6 +92,33 @@
       XCTAssertEqual(failure.plainDetail, PlainLanguage.engineUnavailable)
     }
 
+    func testSpaceShortfallStopsBeforeAnythingIsDownloaded() async {
+      let environment = MockInstallerEnvironment()
+      environment.host = HostDisplay(
+        chipAndSpace: "Apple M1 · 117 GB free",
+        supported: true,
+        spaceShortfall: .insufficientSpace(
+          requiredBytes: 76_562_825_216, availableBytes: 73_528_246_272)
+      )
+      let session = InstallerSession(environment: environment)
+
+      await session.inspect()
+
+      guard case .unsupported(let failure) = session.phase else {
+        return XCTFail("Expected unsupported, got \(session.phase)")
+      }
+      XCTAssertFalse(failure.isBlockedModel)
+      XCTAssertEqual(failure.device, environment.host)
+      XCTAssertEqual(
+        failure.headline, "Omarchy needs 77 GB; only 74 GB can be made available")
+      XCTAssertEqual(
+        failure.remedy,
+        "Free up at least 4 GB in macOS and empty the Trash, then choose Check again.")
+
+      await session.continueToPlan()
+      XCTAssertEqual(environment.prepareCount, 0)
+    }
+
     func testPreparationHoldsUntilContinue() async {
       let environment = MockInstallerEnvironment()
       let session = InstallerSession(environment: environment)

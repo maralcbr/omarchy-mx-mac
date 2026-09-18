@@ -10,6 +10,9 @@ public enum InstallerAllocationRecommendationError:
 {
   case noEligibleCandidate
   case snapshotConstrained(APFSSnapshotConstraint)
+  /// A free extent or resizable container exists, but the most it can give
+  /// Omarchy is below the install minimum.
+  case insufficientSpace(requiredBytes: UInt64, availableBytes: UInt64)
 }
 
 public struct InstallerAllocationRecommendation:
@@ -87,10 +90,21 @@ public struct InstallerAllocationRecommendation:
 
     guard let selected = ranked.first else {
       // Existing installations require an explicit choice before any space diagnosis.
-      if !inventory.candidates.contains(where: { $0.kind == "repair" || $0.kind == "replace" }),
-        let constraint = snapshotConstraint()
-      {
+      guard
+        !inventory.candidates.contains(where: { $0.kind == "repair" || $0.kind == "replace" })
+      else {
+        throw InstallerAllocationRecommendationError.noEligibleCandidate
+      }
+      if let constraint = snapshotConstraint() {
         throw InstallerAllocationRecommendationError.snapshotConstrained(constraint)
+      }
+      if let shortfall = Self.largestShortfall(
+        in: inventory, reservedBytes: reservedBytes
+      ) {
+        throw InstallerAllocationRecommendationError.insufficientSpace(
+          requiredBytes: shortfall.required,
+          availableBytes: shortfall.available
+        )
       }
       throw InstallerAllocationRecommendationError.noEligibleCandidate
     }
@@ -102,6 +116,33 @@ public struct InstallerAllocationRecommendation:
       selected.maximum,
       max(selected.minimum, alignedTarget)
     )
+  }
+
+  /// The free or resize candidate that comes closest to the install minimum,
+  /// measured the way the ranking above admits candidates. Nil when the
+  /// inventory offers no such candidate at all.
+  private static func largestShortfall(
+    in inventory: ValidatedEngineInventory,
+    reservedBytes: UInt64
+  ) -> (required: UInt64, available: UInt64)? {
+    let unit = PinnedAsahiPlanRequest.allocationUnitBytes
+    return inventory.candidates.compactMap { candidate -> (UInt64, UInt64)? in
+      let usable: UInt64
+      switch candidate.kind {
+      case "free":
+        usable = candidate.lengthBytes
+      case "resize":
+        let shrinkable =
+          candidate.lengthBytes - min(candidate.lengthBytes, candidate.minimumContainerBytes)
+        usable = shrinkable - min(shrinkable, reservedBytes)
+      default:
+        return nil
+      }
+      return (
+        alignUp(candidate.minimumInstallBytes, unit: unit),
+        usable - (usable % unit)
+      )
+    }.max { $0.1 < $1.1 }
   }
 
   private static func alignUp(

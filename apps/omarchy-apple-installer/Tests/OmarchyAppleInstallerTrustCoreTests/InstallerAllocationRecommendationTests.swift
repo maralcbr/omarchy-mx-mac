@@ -232,7 +232,7 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
     ) {
       XCTAssertEqual(
         $0 as? InstallerAllocationRecommendationError,
-        .noEligibleCandidate
+        .insufficientSpace(requiredBytes: 64 * gib, availableBytes: 32 * gib)
       )
     }
     XCTAssertTrue(checkedSnapshots)
@@ -395,16 +395,60 @@ final class InstallerAllocationRecommendationTests: XCTestCase {
       kind: "resize", source: "disk0s2", length: 200 * gib,
       minimumInstall: 64 * gib, minimumContainer: 100 * gib
     )
-    for reserve in [37 * gib, 100 * gib, UInt64.max] {
+    for (reserve, available) in [(37 * gib, 63 * gib), (100 * gib, 0), (UInt64.max, 0)] {
       XCTAssertThrowsError(
         try InstallerAllocationRecommendation(
           inventory: inventory([resize]), reservedBytes: reserve
         )
       ) {
         XCTAssertEqual(
-          $0 as? InstallerAllocationRecommendationError, .noEligibleCandidate
+          $0 as? InstallerAllocationRecommendationError,
+          .insufficientSpace(requiredBytes: 64 * gib, availableBytes: available)
         )
       }
+    }
+  }
+
+  func testTightResizeReportsWhatIsMissing() {
+    // MacBook Air M1: diskutil keeps 420.9 GB for macOS, leaving 73.5 GB of a
+    // 494.4 GB container for a release that needs 76.6 GB.
+    let resize = candidate(
+      kind: "resize",
+      source: "disk0s2",
+      length: 494_384_795_648,
+      minimumInstall: 76_562_825_216,
+      minimumContainer: 420_856_463_360
+    )
+
+    XCTAssertThrowsError(
+      try InstallerAllocationRecommendation(inventory: inventory([resize]))
+    ) {
+      XCTAssertEqual(
+        $0 as? InstallerAllocationRecommendationError,
+        .insufficientSpace(
+          requiredBytes: 76_562_825_216,
+          availableBytes: 73_528_246_272
+        )
+      )
+    }
+  }
+
+  func testTheLargestShortfallIsReported() {
+    let free = candidate(
+      kind: "free", source: "disk0s3", length: 10 * gib, minimumInstall: 64 * gib
+    )
+    let resize = candidate(
+      kind: "resize", source: "disk0s2", length: 200 * gib,
+      minimumInstall: 64 * gib, minimumContainer: 150 * gib
+    )
+
+    XCTAssertThrowsError(
+      try InstallerAllocationRecommendation(inventory: inventory([free, resize]))
+    ) {
+      XCTAssertEqual(
+        $0 as? InstallerAllocationRecommendationError,
+        .insufficientSpace(requiredBytes: 64 * gib, availableBytes: 50 * gib)
+      )
     }
   }
 

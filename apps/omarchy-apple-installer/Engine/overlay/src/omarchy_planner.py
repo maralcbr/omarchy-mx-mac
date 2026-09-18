@@ -82,7 +82,10 @@ def collect_inventory(
             )
     for part in resizable_parts:
         bounds = installer.get_resize_bounds(part)
-        if bounds["available_bytes"] >= minimum_install:
+        # A container that cannot give up enough space is still reported, so
+        # the installer can say how much is missing before it downloads
+        # anything. Planning and execution reject it by the same minimums.
+        if bounds["available_bytes"] > 0:
             candidates.append(
                 {
                     "kind": "resize",
