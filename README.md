@@ -13,7 +13,7 @@ Omarchy 4 (Quattro) is the maintained release:
 
 | Version | Status | Installation |
 | --- | --- | --- |
-| Omarchy `4.0.4-mac.1` | Current release | Existing installations: run `omarchy update` |
+| Omarchy `4.0.4-mac.1` | Recommended stable version | Existing installations: run `omarchy update` |
 | Omarchy `4.0.3-mac.1` | **Stable** fresh-install image (Asahi kernel) | Install from macOS using the app below, then run `omarchy update` |
 | Omarchy `4.0.3-mac.2` | **RC** fresh-install image (Aurora kernel) | Choose RC in the app; offered on the 14-inch M1 Pro and 16-inch M2 Max only |
 | Omarchy `3.8.4-mac.4` | Legacy | Existing installations can update to Omarchy 4 |
