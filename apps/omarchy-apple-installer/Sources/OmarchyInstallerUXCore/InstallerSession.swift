@@ -440,6 +440,7 @@
       isExecuting = true
       defer { isExecuting = false }
 
+      InstallerDiagnosticLog.shared.record("session_execute_requested")
       do {
         let completion = try await environment.execute(
           operation: context.kind,
@@ -457,10 +458,13 @@
         operationID = UUID()
         recoveryRetryAvailable = false
         beginInstallingIfNeeded()
+        InstallerDiagnosticLog.shared.record("session_execution_returned")
         route(completion)
       } catch {
         drainJournal(receivedJournal)
         operationID = UUID()
+        InstallerDiagnosticLog.shared.record(
+          "session_execution_failed", code: (error as NSError).code)
         handleExecutionFailure(error, context: context, plan: plan, helper: helper)
       }
     }
@@ -481,6 +485,23 @@
       plan: PlanDisplay?,
       helper: HelperDisplay
     ) {
+      if let worker = error as? TemporaryInstallerWorkerError,
+        worker == .authorizationCancelled
+          || {
+            if case .authorizationFailed = worker { return true }
+            return false
+          }()
+      {
+        if context.kind == .install, let plan {
+          hasExecutionStarted = false
+          phase = .awaitingInstall(plan, helper: helper, sheet: .hidden)
+        } else {
+          retrySheet = .hidden
+          phase = .failed(
+            PlainLanguage.failure(for: error, retryRecoveryAvailable: recoveryRetryAvailable))
+        }
+        return
+      }
       if let submission = error as? EngineXPCSubmissionError,
         submission == .machineOwnerCredentialsRejected
       {
@@ -531,7 +552,9 @@
     @discardableResult
     public func shutDown() -> Bool {
       guard case .awaitingRecovery = phase else { return false }
+      InstallerDiagnosticLog.shared.record("shutdown_requested")
       let accepted = environment.requestShutdown()
+      InstallerDiagnosticLog.shared.record("shutdown_dispatch_result", code: accepted ? 1 : 0)
       shutdownMessage =
         isSimulation
         ? (accepted
@@ -546,6 +569,7 @@
     private func route(_ completion: CompletionDisplay) {
       switch completion.nextAction {
       case .enterRecovery, .attachInstallationMedia:
+        InstallerDiagnosticLog.shared.record("recovery_screen_selected")
         if let handoff = completion.handoff {
           phase = .awaitingRecovery(handoff)
         } else {

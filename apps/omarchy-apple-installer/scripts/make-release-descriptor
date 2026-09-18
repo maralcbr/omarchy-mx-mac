@@ -30,7 +30,7 @@ die() {
 public_key=""
 base_url=""
 output=""
-default_channel="stable"
+default_channel="rc"
 adhoc=0
 
 while (( $# > 0 )); do

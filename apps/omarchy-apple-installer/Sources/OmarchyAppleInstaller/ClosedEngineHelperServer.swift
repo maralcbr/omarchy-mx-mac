@@ -1,6 +1,7 @@
 #if os(macOS)
   import Foundation
   import Darwin
+  import OmarchyInstallerPrivilegeCore
 
   public enum EngineHandoffOperation: String, Equatable, Sendable {
     case install
@@ -35,6 +36,10 @@
     private let importer: EngineHandoffPackageImporter
     private let removalDisks: any RemovalDiskOperating
     private let removalAdminValidator: @Sendable (MachineOwnerAuthorization) throws -> Void
+    private let executionAdmission: @Sendable () throws -> Void
+    private let temporarySession: UUID?
+    private var lifetime: TemporaryWorkerLifetime?
+    private var operationToken: TemporaryWorkerLifetime.Operation?
     private var isExecuting = false
     private var removalPlan:
       (ticket: OmarchyRemovalTicket, plan: OmarchyRemovalPlan, expires: Date)?
@@ -43,8 +48,13 @@
       workingDirectory: URL,
       executor: any ImportedEngineHandoffExecuting,
       credentialValidator: any MachineOwnerCredentialValidating =
-        OpenDirectoryMachineOwnerCredentialValidator()
+        OpenDirectoryMachineOwnerCredentialValidator(),
+      executionAdmission: @escaping @Sendable () throws -> Void = {},
+      temporarySession: UUID? = nil
     ) {
+      self.temporarySession = temporarySession
+      self.lifetime = temporarySession.map { _ in TemporaryWorkerLifetime(now: .now) }
+      self.executionAdmission = executionAdmission
       self.workingDirectory = workingDirectory
       self.executor = executor
       self.credentialValidator = credentialValidator
@@ -59,6 +69,9 @@
       removalDisks: any RemovalDiskOperating,
       removalAdminValidator: @escaping @Sendable (MachineOwnerAuthorization) throws -> Void
     ) {
+      self.temporarySession = nil
+      self.lifetime = nil
+      self.executionAdmission = {}
       self.workingDirectory = workingDirectory
       self.executor = executor
       self.credentialValidator = credentialValidator
@@ -67,13 +80,38 @@
       self.removalAdminValidator = removalAdminValidator
     }
 
+    public func session(nonce: String, finishing: Bool) throws -> Data {
+      guard let temporarySession, UUID(uuidString: nonce) == temporarySession,
+        lifetime?.shouldRetire(now: .now) == false
+      else { throw TemporaryInstallerWorkerError.incompatibleWorker }
+      if finishing { lifetime?.requestRetirement() }
+      return try JSONEncoder().encode(InstallerWorkerHandshake(session: temporarySession))
+    }
+
+    public func shouldRetire() -> Bool { lifetime?.shouldRetire(now: .now) == true }
+
+    public func requestRetirement() { lifetime?.requestRetirement() }
+
+    private func beginOperation() throws {
+      operationToken = try lifetime?.begin(now: .now)
+      isExecuting = true
+    }
+
+    private func endOperation() {
+      if let operationToken { try? lifetime?.complete(operationToken, now: .now) }
+      operationToken = nil
+      isExecuting = false
+    }
+
     public func removal(
       ticketID: UUID?, confirmation: String, authorization: MachineOwnerAuthorization?
     ) async throws -> OmarchyRemovalReply {
       guard !isExecuting else { throw ClosedEngineHelperError.busy }
+      InstallerDiagnosticLog.shared.record("helper_submit_received")
+      try executionAdmission()
       try requireNoInterruptedRemoval()
-      isExecuting = true
-      defer { isExecuting = false }
+      try beginOperation()
+      defer { endOperation() }
       let disks = removalDisks
       let validateAdministrator = removalAdminValidator
       if ticketID == nil {
@@ -179,9 +217,10 @@
       guard !isExecuting else {
         throw ClosedEngineHelperError.busy
       }
+      try executionAdmission()
       try requireNoInterruptedRemoval()
-      isExecuting = true
-      defer { isExecuting = false }
+      try beginOperation()
+      defer { endOperation() }
 
       do {
         try InstallerPerformance.measure("credential_validation") {
@@ -191,9 +230,11 @@
         throw ClosedEngineHelperError.invalidMachineOwnerCredentials
       }
 
+      InstallerDiagnosticLog.shared.record("credentials_accepted")
       let package = try InstallerPerformance.measure("helper_import") {
         try importer.prepare(from: packageDirectory, in: workingDirectory)
       }
+      InstallerDiagnosticLog.shared.record("package_imported")
       defer { try? FileManager.default.removeItem(at: package.packageURL) }
 
       guard
@@ -269,6 +310,12 @@
 
     public init(server: ClosedEngineHelperServer) {
       self.server = server
+    }
+
+    public func session(nonce: String, finishing: Bool, reply: @escaping @Sendable (Data?) -> Void)
+    {
+      let server = server
+      Task { reply(try? await server.session(nonce: nonce, finishing: finishing)) }
     }
 
     public func ping(reply: @escaping @Sendable (Bool) -> Void) {
@@ -347,10 +394,13 @@
   {
     private let clientCodeSigningRequirement: String
     private let endpoint: ClosedEngineXPCServiceEndpoint
+    private let clientProcessID: Int32?
+    private let clientProcessStart: UInt64?
 
     public init(
       clientCodeSigningRequirement: String,
-      server: ClosedEngineHelperServer
+      server: ClosedEngineHelperServer, clientProcessID: Int32? = nil,
+      clientProcessStart: UInt64? = nil
     ) throws {
       guard
         EngineCodeSigningRequirement.isValid(
@@ -359,6 +409,8 @@
       else {
         throw ClosedEngineHelperError.invalidClientRequirement
       }
+      self.clientProcessStart = clientProcessStart
+      self.clientProcessID = clientProcessID
       self.clientCodeSigningRequirement = clientCodeSigningRequirement
       endpoint = ClosedEngineXPCServiceEndpoint(server: server)
     }
@@ -367,6 +419,14 @@
       _ listener: NSXPCListener,
       shouldAcceptNewConnection connection: NSXPCConnection
     ) -> Bool {
+      guard clientProcessID == nil || connection.processIdentifier == clientProcessID else {
+        return false
+      }
+      if let clientProcessID, let clientProcessStart,
+        TemporaryInstallerWorker.processStart(clientProcessID) != clientProcessStart
+      {
+        return false
+      }
       connection.setCodeSigningRequirement(clientCodeSigningRequirement)
       connection.remoteObjectInterface = NSXPCInterface(
         with: ClosedEngineProgressClient.self

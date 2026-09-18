@@ -52,11 +52,13 @@
     private let effectiveUserID: @Sendable () -> uid_t
     private let expectedFileOwnerID: @Sendable () -> uid_t
     private let extractionOptions: [String]
+    private let drainExecutionGroup: Bool
 
     public init() {
       effectiveUserID = { geteuid() }
       expectedFileOwnerID = { geteuid() }
       extractionOptions = []
+      drainExecutionGroup = true
     }
 
     init(
@@ -67,6 +69,7 @@
       self.effectiveUserID = effectiveUserID
       self.expectedFileOwnerID = expectedFileOwnerID
       self.extractionOptions = extractionOptions
+      drainExecutionGroup = false
     }
 
     public func execute(
@@ -77,6 +80,7 @@
       guard effectiveUserID() == 0 else {
         throw PinnedAsahiEngineExecutionError.privilegeRequired
       }
+      InstallerDiagnosticLog.shared.record("engine_execute_entered")
       let journal = try preparePersistentJournal(for: package)
       return try run(
         archive: package.engineURL,
@@ -88,7 +92,8 @@
           operation: operation
         ),
         standardInput: authorization.password + Data([10]),
-        retryIdentity: RecoveryRetryIdentity(package: package)
+        retryIdentity: RecoveryRetryIdentity(package: package),
+        drainProcessGroup: drainExecutionGroup
       )
     }
 
@@ -160,7 +165,8 @@
       journal: URL?,
       additionalEnvironment: [String: String],
       standardInput: Data? = nil,
-      retryIdentity: RecoveryRetryIdentity? = nil
+      retryIdentity: RecoveryRetryIdentity? = nil,
+      drainProcessGroup: Bool = false
     ) throws -> Data {
       try validateArchive(
         archive,
@@ -190,9 +196,11 @@
         withIntermediateDirectories: false,
         attributes: [.posixPermissions: 0o700]
       )
+      InstallerDiagnosticLog.shared.record("engine_archive_validation")
       try validateArchiveEntries(archive)
       try extract(archive, into: bundle)
       try validateExtractedBundle(bundle)
+      InstallerDiagnosticLog.shared.record("engine_bundle_validated")
 
       let transcriptURL =
         journal
@@ -200,47 +208,54 @@
           "transcript.jsonl",
           isDirectory: false
         )
-      let process = Process()
-      process.executableURL = Self.pythonURL(in: bundle)
-      process.arguments = [bundle.appendingPathComponent("main.py").path]
-      process.environment = environment(
+      var childEnvironment = environment(
         bundle: bundle,
         executionRoot: executionRoot,
         journal: transcriptURL,
         additional: additionalEnvironment
       )
-      process.environment?["OMARCHY_PERFORMANCE_LOG"] = transcriptURL.path + ".performance.jsonl"
-      process.currentDirectoryURL = bundle
+      childEnvironment["OMARCHY_PERFORMANCE_LOG"] = transcriptURL.path + ".performance.jsonl"
       let inputPipe = standardInput == nil ? nil : Pipe()
-      process.standardInput = inputPipe ?? FileHandle.nullDevice
-      process.standardOutput = FileHandle.nullDevice
-      process.standardError = FileHandle.nullDevice
+      let status: Int32
       do {
-        try process.run()
-        if let standardInput, let inputPipe {
-          try inputPipe.fileHandleForWriting.write(contentsOf: standardInput)
-          try inputPipe.fileHandleForWriting.close()
+        if let inputPipe {
+          guard fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else {
+            throw PinnedAsahiEngineExecutionError.launchFailed
+          }
         }
-        process.waitUntilExit()
+        // Keep the engine and its synchronous tools in the worker's guarded group.
+        let child = try InstallerChildProcess.launch(
+          executable: Self.pythonURL(in: bundle),
+          arguments: [bundle.appendingPathComponent("main.py").path],
+          environment: childEnvironment, directory: bundle,
+          input: inputPipe?.fileHandleForReading ?? .nullDevice)
+        InstallerDiagnosticLog.shared.record("engine_spawned", code: Int(child.identifier))
+        defer { if drainProcessGroup { InstallerExecutionLease.waitForChildren() } }
+        try? inputPipe?.fileHandleForReading.close()
+        var inputFailed = false
+        if let standardInput, let inputPipe {
+          // A closed reader must produce an error, not terminate the helper.
+          do { try inputPipe.fileHandleForWriting.write(contentsOf: standardInput) } catch {
+            inputFailed = true
+          }
+          try? inputPipe.fileHandleForWriting.close()
+        }
+        // Even an input error must reap the child before imported files disappear.
+        status = try child.wait()
+        InstallerDiagnosticLog.shared.record("engine_exited", code: Int(status))
+        if inputFailed { throw PinnedAsahiEngineExecutionError.launchFailed }
       } catch {
         throw PinnedAsahiEngineExecutionError.launchFailed
       }
-      guard process.terminationReason == .exit,
-        process.terminationStatus == 0
-      else {
+      guard status == 0 else {
         if let journal, let retryIdentity,
-          isRecoveryAuthorizationRetryEligible(
-            journal: journal,
-            identity: retryIdentity
-          )
+          isRecoveryAuthorizationRetryEligible(journal: journal, identity: retryIdentity)
         {
-          throw PinnedAsahiEngineExecutionError
-            .recoveryAuthorizationFailed
+          throw PinnedAsahiEngineExecutionError.recoveryAuthorizationFailed
         }
-        throw PinnedAsahiEngineExecutionError.engineExited(
-          process.terminationStatus
-        )
+        throw PinnedAsahiEngineExecutionError.engineExited(status)
       }
+      InstallerDiagnosticLog.shared.record("engine_read_transcript")
       return try readTranscript(transcriptURL)
     }
 

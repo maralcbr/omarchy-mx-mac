@@ -289,21 +289,18 @@
     private func run(_ arguments: [String]) throws -> Data { try commands(arguments) }
 
     private static func systemRun(_ arguments: [String]) throws -> Data {
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
-      process.arguments = arguments
-      process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"]
       let pipe = Pipe()
-      process.standardOutput = pipe
-      process.standardError = FileHandle.nullDevice
-      process.standardInput = FileHandle.nullDevice
-      try process.run()
+      let child = try InstallerChildProcess.launch(
+        executable: URL(fileURLWithPath: "/usr/sbin/diskutil"), arguments: arguments,
+        environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"],
+        directory: URL(fileURLWithPath: "/"), output: pipe.fileHandleForWriting)
+      defer { InstallerExecutionLease.waitForChildren() }
+      try? pipe.fileHandleForWriting.close()
       let result = pipe.fileHandleForReading.readDataToEndOfFile()
-      process.waitUntilExit()
-      guard process.terminationReason == .exit, process.terminationStatus == 0 else {
+      let status = try child.wait()
+      guard status == 0 else {
         throw RemovalFailure(
-          message:
-            "macOS could not complete the disk operation (code \(process.terminationStatus)).")
+          message: "macOS could not complete the disk operation (code \(status)).")
       }
       guard result.count <= 8 * 1_024 * 1_024 else {
         throw RemovalFailure(message: "The disk response was too large.")

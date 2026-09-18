@@ -44,7 +44,6 @@ helper_identifier="com.omarchy.mx.installer.helper"
 app_name="Omarchy MX Mac Installer.app"
 app_executable_name="OmarchyAppleInstallerApp"
 helper_executable_name="omarchy-apple-installer-helper"
-daemon_plist_name="$helper_identifier.plist"
 engine_file_name="installer-v0.9.0-omarchy.14.tar.gz"
 engine_digest="9e9277384b6c9e8b269cc79b1b24df7bfcdcbb898a596a677b74d1d18050aebe"
 
@@ -154,17 +153,14 @@ final_app="$output_directory/$app_name"
 [[ ! -e $final_app ]] \
   || fail "refusing to overwrite existing app: $final_app"
 
-swift_tool="$(xcrun --find swift)"
-(
-  cd "$package_directory"
-  "$swift_tool" build \
-    --configuration release \
-    --jobs "$build_jobs"
-)
-binary_directory="$({
-  cd "$package_directory"
-  "$swift_tool" build --configuration release --show-bin-path
-})"
+binary_directory="${OMARCHY_PREBUILT_BINARIES:-}"
+if [[ -z $binary_directory ]]; then
+  xcodebuildmcp swift-package build --package-path "$package_directory" \
+    --configuration release --output json
+  binary_directory="$package_directory/.build/arm64-apple-macosx/release"
+fi
+[[ $binary_directory == /* && -d $binary_directory ]] \
+  || fail "OMARCHY_PREBUILT_BINARIES must name an absolute build output directory"
 
 app_binary="$binary_directory/$app_executable_name"
 helper_binary="$binary_directory/OmarchyAppleInstallerHelper"
@@ -180,8 +176,7 @@ resources="$contents/Resources"
 mkdir -p \
   "$contents/MacOS" \
   "$resources/Release" \
-  "$resources/Engine/artifacts" \
-  "$contents/Library/LaunchDaemons"
+  "$resources/Engine/artifacts"
 
 install -m 0755 "$app_binary" "$contents/MacOS/$app_executable_name"
 install -m 0755 "$helper_binary" "$resources/$helper_executable_name"
@@ -228,23 +223,12 @@ install -m 0444 \
   "$script_directory/OmarchyInstaller.icns" \
   "$resources/OmarchyInstaller.icns"
 install -m 0444 "$script_directory/Info.plist" "$contents/Info.plist"
-install -m 0444 \
-  "$script_directory/$daemon_plist_name" \
-  "$contents/Library/LaunchDaemons/$daemon_plist_name"
-
 chmod 0644 "$contents/Info.plist"
-chmod 0644 "$contents/Library/LaunchDaemons/$daemon_plist_name"
 plutil -replace CFBundleShortVersionString \
   -string "$marketing_version" "$contents/Info.plist"
 plutil -replace CFBundleVersion \
   -string "$build_number" "$contents/Info.plist"
-plutil -replace \
-  EnvironmentVariables.OMARCHY_CLIENT_CODE_SIGNING_REQUIREMENT \
-  -string "$client_requirement" \
-  "$contents/Library/LaunchDaemons/$daemon_plist_name"
-plutil -lint \
-  "$contents/Info.plist" \
-  "$contents/Library/LaunchDaemons/$daemon_plist_name" >/dev/null
+plutil -lint "$contents/Info.plist" >/dev/null
 
 codesign --force --sign "$signing_identity" \
   "${timestamp_arguments[@]}" \

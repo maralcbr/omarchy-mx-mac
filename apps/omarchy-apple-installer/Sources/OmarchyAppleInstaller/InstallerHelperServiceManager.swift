@@ -1,17 +1,11 @@
 #if os(macOS)
   import Foundation
 
-  /// Whether the pre-installed privileged helper is available.
-  ///
-  /// The helper is a plain system `LaunchDaemon` that the installer package
-  /// installs into `/Library/LaunchDaemons` and loads at package-install time,
-  /// under the package's single administrator prompt. The app never registers,
-  /// approves, or gates on Login Items: it only reports whether the daemon is
-  /// present so the flow stays locked when the package has not been run.
+  /// Availability of the helper executable; authorization is checked at execution.
   public enum InstallerHelperServiceStatus: Equatable, Sendable {
-    /// The system daemon is installed; its mach service is reachable.
+    /// The selected helper executable is available.
     case enabled
-    /// The system daemon is not installed. The installer package must be run.
+    /// The selected helper executable is unavailable.
     case notInstalled
   }
 
@@ -28,15 +22,27 @@
       self.controller = controller
     }
 
-    /// The shipping controller: a synchronous check for the system daemon the
+    /// Legacy compatibility controller: a synchronous check for the system daemon the
     /// package installed. No SMAppService registration or Login Items approval
     /// is ever involved.
     public static func preinstalledSystemDaemon() -> Self {
       Self(controller: SystemLaunchDaemonController())
     }
 
+    public static func embeddedWorker() -> Self {
+      Self(controller: EmbeddedWorkerController())
+    }
+
     public var status: InstallerHelperServiceStatus {
       controller.status
+    }
+  }
+
+  private struct EmbeddedWorkerController: InstallerHelperServiceControlling {
+    var status: InstallerHelperServiceStatus {
+      let worker = Bundle.main.bundleURL.appendingPathComponent(
+        TemporaryInstallerWorker.embeddedWorkerPath)
+      return FileManager.default.isExecutableFile(atPath: worker.path) ? .enabled : .notInstalled
     }
   }
 

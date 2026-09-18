@@ -239,10 +239,9 @@
 
     public static let retry = "Try again"
 
-    /// Shown when the pre-installed system daemon is missing. The remedy is to
-    /// run the installer package again — never to open Login Items.
+    /// Shown when the embedded installation service is missing.
     public static let helperNotInstalled =
-      "The system installation service is missing. Run the Omarchy installer package again, then reopen this app."
+      "This app is missing its installation service. Download a fresh copy of the installer."
 
     public static let engineUnavailable =
       "This build is missing the required validation engine. Installation is unavailable."
@@ -280,6 +279,40 @@
         )
       }
 
+      if let worker = error as? TemporaryInstallerWorkerError {
+        let detail: String
+        let remedy: String
+        switch worker {
+        case .authorizationCancelled:
+          detail = "Administrator authorization was cancelled. Installation has not started."
+          remedy = "Try Install again and approve the macOS administrator prompt."
+        case .authorizationFailed:
+          detail = "macOS did not grant administrator authorization. Installation has not started."
+          remedy = "Try again using a macOS administrator account."
+        case .legacyHelperActive:
+          detail =
+            "An older installed Omarchy helper is present. This app cannot safely start another installation service."
+          remedy =
+            "Remove the older helper using its supported removal procedure before trying again."
+        case .untrustedApp:
+          detail =
+            "The app or its embedded installation service could not be verified. Installation has not started."
+          remedy = "Download a fresh signed copy of the installer."
+        case .startupCleanupFailed:
+          detail =
+            "The temporary service failed to start and its cleanup could not be confirmed. Installation has not started."
+          remedy =
+            "Keep the error details and reopen the app after the temporary service has exited."
+        case .startupFailed, .incompatibleWorker:
+          detail =
+            "The temporary installation service could not start or did not match this app. Installation has not started."
+          remedy = "Wait for any earlier installation to finish, then reopen the app and try again."
+        }
+        return FailureDisplay(
+          headline: "Installation service could not start", plainDetail: detail,
+          technicalDetail: technical, remedy: remedy)
+      }
+
       if let submission = error as? EngineXPCSubmissionError {
         switch submission {
         case .machineOwnerCredentialsRejected:
@@ -305,7 +338,7 @@
             plainDetail:
               "The app couldn’t get a response from the installation service. Installation has not started.",
             technicalDetail: technical,
-            remedy: "Run the Omarchy installer package again, then reopen this app."
+            remedy: "Close and reopen the app, then try again."
           )
         case .connectionFailed:
           return FailureDisplay(
@@ -424,7 +457,7 @@
               "This release requires installer \(minimum) or later. You’re using \(current).",
             technicalDetail: technical,
             remedy:
-              "Download and run the latest installer package, then reopen this app.",
+              "Download and open the latest installer app.",
             actionURL: downloadURL,
             actionTitle: downloadInstaller
           )

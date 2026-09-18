@@ -19,8 +19,12 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
 
   func applicationWillFinishLaunching(_ notification: Notification) {
     #if !DEBUG
-      if ProcessInfo.processInfo.arguments.contains("--simulate") {
-        fputs("Simulation requires a debug build. Refusing to launch the live installer.\n", stderr)
+      if ProcessInfo.processInfo.arguments.contains("--simulate")
+        || ProcessInfo.processInfo.arguments.contains("--validate-temporary-worker")
+      {
+        fputs(
+          "Development validation requires a debug build. Refusing to launch the live installer.\n",
+          stderr)
         NSApplication.shared.terminate(nil)
         return
       }
@@ -44,6 +48,25 @@ private final class InstallerApplicationDelegate: NSObject, NSApplicationDelegat
     // next login, so someone rebooting from Omarchy into macOS met the
     // installer again. Opt out for good.
     NSApp.disableRelaunchOnLogin()
+
+    #if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("--validate-temporary-worker") {
+        Task {
+          do {
+            let result = try await TemporaryInstallerWorker.shared.validateAuthorizationOnly()
+            try FileHandle.standardOutput.write(contentsOf: Data((result + "\n").utf8))
+            exit(EXIT_SUCCESS)
+          } catch {
+            let result = ["error": String(describing: error)]
+            if let data = try? JSONSerialization.data(withJSONObject: result, options: .sortedKeys)
+            {
+              try? FileHandle.standardOutput.write(contentsOf: data + Data([10]))
+            }
+            exit(EXIT_FAILURE)
+          }
+        }
+      }
+    #endif
 
     #if DEBUG
       // A bare SwiftPM executable has no Info.plist, so Launch Services
@@ -106,7 +129,7 @@ struct OmarchyAppleInstallerApp: App {
   }
 
   @State private var channel: ReleaseChannel = ReleaseChannelPreference()
-    .resolve(descriptorDefault: .stable)
+    .resolve(descriptorDefault: .rc)
 
   var body: some Scene {
     WindowGroup(PlainLanguage.windowTitle) {

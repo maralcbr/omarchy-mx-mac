@@ -101,8 +101,11 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     let stager = VerifiedArtifactStager(downloader: downloader)
 
     _ = try await stager.stage(artifact, in: directory)
-    let replay = try await stager.stage(artifact, in: directory)
+    let recorder = ProgressRecorder()
+    let replay = try await VerifiedArtifactStager(downloader: downloader).stage(
+      artifact, in: directory, progress: recorder.handler)
 
+    XCTAssertEqual(recorder.events.map(\.phase), [.checkingCache, .verified])
     XCTAssertTrue(replay.reusedExistingFile)
     XCTAssertEqual(replay.materialization, .reusedExistingFile)
     let downloadCount = await downloader.downloadCount

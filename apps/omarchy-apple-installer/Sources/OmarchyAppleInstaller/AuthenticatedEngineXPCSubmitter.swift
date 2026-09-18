@@ -1,12 +1,15 @@
 #if os(macOS)
   import Darwin
   import Foundation
+  import OmarchyInstallerPrivilegeCore
   import Security
 
   @objc public protocol ClosedEngineXPCService {
     /// Answers as soon as the helper is up. The app calls this before it
     /// sends anything, so a helper that launchd cannot keep alive fails in
     /// seconds instead of leaving a request queued forever.
+    func session(nonce: String, finishing: Bool, reply: @escaping @Sendable (Data?) -> Void)
+
     func ping(reply: @escaping @Sendable (Bool) -> Void)
 
     func removal(
@@ -41,6 +44,9 @@
   public struct AuthenticatedEngineXPCSubmitter:
     EngineHandoffSubmitting, Sendable
   {
+    let workerLeaseID: UUID?
+    private let temporarySession: UUID?
+    private let expectedWorkerPID: Int32?
     private let machServiceName: String
     private let helperCodeSigningRequirement: String
     private let journalProgress: (@Sendable (Data) -> Void)?
@@ -48,7 +54,8 @@
     public init(
       machServiceName: String,
       helperCodeSigningRequirement: String,
-      journalProgress: (@Sendable (Data) -> Void)? = nil
+      journalProgress: (@Sendable (Data) -> Void)? = nil,
+      temporarySession: UUID? = nil, expectedWorkerPID: Int32? = nil, workerLeaseID: UUID? = nil
     ) throws {
       guard Self.isMachServiceName(machServiceName) else {
         throw EngineXPCSubmissionError.invalidMachServiceName
@@ -60,6 +67,9 @@
       else {
         throw EngineXPCSubmissionError.invalidCodeSigningRequirement
       }
+      self.workerLeaseID = workerLeaseID
+      self.temporarySession = temporarySession
+      self.expectedWorkerPID = expectedWorkerPID
       self.machServiceName = machServiceName
       self.helperCodeSigningRequirement = helperCodeSigningRequirement
       self.journalProgress = journalProgress
@@ -84,6 +94,10 @@
     /// service launchd cannot keep alive answers nothing at all, which is
     /// what the timeout is for.
     public func ping(timeout: Duration = .seconds(8)) async throws {
+      if temporarySession != nil {
+        try await temporaryHandshake(finishing: false, timeout: timeout)
+        return
+      }
       let connection = makeConnection()
       let connectionHandle = SendableXPCConnection(connection)
       let timer = Task {
@@ -117,6 +131,55 @@
       guard answered else {
         throw EngineXPCSubmissionError.helperUnresponsive
       }
+    }
+
+    public func retireTemporarySession() async throws {
+      try await temporaryHandshake(finishing: true, timeout: .seconds(8))
+    }
+
+    private func temporaryHandshake(finishing: Bool, timeout: Duration) async throws {
+      guard let temporarySession else { throw TemporaryInstallerWorkerError.incompatibleWorker }
+      let connection = makeConnection()
+      let handle = SendableXPCConnection(connection)
+      defer { handle.invalidate() }
+      let data: Data = try await withCheckedThrowingContinuation { continuation in
+        let gate = EngineXPCReplyGate(continuation: continuation)
+        let timer = Task {
+          do { try await Task.sleep(for: timeout) } catch { return }
+          gate.resume(throwing: EngineXPCSubmissionError.helperUnresponsive)
+          handle.invalidate()
+        }
+        connection.interruptionHandler = {
+          timer.cancel()
+          gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+        }
+        connection.invalidationHandler = {
+          timer.cancel()
+          gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+        }
+        connection.activate()
+        guard
+          let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+            timer.cancel()
+            gate.resume(throwing: TemporaryInstallerWorkerError.incompatibleWorker)
+            handle.invalidate()
+          }) as? ClosedEngineXPCService
+        else {
+          timer.cancel()
+          gate.resume(throwing: TemporaryInstallerWorkerError.incompatibleWorker)
+          return
+        }
+        proxy.session(nonce: temporarySession.uuidString, finishing: finishing) { data in
+          timer.cancel()
+          if let data, data.count <= 1024 {
+            gate.resume(returning: data)
+          } else {
+            gate.resume(throwing: TemporaryInstallerWorkerError.incompatibleWorker)
+          }
+        }
+      }
+      let reply = try JSONDecoder().decode(InstallerWorkerHandshake.self, from: data)
+      try reply.validate(session: temporarySession, processID: expectedWorkerPID)
     }
 
     public func removal(
@@ -332,20 +395,7 @@
     }
   }
 
-  enum EngineCodeSigningRequirement {
-    static func isValid(_ value: String) -> Bool {
-      guard !value.isEmpty, value.utf8.count <= 4_096 else {
-        return false
-      }
-      var requirement: SecRequirement?
-      let status = SecRequirementCreateWithString(
-        value as CFString,
-        SecCSFlags(),
-        &requirement
-      )
-      return status == errSecSuccess && requirement != nil
-    }
-  }
+  typealias EngineCodeSigningRequirement = InstallerCodeSigningRequirement
 
   private final class SendableXPCConnection: @unchecked Sendable {
     private let connection: NSXPCConnection

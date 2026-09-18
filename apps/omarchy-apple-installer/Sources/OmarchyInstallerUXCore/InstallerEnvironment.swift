@@ -114,7 +114,7 @@
   public struct HelperDisplay: Equatable, Sendable {
     public let status: InstallerHelperServiceStatus
 
-    /// The pre-installed system daemon is reachable, so installation may run.
+    /// The embedded helper is available; execution still requires authorization.
     public var isEnabled: Bool { status == .enabled }
 
     public init(status: InstallerHelperServiceStatus) {
@@ -382,8 +382,7 @@
     ) async throws -> PlanPreparationDisplay
     func approve() throws
     func discardApproval()
-    /// Re-reads whether the pre-installed system daemon is present. There is no
-    /// registration or approval step — the package installs the helper.
+    /// Re-reads embedded helper availability without requesting authorization.
     func refreshHelperStatus() -> HelperDisplay
     func execute(
       operation: InstallOperationKind,

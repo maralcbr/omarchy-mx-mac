@@ -10,12 +10,13 @@ step.
 The generated `Omarchy MX Mac Installer.app` contains:
 
 - the SwiftUI application in `Contents/MacOS`;
-- the root helper in `Contents/Resources`;
-- its `SMAppService` launch-daemon property list in
-  `Contents/Library/LaunchDaemons`;
+- the temporary root worker in `Contents/Resources`;
 - the immutable release descriptor and Ed25519 trust root in
   `Contents/Resources/Release`; and
 - the pinned Asahi validation engine in `Contents/Resources/Engine/artifacts`.
+
+No LaunchDaemon plist is bundled or installed. The existing Install and removal
+actions authorize a bounded temporary job using `SMJobSubmit`.
 
 The helper and application use reciprocal code-signing requirements. The helper
 also authenticates each XPC client before accepting a request. A release
@@ -36,6 +37,10 @@ when both are regular, non-symlinked files within the catalog size limits and
 the signature is exactly 64 bytes. The app verifies this sealed catalog with
 the same bundled Ed25519 trust root; when the pair is absent, it fetches the
 configured HTTPS catalog as normal.
+
+Builds run through XcodeBuildMCP. To package binaries already rebuilt and tested
+for this exact source, set `OMARCHY_PREBUILT_BINARIES` to their absolute output
+directory. Do not use stale or unrelated build outputs.
 
 Build concurrency defaults to 10 workers so a 14-core Mac retains four cores for
 responsiveness. Override it with `OMARCHY_BUILD_JOBS`; the same value is exported

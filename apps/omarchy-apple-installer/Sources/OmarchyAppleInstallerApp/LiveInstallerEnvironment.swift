@@ -13,7 +13,7 @@ import OmarchyInstallerUXCore
 final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable {
   private let lock = NSLock()
   private let helperService =
-    InstallerHelperServiceManager.preinstalledSystemDaemon()
+    InstallerHelperServiceManager.embeddedWorker()
 
   private var hostInspection: AppleSiliconHostInspection?
   private var engineInspection: ValidatedEngineTranscript?

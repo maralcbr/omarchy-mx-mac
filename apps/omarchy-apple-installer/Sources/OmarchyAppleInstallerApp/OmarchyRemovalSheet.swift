@@ -120,7 +120,10 @@ struct OmarchyRemovalSheet: View {
     .background(OmarchyTheme.window)
     .interactiveDismissDisabled(busy)
     .task { await prepare() }
-    .onDisappear { password = "" }
+    .onDisappear {
+      password = ""
+      if !isSimulation, let client { Task { await TemporaryInstallerWorker.shared.finish(client) } }
+    }
     .onChange(of: busy) { _, value in onBusyChanged(value) }
   }
 
@@ -156,17 +159,13 @@ struct OmarchyRemovalSheet: View {
       }
     #endif
     do {
-      let configuration = try InstallerReleaseConfigurationLocator().loadFromMainBundle()
-      let submitter = try AuthenticatedEngineXPCSubmitter(
-        machServiceName: configuration.helperMachServiceName,
-        helperCodeSigningRequirement: configuration.helperCodeSigningRequirement)
+      let submitter = try await TemporaryInstallerWorker.shared.ready()
       client = submitter
       let reply = try await submitter.removal()
       ticket = reply.ticket
       message = reply.message
     } catch {
-      message =
-        "The removal helper is unavailable. Install the current app and helper, then try again. No disk changes were made."
+      message = PlainLanguage.failure(for: error).plainDetail
     }
   }
 
@@ -251,7 +250,7 @@ private struct RemovalButtonStyle: ButtonStyle {
       case .ambiguous:
         "The installation or disk layout could not be identified safely. Partial installations need a separate review. Nothing was changed."
       case .helperUnavailable:
-        "The removal helper is unavailable. Install the current app and helper, then try again. No disk changes were made."
+        "The removal service could not start. Close this window and try again. No disk changes were made."
       case .credentials:
         "The macOS account or password was not accepted. No disk changes were made."
       case .changed:

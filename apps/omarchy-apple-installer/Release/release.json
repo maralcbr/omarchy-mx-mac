@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "default_channel": "stable",
+  "default_channel": "rc",
   "channels": {
     "stable": {
       "catalog_url": "https://downloads.aicodelabs.com.au/channels/stable/catalog.signed.json"

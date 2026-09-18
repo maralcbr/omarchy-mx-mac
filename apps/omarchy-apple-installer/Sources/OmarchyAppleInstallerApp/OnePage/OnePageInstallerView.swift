@@ -546,9 +546,12 @@ private struct DownloadPanel: View {
   }
 
   private var title: String {
-    update.stage == .downloading
-      ? PlainLanguage.downloadingPackagesTitle
-      : PlainLanguage.preparingStageTitle(update.stage)
+    if update.stage == .downloading {
+      if package?.phase == .checkingCache { return "Checking downloaded installation files" }
+      if package?.phase == .verified { return "Installation files ready" }
+      return PlainLanguage.downloadingPackagesTitle
+    }
+    return PlainLanguage.preparingStageTitle(update.stage)
   }
 
   private var fraction: Double? {

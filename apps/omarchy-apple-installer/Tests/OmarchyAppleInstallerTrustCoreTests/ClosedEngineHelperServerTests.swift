@@ -140,6 +140,65 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
+    func testTemporarySessionRetainsCredentialCorrectionAndRejectsWorkAfterRetirement() async throws
+    {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let session = UUID()
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination,
+        executor: RecordingHandoffExecutor(result: fixture.transcript),
+        credentialValidator: RejectingMachineOwnerCredentialValidator(), temporarySession: session)
+      for _ in 0..<2 {
+        await assertThrowsErrorAsync(
+          try await server.submit(
+            packageDirectory: source,
+            authorization: try machineOwnerAuthorization())
+        ) {
+          XCTAssertEqual($0 as? ClosedEngineHelperError, .invalidMachineOwnerCredentials)
+        }
+      }
+      let handshake = try await server.session(nonce: session.uuidString, finishing: false)
+      XCTAssertEqual(
+        try JSONDecoder().decode(InstallerWorkerHandshake.self, from: handshake).session, session)
+      let before = await server.shouldRetire()
+      XCTAssertFalse(before)
+      _ = try await server.session(nonce: session.uuidString, finishing: true)
+      let after = await server.shouldRetire()
+      XCTAssertTrue(after)
+      await assertThrowsErrorAsync(
+        try await server.submit(
+          packageDirectory: source,
+          authorization: try machineOwnerAuthorization())
+      ) { error in
+        XCTAssertNotEqual(error as? ClosedEngineHelperError, .invalidMachineOwnerCredentials)
+      }
+    }
+
+    func testMachineExecutionGuardRejectsBeforeCredentialsAndImport() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let executor = RecordingHandoffExecutor(result: fixture.transcript)
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination, executor: executor,
+        credentialValidator: RejectingMachineOwnerCredentialValidator(),
+        executionAdmission: { throw InstallerExecutionLeaseError.busy })
+      await assertThrowsErrorAsync(
+        try await server.submit(
+          packageDirectory: source,
+          authorization: try machineOwnerAuthorization())
+      ) {
+        XCTAssertEqual($0 as? InstallerExecutionLeaseError, .busy)
+      }
+      let count = await executor.executionCount
+      XCTAssertEqual(count, 0)
+      XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
+    }
+
     private func makeFixture(
       deviceIdentifier: String = "apple,j314s",
       transcriptPlanMismatch: Bool = false,

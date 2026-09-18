@@ -172,6 +172,7 @@ public enum ArtifactMaterialization: String, Equatable, Sendable {
 public struct ArtifactStagingProgress: Equatable, Sendable {
   public enum Phase: String, Equatable, Sendable {
     case downloading
+    case checkingCache
     case assembling
     case verified
   }
@@ -268,11 +269,14 @@ public struct VerifiedArtifactStager: Sendable {
     )
 
     if fileManager.fileExists(atPath: destination.path) {
+      InstallerDiagnosticLog.shared.record("artifact_cache_check")
+      report(progress, artifact: artifact, phase: .checkingCache, bytesCompleted: 0)
       do {
         try verify(artifact, at: destination)
       } catch {
         throw ArtifactStageError.destinationConflict(artifact.fileName)
       }
+      InstallerDiagnosticLog.shared.record("artifact_cache_hit_download_skipped")
       removeParts(of: artifact, in: stagingDirectory, fileManager: fileManager)
       report(
         progress,
@@ -464,6 +468,7 @@ public struct VerifiedArtifactStager: Sendable {
       return (destination, .reusedExistingFile, true)
     }
 
+    InstallerDiagnosticLog.shared.record("artifact_download_started")
     let downloaded = try await downloader.download(
       from: url,
       expectedSizeBytes: expectedSizeBytes,

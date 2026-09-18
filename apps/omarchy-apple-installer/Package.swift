@@ -24,6 +24,9 @@ let package = Package(
       name: "OmarchyAppleInstallerHelper",
       targets: ["OmarchyAppleInstallerHelper"]
     ),
+    .executable(name: "OmarchyPrivilegeProofApp", targets: ["OmarchyPrivilegeProofApp"]),
+    .executable(name: "OmarchyPrivilegeProofWorker", targets: ["OmarchyPrivilegeProofWorker"]),
+    .executable(name: "OmarchyPrivilegeProofRunner", targets: ["OmarchyPrivilegeProofRunner"]),
     .executable(
       name: "OmarchyCanaryCandidateTool",
       targets: ["OmarchyCanaryCandidateTool"]
@@ -41,9 +44,18 @@ let package = Package(
     ),
     .target(
       name: "OmarchyAppleInstallerTrustCore",
-      dependencies: ["OmarchyInstallerSystem"],
+      dependencies: ["OmarchyInstallerSystem", "OmarchyInstallerPrivilegeCore"],
       path: "Sources/OmarchyAppleInstaller"
     ),
+    .target(name: "OmarchyInstallerPrivilegeCore"),
+    .executableTarget(
+      name: "OmarchyPrivilegeProofApp", dependencies: ["OmarchyInstallerPrivilegeCore"]),
+    .executableTarget(
+      name: "OmarchyPrivilegeProofWorker", dependencies: ["OmarchyInstallerPrivilegeCore"]),
+    .executableTarget(
+      name: "OmarchyPrivilegeProofRunner", dependencies: ["OmarchyInstallerPrivilegeCore"]),
+    .testTarget(
+      name: "OmarchyInstallerPrivilegeCoreTests", dependencies: ["OmarchyInstallerPrivilegeCore"]),
     .target(
       name: "OmarchyInstallerUXCore",
       dependencies: ["OmarchyAppleInstallerTrustCore"],

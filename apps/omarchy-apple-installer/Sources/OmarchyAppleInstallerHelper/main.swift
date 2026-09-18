@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import OmarchyAppleInstallerTrustCore
+import OmarchyInstallerPrivilegeCore
 
 private enum HelperBootstrapError: Error {
   case rootRequired
@@ -44,28 +45,68 @@ do {
   guard geteuid() == 0 else {
     throw HelperBootstrapError.rootRequired
   }
-  guard
-    let clientRequirement = ProcessInfo.processInfo.environment[
-      InstallerProductIdentity.clientRequirementEnvironmentVariable
-    ], !clientRequirement.isEmpty
-  else {
+  let session: UUID?
+  let clientPID: Int32?
+  let clientStart: UInt64?
+  let clientRequirement: String
+  if CommandLine.arguments.count == 5, CommandLine.arguments[1] == "--temporary",
+    let requested = UUID(uuidString: CommandLine.arguments[2]),
+    let pid = Int32(CommandLine.arguments[3]), pid > 1,
+    let start = UInt64(CommandLine.arguments[4]), start > 0,
+    TemporaryInstallerWorker.processStart(pid) == start
+  {
+    session = requested
+    clientPID = pid
+    clientStart = start
+    let team = try InstallerCodeSigning.currentTeam(
+      expectedIdentifier: InstallerProductIdentity.helperIdentifier)
+    clientRequirement = try InstallerCodeSigningRequirement.requirement(
+      identifier: TemporaryInstallerWorker.appIdentifier, team: team)
+  } else if CommandLine.arguments.count == 1,
+    let requirement = ProcessInfo.processInfo.environment[
+      InstallerProductIdentity.clientRequirementEnvironmentVariable],
+    !requirement.isEmpty
+  {
+    session = nil
+    clientPID = nil
+    clientStart = nil
+    clientRequirement = requirement
+  } else {
     throw HelperBootstrapError.missingClientRequirement
   }
   let workingDirectory = try prepareWorkingDirectory()
+  let executionLease = try InstallerExecutionLease.acquire()
   let server = ClosedEngineHelperServer(
     workingDirectory: workingDirectory,
-    executor: PinnedAsahiEngineExecutor()
+    executor: PinnedAsahiEngineExecutor(),
+    executionAdmission: {
+      if session != nil { try TemporaryInstallerWorker.requireNoLegacyHelper() }
+      try executionLease.requireIdleGroup()
+    },
+    temporarySession: session
   )
   let delegate = try AuthenticatedEngineXPCListenerDelegate(
     clientCodeSigningRequirement: clientRequirement,
-    server: server
+    server: server, clientProcessID: clientPID, clientProcessStart: clientStart
   )
   let listener = NSXPCListener(
-    machServiceName: InstallerProductIdentity.helperMachServiceName
+    machServiceName: session.map(TemporaryInstallerWorker.serviceName)
+      ?? InstallerProductIdentity.helperMachServiceName
   )
   listener.delegate = delegate
   listener.resume()
-  withExtendedLifetime(delegate) {
+  if let clientPID, let clientStart, session != nil {
+    Task {
+      while true {
+        try? await Task.sleep(for: .seconds(1))
+        if TemporaryInstallerWorker.processStart(clientPID) != clientStart {
+          await server.requestRetirement()
+        }
+        if await server.shouldRetire() { exit(EX_OK) }
+      }
+    }
+  }
+  withExtendedLifetime((delegate, executionLease)) {
     RunLoop.current.run()
   }
 } catch {

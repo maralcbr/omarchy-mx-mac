@@ -215,6 +215,34 @@
       XCTAssertEqual(environment.executeCount, 2)
     }
 
+    func testNativeAuthorizationCancellationReturnsToExistingInstallAction() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.executeResults = [
+        .failure(TemporaryInstallerWorkerError.authorizationCancelled),
+        .success(MockInstallerEnvironment.recoveryCompletion),
+      ]
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setAcknowledged(true)
+      session.approve()
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      guard case .awaitingInstall(_, _, let sheet) = session.phase else {
+        return XCTFail("Cancellation must return to the existing Install action")
+      }
+      XCTAssertEqual(sheet, .hidden)
+      XCTAssertFalse(session.hasExecutionStarted)
+      XCTAssertTrue(session.canStartInstallation)
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      guard case .awaitingRecovery = session.phase else {
+        return XCTFail("A newly authorized attempt should reach Recovery")
+      }
+      XCTAssertEqual(environment.executeCount, 2)
+    }
+
     func testNonCredentialFailureKeepsTheOneShotLatch() async throws {
       let environment = MockInstallerEnvironment()
       environment.executeResults = [
