@@ -3,11 +3,13 @@
 if omarchy-hw-apple-silicon; then
   release_key="${OMARCHY_ASAHI_PACKAGE_KEY_FILE:-$OMARCHY_PATH/default/omarchy-release.gpg}"
   release_fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959
-  # The set a Mac starts from. It is deliberately the legacy release-key signed
-  # snapshot: the first repository transaction of a fresh install runs before
-  # anything trusts the ARM repository subkey a stable snapshot is signed with.
-  # The signed package channel moves the Mac to the promoted set on its first
-  # update, so this release must never be withdrawn; see
+  # The set written when nothing better is known: no [omarchy] section, or a
+  # Server that is neither a recognised set nor the one the fresh installer
+  # kept. A fresh install does not get here, because
+  # bin/omarchy-install-asahi-fresh writes the promoted set before its first
+  # package transaction. The signed package channel moves a Mac pinned to this
+  # legacy release-key signed snapshot to the promoted set on its first update,
+  # so this release must never be withdrawn; see
   # docs/apple-silicon-deployment.md.
   bootstrap_release_tag=asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24
   package_repo=maralcbr/omarchy-pkgs
@@ -63,29 +65,39 @@ if omarchy-hw-apple-silicon; then
     release_server=$current_server
   elif [[ $current_server == "$legacy_prefix"* && ${current_server#"$legacy_prefix"} =~ ^[0-9a-f]{40}$ ]]; then
     release_server=$current_server
+  elif [[ -n ${OMARCHY_ASAHI_KEEP_SERVER:-} && $current_server == "$OMARCHY_ASAHI_KEEP_SERVER" ]]; then
+    # The fresh installer verified the package channel and kept this Server
+    # before its first package transaction: a candidate or mirror the operator
+    # pinned, or the promoted set it chose.
+    release_server=$current_server
   fi
 
   if ! awk -v server="$release_server" '
     /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; blocks++; next }
     inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
-    inside && NF { entries++ }
+    inside && /^[[:space:]]*[^#[:space:]]/ { entries++ }
     inside && $0 == "SigLevel = Required DatabaseOptional" { signature = 1 }
     inside && $0 == "Server = " server { url = 1 }
     END { exit !(blocks == 1 && entries == 2 && signature && url) }
   ' "$pacman_conf"; then
     tmp="${pacman_conf}.omarchy.$$"
-    awk '
-      /^[[:space:]]*\[omarchy\][[:space:]]*$/ { skip = 1; next }
-      skip && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { skip = 0 }
-      !skip { print }
+    # The section is rewritten where it stands, keeping its comments. A missing
+    # one goes before the first repository, never after [aur]: below [extra]
+    # it would hand Hyprland back to Arch Linux ARM.
+    awk -v server="$release_server" -v insert="$(( omarchy_blocks == 0 ))" '
+      function section() { return $0 ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/ }
+      function emit() {
+        print "[omarchy]"
+        print "SigLevel = Required DatabaseOptional"
+        print "Server = " server
+      }
+      section() { inside = 0 }
+      /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; emit(); next }
+      insert && !placed && section() && !/^[[:space:]]*\[options\][[:space:]]*$/ { emit(); print ""; placed = 1 }
+      inside && /^[[:space:]]*[^#[:space:]]/ { next }
+      { print }
+      END { if (insert && !placed) { print ""; emit() } }
     ' "$pacman_conf" >"$tmp"
-    # omarchy:heredoc-expands paths=none -- $release_server is a literal prefix plus a Server this script already matched against it
-    cat >>"$tmp" <<EOF
-
-[omarchy]
-SigLevel = Required DatabaseOptional
-Server = $release_server
-EOF
     chmod --reference="$pacman_conf" "$tmp"
     chown --reference="$pacman_conf" "$tmp"
     mv "$tmp" "$pacman_conf"

@@ -48,14 +48,38 @@ channel_url_quoted=$(printf '%q' "$channel_url")
   exit 1
 }
 
-# guest/verify must not learn the expected pin from the system it is checking,
-# so the bootstrap default is read from this repository before the guest runs.
-expected_repository=$(sed -n 's/^[[:space:]]*bootstrap_release_tag=//p' "$root/install/hardware/pacman.sh")
-expected_repository_quoted=$(printf '%q' "$expected_repository")
-[[ $expected_repository =~ ^asahi-packages-(stable-)?[0-9a-f]{40}$ ]] || {
-  echo "install/hardware/pacman.sh does not name a recognised bootstrap package release" >&2
+# The package channel is resolved once, here, before the guest runs. The fresh
+# installer's repository bootstrap is handed this exact channel and guest/verify
+# expects its stable set, so a promotion between the two cannot fail a run, and
+# verify never learns the expected pin from the system it is checking.
+packages_releases=https://github.com/maralcbr/omarchy-pkgs/releases/download
+packages_channel_tag=""
+packages_pointer=$(curl --proto '=https' --tlsv1.2 --fail --location --silent --connect-timeout 15 --max-time 20 \
+  --max-filesize 256 https://downloads.aicodelabs.com.au/pointers/asahi-packages-channel || true)
+if [[ $packages_pointer =~ ^format=1$'\n'sequence=([1-9][0-9]{0,8})$'\n'tag=asahi-packages-channel-([1-9][0-9]{0,8})$ &&
+  ${BASH_REMATCH[1]} == "${BASH_REMATCH[2]}" ]]; then
+  packages_channel_tag=asahi-packages-channel-${BASH_REMATCH[1]}
+else
+  echo "Package channel pointer unusable; falling back to the GitHub release listing" >&2
+  packages_channel_tag=$(curl --fail --location --silent --connect-timeout 15 --max-time 60 --retry 3 --retry-all-errors \
+    "https://api.github.com/repos/maralcbr/omarchy-pkgs/releases?per_page=100" |
+    grep -oE '"tag_name": *"asahi-packages-channel-[1-9][0-9]*"' |
+    grep -oE 'asahi-packages-channel-[0-9]+' | sort -u -t- -k4,4n | tail -1 || true)
+fi
+[[ $packages_channel_tag =~ ^asahi-packages-channel-[1-9][0-9]*$ ]] || {
+  echo "Could not resolve the Apple Silicon package channel" >&2
   exit 1
 }
+packages_channel_url="$packages_releases/$packages_channel_tag/asahi-packages-channel"
+packages_channel=$(curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --connect-timeout 15 \
+  --max-time 60 --retry 3 --retry-all-errors --max-filesize 131072 "$packages_channel_url")
+expected_repository=$(sed -n 's/^stable_tag=//p' <<<"$packages_channel")
+[[ $expected_repository =~ ^asahi-packages-stable-[0-9a-f]{40}$ ]] || {
+  echo "$packages_channel_url does not name one stable package set" >&2
+  exit 1
+}
+expected_repository_quoted=$(printf '%q' "$expected_repository")
+packages_channel_url_quoted=$(printf '%q' "$packages_channel_url")
 
 if [[ -n $candidate_tag || -n $candidate_sha256 || -n $candidate_fingerprint || -n $candidate_package_count ]]; then
   [[ $candidate_tag =~ ^asahi-packages-candidate-[0-9a-f]{40}$ ]] || {
@@ -191,7 +215,7 @@ scp "${scp_args[@]}" "$harness/guest/install" root@127.0.0.1:/root/omarchy-vm-in
 scp "${scp_args[@]}" "$harness/guest/candidate-runtime" root@127.0.0.1:/root/omarchy-vm-candidate-runtime
 stable_version=$(<"$root/version")
 ssh -tt "${ssh_args[@]}" root@127.0.0.1 \
-  env OMARCHY_VM_RUNTIME_MANIFEST_SHA256="${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-}" OMARCHY_VM_RUNTIME_SOURCE="${OMARCHY_VM_RUNTIME_SOURCE:-}" OMARCHY_VM_STABLE_VERSION="$stable_version" OMARCHY_VM_ALARM_MIRROR="$alarm_mirror_quoted" OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL="$channel_pointer_url_quoted" bash /root/omarchy-vm-install |
+  env OMARCHY_VM_RUNTIME_MANIFEST_SHA256="${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-}" OMARCHY_VM_RUNTIME_SOURCE="${OMARCHY_VM_RUNTIME_SOURCE:-}" OMARCHY_VM_STABLE_VERSION="$stable_version" OMARCHY_VM_ALARM_MIRROR="$alarm_mirror_quoted" OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL="$channel_pointer_url_quoted" OMARCHY_VM_ASAHI_PACKAGES_CHANNEL_URL="$packages_channel_url_quoted" bash /root/omarchy-vm-install |
   tee "$state/run/install.log" || exit 1
 
 boot_id=$(ssh "${ssh_args[@]}" root@127.0.0.1 cat /proc/sys/kernel/random/boot_id)

@@ -24,6 +24,7 @@ trap 'report_failure $LINENO' ERR
 
 [[ ${OMARCHY_VM_STABLE_VERSION:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+-mac\.[0-9]+$ ]]
 [[ -n ${OMARCHY_VM_ALARM_MIRROR:-} ]]
+[[ ${OMARCHY_VM_ASAHI_PACKAGES_CHANNEL_URL:-} =~ ^https://github\.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-channel-[1-9][0-9]*/asahi-packages-channel$ ]]
 
 # Compare raw bytes with the canonical body so newline stripping cannot hide trailing junk, CRs or NULs.
 read_pointer_tag() {
@@ -47,6 +48,10 @@ sed -i 's/^omarchy-hw-apple-silicon || exit 1$/true # VM-only hardware boundary/
   /root/omarchy-update-asahi-bundle.candidate
 mkdir -p "$work/apple-root/proc/device-tree"
 printf 'apple,j314s\0apple,arm-platform\0' >"$work/apple-root/proc/device-tree/compatible"
+# The fresh installer runs the runtime's own repository updater before its
+# first transaction, whose Apple Silicon check reads this fixture. It resolves
+# the package channel the host resolved and guest/verify expects.
+bootstrap_env="OMARCHY_PROC_ROOT=$work/apple-root/proc OMARCHY_ASAHI_PACKAGES_CHANNEL_URL=$OMARCHY_VM_ASAHI_PACKAGES_CHANNEL_URL"
 
 if [[ -n ${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-} ]]; then
   source /root/omarchy-vm-candidate-runtime
@@ -136,7 +141,7 @@ done
 expect <<EOF
 set timeout -1
 log_file $work/lock-collision.log
-spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit $bootstrap_env bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
 expect {
   "New password:" {
     send "omarchy\r"
@@ -200,7 +205,7 @@ for attempt in {1..3}; do
   expect <<EOF
 set timeout -1
 log_file $work/failed-install.log
-spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit $bootstrap_env bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
 set installer_pid [exp_pid]
 exec sh -c "printf '%s\\n' \$installer_pid > /var/tmp/omarchy-vm-installer.pid"
 expect {
@@ -237,26 +242,18 @@ done
 [[ " $(id -nG alarm) " == *" wheel "* ]]
 rm -f /usr/local/bin/passwd
 
-# The release bundle ships its own /etc/pacman.conf, whose [omarchy] section
-# points at the stable release the image was built against, and
-# omarchy-apply-system reapplies it on every installation. Both undo the
-# candidate repository this run exists to test, so restore it before each
-# installer run rather than once: otherwise the run after the first one syncs
-# a different, smaller database and reports the candidate's packages as
-# not found.
+# Restore the candidate repository before each installer run rather than
+# once, so every run starts from the section this run exists to test. The fresh
+# installer's repository bootstrap keeps its Server and only repairs the section
+# around it, and system setup keeps what the bootstrap kept.
 use_candidate_repository() {
-  # The same goes for the Arch Linux ARM mirrors: whatever wrote pacman.conf
-  # since the last run wrote the live ones.
+  # Whatever wrote pacman.conf since the last run may have written the live
+  # Arch Linux ARM mirrors.
   bash /root/omarchy-vm-alarm-snapshot
   # A GitHub release serves every tag's database under one name (omarchy.db) and
   # their upload times are not ordered by tag, so pacman's If-Modified-Since
   # cache keeps whichever database it fetched last whenever the newly pinned
-  # tag's asset is older. Production never sees this because the pin only moves
-  # forward, but this harness alternates between the candidate and the shipped
-  # release. Drop the cached database before syncing the candidate, and age the
-  # result so the installer's own sync -- omarchy-apply-system repoints the
-  # repository back to the shipped release -- refetches the database that
-  # matches the tag pinned then instead of pairing it with the wrong signature.
+  # tag's asset is older. Drop the cached database before syncing the candidate.
   local sync_dir=/var/lib/pacman/sync
   rm -f "$sync_dir/omarchy.db" "$sync_dir/omarchy.db.sig"
   [[ -r /root/omarchy-arm-repository.asc && -f /var/lib/omarchy/vm-package-candidate ]] || return 0
@@ -281,19 +278,6 @@ use_candidate_repository() {
   } >/tmp/pacman.conf.candidate
   install -m 0644 /tmp/pacman.conf.candidate /etc/pacman.conf
   pacman -Sy
-
-  # omarchy-apply-system repoints [omarchy] back to the shipped release and runs
-  # `pacman -Sy`. The database just primed above is the candidate's, newer on
-  # GitHub than the release's, so that sync would keep it under If-Modified-Since
-  # and reject it against the release's signature. Runtimes that carry the
-  # install/hardware/pacman.sh cache drop fix handle this themselves; older
-  # packaged runtimes under test here do not, so add it to the packaged copy the
-  # guest will run. Idempotent: skipped once the fix is present.
-  local packaged=/usr/share/omarchy/install/hardware/pacman.sh
-  if [[ -f $packaged ]] && ! grep -q 'sync/omarchy.db' "$packaged"; then
-    [[ -f $work/packaged-pacman.sh.orig ]] || cp -a "$packaged" "$work/packaged-pacman.sh.orig"
-    sed -i 's#^\([[:space:]]*\)pacman -Sy --noconfirm#\1rm -f /var/lib/pacman/sync/omarchy.db /var/lib/pacman/sync/omarchy.db.sig\n\1pacman -Sy --noconfirm#' "$packaged"
-  fi
 }
 
 use_candidate_repository
@@ -301,7 +285,7 @@ usermod --home /home/omarchy-replaced omarchy
 expect <<EOF
 set timeout -1
 log_file $work/target-replacement.log
-spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit $bootstrap_env bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
 expect {
   "New password:" {
     send "omarchy\r"
@@ -348,7 +332,7 @@ for attempt in {1..3}; do
   if expect <<EOF
 set timeout -1
 log_file $work/resumed-install.log
-spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
+spawn env OMARCHY_ASAHI_RELEASE_SEQUENCE=$release_sequence OMARCHY_ASAHI_RELEASE_TAG=$release_tag OMARCHY_ASAHI_RELEASE_SOURCE=$source_commit OMARCHY_ASAHI_PACKAGE_SOURCE=$package_source_commit $bootstrap_env bash $fresh_installer --asahi-packages $verified_dir/bundle --user omarchy
 expect {
   "New password:" {
     send "omarchy\r"
@@ -388,10 +372,6 @@ rm -f /usr/local/bin/usermod
 pacman -Q linux-asahi linux-asahi-headers m1n1 >protected-packages.after
 cmp protected-packages.before protected-packages.after
 cp --preserve=all omarchy-hw-apple-silicon.original /usr/share/omarchy/bin/omarchy-hw-apple-silicon
-# Undo the packaged pin-writer patch (added above so the guest's older runtime
-# drops its cached database) so package file verification sees it as shipped.
-[[ -f $work/packaged-pacman.sh.orig ]] &&
-  cp --preserve=all "$work/packaged-pacman.sh.orig" /usr/share/omarchy/install/hardware/pacman.sh
 cmp vm-kernel.before /boot/Image
 cmp asahi-kernel.before /boot/vmlinuz-linux-asahi
 cmp vm-grub.before /boot/grub/grub.cfg

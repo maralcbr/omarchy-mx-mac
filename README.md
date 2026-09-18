@@ -164,7 +164,7 @@ nmtui
 Update the system and install the release verification tools:
 
 ```bash
-pacman -Syu --needed curl gnupg linux-asahi-headers networkmanager iwd
+pacman -Syu --needed curl gnupg jq linux-asahi-headers networkmanager iwd
 ```
 
 ### 3. Install The Latest Stable Mac Release
@@ -173,16 +173,19 @@ Download the stable-channel installer, verify its signing key and detached
 signature, then run it. No downloaded code runs before these checks pass:
 
 ```bash
-release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-35
+release=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-36
 curl -fLO "$release/install-asahi-quattro"
 curl -fLO "$release/install-asahi-quattro.sig"
 curl -fLO https://raw.githubusercontent.com/maralcbr/omarchy-mx-mac/main/default/omarchy-release.gpg
 test "$(gpg --show-keys --with-colons omarchy-release.gpg | awk -F: '$1 == "fpr" { print $10; exit }')" = \
   5983B1CA32CB778F4D74D24ECFF35022CA5B5959
 gpgv --keyring ./omarchy-release.gpg install-asahi-quattro.sig install-asahi-quattro
-bash install-asahi-quattro --verify-only
+bash install-asahi-quattro --fresh --verify-only
 bash install-asahi-quattro --fresh
 ```
+
+The installer follows the published release pointer to the newest stable
+release, so this download does not need to be the newest channel.
 
 The former `asahi-quattro-channel` release is an immutable sequence-21
 bootstrap and cannot be repointed. Existing sequence-21 installations must use
@@ -209,12 +212,13 @@ The signed installer will:
 
 - Verify the stable channel, release descriptor, exact six-package manifest,
   checksums, signatures, architecture, and source identity before mutation
+- Configure the signed Omarchy package repository ahead of the Arch Linux ARM
+  and Asahi repositories, on the promoted package set named by the signed
+  package channel, before installing anything
 - Install the complete Apple Silicon package set without replacing
   `linux-asahi`, GRUB, or the Arch Linux ARM and Asahi repositories
 - Install final Omarchy 4 directly, with no intermediate Omarchy 3 release
 - Create the regular Omarchy user and run the Quattro system and user setup
-- Build packages unavailable from Asahi repositories from the package-source
-  commit pinned by the signed release
 - Configure NetworkManager with iwd while preserving the Asahi boot stack
 
 Enter the requested username and passwords carefully. Do not interrupt package

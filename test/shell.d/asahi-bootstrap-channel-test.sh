@@ -29,12 +29,14 @@ api_line=$(grep -nF 'api.github.com' "$bootstrap" | cut -d: -f1)
 pass "bootstrap discovery is pointer first, listing second, and never the legacy release"
 
 api_users=$(cd "$ROOT" && grep -rlF 'api.github.com' bin install install-omarchy-mx-mac install-omarchy-mx-mac.sh migrations test/vm | sort)
-[[ $api_users == $'bin/omarchy-update-asahi-bundle\nbin/omarchy-update-asahi-repository\ninstall-omarchy-mx-mac\ntest/vm/asahi-fresh/guest/install' ]] ||
+[[ $api_users == $'bin/omarchy-update-asahi-bundle\nbin/omarchy-update-asahi-repository\ninstall-omarchy-mx-mac\ntest/vm/asahi-fresh/guest/install\ntest/vm/asahi-fresh/run' ]] ||
   fail "only the documented listing fallbacks read the GitHub API" "$api_users"
-harness_pointer_line=$(grep -nF 'https://downloads.aicodelabs.com.au/pointers/' "$ROOT/test/vm/asahi-fresh/guest/install" | cut -d: -f1)
-harness_api_line=$(grep -nF 'api.github.com' "$ROOT/test/vm/asahi-fresh/guest/install" | cut -d: -f1)
-[[ -n $harness_pointer_line ]] && (( harness_pointer_line < harness_api_line )) ||
-  fail "the VM harness tries its R2 pointer before the GitHub API"
+for harness_file in guest/install run; do
+  harness_pointer_line=$(grep -nF 'https://downloads.aicodelabs.com.au/pointers/' "$ROOT/test/vm/asahi-fresh/$harness_file" | cut -d: -f1)
+  harness_api_line=$(grep -nF 'api.github.com' "$ROOT/test/vm/asahi-fresh/$harness_file" | cut -d: -f1)
+  [[ -n $harness_pointer_line ]] && (( harness_pointer_line < harness_api_line )) ||
+    fail "the VM harness ($harness_file) tries its R2 pointer before the GitHub API"
+done
 pass "the GitHub API is only a documented fallback behind a pointer"
 
 # The hardware boundary is real on a Mac and unreachable here, so it is replaced

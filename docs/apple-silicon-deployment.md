@@ -157,23 +157,24 @@ channel's set, signs and publishes `asahi-packages-channel-<S+1>`, and points
 then moves installed Macs on their next update. If it fails part way, see
 [the package channel](#the-package-channel).
 
+A fresh install starts on the promoted set directly: before its first package
+transaction, `bin/omarchy-install-asahi-fresh` runs the verified runtime's
+`omarchy-update-asahi-repository --bootstrap`, which reads the package channel,
+trusts both Omarchy keys and writes `[omarchy]` ahead of the Arch Linux ARM
+repositories. A fresh install cannot start until the package channel pointer or
+the release listing names a channel, and that channel's stable set is what it
+installs from.
+
 **Never withdraw the bootstrap package release.**
 `asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24` is what
-`install/hardware/pacman.sh` pins at install time, and it must stay published,
-non-draft, non-prerelease and byte-for-byte immutable. Those are exactly the
-conditions under which `bin/publish-asahi-packages-channel` keeps its commit in
-every new channel's `supersedes`, and `supersedes` is what lets
-`omarchy-update-asahi-repository` move a freshly installed Mac onto the
-promoted set. Withdraw it and fresh installs cannot install; drop it from
-`supersedes` and they install but never move.
-
-The pin is not bumped when a set is promoted, and that is deliberate. A stable
-snapshot is signed by the ARM repository subkey `CAB18E17…`, which nothing
-trusts at that point in a fresh install: `bin/omarchy-install-asahi-fresh` runs
-its first repository transaction before the pin writer, so modernising the
-default needs key trust and a configured repository moved earlier in that
-installer. Until that happens the bootstrap release is the default, the package
-channel does the moving, and there is nothing to bump here.
+`install/hardware/pacman.sh` still writes on paths with no `[omarchy]` section
+and no package channel, and it must stay published, non-draft, non-prerelease
+and byte-for-byte immutable. Those are exactly the conditions under which
+`bin/publish-asahi-packages-channel` keeps its commit in every new channel's
+`supersedes`, and `supersedes` is what lets `omarchy-update-asahi-repository`
+move such a Mac onto the promoted set. Withdraw it and those Macs cannot
+install; drop it from `supersedes` and they install but never move. The pin is
+not bumped when a set is promoted: the package channel does the moving.
 
 ### 4. Runtime channel
 

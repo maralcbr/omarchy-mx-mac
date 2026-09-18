@@ -276,3 +276,88 @@ OMARCHY_PATH="$ROOT" \
 [[ $(sha256sum "$pacman_conf") == "$config_hash" ]] || fail "the migration leaves a channel-selected set alone"
 ! grep -Fq 'pacman:-Sy --noconfirm' "$calls" || fail "the migration does not resync a channel-selected set"
 pass "the migration is idempotent for a Mac already on a channel-selected set"
+
+# --- Section position ---------------------------------------------------------
+# Installed Macs list [omarchy] before every other repository, so its Hyprland
+# stack wins over Arch Linux ARM's. The writer rewrites a section where it
+# stands, and puts a missing one before the first repository, never after [aur].
+
+alarm_conf() {
+  {
+    printf '[options]\nArchitecture = aarch64\nDBPath = %s\n\n' "$db_path"
+    printf '# Asahi Linux packages\n[asahi-alarm]\nInclude = /etc/pacman.d/mirrorlist.asahi-alarm\n\n'
+    printf '[core]\nInclude = /etc/pacman.d/mirrorlist\n\n'
+    printf '[extra]\nInclude = /etc/pacman.d/mirrorlist\n\n'
+    [[ -z ${1:-} ]] || printf '%s\n\n' "$1"
+    printf '[alarm]\nInclude = /etc/pacman.d/mirrorlist\n\n'
+    printf '[aur]\nInclude = /etc/pacman.d/mirrorlist\n'
+    [[ -z ${2:-} ]] || printf '\n%s\n' "$2"
+  } >"$pacman_conf"
+}
+
+repository_order() {
+  awk '/^[[:space:]]*\[[^]]+\][[:space:]]*$/ { gsub(/[][[:space:]]/, ""); printf "%s ", $0 }' "$pacman_conf"
+}
+
+canonical_block() {
+  printf '[omarchy]\nSigLevel = Required DatabaseOptional\nServer = %s' "$1"
+}
+
+candidate_server="https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-candidate-901e39bdc0dd42a93644bce14a07eeb9bb18a12c"
+mirror_server='https://mirror.example.test/omarchy/$arch'
+
+alarm_conf
+original=$(cat "$pacman_conf")
+: >"$calls"
+run_leaf 0
+expected=${original/$'\n[asahi-alarm]\n'/$'\n'"$(canonical_block "$bootstrap_server")"$'\n\n[asahi-alarm]\n'}
+[[ $(cat "$pacman_conf") == "$expected" ]] ||
+  fail "a missing section goes before the first repository, leaving every other line" "$(diff <(echo "$expected") "$pacman_conf" || true)"
+[[ $(repository_order) == "options omarchy asahi-alarm core extra alarm aur " ]] ||
+  fail "a missing section leads the repositories" "$(repository_order)"
+pass "a missing [omarchy] section is inserted before the first repository, never appended after [aur]"
+
+alarm_conf "$(printf '[omarchy]\nSigLevel = Never\n# kept by the operator\nServer = https://pkgs.omarchy.org/edge/$arch')"
+original=$(cat "$pacman_conf")
+run_leaf 0
+expected=${original/$'[omarchy]\nSigLevel = Never\n# kept by the operator\nServer = https://pkgs.omarchy.org/edge/$arch'/"$(canonical_block "$bootstrap_server")"$'\n# kept by the operator'}
+[[ $(cat "$pacman_conf") == "$expected" ]] ||
+  fail "an existing section is rewritten where it stands, keeping its comment" "$(diff <(echo "$expected") "$pacman_conf" || true)"
+config_hash=$(sha256sum "$pacman_conf")
+: >"$calls"
+run_leaf 0
+[[ $(sha256sum "$pacman_conf") == "$config_hash" ]] && ! grep -Fq 'pacman:-Sy' "$calls" ||
+  fail "a rewritten section with a comment is left alone on the next run"
+pass "an existing [omarchy] section is rewritten in place"
+
+alarm_conf "" "$(printf '[omarchy]\nSigLevel = Never\nServer = %s' "$stable_server")"
+run_leaf 0
+[[ $(repository_order) == "options asahi-alarm core extra alarm aur omarchy " && $(omarchy_server) == "$stable_server" ]] ||
+  fail "a section after [aur] is repaired where it stands" "$(cat "$pacman_conf")"
+grep -Fxq 'SigLevel = Required DatabaseOptional' "$pacman_conf" || fail "a section after [aur] gets its SigLevel repaired"
+pass "the install-time writer never moves an existing section"
+
+# The fresh installer's repository bootstrap keeps a candidate or mirror the
+# operator pinned and exports it; system setup must keep it too.
+for kept in "$candidate_server" "$mirror_server"; do
+  alarm_conf "$(printf '[omarchy]\nSigLevel = Never\nServer = %s' "$kept")"
+  seed_cache
+  : >"$calls"
+  OMARCHY_ASAHI_KEEP_SERVER=$kept run_leaf 0
+  [[ $(omarchy_server) == "$kept" ]] || fail "a Server the fresh installer kept survives system setup ($kept)" "$(cat "$pacman_conf")"
+  grep -Fxq 'SigLevel = Required DatabaseOptional' "$pacman_conf" || fail "a kept Server still gets its SigLevel repaired ($kept)"
+  [[ -e $db_path/sync/omarchy.db ]] || fail "a kept Server keeps its cached database ($kept)"
+  [[ $(repository_order) == "options asahi-alarm core extra omarchy alarm aur " ]] || fail "a kept Server stays where it is ($kept)"
+done
+pass "a Server byte-identical to OMARCHY_ASAHI_KEEP_SERVER is kept"
+
+alarm_conf "$(printf '[omarchy]\nSigLevel = Required DatabaseOptional\nServer = %s' "$candidate_server")"
+OMARCHY_ASAHI_KEEP_SERVER="$candidate_server/" run_leaf 0
+[[ $(omarchy_server) == "$bootstrap_server" ]] || fail "only a byte-identical Server is kept"
+alarm_conf "$(printf '[omarchy]\nSigLevel = Required DatabaseOptional\nServer = %s' "$candidate_server")"
+run_leaf 0
+[[ $(omarchy_server) == "$bootstrap_server" ]] || fail "without OMARCHY_ASAHI_KEEP_SERVER a candidate is still replaced"
+alarm_conf
+OMARCHY_ASAHI_KEEP_SERVER="$candidate_server" run_leaf 0
+[[ $(omarchy_server) == "$bootstrap_server" ]] || fail "OMARCHY_ASAHI_KEEP_SERVER never invents a section's Server"
+pass "every path without the fresh installer's kept Server behaves as before"

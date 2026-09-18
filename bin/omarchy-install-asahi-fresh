@@ -35,6 +35,59 @@ record_target_home_owner() {
   mv "$target_home/.omarchy-fresh-install-owner.tmp" "$target_home/.omarchy-fresh-install-owner"
 }
 
+# A clean Asahi Arch system has no [omarchy] repository. Without one ahead of
+# Arch Linux ARM, the first transaction finds no Omarchy-built package and
+# takes Hyprland from Arch Linux ARM. The verified runtime's own repository
+# updater configures it, with the same checks it applies on installed Macs.
+# Only that one command sees the sudo stand-in and the runtime's key files.
+configure_package_repository() {
+  local pacman_conf="$1" settings_archive="$2" omarchy_archive="$3"
+  local archive updater defaults repositories server
+
+  package_runtime_root=$(mktemp -d)
+  trap 'rm -rf "$package_runtime_root"' EXIT
+  for archive in "$settings_archive" "$omarchy_archive"; do
+    bsdtar -xf "$archive" -C "$package_runtime_root" || fail "Could not unpack $(basename "$archive")"
+  done
+  updater="$package_runtime_root/usr/bin/omarchy-update-asahi-repository"
+  defaults="$package_runtime_root/usr/share/omarchy/default"
+  [[ -f $updater && -f $defaults/omarchy-release.gpg && -f $defaults/omarchy-arm-repository.asc ]] ||
+    fail "The verified runtime cannot configure the Apple Silicon package repository"
+
+  install -d -m 0700 "$package_runtime_root/sudo"
+  cat >"$package_runtime_root/sudo/sudo" <<'EOF'
+#!/bin/bash
+(( EUID == 0 )) || { echo "sudo: this installer stand-in only runs as root" >&2; exit 1; }
+[[ ${1:-} != -* ]] || { echo "sudo: this installer stand-in takes no options" >&2; exit 1; }
+exec "$@"
+EOF
+  chmod 0755 "$package_runtime_root/sudo/sudo"
+
+  echo "Configuring the signed Apple Silicon package repository"
+  # Everything else is inherited, including OMARCHY_PROC_ROOT for a VM's Apple fixture.
+  env \
+    PATH="$package_runtime_root/sudo:$package_runtime_root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/bin" \
+    OMARCHY_PATH="$package_runtime_root/usr/share/omarchy" \
+    OMARCHY_ASAHI_KEY_FILE="$defaults/omarchy-release.gpg" \
+    OMARCHY_ASAHI_PACKAGE_KEY_FILE="$defaults/omarchy-arm-repository.asc" \
+    "$updater" --yes --bootstrap ||
+    fail "Could not configure the signed Apple Silicon package repository; no packages were installed"
+  rm -rf "$package_runtime_root"
+  trap - EXIT
+
+  repositories=$(pacman-conf --config "$pacman_conf" --repo-list) || fail "Could not read the configured repositories"
+  [[ ${repositories%%$'\n'*} == "omarchy" ]] || fail "The [omarchy] repository must come before every other repository"
+  server=$(awk '
+    /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; next }
+    inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
+    inside && /^[[:space:]]*Server[[:space:]]*=/ { sub(/^[[:space:]]*Server[[:space:]]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print }
+  ' "$pacman_conf")
+  [[ -n $server && $server != *$'\n'* ]] || fail "The [omarchy] repository must have exactly one Server"
+  # System setup rewrites [omarchy] through install/hardware/pacman.sh, which
+  # would otherwise swap a kept candidate or mirror for its own default.
+  export OMARCHY_ASAHI_KEEP_SERVER="$server"
+}
+
 while (($#)); do
   case "$1" in
     --asahi-packages)
@@ -80,6 +133,8 @@ done
 for repository in asahi-alarm core extra alarm aur; do
   pacman-conf --repo-list | grep -Fxq "$repository" || fail "Required repository is unavailable: $repository"
 done
+# The package repository updater requires it, and it runs before anything is installed.
+pacman -Q jq >/dev/null 2>&1 || fail "Install jq first (pacman -S jq)"
 (( $(swapon --show --noheadings | wc -l) == 0 )) || fail "Disable swap before installing Omarchy"
 [[ $(cat /sys/module/zswap/parameters/enabled 2>/dev/null || echo N) == "N" ]] || fail "Disable zswap before installing Omarchy"
 
@@ -193,6 +248,7 @@ else
   mv -T "$checkpoint_tmp" "$state_dir"
 fi
 
+settings_archive=${archives[1]}
 omarchy_archive=${archives[2]}
 mapfile -t runtime_packages < <(
   bsdtar -xOf "$omarchy_archive" usr/share/omarchy/install/omarchy-base-asahi.packages |
@@ -214,6 +270,8 @@ for package in "${runtime_packages[@]}"; do
   fi
   repo_packages+=("$package")
 done
+
+configure_package_repository /etc/pacman.conf "$settings_archive" "$omarchy_archive"
 
 echo "Installing the Omarchy 4 Apple Silicon package set"
 pacman -Syu --needed --noconfirm --ignore "$kernel_package,$kernel_package-headers,m1n1" \

@@ -159,8 +159,69 @@ grep -Fq "expected_repository =~ ^asahi-packages-candidate-[0-9a-f]{40}\$" "$vm_
   fail "VM verification requires an exact candidate repository tag"
 grep -Fq 'C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC' "$vm_verify" ||
   fail "VM verification asserts the ARM repository key for a stable snapshot"
-grep -Fq "sed -n 's/^[[:space:]]*bootstrap_release_tag=//p'" "$vm_runner" ||
-  fail "VM runner reads the bootstrap pin from install/hardware/pacman.sh"
 grep -Fq 'OMARCHY_VM_EXPECTED_REPOSITORY="$expected_repository_quoted"' "$vm_runner" ||
   fail "VM runner passes the expected repository to verification"
-pass "fresh-install VM checks the install-time pin against the repository's own default"
+pass "fresh-install VM checks the install-time pin against pre-install inputs"
+
+# The host resolves the package channel once and both guest stages use it: the
+# installer's bootstrap gets the exact channel, verify gets its stable set.
+! grep -Fq 'bootstrap_release_tag' "$vm_runner" || fail "VM runner no longer expects the legacy bootstrap release"
+grep -Fq 'https://downloads.aicodelabs.com.au/pointers/asahi-packages-channel' "$vm_runner" ||
+  fail "VM runner resolves the package channel through its pointer"
+grep -Fq "expected_repository=\$(sed -n 's/^stable_tag=//p' <<<\"\$packages_channel\")" "$vm_runner" ||
+  fail "VM runner expects the stable set of the channel it resolved"
+grep -Fq 'OMARCHY_VM_ASAHI_PACKAGES_CHANNEL_URL="$packages_channel_url_quoted" bash /root/omarchy-vm-install' "$vm_runner" ||
+  fail "VM runner hands the resolved package channel to the installation stage"
+grep -Fq "[[ \${OMARCHY_VM_ASAHI_PACKAGES_CHANNEL_URL:-} =~ ^https://github\\.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-channel-[1-9][0-9]*/asahi-packages-channel\$ ]]" "$vm_installer" ||
+  fail "VM installation accepts only an exact numbered package channel"
+grep -Fq 'bootstrap_env="OMARCHY_PROC_ROOT=$work/apple-root/proc OMARCHY_ASAHI_PACKAGES_CHANNEL_URL=$OMARCHY_VM_ASAHI_PACKAGES_CHANNEL_URL"' "$vm_installer" ||
+  fail "VM installation gives the repository bootstrap its Apple fixture and the resolved channel"
+spawns=$(grep -c 'spawn env .* bash $fresh_installer' "$vm_installer")
+(( spawns > 0 )) && [[ $(grep -c 'spawn env .* $bootstrap_env bash $fresh_installer' "$vm_installer") == "$spawns" ]] ||
+  fail "every VM installer run carries the bootstrap environment"
+! grep -Fq 'install/hardware/pacman.sh' "$vm_installer" ||
+  fail "VM installation runs the packaged install/hardware/pacman.sh unpatched"
+grep -Fq "[[ \$expected_repository =~ ^asahi-packages-stable-[0-9a-f]{40}\$ ]]" "$vm_verify" ||
+  fail "VM verification expects a stable set without a candidate"
+grep -Fq 'grep -Fxq "tag=$expected_repository" "$repository_state"' "$vm_verify" ||
+  fail "VM verification requires the promoted set to be recorded"
+grep -Fq '[[ ! -e $repository_state ]]' "$vm_verify" ||
+  fail "VM verification requires a kept candidate to be left unrecorded"
+grep -Fq "[[ \${repositories%%\$'\\n'*} == \"omarchy\" ]]" "$vm_verify" ||
+  fail "VM verification requires [omarchy] to lead the repositories"
+pass "fresh-install VM runs the real repository bootstrap against the host's package channel"
+
+# --- Package repository bootstrap -------------------------------------------
+# A clean Asahi Arch Minimal has no [omarchy]; the first transaction needs it.
+grep -Fq 'pacman -Q jq >/dev/null 2>&1 || fail "Install jq first (pacman -S jq)"' "$installer" ||
+  fail "fresh installer requires jq with the other preconditions"
+jq_line=$(grep -n -m1 'Install jq first' "$installer" | cut -d: -f1)
+lock_line=$(grep -n -m1 'flock -n "$install_lock"' "$installer" | cut -d: -f1)
+terminal_line=$(grep -n -m1 'A controlling terminal is required to set the user password' "$installer" | cut -d: -f1)
+checkpoint_line=$(grep -n -m1 'mv -T "$checkpoint_tmp" "$state_dir"' "$installer" | cut -d: -f1)
+bootstrap_line=$(grep -n '^configure_package_repository /etc/pacman.conf "$settings_archive" "$omarchy_archive"$' "$installer" | cut -d: -f1)
+runtime_line=$(grep -n -m1 'pacman -Syu --needed --noconfirm' "$installer" | cut -d: -f1)
+apply_system_line=$(grep -n -m1 'omarchy-apply-system --install-user' "$installer" | cut -d: -f1)
+[[ -n $bootstrap_line && $(grep -c '^configure_package_repository ' "$installer") == 1 ]] ||
+  fail "fresh installer configures the package repository exactly once"
+(( jq_line < lock_line )) || fail "fresh installer checks for jq before it takes the lock"
+(( lock_line < bootstrap_line && terminal_line < bootstrap_line && checkpoint_line < bootstrap_line )) ||
+  fail "the repository bootstrap runs after the lock, the user and terminal checks and the checkpoint"
+(( bootstrap_line < runtime_line )) || fail "the repository bootstrap runs before the first package transaction"
+(( bootstrap_line < apply_system_line )) || fail "system setup inherits the Server the bootstrap kept"
+first_transaction_line=$(grep -nE '^[[:space:]]*pacman -[SU]' "$installer" | head -n 1 | cut -d: -f1)
+(( bootstrap_line < first_transaction_line )) || fail "no package transaction runs before the repository bootstrap"
+grep -Fq '"$updater" --yes --bootstrap ||' "$installer" || fail "the bundle's own repository updater runs in bootstrap mode"
+grep -Fq 'updater="$package_runtime_root/usr/bin/omarchy-update-asahi-repository"' "$installer" ||
+  fail "the updater runs from the verified runtime's real usr/bin files"
+grep -Fq 'PATH="$package_runtime_root/sudo:$package_runtime_root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/bin" \' "$installer" ||
+  fail "the updater sees the sudo stand-in, then the runtime's commands, then the system's"
+[[ $(grep -c 'package_runtime_root/sudo' "$installer") == 4 ]] ||
+  fail "the sudo stand-in is created in the private directory and reaches only the updater's PATH"
+! grep -Eq '^[[:space:]]*export (PATH|OMARCHY_PATH|OMARCHY_ASAHI_KEY_FILE|OMARCHY_ASAHI_PACKAGE_KEY_FILE)=' "$installer" ||
+  fail "the runtime's key files and PATH never leak into system setup"
+grep -Fq '(( EUID == 0 )) || { echo "sudo: this installer stand-in only runs as root" >&2; exit 1; }' "$installer" ||
+  fail "the sudo stand-in only runs as root"
+grep -Fq 'export OMARCHY_ASAHI_KEEP_SERVER="$server"' "$installer" ||
+  fail "the fresh installer hands the kept Server to system setup"
+pass "the fresh installer configures [omarchy] before its first transaction with a scoped sudo stand-in"

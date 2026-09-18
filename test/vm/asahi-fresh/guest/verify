@@ -26,17 +26,24 @@ grep -Fxq '[omarchy]' /etc/pacman.conf || fail "signed Apple Silicon package rep
 grep -Fxq 'SigLevel = Required DatabaseOptional' /etc/pacman.conf || fail "Apple Silicon package signature policy"
 # The expected pin comes from pre-install inputs, never from the installed
 # system: a run must not accept whatever the installer happened to write. A
-# candidate run deliberately repoints this at the candidate release, which is
-# the repository whose packages it then checks version by version below.
+# candidate run deliberately pins the candidate release before installing,
+# which the installer must keep, and then checks its packages version by
+# version below. Otherwise the installer must have configured the stable set of
+# the package channel the host resolved, and recorded it.
+repository_state=/var/lib/omarchy/asahi-package-repository
 if [[ -f /var/lib/omarchy/vm-package-candidate ]]; then
   expected_repository=$(sed -n 's/^release_tag=//p' /var/lib/omarchy/vm-package-candidate)
   [[ $expected_repository =~ ^asahi-packages-candidate-[0-9a-f]{40}$ ]] || fail "candidate repository tag"
+  [[ ! -e $repository_state ]] || fail "a kept candidate repository is not recorded as the promoted set"
 else
   expected_repository=${OMARCHY_VM_EXPECTED_REPOSITORY:-}
-  [[ $expected_repository =~ ^asahi-packages-(stable-)?[0-9a-f]{40}$ ]] ||
+  [[ $expected_repository =~ ^asahi-packages-stable-[0-9a-f]{40}$ ]] ||
     fail "expected Apple Silicon package repository was not passed in"
+  grep -Fxq "tag=$expected_repository" "$repository_state" || fail "promoted Apple Silicon package set recorded"
 fi
 grep -Fxq "Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/$expected_repository" /etc/pacman.conf || fail "immutable Apple Silicon package repository"
+repositories=$(pacman-conf --repo-list)
+[[ ${repositories%%$'\n'*} == "omarchy" ]] || fail "[omarchy] precedes every other repository"
 pacman-key --finger 5983B1CA32CB778F4D74D24ECFF35022CA5B5959 >/dev/null || fail "Apple Silicon package signing key"
 # A stable snapshot is signed by the ARM repository subkey, not the release key.
 if [[ $expected_repository == asahi-packages-stable-* ]]; then

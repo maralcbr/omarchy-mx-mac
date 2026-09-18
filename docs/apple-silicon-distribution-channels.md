@@ -213,7 +213,7 @@ Otherwise the result depends on the `Server` line actually in `[omarchy]`:
 | Current `Server` | Result |
 | --- | --- |
 | the stable release the channel names | up to date; the channel and its descriptor are still checked, and an update records the channel |
-| a stable or legacy release whose commit is in `supersedes` | moves: descriptor and database checks, backup, rewrite of that one line, `pacman -Sy`, restore on failure |
+| a stable or legacy release whose commit is in `supersedes` | moves: descriptor and database checks, backup, cached `omarchy.db`/`.sig` dropped, rewrite of that one line, `pacman -Sy`, restore on failure |
 | the legacy release of the channel's own commit | moves to the stable release of that commit, the same way |
 | any other stable or legacy release | left alone: `the pinned package set <commit> is not older than channel <S> (<commit>); leaving it` |
 | anything else: a mirror, a candidate or channel tag, another repository | left alone: `unrecognised [omarchy] Server; not moving it` |
@@ -223,11 +223,10 @@ written for a set that is left alone. `--check` never writes. A set is only
 recognised at exactly
 `https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-stable-<commit>`
 (stable) or `…/releases/download/asahi-packages-<commit>` (legacy). The legacy
-form is what `install/hardware/pacman.sh` pins at install time, and it still
-does on fresh installs; a Mac that ran its migration but never reached the old
-API updater can also still be on it. Moving off it keeps the block's `SigLevel`
-and imports and locally signs the ARM repository key, exactly as the old
-updater did.
+form is what `install/hardware/pacman.sh` writes when it has nothing better
+(see below); a Mac that ran its migration but never reached the old API updater
+can also still be on it. Moving off it keeps the block's `SigLevel` and imports
+and locally signs the ARM repository key, exactly as the old updater did.
 Before a move or a refresh, that release's `CANDIDATE` must hash to
 `descriptor_sha256` and pass the same subkey and field checks as before. If the
 state file names the channel's set with another descriptor digest, or records
@@ -245,19 +244,55 @@ What this accepts, deliberately:
   a set built from a later commit on `asahi-quattro`; that does not prove every
   package version went up.
 
+### A fresh install's `[omarchy]`
+
+A clean Asahi Arch Minimal has no `[omarchy]` section, and its first package
+transaction needs one ahead of `[asahi-alarm] [core] [extra] [alarm] [aur]`:
+without it every Omarchy-built package is "target not found", and below
+`[extra]` Hyprland comes from Arch Linux ARM. So `bin/omarchy-install-asahi-fresh`,
+after its checkpoint, user, terminal and lock checks and before that
+transaction, unpacks `omarchy-dev` and `omarchy-settings-dev` from the verified
+bundle into a private directory and runs their own
+`omarchy-update-asahi-repository --yes --bootstrap`. Only that command sees a
+root-only `sudo` stand-in (real `sudo` is not installed yet) and the bundle's
+`default/` key files. `jq` is a precondition, which is why the README's
+preparation step installs it.
+
+`--bootstrap` runs every check of an ordinary update: discovery, the channel's
+signature and format, the descriptor and its signature, and the database's
+digests and signature, including when the pin is up to date or kept. Then:
+
+| `[omarchy]` in `/etc/pacman.conf` | Result |
+| --- | --- |
+| no section | the channel's stable set, inserted before the first repository section |
+| one section with one `Server` (or byte-identical copies) | that `Server` is kept, then the ordinary move rules apply: a superseded pin moves forward, a candidate, mirror or newer pin stays. The section is moved before the first repository and gets `SigLevel = Required DatabaseOptional` |
+| several sections, several different `Server` lines, or none | refused, naming them; nothing is written |
+
+In every accepted case both the release key (`5983B1CA…`, for legacy and
+candidate releases) and the ARM repository key (`C81AC3E2…`, for stable sets)
+are added and locally signed, the cached database is dropped if the `Server`
+changed, and `pacman -Sy` must succeed with `omarchy` first in
+`pacman-conf --repo-list`, or the backup is restored. The state file is written
+only when the final `Server` is the channel's stable set, never for a kept
+candidate or mirror. The installer then checks the order itself and exports the
+final `Server` as `OMARCHY_ASAHI_KEEP_SERVER` for the rest of the run.
+
 ### The install-time `[omarchy]` pin
 
-`install/hardware/pacman.sh` writes the `[omarchy]` block on a fresh install
+`install/hardware/pacman.sh` writes the `[omarchy]` block during system setup
 (`install/hardware/all.sh`, `install/post-install/pacman.sh`) and again on
 every existing Mac through migration `1787560726`. It repairs the section
-around the `Server` that is already there rather than replacing it:
+where it stands, around the `Server` that is already there, rather than
+replacing it:
 
 | `[omarchy]` in `/etc/pacman.conf` | Result |
 | --- | --- |
 | one recognised `Server`, or several byte-identical copies of one | that `Server` is kept; the section, its `SigLevel` and the key trust are repaired around it |
+| one `Server` byte-identical to `OMARCHY_ASAHI_KEEP_SERVER` | kept the same way; only the fresh installer sets it |
 | several `Server` lines that are not identical | refused, naming them; nothing is written |
 | more than one `[omarchy]` section | refused; nothing is written |
-| exactly one unrecognised `Server`, or no section at all | written with the bootstrap default |
+| exactly one other `Server` | replaced with the bootstrap default, in place |
+| no section at all | the bootstrap default, inserted before the first repository section, never appended after `[aur]` |
 
 Recognised means exactly the two forms the package channel moves,
 `…/releases/download/asahi-packages-stable-<commit>` and
@@ -265,27 +300,28 @@ Recognised means exactly the two forms the package channel moves,
 locally signed in every case, and the cached `omarchy.db`/`.sig` are dropped
 only when the `Server` actually changes.
 
-The bootstrap default stays the legacy `asahi-packages-784daa3…` release. It
-is signed by the release key, which is the only key trusted when the fresh
-installer runs its first repository transaction, and it is in every package
-channel's `supersedes`, so the first `omarchy update` moves the Mac to the
-promoted set. Modernising it to a stable snapshot needs ARM repository key
-trust and a configured repository earlier in `bin/omarchy-install-asahi-fresh`
-than the pin writer runs today; that is deferred, and the runbook records why.
+The bootstrap default stays the legacy `asahi-packages-784daa3…` release, but
+only paths with no `[omarchy]` and no package channel reach it: a fresh install
+has already configured the promoted set by then. It is signed by the release
+key and it is in every package channel's `supersedes`, so the first
+`omarchy update` moves such a Mac to the promoted set.
 
 The effect is that a Mac the package channel already moved forward keeps its
 set when the migration reruns, instead of being pinned backwards and moved
-forward again on the next update.
+forward again on the next update, and a fresh install keeps the set, candidate
+or mirror its bootstrap kept.
 
 ### What still reads the GitHub API
 
-Four files, each only as the fallback behind a pointer:
+Five files, each only as the fallback behind a pointer:
 
 - `bin/omarchy-update-asahi-bundle` and `bin/omarchy-update-asahi-repository`,
   behind the runtime and package channel pointers.
 - `install-omarchy-mx-mac`, behind the runtime channel pointer. With neither
   resolvable the install fails rather than silently pinning an old release.
 - `test/vm/asahi-fresh/guest/install`, behind the same pointer.
+- `test/vm/asahi-fresh/run`, behind the package channel pointer, to resolve
+  the channel it hands the guest and the stable set it expects.
 
 `install-omarchy-mx-mac.sh` resolves nothing itself. It downloads the
 bootstrap from the mx-mac `releases/latest` assets, creates an empty handover

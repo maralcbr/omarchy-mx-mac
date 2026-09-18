@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Repoint the Apple Silicon package repository at the newest signed stable snapshot
-# omarchy:args=[--check] [--yes]
+# omarchy:args=[--check] [--yes] [--bootstrap]
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
@@ -15,6 +15,15 @@
 # any other Server is left alone. Only the Server line of the existing [omarchy]
 # block changes. Every other repository, boot, GRUB, mkinitcpio, and
 # NetworkManager path stays untouched.
+#
+# --bootstrap (with --yes) is the fresh installer's first step on a clean Asahi
+# Arch system, before its first package transaction. Every check above still
+# runs, and so do the database checks an up-to-date or preserved pin normally
+# skips. With no [omarchy] section it writes one for the channel's snapshot
+# before the first repository. With one section and one Server it keeps that
+# Server, moves the section before the first repository, repairs its SigLevel,
+# trusts both Omarchy keys, and then applies the ordinary move rules. Several
+# sections or Servers are refused untouched.
 
 set -euo pipefail
 
@@ -29,6 +38,7 @@ channel_size_limit=131072
 channel_entry_limit=2048
 mode=update
 yes=0
+bootstrap=0
 
 fail() {
   echo "Apple Silicon package repository update: $*" >&2
@@ -39,14 +49,19 @@ while (($#)); do
   case "$1" in
     --check) mode=check ;;
     -y|--yes) yes=1 ;;
+    --bootstrap) bootstrap=1 ;;
     -h|--help)
-      echo "Usage: omarchy-update-asahi-repository [--check] [--yes]"
+      echo "Usage: omarchy-update-asahi-repository [--check] [--yes] [--bootstrap]"
       exit 0
       ;;
     *) fail "unknown option '$1'" ;;
   esac
   shift
 done
+if (( bootstrap )); then
+  [[ $mode != "check" ]] || fail "--bootstrap cannot be combined with --check"
+  (( yes )) || fail "--bootstrap requires --yes"
+fi
 
 omarchy-hw-apple-silicon || exit 1
 
@@ -54,7 +69,9 @@ root_path() {
   printf '%s%s\n' "${OMARCHY_ASAHI_ROOT:-}" "$1"
 }
 
-for command in curl gpg jq sha256sum; do
+required_commands=(curl gpg jq sha256sum)
+(( ! bootstrap )) || required_commands+=(pacman-conf)
+for command in "${required_commands[@]}"; do
   omarchy-cmd-present "$command" || fail "$command is required"
 done
 
@@ -193,15 +210,28 @@ for repository in asahi-alarm core extra alarm aur; do
   grep -Eq "^[[:space:]]*\[$repository\][[:space:]]*$" "$pacman_conf" || fail "required [$repository] repository is missing"
 done
 block_count=$(grep -Ec '^[[:space:]]*\[omarchy\][[:space:]]*$' "$pacman_conf" || true)
-(( block_count == 1 )) || fail "pacman configuration must contain exactly one [omarchy] repository"
-current_servers=$(awk '
-  /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; next }
-  inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
-  inside && /^[[:space:]]*Server[[:space:]]*=/ { sub(/^[[:space:]]*Server[[:space:]]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print }
-' "$pacman_conf")
-[[ -n $current_servers ]] || fail "[omarchy] repository must have exactly one Server"
-(( $(wc -l <<<"$current_servers") == 1 )) || fail "[omarchy] repository must have exactly one Server"
-current_server=$current_servers
+current_server=""
+if (( ! bootstrap || block_count != 0 )); then
+  (( block_count == 1 )) || fail "pacman configuration must contain exactly one [omarchy] repository"
+  current_servers=$(awk '
+    /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; next }
+    inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
+    inside && /^[[:space:]]*Server[[:space:]]*=/ { sub(/^[[:space:]]*Server[[:space:]]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print }
+  ' "$pacman_conf")
+  # Byte-identical copies are one Server to install/hardware/pacman.sh, and the repair collapses them.
+  (( ! bootstrap )) || current_servers=$(sort -u <<<"$current_servers")
+  [[ -n $current_servers ]] || fail "[omarchy] repository must have exactly one Server"
+  if (( $(wc -l <<<"$current_servers") != 1 )); then
+    if (( bootstrap )); then
+      echo "Apple Silicon package repository update: [omarchy] lists several Servers; keep one and try again:" >&2
+      while IFS= read -r listed_server; do
+        printf '  %s\n' "$listed_server" >&2
+      done <<<"$current_servers"
+    fi
+    fail "[omarchy] repository must have exactly one Server"
+  fi
+  current_server=$current_servers
+fi
 stable_prefix="https://github.com/$repo/releases/download/asahi-packages-stable-"
 # install/hardware/pacman.sh pins the legacy asahi-packages-<commit> release; candidate and channel tags never match 40 hex.
 legacy_prefix="https://github.com/$repo/releases/download/asahi-packages-"
@@ -290,16 +320,25 @@ if [[ -n $installed_tag ]]; then
     fail "repository state contradicts the signed channel: sequence $channel_sequence names $tag"
 fi
 
+# Why the current Server stays. A normal run stops there; a bootstrap still
+# verifies the target and repairs the section around the kept Server.
+keep_reason=""
 # Runs before the move rules: a superseded pin still must not follow a channel below this Mac's.
-(( channel_sequence >= installed_sequence )) ||
-  leave "package channel $channel_sequence is older than channel $installed_sequence on this Mac; leaving [omarchy] unchanged"
-
-if [[ $current_server != "$server" ]]; then
-  [[ -n $current_commit ]] || leave "unrecognised [omarchy] Server; not moving it"
+if (( channel_sequence < installed_sequence )); then
+  [[ -n $current_server ]] ||
+    fail "package channel $channel_sequence is older than channel $installed_sequence recorded on this Mac; nothing changed"
+  keep_reason="package channel $channel_sequence is older than channel $installed_sequence on this Mac; leaving [omarchy] unchanged"
+elif [[ -n $current_server && $current_server != "$server" ]]; then
+  if [[ -z $current_commit ]]; then
+    keep_reason="unrecognised [omarchy] Server; not moving it"
   # A legacy pin on the target's own commit is still moved, onto the stable release of that commit.
-  [[ -n ${superseded[$current_commit]:-} || $current_commit == "$stable_commit" ]] ||
-    leave "the pinned package set ${current_commit:0:8} is not older than channel $channel_sequence (${stable_commit:0:8}); leaving it"
+  elif [[ -z ${superseded[$current_commit]:-} && $current_commit != "$stable_commit" ]]; then
+    keep_reason="the pinned package set ${current_commit:0:8} is not older than channel $channel_sequence (${stable_commit:0:8}); leaving it"
+  fi
 fi
+[[ -z $keep_reason ]] || (( bootstrap )) || leave "$keep_reason"
+final_server=$server
+[[ -z $keep_reason ]] || final_server=$current_server
 
 base="${OMARCHY_ASAHI_RELEASE_BASE_URL:-$server}"
 base=${base%/}
@@ -365,7 +404,7 @@ write_state() {
   sudo install -D -o root -g root -m 0644 "$workdir/state" "$state_file"
 }
 
-if [[ $current_server == "$server" ]]; then
+if [[ $current_server == "$server" ]] && (( ! bootstrap )); then
   [[ $mode != "check" ]] || exit 1
   # Also completes a switch interrupted between the pacman.conf write and the state write.
   if [[ $installed_tag != "$tag" ]] || (( installed_sequence < channel_sequence )); then
@@ -400,23 +439,91 @@ sudo install -d -o root -g root -m 0700 "$backup"
 sudo cp -a "$backup_tmp"/. "$backup/"
 rm -rf "$backup_tmp"
 
-if ! sudo pacman-key --finger "$trusted_key" >/dev/null 2>&1; then
+if (( bootstrap )); then
+  # A fresh system trusts neither key: legacy and candidate releases are signed
+  # by the release key, stable snapshots by the ARM repository subkey. Both
+  # files passed their fingerprint checks above.
+  trust_key() {
+    sudo pacman-key --finger "$1" >/dev/null 2>&1 || sudo pacman-key --add "$2"
+    sudo pacman-key --lsign-key "$1"
+  }
+  trust_key "$release_trusted_key" "$release_trusted_key_file"
+  trust_key "$trusted_key" "$trusted_key_file"
+elif ! sudo pacman-key --finger "$trusted_key" >/dev/null 2>&1; then
   sudo pacman-key --add "$trusted_key_file"
   sudo pacman-key --lsign-key "$trusted_key"
 fi
 
-# Only the Server line inside [omarchy] changes; every other byte is copied.
-awk -v server="$server" '
-  /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; print; next }
-  inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
-  inside && /^[[:space:]]*Server[[:space:]]*=/ { print "Server = " server; next }
-  { print }
-' "$pacman_conf" >"$workdir/pacman.conf"
+if (( bootstrap )); then
+  first_repository=$(awk '
+    /^[[:space:]]*\[[^]]+\][[:space:]]*$/ && !/^[[:space:]]*\[options\][[:space:]]*$/ {
+      sub(/^[[:space:]]*\[/, ""); sub(/\][[:space:]]*$/, ""); print; exit
+    }
+  ' "$pacman_conf")
+  relocate=0
+  [[ $first_repository == "omarchy" ]] || relocate=1
+  # The section holds exactly SigLevel and Server. It is rewritten where it
+  # stands when it already leads the repositories and otherwise placed before
+  # the first one, so the Omarchy Hyprland stack wins over Arch Linux ARM's.
+  # Comments stay where they were; every other line is copied.
+  awk -v server="$final_server" -v relocate="$relocate" '
+    function section() { return $0 ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/ }
+    function emit() {
+      print "[omarchy]"
+      print "SigLevel = Required DatabaseOptional"
+      print "Server = " server
+    }
+    section() { inside = 0 }
+    /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; if (!relocate) emit(); next }
+    relocate && !placed && section() && !/^[[:space:]]*\[options\][[:space:]]*$/ { emit(); print ""; placed = 1 }
+    inside && /^[[:space:]]*[^#[:space:]]/ { next }
+    inside && relocate && /^[[:space:]]*$/ { next }
+    { print }
+  ' "$pacman_conf" >"$workdir/pacman.conf"
+else
+  # Only the Server line inside [omarchy] changes; every other byte is copied.
+  awk -v server="$server" '
+    /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; print; next }
+    inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
+    inside && /^[[:space:]]*Server[[:space:]]*=/ { print "Server = " server; next }
+    { print }
+  ' "$pacman_conf" >"$workdir/pacman.conf"
+fi
+
+# Every tag's database has the same name and GitHub does not order upload
+# times by tag, so a cached database from the previous Server can survive a
+# repoint and be rejected against the new tag's signature.
+if [[ $final_server != "$current_server" ]]; then
+  db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$pacman_conf")
+  sync_dir="$(root_path "${db_path:-/var/lib/pacman}")/sync"
+  sudo rm -f "$sync_dir/omarchy.db" "$sync_dir/omarchy.db.sig" ||
+    fail "could not remove the cached Omarchy database in $sync_dir; pacman.conf is unchanged"
+fi
+
+restore() {
+  sudo install -o root -g root -m 0644 "$backup/pacman.conf" "$pacman_conf" ||
+    fail "$1; could not restore $pacman_conf from $backup"
+  fail "$1; restored the previous repository (backup: $backup)"
+}
+
 sudo install -o root -g root -m 0644 "$workdir/pacman.conf" "$pacman_conf"
 
-if ! sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Sy --noconfirm; then
-  sudo install -o root -g root -m 0644 "$backup/pacman.conf" "$pacman_conf"
-  fail "pacman could not read $tag; restored the previous repository (backup: $backup)"
+final_name=$tag
+[[ $final_server == "$server" ]] || final_name=$final_server
+sudo env OMARCHY_UPDATE_PACMAN=1 pacman -Sy --noconfirm || restore "pacman could not read $final_name"
+
+if (( bootstrap )); then
+  # Include files can define repositories too, so ask pacman for the order it will actually use.
+  repository_list=$(pacman-conf --config "$pacman_conf" --repo-list) || restore "pacman-conf could not read $pacman_conf"
+  [[ ${repository_list%%$'\n'*} == "omarchy" ]] || restore "[omarchy] does not come before every other repository"
+  if [[ -n $keep_reason ]]; then
+    echo "Apple Silicon package repository: $keep_reason"
+    echo "Kept the Apple Silicon package repository on $final_server and repaired its section (backup: $backup)"
+    exit 0
+  fi
+  write_state
+  echo "Configured the Apple Silicon package repository on $tag (backup: $backup)"
+  exit 0
 fi
 
 write_state

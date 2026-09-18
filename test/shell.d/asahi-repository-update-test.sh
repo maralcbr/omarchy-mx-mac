@@ -748,19 +748,20 @@ sudo:pacman-key --add TEST/omarchy-arm-repository.asc
 pacman-key:--add TEST/omarchy-arm-repository.asc
 sudo:pacman-key --lsign-key $primary_fingerprint
 pacman-key:--lsign-key $primary_fingerprint
+sudo:rm -f TEST/root/var/lib/pacman/sync/omarchy.db TEST/root/var/lib/pacman/sync/omarchy.db.sig
 sudo:install -o root -g root -m 0644 WORK/pacman.conf TEST/root/etc/pacman.conf
 sudo:env OMARCHY_UPDATE_PACMAN=1 pacman -Sy --noconfirm
 pacman:-Sy --noconfirm OMARCHY_UPDATE_PACMAN=1
 sudo:install -D -o root -g root -m 0644 WORK/state TEST/state"
 [[ $(normalized_calls) == "$expected_calls" ]] ||
-  fail "a legacy move backs up, trusts the ARM repository key, rewrites, syncs and records state as the old updater did" \
+  fail "a legacy move backs up, trusts the ARM repository key, drops the cached database, rewrites, syncs and records state" \
     "$(diff <(echo "$expected_calls") <(normalized_calls) || true)"
 legacy_backup=$(grep -Eo "$root/var/lib/omarchy/backups/asahi-repository-[0-9]{14}" "$calls" | head -1)
 [[ $(cat "$legacy_backup/pacman.conf") == "$legacy_conf" ]] || fail "a legacy move backs up the legacy pacman.conf"
 grep -Fxq "tag=$new_tag" "$state" && grep -Fxq 'channel_sequence=5' "$state" ||
   fail "a legacy move records the channel's set" "$(cat "$state")"
 rm -f "$state"
-pass "a legacy install-time pin the channel supersedes moves to the stable set exactly as the old updater moved it"
+pass "a legacy install-time pin the channel supersedes moves to the stable set as the old updater moved it, without its cached database"
 
 write_legacy_pacman_conf
 TEST_POINTER=pointer-3 run legacy-kept-check --check
@@ -876,6 +877,9 @@ write_pacman_conf "$old_tag"
 write_state "$old_commit" 2
 before=$(sed "s|$old_tag|$new_tag|" "$pacman_conf")
 rm -f "$test_tmp/key-trusted"
+mkdir -p "$root/var/lib/pacman/sync"
+printf 'database of the previous set' >"$root/var/lib/pacman/sync/omarchy.db"
+printf 'signature of the previous set' >"$root/var/lib/pacman/sync/omarchy.db.sig"
 TEST_POINTER=pointer-3 run apply --yes
 expect_status apply 0 "repository switch succeeds"
 grep -Fq "Switched the Apple Silicon package repository to $new_tag" "$test_tmp/apply.out" ||
@@ -886,6 +890,8 @@ grep -Fq 'sudo:pacman-key --finger C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC' "$c
 grep -Fxq "pacman-key:--add $test_tmp/omarchy-arm-repository.asc" "$calls" || fail "a missing repository key is imported into pacman"
 grep -Fxq 'pacman-key:--lsign-key C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC' "$calls" || fail "the imported repository key is locally signed"
 grep -Fxq 'pacman:-Sy --noconfirm OMARCHY_UPDATE_PACMAN=1' "$calls" || fail "the new repository is synced through the update guard"
+[[ ! -e $root/var/lib/pacman/sync/omarchy.db && ! -e $root/var/lib/pacman/sync/omarchy.db.sig ]] ||
+  fail "a repoint drops the database cached for the previous set"
 grep -Eq "^sudo:install -d -o root -g root -m 0700 $root/var/lib/omarchy/backups/asahi-repository-[0-9]{14}\$" "$calls" ||
   fail "a root-owned backup directory is created" "$(cat "$calls")"
 [[ -f $(ls -d "$root"/var/lib/omarchy/backups/asahi-repository-*/pacman.conf | tail -1) ]] || fail "the previous pacman.conf is backed up"
@@ -908,3 +914,336 @@ grep -Fxq "Server = https://github.com/$repo/releases/download/$old_tag" "$pacma
 ! grep -Fq 'pacman-key:--add' "$calls" || fail "an already trusted key is not re-imported"
 [[ ! -f $state ]] || fail "a failed sync records no state"
 pass "a snapshot pacman cannot read leaves the previous repository in place"
+
+# --- Bootstrap: the fresh installer's first step ------------------------------
+# A clean Asahi Arch Minimal has no [omarchy]; the fresh installer runs this
+# before its first package transaction.
+
+cat >"$stub_bin/pacman-conf" <<'SH'
+#!/bin/bash
+config=/etc/pacman.conf
+while (($#)); do
+  case $1 in
+    --config) config=$2; shift 2 ;;
+    --repo-list) shift ;;
+    *) echo "unexpected pacman-conf argument $1" >&2; exit 2 ;;
+  esac
+done
+# An Include file can define a repository ahead of every section in the file.
+[[ -z ${TEST_INCLUDED_REPOSITORY:-} ]] || printf '%s\n' "$TEST_INCLUDED_REPOSITORY"
+awk '/^[[:space:]]*\[[^]]+\][[:space:]]*$/ { gsub(/[][[:space:]]/, ""); if ($0 != "options") print }' "$config"
+SH
+# Each key is trusted on its own, so a fresh keyring shows both being added.
+cat >"$stub_bin/pacman-key" <<'SH'
+#!/bin/bash
+printf 'pacman-key:%s\n' "$*" >>"$TEST_CALLS"
+case $1 in
+  --finger) [[ -f $TEST_KEY_STATE.$2 ]] ;;
+  --add)
+    if [[ $2 == *release* ]]; then
+      : >"$TEST_KEY_STATE.5983B1CA32CB778F4D74D24ECFF35022CA5B5959"
+    else
+      : >"$TEST_KEY_STATE.C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC"
+    fi
+    ;;
+esac
+SH
+chmod +x "$stub_bin/pacman-conf" "$stub_bin/pacman-key"
+
+write_minimal_pacman_conf() {
+  cat >"$pacman_conf" <<'CONF'
+[options]
+Architecture = aarch64
+SigLevel = Required DatabaseOptional
+
+# Asahi Linux packages
+[asahi-alarm]
+Include = /etc/pacman.d/mirrorlist.asahi-alarm
+
+[core]
+Include = /etc/pacman.d/mirrorlist
+
+[extra]
+Include = /etc/pacman.d/mirrorlist
+
+[alarm]
+Include = /etc/pacman.d/mirrorlist
+
+[aur]
+Include = /etc/pacman.d/mirrorlist
+CONF
+}
+
+# The minimal configuration with a block placed before a repository, or at the end.
+write_bootstrap_conf() {
+  local block="${1:-}" before="${2:-}" conf
+  write_minimal_pacman_conf
+  [[ -n $block ]] || return 0
+  conf=$(cat "$pacman_conf")
+  if [[ -n $before ]]; then
+    conf=${conf/$'\n'"[$before]"$'\n'/$'\n'"$block"$'\n\n'"[$before]"$'\n'}
+  else
+    conf+=$'\n\n'"$block"
+  fi
+  printf '%s\n' "$conf" >"$pacman_conf"
+}
+
+canonical_block() {
+  printf '[omarchy]\nSigLevel = Required DatabaseOptional\nServer = %s' "$1"
+}
+
+# What the minimal configuration becomes with [omarchy] leading the repositories.
+bootstrapped_conf() {
+  local conf
+  write_minimal_pacman_conf
+  conf=$(cat "$pacman_conf")
+  printf '%s\n' "${conf/$'\n[asahi-alarm]\n'/$'\n'"$(canonical_block "$1")"$'\n\n[asahi-alarm]\n'}"
+}
+
+sync_dir="$root/var/lib/pacman/sync"
+seed_sync_cache() {
+  mkdir -p "$sync_dir"
+  printf 'database of the previous Server' >"$sync_dir/omarchy.db"
+  printf 'signature of the previous Server' >"$sync_dir/omarchy.db.sig"
+}
+
+untouched() {
+  local name="$1" description="$2" original="$3"
+  [[ $(cat "$pacman_conf") == "$original" ]] || fail "$description: pacman.conf is untouched" "$(diff <(echo "$original") "$pacman_conf" || true)"
+  [[ ! -s $calls ]] || fail "$description: nothing is run as root" "$(cat "$calls")"
+  [[ ! -e $state ]] || fail "$description: no repository state is written" "$(cat "$state")"
+}
+
+new_server="https://github.com/$repo/releases/download/$new_tag"
+old_server="https://github.com/$repo/releases/download/$old_tag"
+hand_server="https://github.com/$repo/releases/download/asahi-packages-stable-$hand_commit"
+candidate_server="https://github.com/$repo/releases/download/asahi-packages-candidate-$new_commit"
+mirror_server='https://mirror.example.test/omarchy/$arch'
+rm -f "$state" "$test_tmp"/key-trusted*
+
+write_bootstrap_conf
+original=$(cat "$pacman_conf")
+run bootstrap-without-yes --bootstrap
+expect_status bootstrap-without-yes 2 "--bootstrap without --yes is refused"
+grep -Fq -- '--bootstrap requires --yes' "$test_tmp/bootstrap-without-yes.err" || fail "--bootstrap without --yes explains the refusal"
+run bootstrap-check --yes --bootstrap --check
+expect_status bootstrap-check 2 "--bootstrap never runs as a check"
+grep -Fq -- '--bootstrap cannot be combined with --check' "$test_tmp/bootstrap-check.err" || fail "--bootstrap --check explains the refusal"
+untouched bootstrap-check "a refused bootstrap mode" "$original"
+[[ ! -s $test_tmp/curl.log ]] || fail "a refused bootstrap mode fetches nothing"
+pass "--bootstrap requires --yes and never runs as a check"
+
+write_bootstrap_conf
+seed_sync_cache
+TEST_POINTER=pointer-3 run bootstrap-absent --yes --bootstrap
+expect_status bootstrap-absent 0 "a missing [omarchy] section is bootstrapped"
+[[ $(cat "$pacman_conf") == "$(bootstrapped_conf "$new_server")" ]] ||
+  fail "the channel's stable set is inserted before the first repository, every other line kept" \
+    "$(diff <(bootstrapped_conf "$new_server") "$pacman_conf" || true)"
+[[ ! -e $sync_dir/omarchy.db && ! -e $sync_dir/omarchy.db.sig ]] || fail "a bootstrapped section drops any cached database"
+for trusted in "--add $test_tmp/omarchy-release.gpg" "--lsign-key $release_fingerprint" \
+  "--add $test_tmp/omarchy-arm-repository.asc" "--lsign-key $primary_fingerprint"; do
+  grep -Fxq "pacman-key:$trusted" "$calls" || fail "a bootstrap trusts both Omarchy keys ($trusted)" "$(cat "$calls")"
+done
+drop_line=$(grep -n -m1 '^sudo:rm -f ' "$calls" | cut -d: -f1)
+write_line=$(grep -n -m1 "^sudo:install -o root -g root -m 0644 [^ ]*/pacman.conf $pacman_conf\$" "$calls" | cut -d: -f1)
+sync_line=$(grep -n -m1 '^pacman:-Sy --noconfirm' "$calls" | cut -d: -f1)
+[[ -n $drop_line && -n $write_line && -n $sync_line ]] && (( drop_line < write_line && write_line < sync_line )) ||
+  fail "the cache is dropped, then pacman.conf written, then synced" "$(cat "$calls")"
+fetched "https://github.com/$repo/releases/download/$new_tag/omarchy.db" &&
+  fetched "https://github.com/$repo/releases/download/$new_tag/omarchy.db.sig" || fail "a bootstrap verifies the database it points at"
+grep -Fxq "tag=$new_tag" "$state" && grep -Fxq 'channel_sequence=3' "$state" ||
+  fail "a bootstrap onto the channel's stable set records it" "$(cat "$state" 2>/dev/null)"
+grep -Fq "Configured the Apple Silicon package repository on $new_tag" "$test_tmp/bootstrap-absent.out" ||
+  fail "a bootstrap reports the set it configured" "$(cat "$test_tmp/bootstrap-absent.out")"
+pass "a missing [omarchy] section gets the channel's stable set, first, with both keys trusted and the cache dropped"
+
+rm -f "$state"
+write_bootstrap_conf
+original=$(cat "$pacman_conf")
+TEST_POINTER=pointer-3 TEST_PACMAN_FAIL=1 run bootstrap-sync-fails --yes --bootstrap
+expect_status bootstrap-sync-fails 2 "a bootstrap pacman cannot read fails"
+grep -Fq "pacman could not read $new_tag; restored the previous repository" "$test_tmp/bootstrap-sync-fails.err" ||
+  fail "a failed bootstrap sync explains the restore" "$(cat "$test_tmp/bootstrap-sync-fails.err")"
+[[ $(cat "$pacman_conf") == "$original" && ! -e $state ]] || fail "a failed bootstrap sync restores pacman.conf and records nothing"
+TEST_POINTER=pointer-3 TEST_INCLUDED_REPOSITORY=testing run bootstrap-order --yes --bootstrap
+expect_status bootstrap-order 2 "a bootstrap that does not lead the repositories fails"
+grep -Fq '[omarchy] does not come before every other repository; restored the previous repository' "$test_tmp/bootstrap-order.err" ||
+  fail "a bootstrap behind an included repository explains the restore" "$(cat "$test_tmp/bootstrap-order.err")"
+[[ $(cat "$pacman_conf") == "$original" && ! -e $state ]] || fail "a bootstrap behind an included repository restores pacman.conf"
+pass "a bootstrap pacman cannot read, or one pacman would not put first, restores pacman.conf"
+
+write_bootstrap_conf "$(printf '[omarchy]\nSigLevel = Never\nServer = %s' "$old_server")"
+seed_sync_cache
+TEST_POINTER=pointer-3 run bootstrap-superseded --yes --bootstrap
+expect_status bootstrap-superseded 0 "a superseded pin is bootstrapped"
+[[ $(cat "$pacman_conf") == "$(bootstrapped_conf "$new_server")" ]] ||
+  fail "a superseded pin after [aur] is moved first, repaired and moved forward" "$(diff <(bootstrapped_conf "$new_server") "$pacman_conf" || true)"
+[[ ! -e $sync_dir/omarchy.db ]] || fail "moving a pin forward drops its cached database"
+grep -Fxq "tag=$new_tag" "$state" || fail "moving a pin forward records the channel's set"
+rm -f "$state"
+write_bootstrap_conf "$(printf '[omarchy]\nSigLevel = Never\nServer = %s\nServer = %s' "$old_server" "$old_server")" extra
+TEST_POINTER=pointer-3 run bootstrap-duplicates --yes --bootstrap
+expect_status bootstrap-duplicates 0 "byte-identical Servers are one Server"
+[[ $(cat "$pacman_conf") == "$(bootstrapped_conf "$new_server")" ]] || fail "byte-identical Servers collapse into one"
+rm -f "$state"
+pass "a recognised pin keeps the ordinary move rules after its section is repaired and moved first"
+
+for kept in "$candidate_server" "$mirror_server" "$hand_server"; do
+  write_bootstrap_conf "$(printf '[omarchy]\nSigLevel = Never\nServer = %s' "$kept")" alarm
+  seed_sync_cache
+  rm -f "$test_tmp"/key-trusted*
+  TEST_POINTER=pointer-3 run bootstrap-kept --yes --bootstrap
+  expect_status bootstrap-kept 0 "a bootstrap keeps a Server it does not move ($kept)"
+  [[ $(cat "$pacman_conf") == "$(bootstrapped_conf "$kept")" ]] ||
+    fail "a kept Server's section is moved first and repaired ($kept)" "$(diff <(bootstrapped_conf "$kept") "$pacman_conf" || true)"
+  [[ -e $sync_dir/omarchy.db ]] || fail "a kept Server keeps its cached database ($kept)"
+  [[ ! -e $state ]] || fail "a kept Server is never recorded as the channel's set ($kept)" "$(cat "$state")"
+  grep -Fxq "pacman-key:--lsign-key $release_fingerprint" "$calls" && grep -Fxq "pacman-key:--lsign-key $primary_fingerprint" "$calls" ||
+    fail "a kept Server still gets both keys trusted ($kept)"
+  grep -Fxq 'pacman:-Sy --noconfirm OMARCHY_UPDATE_PACMAN=1' "$calls" || fail "a kept Server is synced ($kept)"
+  fetched "https://github.com/$repo/releases/download/$new_tag/omarchy.db.sig" ||
+    fail "a kept Server does not skip verifying the channel's database ($kept)"
+  grep -Fq "Kept the Apple Silicon package repository on $kept" "$test_tmp/bootstrap-kept.out" ||
+    fail "a kept Server is reported ($kept)" "$(cat "$test_tmp/bootstrap-kept.out")"
+done
+pass "a candidate, mirror or newer pin keeps its Server while its section is repaired and moved first"
+
+write_bootstrap_conf "$(canonical_block "$new_server")" asahi-alarm
+original=$(cat "$pacman_conf")
+TEST_POINTER=pointer-3 run bootstrap-current --yes --bootstrap
+expect_status bootstrap-current 0 "a bootstrap on the channel's set succeeds"
+[[ $(cat "$pacman_conf") == "$original" ]] || fail "a bootstrap on the channel's set leaves pacman.conf as it was"
+fetched "https://github.com/$repo/releases/download/$new_tag/omarchy.db" ||
+  fail "a bootstrap on the channel's set still verifies its database"
+grep -Fxq 'pacman:-Sy --noconfirm OMARCHY_UPDATE_PACMAN=1' "$calls" && ! grep -q '^sudo:rm ' "$calls" ||
+  fail "a bootstrap on the channel's set syncs without dropping its cache" "$(cat "$calls")"
+grep -Fxq "tag=$new_tag" "$state" || fail "a bootstrap on the channel's set records it"
+pass "a bootstrap bypasses the up-to-date exit"
+
+write_state "$new_commit" 5
+state_before=$(state_digest)
+write_bootstrap_conf
+original=$(cat "$pacman_conf")
+TEST_POINTER=pointer-3 TEST_API=up run bootstrap-floor --yes --bootstrap
+expect_status bootstrap-floor 2 "a bootstrap below this Mac's channel writes nothing"
+grep -Fq 'package channel 3 is older than channel 5 recorded on this Mac; nothing changed' "$test_tmp/bootstrap-floor.err" ||
+  fail "a bootstrap below this Mac's channel explains itself" "$(cat "$test_tmp/bootstrap-floor.err")"
+[[ $(cat "$pacman_conf") == "$original" && ! -s $calls && $(state_digest) == "$state_before" ]] ||
+  fail "a bootstrap below this Mac's channel changes nothing"
+write_bootstrap_conf "$(canonical_block "$new_server")" asahi-alarm
+TEST_POINTER=pointer-3 TEST_API=up run bootstrap-floor-kept --yes --bootstrap
+expect_status bootstrap-floor-kept 0 "a bootstrap below this Mac's channel keeps the existing Server"
+[[ $(state_digest) == "$state_before" ]] || fail "a bootstrap below this Mac's channel never lowers its record"
+rm -f "$state"
+pass "a bootstrap never follows a channel below the one this Mac recorded"
+
+for shape in sections servers none; do
+  case $shape in
+    sections) write_bootstrap_conf "$(canonical_block "$new_server")"$'\n\n'"$(canonical_block "$old_server")" asahi-alarm ;;
+    servers) write_bootstrap_conf "$(printf '[omarchy]\nSigLevel = Required DatabaseOptional\nServer = %s\nServer = %s' "$new_server" "$mirror_server")" asahi-alarm ;;
+    none) write_bootstrap_conf "$(printf '[omarchy]\nSigLevel = Required DatabaseOptional')" asahi-alarm ;;
+  esac
+  original=$(cat "$pacman_conf")
+  TEST_POINTER=pointer-3 run "bootstrap-$shape" --yes --bootstrap
+  expect_status "bootstrap-$shape" 2 "an ambiguous [omarchy] ($shape) is refused"
+  untouched "bootstrap-$shape" "an ambiguous [omarchy] ($shape)" "$original"
+  [[ ! -s $test_tmp/curl.log ]] || fail "an ambiguous [omarchy] ($shape) is refused before anything is fetched"
+done
+grep -Fxq "  $new_server" "$test_tmp/bootstrap-servers.err" && grep -Fxq "  $mirror_server" "$test_tmp/bootstrap-servers.err" ||
+  fail "several Servers are named in the refusal" "$(cat "$test_tmp/bootstrap-servers.err")"
+pass "several sections, several Servers or no Server are refused untouched"
+
+write_bootstrap_conf
+original=$(cat "$pacman_conf")
+TEST_POINTER=pointer-3 TEST_GPG_FAIL=1 run bootstrap-badsig --yes --bootstrap
+expect_status bootstrap-badsig 2 "a bootstrap with a bad descriptor signature fails closed"
+untouched bootstrap-badsig "a bootstrap with a bad descriptor signature" "$original"
+cp "$assets/$new_tag/omarchy.db" "$test_tmp/omarchy.db.good"
+printf 'tampered\n' >"$assets/$new_tag/omarchy.db"
+TEST_POINTER=pointer-3 run bootstrap-baddb --yes --bootstrap
+expect_status bootstrap-baddb 2 "a bootstrap with a database the descriptor does not name fails closed"
+grep -Fq 'omarchy.db does not match the signed descriptor' "$test_tmp/bootstrap-baddb.err" ||
+  fail "a mismatched database explains the refusal" "$(cat "$test_tmp/bootstrap-baddb.err")"
+untouched bootstrap-baddb "a bootstrap with a mismatched database" "$original"
+cp "$test_tmp/omarchy.db.good" "$assets/$new_tag/omarchy.db"
+TEST_POINTER=unreachable TEST_API=down run bootstrap-offline --yes --bootstrap
+expect_status bootstrap-offline 3 "an unreachable package channel stops a bootstrap"
+untouched bootstrap-offline "an unreachable package channel" "$original"
+pass "a bootstrap writes nothing unless the channel, descriptor and database all verify"
+
+# --- Fresh installation flow --------------------------------------------------
+# The fresh installer's own bootstrap step, run with the real updater and then
+# the real install/hardware/pacman.sh: system setup must leave the Server the
+# bootstrap kept, or the channel's stable set when there was none.
+if (( EUID != 0 )); then
+  pass "not root; skipping the fresh installation flow, whose sudo stand-in only runs as root"
+else
+  require_command bsdtar
+  fresh_installer="$ROOT/bin/omarchy-install-asahi-fresh"
+  configure_function=$(sed -n '/^configure_package_repository() {$/,/^}$/p' "$fresh_installer")
+  [[ -n $configure_function ]] || fail "the fresh installer defines its repository bootstrap as a function"
+  flow="$test_tmp/flow"
+  mkdir -p "$flow/dev/usr/bin" "$flow/settings/usr/share/omarchy/default" "$flow/setup-bin"
+  # The runtime puts its usr/bin ahead of the system's, so these stand-ins for
+  # the network, gpg, the keyring and pacman shadow the real tools; sudo is the
+  # installer's own stand-in.
+  cp "$updater" "$flow/dev/usr/bin/omarchy-update-asahi-repository"
+  cp "$stub_bin"/{omarchy-cmd-present,curl,gpg,pacman-key,pacman,pacman-conf} "$flow/dev/usr/bin/"
+  cat >"$flow/dev/usr/bin/omarchy-hw-apple-silicon" <<'SH'
+#!/bin/bash
+grep -aq 'apple,' "${OMARCHY_PROC_ROOT:-/proc}/device-tree/compatible"
+SH
+  chmod +x "$flow/dev/usr/bin/"*
+  cp "$test_tmp/omarchy-release.gpg" "$test_tmp/omarchy-arm-repository.asc" "$flow/settings/usr/share/omarchy/default/"
+  dev_archive="$flow/omarchy-dev-4.0.3-1-aarch64.pkg.tar.zst"
+  settings_archive="$flow/omarchy-settings-dev-4.0.3-1-any.pkg.tar.zst"
+  bsdtar -cf "$dev_archive" -C "$flow/dev" usr
+  bsdtar -cf "$settings_archive" -C "$flow/settings" usr
+  printf '#!/bin/bash\nexit 0\n' >"$flow/setup-bin/omarchy-hw-apple-silicon"
+  printf '#!/bin/bash\nexit 0\n' >"$flow/setup-bin/lspci"
+  chmod +x "$flow/setup-bin/"*
+
+  fresh_flow() {
+    local name="$1"
+    : >"$calls"
+    : >"$test_tmp/curl.log"
+    rm -f "$test_tmp"/key-trusted*
+    (
+      fail() { echo "fresh installer: $*" >&2; exit 1; }
+      eval "$configure_function"
+      export TEST_ASSETS="$assets" TEST_CURL_LOG="$test_tmp/curl.log" TEST_POINTER_ARGS="$test_tmp/pointer-args" \
+        TEST_API_HITS="$test_tmp/api-hits" TEST_CALLS="$calls" TEST_KEY_STATE="$test_tmp/key-trusted" TEST_POINTER=pointer-3 \
+        OMARCHY_ASAHI_TESTING=1 OMARCHY_ASAHI_ROOT="$root" OMARCHY_ASAHI_REPOSITORY_STATE="$state" \
+        OMARCHY_ASAHI_PACKAGES_POINTER_URL="$pointer_url" OMARCHY_ASAHI_RELEASES_API_URL="$api_url" \
+        OMARCHY_PROC_ROOT="$root/proc" PATH="$stub_bin:$PATH"
+      configure_package_repository "$pacman_conf" "$settings_archive" "$dev_archive"
+      [[ ! -e $package_runtime_root ]] || fail "the unpacked runtime is removed"
+      [[ -z ${OMARCHY_ASAHI_PACKAGE_KEY_FILE:-}${OMARCHY_ASAHI_KEY_FILE:-} ]] || fail "the runtime's key files stay with the updater"
+      # System setup: omarchy-apply-system sources this writer with the installed runtime.
+      OMARCHY_PATH="$flow/settings/usr/share/omarchy" OMARCHY_PACMAN_CONF="$pacman_conf" PATH="$flow/setup-bin:$PATH" \
+        bash -euo pipefail -c 'source "$1"' _ "$ROOT/install/hardware/pacman.sh"
+    ) >"$test_tmp/flow-$name.out" 2>&1 || fail "the fresh installation flow succeeds ($name)" "$(cat "$test_tmp/flow-$name.out")"
+    ! grep -q '^sudo:' "$calls" || fail "the updater runs through the installer's sudo stand-in, not a test stub ($name)"
+    [[ $(awk '/^[[:space:]]*\[[^]]+\][[:space:]]*$/ && !/\[options\]/ { print; exit }' "$pacman_conf") == "[omarchy]" ]] ||
+      fail "[omarchy] leads the repositories after system setup ($name)" "$(cat "$pacman_conf")"
+  }
+
+  # DBPath keeps both writers' cache handling inside the test root.
+  write_bootstrap_conf
+  sed -i "s|^Architecture = aarch64\$|&\nDBPath = $root/var/lib/pacman/|" "$pacman_conf"
+  fresh_flow none
+  [[ $(awk '/^Server = /' "$pacman_conf") == "Server = $new_server" ]] ||
+    fail "a fresh installation without a pin ends on the channel's stable set" "$(cat "$pacman_conf")"
+  grep -Fxq "tag=$new_tag" "$state" || fail "a fresh installation without a pin records the channel's set"
+  rm -f "$state"
+  for kept in "$candidate_server" "$mirror_server"; do
+    write_bootstrap_conf "$(canonical_block "$kept")" extra
+    sed -i "s|^Architecture = aarch64\$|&\nDBPath = $root/var/lib/pacman/|" "$pacman_conf"
+    fresh_flow kept
+    [[ $(awk '/^Server = /' "$pacman_conf") == "Server = $kept" ]] ||
+      fail "a fresh installation ends on the Server the operator pinned ($kept)" "$(cat "$pacman_conf")"
+    [[ ! -e $state ]] || fail "a fresh installation on a kept Server records no promoted set ($kept)"
+  done
+  pass "a fresh installation keeps a pinned candidate or mirror through system setup, and otherwise ends on the channel's set"
+fi

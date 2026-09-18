@@ -60,8 +60,17 @@ test/vm/asahi-fresh/run
 
 This opt-in path verifies the signed descriptor inside the guest, installs all
 the declared candidate packages through the exact release repository, and checks their
-versions again after the full install and reboot. It does not alter the stable
-repository pin used by the production installer or the default VM path.
+versions again after the full install and reboot. The fresh installer's
+repository bootstrap keeps that candidate `Server` and only repairs the section
+around it, so the run ends on the candidate with no promoted-set record.
+
+Before the guest starts, `run` resolves the Apple Silicon package channel once
+(the `asahi-packages-channel` pointer, then the GitHub release listing) and
+hands the guest that exact channel for the installer's repository bootstrap.
+Without a candidate, `guest/verify` then requires `[omarchy]` to lead the
+repositories on that channel's stable set, recorded in
+`/var/lib/omarchy/asahi-package-repository`, so a promotion during the run
+cannot fail it.
 
 Pacman does not fail a transaction whose initramfs hook fails, so right after
 the candidate transaction the guest runs `/usr/bin/mkinitcpio -p` for every
