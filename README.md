@@ -31,11 +31,12 @@ Omarchy 4 (Quattro) is the maintained release:
 Download the ZIP, extract it, and open **Omarchy MX Mac Installer.app**.
 You can run it directly from Downloads; no PKG or Applications-folder installation is required.
 
-**[Download Omarchy MX Mac Installer for macOS](https://downloads.aicodelabs.com.au/installer/previews/20260912-55064ca4f708/Omarchy-MX-Mac-Installer.zip)**
+**[Download Omarchy MX Mac Installer for macOS](https://downloads.aicodelabs.com.au/installer/previews/20260918-e1b8abc05135/Omarchy-MX-Mac-Installer.zip)**
 
-The app is signed with Developer ID, notarized by Apple, and stapled. It defaults
-to **RC** and fetches the latest signed release from the selected existing channel
-each time you prepare an installation. Matching cached files are verified and
+The app (version 2.0.5) is signed with Developer ID, notarized by Apple, and
+stapled. It defaults to **Stable**; choose **RC** from *Release Channel* in the
+menu bar to follow release candidates. It fetches the latest signed release from
+the selected channel each time you prepare an installation. Matching cached files are verified and
 reused instead of downloaded again. The existing installation screens remain the
 same, and the privileged worker runs only for the installation session.
 
