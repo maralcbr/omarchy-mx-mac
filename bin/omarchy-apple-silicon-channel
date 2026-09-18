@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Keep this Mac's Apple Silicon channel record
-# omarchy:args=ensure|status|current|hold <reason>|release|locked <command> [args...]|verify-locked
+# omarchy:args=ensure|status|current|hold <reason>|release|switch <rc|edge>|reset-rc|locked <command> [args...]|verify-locked
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
@@ -13,6 +13,13 @@
 # command holding the channel lock, which is on the record's directory, and
 # verify-locked checks the inherited descriptor and makes sure it holds that lock.
 #
+# An rc Mac also follows an Aurora lane, rc or edge, kept apart in
+# apple-silicon-aurora-lane so the record itself never changes shape: runtimes
+# that only know format 1 keep reading it. switch records a requested lane,
+# which omarchy update applies and clears once it has proven the kernel boots;
+# reset-rc does the same for rc whatever the lane file holds. lane, lane-write
+# and stage-descriptor are the updater's, under the lock it already holds.
+#
 # Exit 2: the record, its storage, the lock or the evidence cannot be trusted.
 # Exit 3: there is no record, and for ensure none could be inferred.
 
@@ -21,12 +28,16 @@ set -euo pipefail
 root=${OMARCHY_APPLE_SILICON_CHANNEL_ROOT:-}
 state_dir="$root/var/lib/omarchy"
 record="$state_dir/apple-silicon-channel"
+lane_file="$state_dir/apple-silicon-aurora-lane"
+descriptor_file="$state_dir/aurora-target.descriptor"
+pacman_conf="$root/etc/pacman.conf"
+verify_hook="$root/usr/share/libalpm/hooks/01-omarchy-aurora-verify.hook"
 kernel_marker="$root/usr/share/omarchy/apple-silicon-kernel"
 lock_timeout=${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT:-60}
 testing=${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-0}
 
 usage() {
-  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release|locked <command> [args...]|verify-locked>"
+  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release|switch <rc|edge>|reset-rc|locked <command> [args...]|verify-locked>"
 }
 
 fail() {
@@ -136,6 +147,118 @@ read_record() {
   fi
 }
 
+lane=rc lane_switch="" lane_accepted="" lane_pending=""
+
+# 0 with lane* set, an absent file being lane=rc; 2 with problem set.
+read_lane() {
+  local line key value bad_line
+  local -A seen=()
+  lane=rc lane_switch="" lane_accepted="" lane_pending=""
+
+  [[ -e $lane_file || -L $lane_file ]] || return 0
+  if [[ -L $lane_file || ! -f $lane_file ]]; then
+    problem="$lane_file is not a regular file"
+    return 2
+  fi
+  root_controlled "$lane_file" file || return 2
+  if [[ ! -r $lane_file ]]; then
+    problem="$lane_file is not readable"
+    return 2
+  fi
+  if bad_line=$(LC_ALL=C grep -m 1 -naxvE '[a-z_]+=[[:print:]]+' "$lane_file"); then
+    problem="$lane_file line ${bad_line%%:*} is not key=value with a printable value"
+    return 2
+  fi
+
+  while IFS= read -r line || [[ -n $line ]]; do
+    key=${line%%=*}
+    value=${line#*=}
+    if [[ -n ${seen[$key]:-} ]]; then
+      problem="$lane_file repeats $key"
+      return 2
+    fi
+    seen[$key]=1
+    case "$key" in
+      format)
+        if [[ $value != 1 ]]; then
+          problem="$lane_file has unsupported format $value"
+          return 2
+        fi
+        ;;
+      lane | switch)
+        if [[ $value != rc && $value != edge ]]; then
+          problem="$lane_file has $key $value, which is neither rc nor edge"
+          return 2
+        fi
+        [[ $key == lane ]] && lane=$value || lane_switch=$value
+        ;;
+      edge_accepted | edge_pending)
+        if [[ ! $value =~ ^[1-9][0-9]{0,8}:[0-9a-f]{64}$ ]]; then
+          problem="$lane_file has a malformed $key"
+          return 2
+        fi
+        [[ $key == edge_accepted ]] && lane_accepted=$value || lane_pending=$value
+        ;;
+      *)
+        problem="$lane_file has unknown key $key"
+        return 2
+        ;;
+    esac
+  done <"$lane_file"
+
+  for key in format lane; do
+    if [[ -z ${seen[$key]:-} ]]; then
+      problem="$lane_file has no $key"
+      return 2
+    fi
+  done
+}
+
+print_lane() {
+  printf 'lane=%s\n' "$lane"
+  [[ -z $lane_switch ]] || printf 'switch=%s\n' "$lane_switch"
+  [[ -z $lane_accepted ]] || printf 'edge_accepted=%s\n' "$lane_accepted"
+  [[ -z $lane_pending ]] || printf 'edge_pending=%s\n' "$lane_pending"
+}
+
+# pacman.conf holds for the Aurora packages, the way the updater reads them.
+held_aurora_packages() {
+  local line section="" patterns package pattern held=()
+  local header='^[[:space:]]*\[([^]]+)\][[:space:]]*$' setting='^[[:space:]]*(IgnorePkg|IgnoreGroup)[[:space:]]*=[[:space:]]*(.*)$'
+
+  [[ -r $pacman_conf ]] || return 0
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line =~ $header ]]; then
+      section=${BASH_REMATCH[1]}
+      continue
+    fi
+    [[ $section == options && $line =~ $setting ]] || continue
+    read -ra patterns <<<"${BASH_REMATCH[2]%$'\r'}"
+    for package in linux-aurora linux-aurora-headers m1n1-aurora; do
+      for pattern in "${patterns[@]}"; do
+        if [[ $package == $pattern && " ${held[*]} " != *" $package "* ]]; then
+          held+=("$package")
+        fi
+      done
+    done
+  done <"$pacman_conf"
+  echo "${held[*]}"
+}
+
+aurora_section_on_edge() {
+  local line section="" header='^[[:space:]]*\[([^]]+)\][[:space:]]*$'
+
+  [[ -r $pacman_conf ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line =~ $header ]]; then
+      section=${BASH_REMATCH[1]}
+    elif [[ $section == omarchy-aurora && $line =~ ^[[:space:]]*Server[[:space:]]*=.*/releases/download/aurora-edge-[1-9][0-9]*/?[[:space:]]*$ ]]; then
+      return 0
+    fi
+  done <"$pacman_conf"
+  return 1
+}
+
 # Sets evidence to the one kernel this Mac runs; 1 with problem set when that is
 # ambiguous, 2 when it cannot be read.
 classify() {
@@ -235,18 +358,38 @@ verify_locked() {
 staging=""
 trap '[[ -z $staging ]] || sudo rm -f "$staging"' EXIT
 
+# Replaces $1 with stdin through a rename, so readers see the old or the new file.
+write_state() {
+  local path=$1
+
+  safe_state_dir || fail "$problem"
+  staging=$(sudo mktemp -p "$state_dir" ".${path##*/}.XXXXXX") || fail "could not stage $path"
+  sudo tee "$staging" >/dev/null || fail "could not write $path"
+  sudo chown root:root "$staging" && sudo chmod 0644 "$staging" || fail "could not write $path"
+  sudo mv -f "$staging" "$path" || fail "could not write $path"
+  staging=""
+}
+
 write_record() {
   local channel=$1 kernel=$2 hold=${3:-}
 
-  safe_state_dir || fail "$problem"
-  staging=$(sudo mktemp -p "$state_dir" .apple-silicon-channel.XXXXXX) || fail "could not stage $record"
-  {
+  write_state "$record" < <(
     printf 'format=1\nchannel=%s\nkernel=%s\n' "$channel" "$kernel"
     [[ -z $hold ]] || printf 'hold=%s\n' "$hold"
-  } | sudo tee "$staging" >/dev/null || fail "could not write $record"
-  sudo chown root:root "$staging" && sudo chmod 0644 "$staging" || fail "could not write $record"
-  sudo mv -f "$staging" "$record" || fail "could not write $record"
-  staging=""
+  )
+}
+
+write_lane() {
+  write_state "$lane_file" < <(printf 'format=1\n'; print_lane)
+}
+
+# Callers that hold the lock already prove it; everyone else takes it.
+lock_or_verify() {
+  if [[ ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} == 1 ]]; then
+    verify_locked
+  else
+    lock_state_dir
+  fi
 }
 
 command=${1:-}
@@ -255,6 +398,10 @@ case "$command" in
   hold) (( $# == 2 )) || { usage >&2; exit 2; } ;;
   locked) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
   verify-locked) (( $# == 1 )) || { usage >&2; exit 2; } ;;
+  lane | reset-rc) (( $# == 1 )) || { usage >&2; exit 2; } ;;
+  switch) (( $# == 2 )) && [[ $2 == rc || $2 == edge ]] || { usage >&2; exit 2; } ;;
+  lane-write) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
+  stage-descriptor) (( $# == 2 )) || { usage >&2; exit 2; } ;;
   -h | --help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -291,7 +438,14 @@ case "$command" in
     ;;
   current)
     checked_record || result=$?
-    if (( result == 0 )); then
+    if (( result == 0 )) && [[ $record_channel == rc ]]; then
+      if read_lane; then
+        echo "$lane"
+      else
+        echo "Apple Silicon channel: $problem" >&2
+        echo unknown
+      fi
+    elif (( result == 0 )); then
       echo "$record_channel"
     else
       (( result != 2 )) || echo "Apple Silicon channel: $problem" >&2
@@ -326,5 +480,94 @@ case "$command" in
     ;;
   verify-locked)
     verify_locked
+    ;;
+  lane)
+    checked_record || result=$?
+    (( result != 2 )) || fail "$problem"
+    (( result == 0 )) || exit 3
+    # The lane is an rc Mac's; any other record ignores the file.
+    if [[ $record_channel == rc ]]; then
+      read_lane || fail "$problem"
+    fi
+    print_lane
+    ;;
+  lane-write)
+    shift
+    verify_locked
+    read_record || result=$?
+    (( result == 0 )) || fail "${problem:-$record does not exist yet}"
+    [[ $record_channel == rc ]] || fail "only an rc Mac has an Aurora lane"
+    read_lane || fail "$problem"
+    for assignment in "$@"; do
+      key=${assignment%%=*}
+      value=${assignment#*=}
+      [[ $assignment == *=* ]] || fail "lane-write takes key=value, not '$assignment'"
+      case "$key:$value" in
+        lane:rc | lane:edge) lane=$value ;;
+        switch: | switch:rc | switch:edge) lane_switch=$value ;;
+        edge_accepted:* | edge_pending:*)
+          [[ -z $value || $value =~ ^[1-9][0-9]{0,8}:[0-9a-f]{64}$ ]] || fail "lane-write: malformed $key"
+          [[ $key == edge_accepted ]] && lane_accepted=$value || lane_pending=$value
+          ;;
+        *) fail "lane-write: unsupported $assignment" ;;
+      esac
+    done
+    write_lane
+    ;;
+  stage-descriptor)
+    verify_locked
+    [[ -f $2 && -r $2 && ! -L $2 ]] || fail "$2 is not a readable regular file"
+    (( $(wc -c <"$2") <= 131072 )) || fail "$2 is larger than 128 KiB"
+    if [[ -e $descriptor_file || -L $descriptor_file ]]; then
+      [[ -f $descriptor_file && ! -L $descriptor_file ]] || fail "$descriptor_file is not a regular file"
+      ! cmp -s "$2" "$descriptor_file" || exit 0
+    fi
+    write_state "$descriptor_file" <"$2"
+    ;;
+  switch)
+    target=$2
+    omarchy-update-lock held || fail "the update lock is not held; use omarchy-channel-set $target"
+    [[ -e $state_dir || -L $state_dir ]] || fail "$record does not exist yet; omarchy update records it"
+    lock_or_verify
+    # Everything is read under the lock, and nothing is written unless all of it passes.
+    checked_record || result=$?
+    (( result != 3 )) || fail "$record does not exist yet; omarchy update records it"
+    (( result == 0 )) || fail "$problem"
+    [[ $record_channel == rc ]] ||
+      fail "this Mac runs $record_kernel on $record_channel; rc and edge are the Aurora kernel's, and moving between kernel families is not available"
+    [[ -z $record_hold ]] ||
+      fail "this Mac's channel is held ($record_hold); omarchy-apple-silicon-channel release lifts the hold"
+    held=$(held_aurora_packages)
+    [[ -z $held ]] ||
+      fail "IgnorePkg/IgnoreGroup in /etc/pacman.conf holds $held; remove that hold before switching"
+    if [[ $target == edge && ! -f $verify_hook ]]; then
+      fail "this runtime does not install $verify_hook, which edge relies on; update Omarchy first"
+    fi
+    read_lane || fail "$problem; omarchy-apple-silicon-channel reset-rc starts it again from rc"
+    if [[ $lane_switch == "$target" ]] ||
+      { [[ $lane == "$target" && -z $lane_switch ]] && ! { [[ $target == rc ]] && aurora_section_on_edge; }; }; then
+      echo "This Mac already follows $target."
+      exit 0
+    fi
+    lane=$target lane_switch=$target
+    write_lane
+    echo "This Mac now follows $target. omarchy update moves the Aurora kernel and checks that it boots before calling the switch done."
+    ;;
+  reset-rc)
+    [[ -e $state_dir || -L $state_dir ]] || fail "$record does not exist yet; omarchy update records it"
+    lock_or_verify
+    read_record || result=$?
+    (( result != 3 )) || fail "$record does not exist yet; omarchy update records it"
+    (( result == 0 )) || fail "$problem"
+    [[ $record_channel == rc ]] || fail "this Mac follows $record_channel, which has no Aurora lane"
+    if ! read_lane; then
+      [[ -f $lane_file && ! -L $lane_file ]] || fail "$problem; remove it by hand"
+      echo "Apple Silicon channel: $problem; starting it again from rc, without its edge history." >&2
+      lane_accepted="" lane_pending=""
+    fi
+    lane=rc lane_switch=rc
+    write_lane
+    echo "This Mac returns to rc on the next omarchy update."
+    [[ -z $record_hold ]] || echo "Its channel is held ($record_hold), so nothing moves until omarchy-apple-silicon-channel release."
     ;;
 esac

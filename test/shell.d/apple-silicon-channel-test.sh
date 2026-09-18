@@ -667,3 +667,258 @@ pass "hold and release succeed on a contradicted record, and ensure still refuse
 leftovers=$(find "$root" -type f ! -path "$record" ! -path "$marker")
 [[ -z $leftovers && ! -e $root/run ]] || fail "no lock file or anything else is created beside the record" "$leftovers"
 pass "the channel lock creates no file anywhere"
+
+# The Aurora lane lives in its own file, so the format-1 record never changes shape.
+lane_file="$state_dir/apple-silicon-aurora-lane"
+descriptor_file="$state_dir/aurora-target.descriptor"
+verify_hook="$root/usr/share/libalpm/hooks/01-omarchy-aurora-verify.hook"
+pacman_conf="$root/etc/pacman.conf"
+mkdir -p "$(dirname "$verify_hook")" "$root/etc"
+accepted="4:$(printf 'a%.0s' {1..64})"
+pending="5:$(printf 'b%.0s' {1..64})"
+
+write_lane() {
+  printf "$@" >"$lane_file"
+  chmod 0644 "$lane_file"
+  cp "$lane_file" "$test_tmp/lane-before"
+}
+
+expect_lane() {
+  local description=$1
+  shift
+  printf "$@" >"$test_tmp/expected-lane"
+  cmp -s "$test_tmp/expected-lane" "$lane_file" || fail "$description" "$(diff "$test_tmp/expected-lane" "$lane_file" || true)"
+  [[ $(stat -c '%a' "$lane_file") == 644 ]] || fail "$description: the lane file is 0644"
+}
+
+lane_reset() {
+  reset
+  rm -f "$lane_file" "$descriptor_file" "$state_dir"/.apple-silicon-aurora-lane.* "$state_dir"/.aurora-target.descriptor.*
+  write_record "$rc_record"
+  printf '[options]\nArchitecture = aarch64\n\n[omarchy]\nServer = https://example.test\n' >"$pacman_conf"
+  : >"$verify_hook"
+}
+
+run_under_update_lock() {
+  set +e
+  XDG_RUNTIME_DIR="$test_tmp" TEST_CALLS="$calls" TEST_PACMAN_CALLS="$pacman_calls" \
+    TEST_INSTALLED="${TEST_INSTALLED-$aurora_installed}" \
+    OMARCHY_APPLE_SILICON_CHANNEL_ROOT="$root" \
+    OMARCHY_APPLE_SILICON_CHANNEL_TESTING=1 \
+    OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT="${TEST_LOCK_TIMEOUT:-10}" \
+    PATH="$stub_bin:$ROOT/bin:$PATH" \
+    timeout "${TEST_RUN_TIMEOUT:-30}" "$ROOT/bin/omarchy-update-lock" run bash "$helper" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
+  status=$?
+  set -e
+}
+
+lane_reset
+run current
+expect_output "current of an rc record without a lane file" 0 'rc\n'
+run lane
+expect_output "lane without a lane file" 0 'lane=rc\n'
+write_lane 'format=1\nlane=edge\nedge_accepted=%s\n' "$accepted"
+run current
+expect_output "current of an rc record whose lane is edge" 0 'edge\n'
+[[ ! -s $test_tmp/err ]] || fail "current of an edge lane is quiet" "$(cat "$test_tmp/err")"
+run lane
+expect_output "lane of an edge Mac" 0 'lane=edge\nedge_accepted=%s\n' "$accepted"
+run status
+expect_output "status still prints only the record" 0 'channel=rc\nkernel=linux-aurora\n'
+write_lane 'format=1\nlane=rc\nswitch=rc\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
+run lane
+expect_output "lane prints every field" 0 'lane=rc\nswitch=rc\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
+run current
+expect_output "current of an rc lane" 0 'rc\n'
+reset
+write_record "$stable_record"
+write_lane 'format=1\nlane=edge\n'
+TEST_INSTALLED="$asahi_installed" run current
+expect_output "a stable record ignores a lane file" 0 'stable\n'
+TEST_INSTALLED="$asahi_installed" run lane
+expect_output "the lane of a stable Mac is rc" 0 'lane=rc\n'
+pass "current reports edge only for an rc record whose lane file says so, and status keeps the record's shape"
+
+lane_invalid() {
+  local description=$1 message=$2
+  run current
+  expect_output "current with $description" 0 'unknown\n'
+  grep -Fq "$message" "$test_tmp/err" || fail "current explains $description" "$(cat "$test_tmp/err")"
+  run lane
+  (( status == 2 )) || fail "lane refuses $description" "status $status"
+  grep -Fq "$message" "$test_tmp/err" || fail "lane explains $description" "$(cat "$test_tmp/err")"
+}
+lane_reset
+write_lane 'format=2\nlane=edge\n'
+lane_invalid "format 2" "$lane_file has unsupported format 2"
+write_lane 'format=1\nlane=edge\nsequence=4\n'
+lane_invalid "an unknown key" "$lane_file has unknown key sequence"
+write_lane 'format=1\nlane=stable\n'
+lane_invalid "a stable lane" "$lane_file has lane stable, which is neither rc nor edge"
+write_lane 'format=1\nlane=edge\nswitch=dev\n'
+lane_invalid "a dev switch" "$lane_file has switch dev, which is neither rc nor edge"
+write_lane 'format=1\nlane=edge\nlane=rc\n'
+lane_invalid "a repeated key" "$lane_file repeats lane"
+write_lane 'format=1\n'
+lane_invalid "no lane" "$lane_file has no lane"
+write_lane 'lane=edge\n'
+lane_invalid "no format" "$lane_file has no format"
+for value in "04:$(printf 'a%.0s' {1..64})" "4:$(printf 'a%.0s' {1..63})" "4:$(printf 'A%.0s' {1..64})" "1234567890:$(printf 'a%.0s' {1..64})" "0:$(printf 'a%.0s' {1..64})"; do
+  write_lane 'format=1\nlane=edge\nedge_accepted=%s\n' "$value"
+  lane_invalid "edge_accepted=$value" "$lane_file has a malformed edge_accepted"
+done
+write_lane 'format=1\r\nlane=edge\r\n'
+lane_invalid "CRLF" "$lane_file line 1 is not key=value"
+write_lane 'format=1\nlane=edge\n'
+chmod 0664 "$lane_file"
+lane_invalid "a group-writable lane file" "$lane_file is writable by users other than root"
+rm -f "$lane_file"
+ln -s "$test_tmp/lane-before" "$lane_file"
+lane_invalid "a symlinked lane file" "$lane_file is not a regular file"
+rm -f "$lane_file"
+cmp -s "$test_tmp/record-before" "$record" || fail "reading a lane never touches the record"
+pass "a malformed or unsafely stored lane file makes current unknown and lane refuse, naming the file"
+
+# lane-write and stage-descriptor are the updater's, under a lock it already holds.
+lane_reset
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_accepted=%s\n' "$accepted"
+run lane-write "edge_pending=$pending"
+(( status == 2 )) || fail "lane-write outside the channel lock is refused" "status $status"
+cmp -s "$test_tmp/lane-before" "$lane_file" || fail "a refused lane-write changes nothing"
+run locked bash "$helper" lane-write "edge_pending=$pending"
+(( status == 0 )) || fail "lane-write under the channel lock" "status $status: $(cat "$test_tmp/err")"
+expect_lane "lane-write adds a field and keeps the others" 'format=1\nlane=edge\nswitch=edge\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
+grep -Eq "^sudo:mv -f $state_dir/\.apple-silicon-aurora-lane\.[A-Za-z0-9]{6} $lane_file\$" "$calls" || fail "the lane file is renamed into place" "$(cat "$calls")"
+run locked bash "$helper" lane-write "edge_accepted=$pending" edge_pending= switch=
+expect_lane "lane-write clears fields given empty" 'format=1\nlane=edge\nedge_accepted=%s\n' "$pending"
+for bad in lane= lane=stable switch=dev edge_pending=07:x hold=x nonsense; do
+  cp "$lane_file" "$test_tmp/lane-before"
+  run locked bash "$helper" lane-write "$bad"
+  (( status == 2 )) || fail "lane-write refuses $bad" "status $status"
+  cmp -s "$test_tmp/lane-before" "$lane_file" || fail "lane-write $bad changes nothing"
+done
+cmp -s "$test_tmp/record-before" "$record" || fail "lane-write never touches the record"
+! compgen -G "$state_dir/.apple-silicon-aurora-lane.*" >/dev/null || fail "lane-write leaves no staging file"
+
+printf 'format=1\nchannel=aurora\n' >"$test_tmp/descriptor"
+run stage-descriptor "$test_tmp/descriptor"
+(( status == 2 )) && [[ ! -e $descriptor_file ]] || fail "stage-descriptor outside the channel lock is refused" "status $status"
+run locked bash "$helper" stage-descriptor "$test_tmp/descriptor"
+(( status == 0 )) || fail "stage-descriptor under the channel lock" "status $status: $(cat "$test_tmp/err")"
+cmp -s "$test_tmp/descriptor" "$descriptor_file" && [[ $(stat -c '%a' "$descriptor_file") == 644 ]] ||
+  fail "the descriptor is staged byte for byte, 0644"
+: >"$calls"
+run locked bash "$helper" stage-descriptor "$test_tmp/descriptor"
+! grep -q '^sudo:mktemp' "$calls" || fail "an identical descriptor is not staged again" "$(cat "$calls")"
+pass "lane-write and stage-descriptor need the channel lock and write through a staged rename, never the record"
+
+# switch: every refusal is decided under the lock, before anything is written.
+switch_refused() {
+  local description=$1 message=$2
+  shift 2
+  run_under_update_lock switch "$@"
+  (( status == 2 )) || fail "$description is refused" "status $status: $(cat "$test_tmp/out" "$test_tmp/err")"
+  grep -Fq "$message" "$test_tmp/err" || fail "$description is explained" "$(cat "$test_tmp/err")"
+  if [[ -e $test_tmp/lane-before ]]; then
+    cmp -s "$test_tmp/lane-before" "$lane_file" || fail "$description leaves the lane file" "$(cat "$lane_file" 2>&1)"
+  fi
+  [[ ! -e $record ]] || cmp -s "$test_tmp/record-before" "$record" || fail "$description leaves the record"
+}
+lane_reset
+rm -f "$test_tmp/lane-before"
+run switch edge
+(( status == 2 )) && [[ ! -e $lane_file ]] || fail "switch without the update lock is refused" "status $status"
+grep -Fq "the update lock is not held" "$test_tmp/err" || fail "switch explains the missing update lock" "$(cat "$test_tmp/err")"
+write_record "${rc_record}hold=%s\n" "qualifying by hand"
+switch_refused "a held Mac" "this Mac's channel is held (qualifying by hand)" edge
+write_record "$stable_record"
+TEST_INSTALLED="$asahi_installed" switch_refused "a stable Mac" "this Mac runs linux-asahi on stable" edge
+write_record 'format=1\nchannel=rc\nkernel=linux-aurora\nkernel=linux-aurora\n'
+switch_refused "an invalid record" "$record repeats kernel" rc
+write_record "$rc_record"
+TEST_INSTALLED="$asahi_installed" switch_refused "a contradicted record" "this Mac runs linux-asahi" edge
+rm -f "$record"
+switch_refused "a Mac without a record" "$record does not exist yet" edge
+write_record "$rc_record"
+printf '[options]\nIgnorePkg = linux-aurora\n' >"$pacman_conf"
+switch_refused "an IgnorePkg hold on linux-aurora" "IgnorePkg/IgnoreGroup in /etc/pacman.conf holds linux-aurora" edge
+printf '[options]\nIgnoreGroup = m1n1-*\r\n' >"$pacman_conf"
+switch_refused "an IgnoreGroup glob on m1n1-aurora" "holds m1n1-aurora" rc
+printf '[options]\n#IgnorePkg = linux-aurora\n[extra]\nIgnorePkg = linux-aurora-headers\n' >"$pacman_conf"
+rm -f "$verify_hook"
+switch_refused "edge without the verification hook" "does not install $verify_hook" edge
+: >"$verify_hook"
+write_lane 'format=1\nlane=edge\nsurprise=1\n'
+switch_refused "a malformed lane file" "has unknown key surprise; omarchy-apple-silicon-channel reset-rc" rc
+rm -f "$lane_file" "$test_tmp/lane-before"
+[[ ! -e $lane_file ]] || fail "refusals write no lane file"
+pass "switch needs the update lock and refuses holds, stable, invalid records, pacman holds, a missing hook and a malformed lane without writing"
+
+lane_reset
+run_under_update_lock switch edge
+(( status == 0 )) || fail "an rc Mac switches to edge" "status $status: $(cat "$test_tmp/err")"
+expect_lane "switch edge writes the requested lane" 'format=1\nlane=edge\nswitch=edge\n'
+cmp -s "$test_tmp/record-before" "$record" || fail "switch leaves the format-1 record byte-identical"
+run current
+expect_output "current right after switching to edge" 0 'edge\n'
+: >"$calls"
+run_under_update_lock switch edge
+(( status == 0 )) && grep -Fq "already follows edge" "$test_tmp/out" || fail "repeating a pending switch is a no-op" "$(cat "$test_tmp/out" "$test_tmp/err")"
+! grep -q '^sudo:mktemp' "$calls" || fail "repeating a pending switch writes nothing" "$(cat "$calls")"
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
+run_under_update_lock switch rc
+(( status == 0 )) || fail "an opposing switch replaces a pending one" "status $status: $(cat "$test_tmp/err")"
+expect_lane "the last request wins and edge history stays" 'format=1\nlane=rc\nswitch=rc\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
+run_under_update_lock switch edge
+expect_lane "switching back again" 'format=1\nlane=edge\nswitch=edge\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
+write_lane 'format=1\nlane=edge\nedge_accepted=%s\n' "$accepted"
+run_under_update_lock switch edge
+grep -Fq "already follows edge" "$test_tmp/out" && cmp -s "$test_tmp/lane-before" "$lane_file" || fail "a Mac settled on edge stays as it is"
+lane_reset
+run_under_update_lock switch rc
+grep -Fq "already follows rc" "$test_tmp/out" && [[ ! -e $lane_file ]] || fail "an rc Mac asking for rc writes nothing" "$(cat "$test_tmp/out")"
+printf '[omarchy-aurora]\nServer = https://github.com/maralcbr/omarchy-pkgs/releases/download/aurora-edge-7\n' >>"$pacman_conf"
+run_under_update_lock switch rc
+expect_lane "rc on a section left on edge is a switch back" 'format=1\nlane=rc\nswitch=rc\n'
+pass "switch records lane and switch, the last request wins, repeats are no-ops, and rc still returns a section left on edge"
+
+# A hold that commits while switch waits for the lock is read under it.
+lane_reset
+hold_lock 2
+(
+  sleep 0.5
+  printf 'hold=landed while switch waited\n' >>"$record"
+) &
+run_under_update_lock switch edge
+wait
+release_lock
+(( status == 2 )) && grep -Fq "held (landed while switch waited)" "$test_tmp/err" ||
+  fail "a hold that lands while switch waits for the lock refuses the switch" "status $status: $(cat "$test_tmp/err")"
+[[ ! -e $lane_file ]] || fail "a switch refused under the lock writes nothing"
+pass "a hold that lands while switch waits for the channel lock stops it"
+
+# reset-rc returns a Mac to rc whatever the lane says, keeping what edge accepted.
+lane_reset
+write_lane 'format=1\nlane=edge\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
+run reset-rc
+(( status == 0 )) || fail "reset-rc on an edge Mac" "status $status: $(cat "$test_tmp/err")"
+expect_lane "reset-rc writes rc and keeps the edge history" 'format=1\nlane=rc\nswitch=rc\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
+cmp -s "$test_tmp/record-before" "$record" || fail "reset-rc leaves the record"
+write_lane 'format=2\nlane=edge\n'
+run reset-rc
+(( status == 0 )) || fail "reset-rc repairs a malformed lane file" "status $status: $(cat "$test_tmp/err")"
+grep -Fq "without its edge history" "$test_tmp/err" || fail "reset-rc says what a repair loses" "$(cat "$test_tmp/err")"
+expect_lane "reset-rc starts a malformed lane again from rc" 'format=1\nlane=rc\nswitch=rc\n'
+rm -f "$lane_file"
+mkdir "$lane_file"
+run reset-rc
+(( status == 2 )) && [[ -d $lane_file ]] || fail "reset-rc refuses a lane path that is not a file" "status $status"
+rmdir "$lane_file"
+write_record "${rc_record}hold=%s\n" "frozen"
+run reset-rc
+(( status == 0 )) && grep -Fq "held (frozen)" "$test_tmp/out" || fail "reset-rc on a held Mac records rc and says the hold still applies" "$(cat "$test_tmp/out" "$test_tmp/err")"
+write_record "$stable_record"
+rm -f "$lane_file"
+TEST_INSTALLED="$asahi_installed" run reset-rc
+(( status == 2 )) && [[ ! -e $lane_file ]] || fail "reset-rc refuses a stable Mac" "status $status"
+pass "reset-rc writes lane=rc switch=rc, keeps edge history, repairs malformed content and refuses what is not a file"
