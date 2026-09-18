@@ -123,7 +123,7 @@ stub id <<'EOF'
 echo "$2 wheel"
 EOF
 
-for logged in gpasswd passwd runuser update-m1n1 omarchy-apply-system; do
+for logged in gpasswd passwd runuser update-m1n1 omarchy-apply-system omarchy-apple-silicon-boot-check; do
   stub "$logged" <<EOF
 #!/bin/bash
 echo "$logged \$*" >>"\$FRESH_TEST_LOG"
@@ -339,6 +339,8 @@ expect_success "$status" "a deferred install completes without a terminal or a u
 [[ ! -e $sandbox/etc/sudoers.d/10-omarchy-wheel && ! -e $sandbox/var/lib/sddm/state.conf ]] ||
   fail "a deferred install leaves the owner's sudo grant and greeter state to provisioning"
 called '^omarchy-apply-system --defer-provisioning --first-install$' || fail "root system setup runs for a deferred owner" "$(cat "$calls")"
+grep -Fxq 'omarchy-apple-silicon-boot-check linux-asahi' "$calls" ||
+  fail "a deferred install checks the linux-asahi boot chain, m1n1 stage 2 included" "$(cat "$calls")"
 ! called '^omarchy-apply-system --install-user' || fail "root system setup never names a user"
 bootstrap_line=$(call_line '^bootstrap ')
 transaction_line=$(call_line '^pacman -Syu')
@@ -399,6 +401,13 @@ expect_failure "$status" m1n1-fails "Could not regenerate the m1n1 boot image" "
 [[ -d $state_dir && ! -e $state_dir/completing ]] || fail "a failed boot regeneration keeps the checkpoint"
 pass "a failed boot regeneration fails the attempt and keeps it resumable"
 
+reset_sandbox
+status=0
+run_installer boot-chain-fails FRESH_TEST_FAIL=omarchy-apple-silicon-boot-check --deferred-user || status=$?
+expect_failure "$status" boot-chain-fails "The boot files do not match the installed linux-asahi and its m1n1" "a boot chain that does not match fails the install"
+[[ -d $state_dir && ! -e $state_dir/completing ]] || fail "a boot chain mismatch keeps the checkpoint"
+pass "a deferred install fails and stays resumable when m1n1 stage 2 does not match"
+
 # --- Boot verification in deferred mode ---------------------------------------
 
 reset_sandbox
@@ -436,6 +445,8 @@ grep -Eq '^aurora  sudo=[^ ]+/sudo/sudo path=[^ ]+/usr/share/omarchy$' "$calls" 
 grep -Fxq 'pacman -Syu ignore=linux-aurora,linux-aurora-headers,m1n1-aurora repositories=omarchy-aurora,omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
   fail "the first transaction holds the Aurora boot packages and reads [omarchy-aurora] then [omarchy] first" "$(cat "$calls")"
 called '^update-grub' || fail "an rc install regenerates GRUB for linux-aurora"
+grep -Fxq 'omarchy-apple-silicon-boot-check linux-aurora' "$calls" ||
+  fail "an rc install checks the linux-aurora boot chain" "$(cat "$calls")"
 pass "an rc Mac pins [omarchy-aurora] directly ahead of [omarchy] before its first transaction"
 
 # Each kernel requires its own m1n1 build; the other one's is no substitute.

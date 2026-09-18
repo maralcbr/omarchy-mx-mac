@@ -145,12 +145,17 @@ verify_grub_config() {
     fail "The GRUB configuration does not boot $kernel_package"
 }
 
-# Phase B's B7 boot checks, one call each. The ESP m1n1/boot.bin check joins
-# this list once its verifier ships.
+verify_boot_chain() {
+  omarchy-apple-silicon-boot-check "$kernel_package" ||
+    fail "The boot files do not match the installed $kernel_package and its m1n1"
+}
+
+# The last check rebuilds m1n1 stage 2 and compares it with the ESP's copy.
 verify_boot_files() {
   verify_kernel_image
   verify_initramfs
   verify_grub_config
+  verify_boot_chain
 }
 
 while (($#)); do
