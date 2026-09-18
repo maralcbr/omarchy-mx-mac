@@ -29,7 +29,8 @@
 # While a switch or an edge move is open, the three packages are written to
 # $OMARCHY_AURORA_TARGETS so the upgrade installs that release's versions, older
 # or not. --complete then proves they are installed and boot before the move
-# counts as done. Exit 3: edge could not be followed this time; nothing moved.
+# counts as done. Exit 3: edge could not be followed this time, so the section
+# stays on what can be proven, the accepted edge release or the rc pin.
 
 set -euo pipefail
 
@@ -330,24 +331,27 @@ read_descriptor() {
 }
 
 if [[ $mode == complete ]]; then
-  # Only an open switch, or an edge release journaled as pending, has anything to prove.
-  if [[ $lane == rc ]]; then
-    [[ $switch == rc ]] || exit 0
-    target_tag=$tag target_digest=$pinned_sha256
-  elif [[ -n $pending ]]; then
-    target_tag=aurora-edge-$pending_sequence target_digest=$pending_digest
-  elif [[ $switch == edge && -n $accepted ]]; then
-    target_tag=aurora-edge-$accepted_sequence target_digest=$accepted_digest
-  else
-    exit 0
-  fi
-
   unverified() {
     echo -e "\e[31mThe move to $target_tag is not verified: $1.\e[0m" >&2
     echo "Do not reboot yet. Fix that and run omarchy update again, or run omarchy-apple-silicon-channel reset-rc to go back to rc." >&2
     sudo tee "$reboot_blocked" >/dev/null <<<"the move to $target_tag is not verified: $1" || true
     exit 1
   }
+
+  # Only an open switch, or an edge release journaled as pending, has anything
+  # to prove, and a switch that names no release it can prove is never done.
+  if [[ $lane == rc && $switch == rc ]]; then
+    target_tag=$tag target_digest=$pinned_sha256
+  elif [[ $lane == edge && -n $pending ]]; then
+    target_tag=aurora-edge-$pending_sequence target_digest=$pending_digest
+  elif [[ $lane == edge && $switch == edge && -n $accepted ]]; then
+    target_tag=aurora-edge-$accepted_sequence target_digest=$accepted_digest
+  elif [[ -z $switch ]]; then
+    exit 0
+  else
+    target_tag=$switch
+    unverified "no release was journaled for the switch to $switch"
+  fi
 
   [[ $current_tag == "$target_tag" ]] || unverified "[omarchy-aurora] is on ${current[*]:-no server}"
   trusted_staged "$target_digest" && read_descriptor "$staged_descriptor" ||
@@ -569,11 +573,15 @@ else
   fi
 fi
 
-# Journaled before the section moves, so an interrupted update resumes this release.
-if [[ $target_tag =~ $edge_tag_pattern && $current_tag != "$target_tag" ]] &&
-  [[ $pending != "${BASH_REMATCH[1]}:$target_digest" ]]; then
-  pending="${BASH_REMATCH[1]}:$target_digest"
-  omarchy-apple-silicon-channel lane-write "edge_pending=$pending" || exit 2
+# Journaled before anything moves, so an interrupted update resumes this
+# release, and before an unaccepted release counts even when the section
+# already names it. Only the accepted release, already in place, needs none.
+if [[ $target_tag =~ $edge_tag_pattern ]]; then
+  selected="${BASH_REMATCH[1]}:$target_digest"
+  if [[ $pending != "$selected" ]] && [[ $selected != "$accepted" || $current_tag != "$target_tag" ]]; then
+    pending=$selected
+    omarchy-apple-silicon-channel lane-write "edge_pending=$pending" || exit 2
+  fi
 fi
 if ! cmp -s "$descriptor" "$staged_descriptor"; then
   omarchy-apple-silicon-channel stage-descriptor "$descriptor" || exit 2

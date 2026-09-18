@@ -336,6 +336,37 @@ expect_lane "completion accepts the release and closes the switch" 'format=1\nla
 grep -Fq "now runs aurora-edge-5 from edge" "$test_tmp/out" || fail "completion says what the Mac runs" "$(cat "$test_tmp/out")"
 pass "completion needs the staged release installed and a matching boot chain; until then the journal stays and the reboot is blocked"
 
+# A section someone already pointed at the release first contact picks is not
+# proof: the release is journaled all the same, and completes only once proven.
+conf_on "$downloads/aurora-edge-5"
+installed_from "$pin_tag"
+write_lane 'format=1\nlane=edge\nswitch=edge\n'
+write_listing "aurora-edge-5"
+rm -f "$assets/pointer"
+run_step
+expect_status 0 "first contact on a section that already names the release"
+expect_lane "a release not yet accepted is journaled though the section does not move" 'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\n' "$(digest aurora-edge-5)"
+[[ ! -s $calls ]] || fail "the section is not rewritten" "$(cat "$calls")"
+expect_targets "a release journaled in place"
+run_step --complete
+expect_status 1 "completing before the journaled release is installed"
+expect_lane "the unproven release stays pending" 'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\n' "$(digest aurora-edge-5)"
+installed_from aurora-edge-5
+run_step --complete
+expect_status 0 "completing the release proven in place"
+expect_lane "the release proven in place is accepted" 'format=1\nlane=edge\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
+rm -f "$reboot_blocked"
+for lane in 'format=1\nlane=edge\nswitch=edge\n' 'format=1\nlane=rc\nswitch=edge\n' 'format=1\nlane=edge\nswitch=rc\n'; do
+  write_lane "$lane"
+  run_step --complete
+  expect_status 1 "completing a switch that names no release ($lane)"
+  grep -Fq "no release was journaled" "$test_tmp/err" || fail "an unresolved switch says so" "$(cat "$test_tmp/err")"
+  [[ -s $reboot_blocked ]] || fail "an unresolved switch blocks the reboot"
+  ! grep -q boot-check "$calls" || fail "an unresolved switch is never checked into success"
+  rm -f "$reboot_blocked"
+done
+pass "first contact journals a release the section already names, and a switch that names no release never completes"
+
 # Interruptions between each step resume the journaled release, even once a newer one is out.
 conf_on "$downloads/$pin_tag"
 cp "$assets/$pin_tag/AURORA" "$staged"
