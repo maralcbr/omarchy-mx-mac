@@ -200,6 +200,8 @@ OMARCHY_REBOOT_BLOCKED="$test_tmp/reboot-block" run_update -y
 update_status=$?
 set -e
 (( update_status != 0 )) || fail "an update with an unverified kernel switch reports success"
+grep -Fq 'The update is not finished: the move to aurora-edge-7 is not verified' "$test_tmp/err" ||
+  fail "an unverified kernel switch says why the update is not finished" "$(cat "$test_tmp/err")"
 diff <(expected_steps) <(steps_run) >"$test_tmp/order" ||
   fail "an unverified kernel switch still runs every step" "$(cat "$test_tmp/order")"
 pass "an unverified kernel switch runs the whole update and then fails it"

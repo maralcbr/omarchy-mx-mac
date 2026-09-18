@@ -100,6 +100,10 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   trap - EXIT
 
   omarchy-update-restart
-  # The restart check has said why; an unverified kernel switch is not a finished update.
-  [[ ! -e ${OMARCHY_REBOOT_BLOCKED:-/run/omarchy-reboot-blocked} ]] || exit 1
+  # An unverified kernel switch is not a finished update.
+  reboot_blocked=${OMARCHY_REBOOT_BLOCKED:-/run/omarchy-reboot-blocked}
+  if [[ -e $reboot_blocked ]]; then
+    echo -e "\e[31mThe update is not finished: $(head -n 1 "$reboot_blocked").\e[0m" >&2
+    exit 1
+  fi
 fi
