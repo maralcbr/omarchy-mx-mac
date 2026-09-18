@@ -1,0 +1,55 @@
+echo "Repair the Neovim plugin cache and lockfile seeded by omarchy-nvim 2026.8.1-1"
+
+nvim_config="$HOME/.config/nvim"
+lazy_dir="$HOME/.local/share/nvim/lazy"
+
+[[ -d $nvim_config && -d $lazy_dir ]] || exit 0
+
+remote_default_branch() {
+  local plugin="$1"
+
+  GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$plugin" ls-remote --symref origin HEAD 2>/dev/null |
+    awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }'
+}
+
+# The seed deleted origin/HEAD, which is where lazy.nvim looks up the branch of
+# a plugin on a detached HEAD (every release-pinned one, such as lazy.nvim and
+# blink.cmp). Without it, every lockfile write asserts after truncating
+# lazy-lock.json. Recreate it the way omarchy-nvim 2026.8.1-2 builds it.
+restore_origin_head() {
+  local plugin="$1"
+  local branch head
+
+  branch=$(git -C "$plugin" symbolic-ref --quiet --short HEAD) ||
+    branch=$(remote_default_branch "$plugin") || return 1
+  [[ -n $branch ]] || return 1
+  head=$(git -C "$plugin" rev-parse --verify --quiet HEAD) || return 1
+
+  git -C "$plugin" show-ref --verify --quiet "refs/remotes/origin/$branch" ||
+    git -C "$plugin" update-ref "refs/remotes/origin/$branch" "$head" || return 1
+  git -C "$plugin" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch"
+}
+
+for git_dir in "$lazy_dir"/*/.git; do
+  [[ -d $git_dir && ! -e $git_dir/refs/remotes/origin/HEAD ]] || continue
+  plugin=${git_dir%/.git}
+
+  if ! restore_origin_head "$plugin"; then
+    echo "Skipped ${plugin##*/}: could not determine its default branch (offline?). Once online, run:"
+    echo "  git -C \"$plugin\" fetch origin && git -C \"$plugin\" remote set-head origin --auto"
+  fi
+done
+
+# gthelding/monokai-pro.nvim is gone, so lazy retried the clone on every launch.
+themes="$nvim_config/lua/plugins/all-themes.lua"
+if [[ -f $themes ]] && grep -qF '"gthelding/monokai-pro.nvim"' "$themes"; then
+  sed -i --follow-symlinks 's|"gthelding/monokai-pro\.nvim"|"loctvl842/monokai-pro.nvim"|g' "$themes"
+fi
+
+# The failed write left an empty or half-written lockfile. lazy regenerates it.
+lockfile="$nvim_config/lazy-lock.json"
+if [[ -f $lockfile ]] && ! jq -e true "$lockfile" >/dev/null 2>&1; then
+  backup="$lockfile.backup.$(date +%Y%m%d-%H%M%S)"
+  echo "Moving the broken $lockfile to $backup"
+  mv "$lockfile" "$backup"
+fi

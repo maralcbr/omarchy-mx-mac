@@ -148,6 +148,7 @@ asahi_migration_disposition() {
     1789107528.sh) printf 'run\treviewed initramfs static device node ordering; self-gating to Apple Silicon hardware\n' ;;
     1789325478.sh) printf 'skipped\tx86_64 linux-omarchy kernel and Limine boot order are not applicable to Apple Silicon\n' ;;
     1789444024.sh) printf 'skipped\tlinux-omarchy and linux-t2 header repair is not applicable to Apple Silicon kernels\n' ;;
+    1789701737.sh) printf 'run\treviewed architecture-neutral repair of the Neovim plugin cache and lockfile seeded by omarchy-nvim\n' ;;
     *) return 1 ;;
   esac
 }
