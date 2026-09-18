@@ -28,7 +28,8 @@ write_stub omarchy-restart-shell 'echo restart-shell >>"$RESTART_LOG"'
 
 run_restart() {
   : >"$test_tmp/log"
-  RESTART_LOG="$test_tmp/log" HOME="$test_home" PATH="$stub_bin:$PATH" \
+  OMARCHY_REBOOT_BLOCKED="${OMARCHY_REBOOT_BLOCKED:-$test_tmp/no-reboot-block}" \
+    RESTART_LOG="$test_tmp/log" HOME="$test_home" PATH="$stub_bin:$PATH" \
     "$ROOT/bin/omarchy-update-restart" >"$test_tmp/out" 2>&1
 }
 
@@ -49,3 +50,14 @@ pass "a person is still asked to reboot and can decline"
 OMARCHY_UPDATE_UNATTENDED= GUM_STATUS=0 run_restart || fail "an accepted reboot fails the restart check"
 grep -qx reboot "$test_tmp/log" || fail "an accepted reboot does not reboot"
 pass "an accepted reboot reboots"
+
+printf 'the move to aurora-edge-7 is not verified: the boot files do not match the installed kernel\n' >"$test_tmp/reboot-block"
+for unattended in "" 1; do
+  OMARCHY_REBOOT_BLOCKED="$test_tmp/reboot-block" OMARCHY_UPDATE_UNATTENDED=$unattended GUM_STATUS=0 run_restart ||
+    fail "a blocked reboot fails the restart check"
+  ! grep -q '^gum ' "$test_tmp/log" && ! grep -qx reboot "$test_tmp/log" ||
+    fail "a blocked reboot is still offered" "$(cat "$test_tmp/log")"
+  grep -Fq 'Do not reboot yet: the move to aurora-edge-7 is not verified' "$test_tmp/out" ||
+    fail "a blocked reboot says why" "$(cat "$test_tmp/out")"
+done
+pass "an unverified kernel switch blocks the reboot offer and says why"

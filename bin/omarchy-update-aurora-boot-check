@@ -1,0 +1,247 @@
+#!/bin/bash
+
+# omarchy:summary=Check that the boot files match the installed Aurora kernel and m1n1
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# A pacman hook that fails after the transaction still leaves pacman at exit 0,
+# so a kernel switch counts as done only once this has looked at what boots:
+# the kernel mkinitcpio copied to /boot, the initramfs it built, GRUB's entry,
+# and m1n1 stage 2 on the system ESP. That image is rebuilt the way update-m1n1
+# builds it -- m1n1, the device trees, gzipped U-Boot, the m1n1.conf options --
+# in a private directory and compared byte for byte. update-m1n1 itself is not
+# run: its configuration can point TARGET at the real image, and it rewrites
+# /run/m1n1.conf. Its defaults come from the installed script, applied the way
+# := applies them, and /etc/default/update-m1n1 contributes only the settings
+# update-m1n1 reads from it.
+
+set -euo pipefail
+
+root=${OMARCHY_AURORA_ROOT:-}
+
+fail() {
+  echo "Aurora boot check: $*" >&2
+  exit 1
+}
+
+path() {
+  printf '%s%s\n' "$root" "$1"
+}
+
+workdir=$(mktemp -d)
+mountpoint=""
+cleanup() {
+  if [[ -n $mountpoint ]]; then
+    sudo umount "$mountpoint" 2>/dev/null || true
+    sudo rmdir "$mountpoint" 2>/dev/null || true
+  fi
+  rm -rf "$workdir"
+}
+trap cleanup EXIT
+
+pacman -Qlq linux-aurora >"$workdir/files" 2>/dev/null || fail "cannot list the files of linux-aurora"
+mapfile -t kernels < <(grep -E '^/usr/lib/modules/[^/]+/vmlinuz$' "$workdir/files" || true)
+(( ${#kernels[@]} == 1 )) || fail "linux-aurora does not install exactly one kernel"
+kver=${kernels[0]#/usr/lib/modules/}
+kver=${kver%/vmlinuz}
+
+sudo cmp -s "$(path /boot/vmlinuz-linux-aurora)" "$(path "${kernels[0]}")" ||
+  fail "/boot/vmlinuz-linux-aurora is not the $kver kernel linux-aurora installed"
+
+sudo lsinitcpio -l "$(path /boot/initramfs-linux-aurora.img)" >"$workdir/initramfs" 2>/dev/null ||
+  fail "/boot/initramfs-linux-aurora.img cannot be listed"
+awk -v prefix="usr/lib/modules/$kver/" '{ sub(/^\.\//, "") } index($0, prefix) == 1 { found = 1 } END { exit !found }' \
+  "$workdir/initramfs" || fail "/boot/initramfs-linux-aurora.img does not hold the $kver modules"
+
+grub_cfg=$(path /boot/grub/grub.cfg)
+sudo grep -Fq vmlinuz-linux-aurora "$grub_cfg" && sudo grep -Fq initramfs-linux-aurora.img "$grub_cfg" ||
+  fail "/boot/grub/grub.cfg does not boot vmlinuz-linux-aurora with initramfs-linux-aurora.img"
+
+# m1n1 stage 2, built the way this update-m1n1 builds it.
+script=$(path /usr/bin/update-m1n1)
+[[ -r $script ]] || fail "/usr/bin/update-m1n1 is not installed"
+for step in 'cat "$M1N1" $DTBS >"${TARGET}.new"' 'gzip -c "$U_BOOT" >>"${TARGET}.new"' 'chosen.*=*|display=*|mitigations=*)'; do
+  grep -Fq -- "$step" "$script" || fail "/usr/bin/update-m1n1 does not build m1n1/boot.bin the way this check rebuilds it"
+done
+
+default_line='^[[:space:]]*:[[:space:]]+\$\{([A-Z0-9_]+):=(.*)\}[[:space:]]*$'
+defaults=()
+declare -A seen=()
+while IFS= read -r line; do
+  [[ $line =~ $default_line ]] || continue
+  name=${BASH_REMATCH[1]}
+  case "$name" in
+    SOURCE | M1N1 | U_BOOT | CONFIG | DTBS) ;;
+    *) continue ;;
+  esac
+  [[ -z ${seen[$name]:-} ]] || fail "/usr/bin/update-m1n1 sets a $name default twice"
+  seen[$name]=1
+  defaults+=("$name=${BASH_REMATCH[2]}")
+done <"$script"
+for name in SOURCE M1N1 U_BOOT CONFIG; do
+  [[ -n ${seen[$name]:-} ]] || fail "/usr/bin/update-m1n1 has no $name default this check recognises"
+done
+
+# Only what update-m1n1 takes from its configuration, read in a clean shell.
+SOURCE="" M1N1="" U_BOOT="" CONFIG="" DTBS="" disabled=""
+config_file=$(path /etc/default/update-m1n1)
+if [[ -e $config_file ]]; then
+  env -i PATH=/usr/bin:/bin bash --noprofile --norc -c '
+    unset DTBS SOURCE M1N1 U_BOOT CONFIG M1N1_UPDATE_DISABLED
+    . "$1" >/dev/null 2>&1 || exit 1
+    for name in DTBS SOURCE M1N1 U_BOOT CONFIG M1N1_UPDATE_DISABLED; do
+      printf "%s=%s\0" "$name" "${!name-}"
+    done
+  ' _ "$config_file" >"$workdir/config" || fail "/etc/default/update-m1n1 cannot be read"
+  while IFS= read -r -d '' entry; do
+    value=${entry#*=}
+    case "${entry%%=*}" in
+      SOURCE) SOURCE=$value ;;
+      M1N1) M1N1=$value ;;
+      U_BOOT) U_BOOT=$value ;;
+      CONFIG) CONFIG=$value ;;
+      DTBS) DTBS=$value ;;
+      M1N1_UPDATE_DISABLED) disabled=$value ;;
+    esac
+  done <"$workdir/config"
+fi
+[[ -z $disabled ]] ||
+  fail "M1N1_UPDATE_DISABLED is set in /etc/default/update-m1n1, so m1n1 does not follow the kernel and its device trees cannot be vouched for; remove it, run sudo update-m1n1, then omarchy update"
+
+# ls -d prints what matches, and nothing at all when nothing does.
+newest_match() {
+  local match
+  for match in "$root"$1; do
+    if [[ -e $match || -L $match ]]; then
+      printf '%s\n' "${match#"$root"}"
+    fi
+  done | sort -rV | sed -n 1p
+}
+
+simple_path='^/[A-Za-z0-9._/+-]*$'
+source_path='^\$SOURCE(/[A-Za-z0-9._/+-]*)$'
+newest_dtbs='^\$\((/usr)?(/bin/)?ls -d (/[A-Za-z0-9._/*+-]+) \| sort -rV \| head -1\)(/[A-Za-z0-9._/*+-]*)$'
+for entry in "${defaults[@]}"; do
+  name=${entry%%=*}
+  value=${entry#*=}
+  # := fills a setting that is unset or empty alike.
+  [[ -z ${!name} ]] || continue
+  [[ ! $value =~ ^\"(.*)\"$ ]] || value=${BASH_REMATCH[1]}
+  expanded=""
+  case "$name" in
+    SOURCE | CONFIG)
+      [[ $value =~ $simple_path ]] && expanded=$value
+      ;;
+    M1N1 | U_BOOT)
+      if [[ $value =~ $source_path ]]; then
+        expanded=$SOURCE${BASH_REMATCH[1]}
+      elif [[ $value =~ $simple_path ]]; then
+        expanded=$value
+      fi
+      ;;
+    DTBS)
+      if [[ $value =~ $newest_dtbs ]]; then
+        suffix=${BASH_REMATCH[4]}
+        expanded=$(newest_match "${BASH_REMATCH[3]}")$suffix
+      fi
+      ;;
+  esac
+  [[ -n $expanded ]] || fail "/usr/bin/update-m1n1 has a $name default this check does not recognise: $value"
+  printf -v "$name" '%s' "$expanded"
+done
+[[ -n $DTBS ]] || fail "DTBS is unset or empty, and update-m1n1 would refuse to run; see /etc/default/update-m1n1"
+
+for part in M1N1 U_BOOT; do
+  [[ -f $root${!part} ]] || fail "$part ${!part} does not exist"
+done
+
+# Split and globbed the way update-m1n1's unquoted $DTBS is, in the collation
+# pacman ran it under: C for omarchy update, else this session's locale.
+dtb_list() {
+  local LC_ALL=$1 words word matches
+  set -f
+  read -r -d '' -a words <<<"$DTBS" || true
+  set +f
+  for word in "${words[@]}"; do
+    matches=("$root"$word)
+    printf '%s\n' "${matches[@]#"$root"}"
+  done
+}
+mapfile -t dtbs < <(dtb_list C)
+(( ${#dtbs[@]} )) || fail "DTBS names no device tree"
+root_real=$(realpath -m "${root:-/}")
+for dtb in "${dtbs[@]}"; do
+  [[ -f $root$dtb ]] || fail "device tree $dtb does not exist"
+  owned=$(realpath -e "$root$dtb")
+  [[ $root_real == / ]] || owned=${owned#"$root_real"}
+  [[ $owned == /usr/lib/modules/$kver/* ]] || fail "device tree $dtb is not one of linux-aurora $kver's"
+  grep -Fxq -- "$owned" "$workdir/files" || fail "device tree $dtb is not owned by linux-aurora"
+done
+
+m1n1_options() {
+  local line
+  [[ -e $root$CONFIG ]] || return 0
+  # read without -r, like update-m1n1.
+  while read line; do
+    case "$line" in
+      "") ;;
+      \#*) ;;
+      chosen.*=* | display=* | mitigations=*) printf '%s\n' "$line" ;;
+    esac
+  done <"$root$CONFIG"
+}
+
+build_image() {
+  local image=$1 dtb paths=()
+  shift
+  for dtb; do
+    paths+=("$root$dtb")
+  done
+  {
+    cat "$root$M1N1" "${paths[@]}"
+    gzip -c "$root$U_BOOT"
+    m1n1_options
+  } >"$image"
+}
+
+build_image "$workdir/boot.bin" "${dtbs[@]}"
+images=("$workdir/boot.bin")
+mapfile -t local_dtbs < <(dtb_list "${LC_ALL:-${LC_COLLATE:-${LANG:-C}}}" 2>/dev/null)
+if [[ ${local_dtbs[*]} != "${dtbs[*]}" ]]; then
+  build_image "$workdir/boot-locale.bin" "${local_dtbs[@]}"
+  images+=("$workdir/boot-locale.bin")
+fi
+
+# The system ESP, found the way asahi-scripts' mount_sys_esp finds it, mounted read-only here only.
+esp_uuid=""
+esp_node=$(path /proc/device-tree/chosen/asahi,efi-system-partition)
+[[ ! -r $esp_node ]] || esp_uuid=$(tr -d '\0' <"$esp_node")
+mountpoint=$(sudo mktemp -d "$(path /run)/omarchy-esp.XXXXXX") || fail "cannot make a private mountpoint"
+
+mount_read_only() {
+  sudo mount -o ro "$@" "$mountpoint" 2>/dev/null && return 0
+  sudo mount "$@" "$mountpoint" || return 1
+  sudo mount -o remount,ro,bind "$mountpoint" && return 0
+  sudo umount "$mountpoint"
+  return 1
+}
+
+if [[ -e $(path /boot/efi/.builder) || -e $(path /boot/.builder) || -z $esp_uuid ]]; then
+  if [[ -e $(path /boot/efi/m1n1) ]]; then
+    esp=/boot/efi
+  elif [[ -e $(path /boot/m1n1) ]]; then
+    esp=/boot
+  else
+    fail "the system ESP is not named in the device tree and there is no m1n1 in /boot/efi or /boot"
+  fi
+  mount_read_only --bind "$(path "$esp")" || fail "cannot mount $esp read-only"
+else
+  esp="PARTUUID=$esp_uuid"
+  mount_read_only "$esp" || fail "cannot mount the system ESP ($esp) read-only"
+fi
+
+sudo test -f "$mountpoint/m1n1/boot.bin" || fail "the system ESP ($esp) has no m1n1/boot.bin"
+for image in "${images[@]}"; do
+  ! sudo cmp -s "$image" "$mountpoint/m1n1/boot.bin" || exit 0
+done
+fail "m1n1/boot.bin on the system ESP ($esp) is not m1n1, linux-aurora $kver's device trees, U-Boot and $CONFIG as installed; run sudo update-m1n1, then omarchy update"

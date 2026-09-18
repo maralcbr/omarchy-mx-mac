@@ -4,7 +4,14 @@
 
 echo
 
+# An Aurora kernel switch that could not be verified would boot what nobody checked.
+reboot_blocked=${OMARCHY_REBOOT_BLOCKED:-/run/omarchy-reboot-blocked}
+
 confirm_reboot() {
+  if [[ -e $reboot_blocked ]]; then
+    echo -e "\e[31m$2 Do not reboot yet: $(head -n 1 "$reboot_blocked").\e[0m"
+    return 0
+  fi
   if [[ ${OMARCHY_UPDATE_UNATTENDED:-} == 1 ]]; then
     echo -e "\e[33m$2 Reboot when you are ready.\e[0m"
     return 0

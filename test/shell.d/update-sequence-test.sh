@@ -61,6 +61,7 @@ run_update() {
     FAILING_STATUS="${FAILING_STATUS:-}" \
     CLEANUP_FAIL="${CLEANUP_FAIL:-0}" \
     APPLE_SILICON="${APPLE_SILICON:-0}" \
+    OMARCHY_REBOOT_BLOCKED="${OMARCHY_REBOOT_BLOCKED:-$test_tmp/no-reboot-block}" \
     OMARCHY_UPDATE_LOGGED=1 \
     PATH="$stub_bin:$PATH" \
     bash "$ROOT/bin/omarchy-update" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
@@ -190,3 +191,15 @@ if grep -q '^omarchy-update-system-pkgs ' "$test_tmp/steps"; then
   fail "a failed bundle update still upgrades packages"
 fi
 pass "a failed bundle update stops the update with the failure banner"
+
+# An Aurora kernel switch that could not be verified blocks the reboot; the
+# update still runs every step, and then does not pass for a finished one.
+printf 'the move to aurora-edge-7 is not verified\n' >"$test_tmp/reboot-block"
+set +e
+OMARCHY_REBOOT_BLOCKED="$test_tmp/reboot-block" run_update -y
+update_status=$?
+set -e
+(( update_status != 0 )) || fail "an update with an unverified kernel switch reports success"
+diff <(expected_steps) <(steps_run) >"$test_tmp/order" ||
+  fail "an unverified kernel switch still runs every step" "$(cat "$test_tmp/order")"
+pass "an unverified kernel switch runs the whole update and then fails it"
