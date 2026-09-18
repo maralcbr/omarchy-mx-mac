@@ -9,10 +9,11 @@ set -e
 
 echo "Installing Xbox controller Bluetooth support..."
 
-# Install xpadneo against the kernel headers for this platform.
-headers=linux-headers
-omarchy-hw-apple-silicon && headers=$(omarchy-hw-apple-kernel)-headers
-omarchy-pkg-add "$headers" xpadneo-dkms
+# xpadneo is a DKMS module. The Omarchy and T2 kernels install with their
+# headers; the Apple Silicon kernel's are added here.
+headers=()
+omarchy-hw-apple-silicon && headers=("$(omarchy-hw-apple-kernel)-headers")
+omarchy-pkg-add "${headers[@]}" xpadneo-dkms
 
 # Prevent xpad/xpadneo driver conflict
 echo blacklist xpad | sudo tee /etc/modprobe.d/blacklist-xpad.conf >/dev/null

@@ -74,12 +74,13 @@ for arch in x86_64 aarch64; do
   MISSING=wtype check 1 omarchy-install-available install.ai.dictation
   for apple in 0 1; do
     export APPLE=$apple
-    selected=linux-headers
-    other=linux-asahi-headers
-    if [[ $apple == 1 ]]; then selected=linux-asahi-headers; other=linux-headers; fi
     check 0 omarchy-install-available install.gaming.xbox-controllers
-    MISSING=$selected check 1 omarchy-install-available install.gaming.xbox-controllers
-    MISSING=$other check 0 omarchy-install-available install.gaming.xbox-controllers
+    MISSING=linux-headers check 0 omarchy-install-available install.gaming.xbox-controllers
+    if [[ $apple == 1 ]]; then
+      MISSING=linux-asahi-headers check 1 omarchy-install-available install.gaming.xbox-controllers
+    else
+      MISSING=linux-asahi-headers check 0 omarchy-install-available install.gaming.xbox-controllers
+    fi
   done
 done
 ARCH=riscv64 check 1 omarchy-install-available install.browser.chrome

@@ -73,15 +73,14 @@ __omarchy_optional_load_arch() {
 # Dictation's prebuilt voxtype-bin is x86_64-only; elsewhere the installer
 # builds voxtype from the AUR, so only its remaining sync targets must resolve.
 __omarchy_optional_targets() {
-  local id=${1:-} headers=linux-headers package
+  local id=${1:-} package
   __omarchy_optional_load || return 1
   [[ -n $id && -n ${__omarchy_optional_sync[$id]-} ]] || return 1
   read -ra __omarchy_requested_packages <<<"${__omarchy_optional_sync[$id]}"
   if [[ $id == "install.gaming.xbox-controllers" ]]; then
     if omarchy-hw-apple-silicon; then
-      headers=$(omarchy-hw-apple-kernel)-headers
+      __omarchy_requested_packages=("$(omarchy-hw-apple-kernel)-headers" "${__omarchy_requested_packages[@]}")
     fi
-    __omarchy_requested_packages=("$headers" "${__omarchy_requested_packages[@]}")
   elif [[ $id == "install.ai.dictation" ]]; then
     __omarchy_optional_load_arch || return 1
     if [[ $__omarchy_optional_arch != "x86_64" ]]; then

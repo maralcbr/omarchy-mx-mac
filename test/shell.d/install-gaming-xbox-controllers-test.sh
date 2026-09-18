@@ -5,8 +5,8 @@ set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 # xpadneo is a DKMS module, so it builds against the headers of the kernel
-# actually running: linux-headers on stock Arch, linux-asahi-headers on Apple
-# Silicon, where linux-headers would not match the Asahi kernel.
+# actually running. The Omarchy and T2 kernels install with their headers, so
+# elsewhere only Apple Silicon adds its kernel's; linux-headers matches neither.
 
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
@@ -67,9 +67,9 @@ run_install() {
 
 run_install >"$test_tmp/out" 2>"$test_tmp/err" ||
   fail "installing Xbox controller support fails" "$(<"$test_tmp/err")"
-grep -qx 'omarchy-pkg-add linux-headers xpadneo-dkms' "$calls" ||
-  fail "stock Arch does not build xpadneo against linux-headers" "$(<"$calls")"
-pass "xpadneo builds against linux-headers on stock Arch"
+grep -qx 'omarchy-pkg-add xpadneo-dkms' "$calls" ||
+  fail "outside Apple Silicon only xpadneo is added, against the installed kernel's headers" "$(<"$calls")"
+pass "outside Apple Silicon xpadneo builds against the headers the kernel installed with"
 
 APPLE_SILICON=1 run_install >"$test_tmp/out" 2>"$test_tmp/err" ||
   fail "installing Xbox controller support on Apple Silicon fails" "$(<"$test_tmp/err")"
