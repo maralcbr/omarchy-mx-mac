@@ -82,6 +82,12 @@ write_stub omarchy-hw-apple-silicon '#!/bin/bash
 '
 
 write_stub omarchy-apple-silicon-channel '#!/bin/bash
+if [[ $1 == "switch" ]]; then
+  held=no
+  omarchy-update-lock held && held=yes
+  printf "switch\t%s\tupdate-lock=%s\n" "$2" "$held" >>"$OMARCHY_CHANNEL_TEST_LOG"
+  exit "${OMARCHY_TEST_SWITCH_STATUS:-0}"
+fi
 [[ $* == "current" ]] || exit 2
 printf "%s\n" "${OMARCHY_TEST_APPLE_CHANNEL:-unknown}"
 '
@@ -98,7 +104,8 @@ esac
 
 run_channel() {
   : >"$log_file"
-  OMARCHY_CHANNEL_TEST_LOG="$log_file" \
+  XDG_RUNTIME_DIR="$test_tmp" \
+    OMARCHY_CHANNEL_TEST_LOG="$log_file" \
     OMARCHY_PATH="${OMARCHY_TEST_PATH:-/usr/share/omarchy}" \
     HOME="$test_tmp/home" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
@@ -205,3 +212,25 @@ pass "current channel on Apple Silicon comes from the channel record, not the in
 [[ $(OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=rc current_channel edge dev "$test_tmp/dev-checkout") == "dev" ]] ||
   fail "a dev checkout on Apple Silicon is still dev"
 pass "a dev checkout on Apple Silicon is still reported as dev"
+
+# On a Mac, rc and edge are Aurora lanes: the switch is recorded under the
+# update lock, which is released before the update that applies it takes it again.
+for lane in edge rc; do
+  OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=rc run_channel "$lane"
+  [[ $(cat "$log_file") == "switch"$'\t'"$lane"$'\tupdate-lock=yes\nupdate\t-y\tOMARCHY_PATH=/usr/share/omarchy' ]] ||
+    fail "$lane on Apple Silicon records the switch under the update lock, then updates" "$(cat "$log_file")"
+done
+pass "rc and edge on Apple Silicon record the switch under the update lock and then run the update"
+
+if OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_SWITCH_STATUS=2 run_channel edge 2>/dev/null; then
+  fail "a refused switch fails omarchy-channel-set"
+fi
+[[ $(cat "$log_file") == "switch"$'\t'"edge"$'\tupdate-lock=yes' ]] || fail "a refused switch runs no update" "$(cat "$log_file")"
+for refused in stable dev; do
+  if OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=edge run_channel "$refused" 2>"$test_tmp/refused.err"; then
+    fail "$refused is refused on Apple Silicon"
+  fi
+  [[ ! -s $log_file ]] || fail "$refused on Apple Silicon changes nothing" "$(cat "$log_file")"
+  grep -Fq "this Mac follows edge" "$test_tmp/refused.err" || fail "$refused on Apple Silicon names the channel this Mac follows" "$(cat "$test_tmp/refused.err")"
+done
+pass "a refused switch, stable and dev change nothing on Apple Silicon"
