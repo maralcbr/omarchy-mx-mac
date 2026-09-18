@@ -20,6 +20,7 @@ nvim_config="$home/.config/nvim"
 lazy_dir="$home/.local/share/nvim/lazy"
 themes="$nvim_config/lua/plugins/all-themes.lua"
 lockfile="$nvim_config/lazy-lock.json"
+skel_lazy_dir="$test_dir/skel/lazy"
 
 # Upstream plugins with two tagged releases and an unreleased tip.
 for origin in main-origin trunk-origin; do
@@ -66,8 +67,14 @@ return {
 EOF
 }
 
+# omarchy-nvim 2026.8.1-2 ships each seeded plugin with origin/HEAD in /etc/skel.
+skel_origin_head() {
+  mkdir -p "$skel_lazy_dir/$1/.git/refs/remotes/origin"
+  printf 'ref: refs/remotes/origin/%s\n' "$2" >"$skel_lazy_dir/$1/.git/refs/remotes/origin/HEAD"
+}
+
 reset_home() {
-  rm -rf "$home"
+  rm -rf "$home" "$test_dir/skel"
   mkdir -p "$nvim_config/lua/plugins" "$lazy_dir"
   old_themes >"$themes"
   printf '{' >"$lockfile"
@@ -77,6 +84,7 @@ reset_home() {
   seed_plugin remote-trunk.nvim trunk-origin v1.0.0
   seed_plugin offline.nvim main-origin v2.0.0
   git -C "$lazy_dir/offline.nvim" remote set-url origin "file://$test_dir/unreachable"
+  skel_origin_head offline.nvim stable
 
   # A plugin lazy cloned itself still has origin/HEAD, wherever it points.
   git clone -q "file://$test_dir/main-origin" "$lazy_dir/healthy.nvim"
@@ -84,7 +92,7 @@ reset_home() {
 }
 
 run_migration() {
-  HOME="$home" bash -euo pipefail "$migration" >"$test_dir/out" 2>&1 ||
+  HOME="$home" OMARCHY_NVIM_SKEL_LAZY_DIR="$skel_lazy_dir" bash -euo pipefail "$migration" >"$test_dir/out" 2>&1 ||
     fail "migration succeeds" "$(cat "$test_dir/out")"
 }
 
@@ -110,6 +118,7 @@ reset_home
 branch_head=$(git -C "$lazy_dir/branch.nvim" rev-parse HEAD)
 pinned_head=$(git -C "$lazy_dir/pinned.nvim" rev-parse HEAD)
 trunk_head=$(git -C "$lazy_dir/remote-trunk.nvim" rev-parse HEAD)
+offline_head=$(git -C "$lazy_dir/offline.nvim" rev-parse HEAD)
 run_migration
 
 [[ $(origin_head branch.nvim) == 'ref: refs/remotes/origin/main' ]] ||
@@ -133,11 +142,11 @@ pass "a plugin on its branch gets origin/HEAD from its local branch"
 [[ -z $(git -C "$lazy_dir/pinned.nvim" tag) ]] || fail "the repair fetches no tags"
 pass "a release-pinned plugin gets origin/HEAD from its remote"
 
-[[ ! -e $lazy_dir/offline.nvim/.git/refs/remotes/origin/HEAD ]] ||
-  fail "an unreachable plugin is left alone"
-grep -Fq 'Skipped offline.nvim: could not determine its default branch' "$test_dir/out" ||
-  fail "an unreachable plugin is skipped with a note" "$(cat "$test_dir/out")"
-pass "an unreachable plugin is skipped with a note, not a failed migration"
+[[ $(origin_head offline.nvim) == 'ref: refs/remotes/origin/stable' ]] ||
+  fail "an unreachable plugin takes its branch from the package's skel copy" "$(origin_head offline.nvim)"
+[[ $(git -C "$lazy_dir/offline.nvim" rev-parse refs/remotes/origin/stable) == "$offline_head" ]] ||
+  fail "an unreachable plugin gets origin/stable at its checked-out commit"
+pass "an unreachable plugin takes its branch from the package's skel copy, offline"
 
 [[ $(origin_head healthy.nvim) == 'ref: refs/remotes/origin/elsewhere' ]] ||
   fail "a plugin that has origin/HEAD is left alone" "$(origin_head healthy.nvim)"
@@ -157,7 +166,52 @@ backups=("$lockfile".backup.*)
 [[ ${backups[0]} =~ \.backup\.[0-9]{8}-[0-9]{6}$ ]] || fail "the lockfile backup is timestamped" "${backups[0]}"
 pass "a half-written lockfile is moved aside to a timestamped backup"
 
+# ------------------------------------------------------------- retry offline
+
+# Through the runner: a plugin nothing can name stays broken, so the migration
+# must stay pending until a later run, back online, repairs it.
+runner_root="$test_dir/omarchy"
+marker="$home/.local/state/omarchy/migrations/1789701737.sh"
+mkdir -p "$runner_root/bin" "$runner_root/migrations"
+printf '#!/bin/bash\nexit 0\n' >"$runner_root/bin/omarchy-hw-apple-silicon"
+chmod +x "$runner_root/bin/omarchy-hw-apple-silicon"
+cp "$migration" "$runner_root/migrations/"
+
+run_runner() {
+  HOME="$home" OMARCHY_PATH="$runner_root" OMARCHY_NVIM_SKEL_LAZY_DIR="$skel_lazy_dir" \
+    "$ROOT/bin/omarchy-migrate" "$@" >"$test_dir/runner.out" 2>&1
+}
+
+reset_home
+rm -rf "$skel_lazy_dir/offline.nvim"
+run_runner && fail "a plugin with no known branch fails the migration" "$(cat "$test_dir/runner.out")"
+[[ ! -e $marker ]] || fail "a failed repair leaves the migration pending"
+grep -Fq 'Could not determine the default branch of offline.nvim (offline?); this migration will retry.' "$test_dir/runner.out" ||
+  fail "a failed repair says it will retry" "$(cat "$test_dir/runner.out")"
+[[ ! -e $lazy_dir/offline.nvim/.git/refs/remotes/origin/HEAD ]] || fail "a plugin with no known branch is left alone"
+[[ $(origin_head pinned.nvim) == 'ref: refs/remotes/origin/main' ]] ||
+  fail "one failed plugin does not hold back the others" "$(origin_head pinned.nvim)"
+grep -Fq '"loctvl842/monokai-pro.nvim"' "$themes" && [[ ! -e $lockfile ]] ||
+  fail "one failed plugin does not hold back the theme and lockfile repairs"
+run_runner --pending || fail "a failed repair is listed as pending"
+[[ $(<"$test_dir/runner.out") == 1789701737.sh ]] ||
+  fail "the pending list names the migration" "$(cat "$test_dir/runner.out")"
+pass "an unresolved plugin fails the migration and leaves it pending, after the other repairs"
+
+git -C "$lazy_dir/offline.nvim" remote set-url origin "file://$test_dir/main-origin"
+run_runner || fail "the retry succeeds once the remote is reachable" "$(cat "$test_dir/runner.out")"
+[[ -e $marker ]] || fail "a successful retry settles the migration"
+[[ $(origin_head offline.nvim) == 'ref: refs/remotes/origin/main' ]] ||
+  fail "the retry repairs the plugin from its remote" "$(origin_head offline.nvim)"
+status=0
+run_runner --pending || status=$?
+(( status == 1 )) || fail "nothing is pending after the retry" "status $status: $(cat "$test_dir/runner.out")"
+pass "the retry repairs the plugin once online and settles the migration"
+
 # ---------------------------------------------------------------- idempotence
+
+reset_home
+run_migration
 
 before=$(snapshot)
 run_migration

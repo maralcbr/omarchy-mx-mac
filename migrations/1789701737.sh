@@ -2,8 +2,17 @@ echo "Repair the Neovim plugin cache and lockfile seeded by omarchy-nvim 2026.8.
 
 nvim_config="$HOME/.config/nvim"
 lazy_dir="$HOME/.local/share/nvim/lazy"
+skel_lazy_dir="${OMARCHY_NVIM_SKEL_LAZY_DIR:-/etc/skel/.local/share/nvim/lazy}"
 
 [[ -d $nvim_config && -d $lazy_dir ]] || exit 0
+
+# omarchy-nvim 2026.8.1-2, installed before migrations run, seeds each plugin
+# with origin/HEAD. Read the file: git refuses a repository owned by root.
+skel_default_branch() {
+  local head="$skel_lazy_dir/$1/.git/refs/remotes/origin/HEAD"
+
+  [[ -f $head ]] && sed -n 's|^ref: refs/remotes/origin/||p' "$head"
+}
 
 remote_default_branch() {
   local plugin="$1"
@@ -21,7 +30,8 @@ restore_origin_head() {
   local branch head
 
   branch=$(git -C "$plugin" symbolic-ref --quiet --short HEAD) ||
-    branch=$(remote_default_branch "$plugin") || return 1
+    branch=$(skel_default_branch "${plugin##*/}") || branch=""
+  [[ -n $branch ]] || branch=$(remote_default_branch "$plugin") || return 1
   [[ -n $branch ]] || return 1
   head=$(git -C "$plugin" rev-parse --verify --quiet HEAD) || return 1
 
@@ -30,13 +40,14 @@ restore_origin_head() {
   git -C "$plugin" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch"
 }
 
+unresolved=0
 for git_dir in "$lazy_dir"/*/.git; do
   [[ -d $git_dir && ! -e $git_dir/refs/remotes/origin/HEAD ]] || continue
   plugin=${git_dir%/.git}
 
   if ! restore_origin_head "$plugin"; then
-    echo "Skipped ${plugin##*/}: could not determine its default branch (offline?). Once online, run:"
-    echo "  git -C \"$plugin\" fetch origin && git -C \"$plugin\" remote set-head origin --auto"
+    echo "Could not determine the default branch of ${plugin##*/} (offline?); this migration will retry." >&2
+    unresolved=1
   fi
 done
 
@@ -53,3 +64,6 @@ if [[ -f $lockfile ]] && ! jq -e true "$lockfile" >/dev/null 2>&1; then
   echo "Moving the broken $lockfile to $backup"
   mv "$lockfile" "$backup"
 fi
+
+# Leave the migration pending so the next run retries what is still broken.
+(( ! unresolved ))
