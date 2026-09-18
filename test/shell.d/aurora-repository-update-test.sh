@@ -265,6 +265,14 @@ fi
 SH
 cat >"$stub_bin/pacman" <<'SH'
 #!/bin/bash
+if [[ $1 == "-Qi" || $1 == "-Si" ]]; then
+  groups=()
+  for entry in ${TEST_GROUPS:-}; do
+    [[ ${entry%%:*} != "$2" ]] || groups+=("${entry#*:}")
+  done
+  printf 'Name            : %s\nGroups          : %s\n' "$2" "${groups[*]:-None}"
+  exit 0
+fi
 if [[ $* == "-Qq" ]]; then
   printf '%s\n' $TEST_INSTALLED
   exit 0
@@ -293,6 +301,7 @@ run_status() {
     OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT="${TEST_CHANNEL_LOCK_TIMEOUT:-10}" \
     TEST_KEY_STATE="$test_tmp/key-trusted" \
     TEST_INSTALLED="${TEST_INSTALLED-linux-aurora linux-aurora-headers m1n1-aurora}" \
+    TEST_GROUPS="${TEST_GROUPS:-}" \
     OMARCHY_AURORA_ROOT="$root" \
     OMARCHY_PATH="${TEST_OMARCHY_PATH:-$omarchy_path}" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
@@ -626,13 +635,17 @@ run_status
 expect_repinned "the IgnorePkg hold is preserved while the section is added"
 grep -Fq 'holds linux-aurora linux-aurora-headers, so omarchy update cannot install a newer Aurora kernel until that hold is removed' "$test_tmp/err" ||
   fail "the hold is named with what it blocks" "$(cat "$test_tmp/err")"
+{ options_conf 'IgnoreGroup = asahi-*'; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+reset_run
+TEST_GROUPS="m1n1-aurora:asahi-boot" run_status
+(( status == 0 )) || fail "a current repository with a glob hold is a no-op" "status $status"
+grep -Fq 'holds m1n1-aurora,' "$test_tmp/err" || fail "a glob hold on a group m1n1-aurora is in is named" "$(cat "$test_tmp/err")"
+expect_untouched "a current repository with a hold"
 { options_conf 'IgnoreGroup = m1n1-*'; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
 reset_run
-run_status
-(( status == 0 )) || fail "a current repository with a glob hold is a no-op" "status $status"
-grep -Fq 'holds m1n1-aurora' "$test_tmp/err" || fail "a glob hold on m1n1-aurora is named" "$(cat "$test_tmp/err")"
-expect_untouched "a current repository with a hold"
-pass "IgnorePkg and IgnoreGroup holds on the Aurora packages are preserved and warned about"
+TEST_GROUPS="m1n1-aurora:asahi-boot" run_status
+! grep -Fq 'holds' "$test_tmp/err" || fail "an IgnoreGroup glob is matched against groups, not package names" "$(cat "$test_tmp/err")"
+pass "IgnorePkg and IgnoreGroup holds on the Aurora packages are preserved and warned about, as pacman applies them"
 
 # The cache goes before the new pin lands, so no failure pairs the new pin with
 # a stale database that a rerun would never revisit.

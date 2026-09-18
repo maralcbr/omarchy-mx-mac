@@ -18,7 +18,8 @@
 # that only know format 1 keep reading it. switch records a requested lane,
 # which omarchy update applies and clears once it has proven the kernel boots;
 # reset-rc does the same for rc whatever the lane file holds. lane, lane-write
-# and stage-descriptor are the updater's, under the lock it already holds.
+# and stage-descriptor are the updater's, under the lock it already holds, and
+# held names the Aurora packages pacman's configuration holds back.
 #
 # Exit 2: the record, its storage, the lock or the evidence cannot be trusted.
 # Exit 3: there is no record, and for ensure none could be inferred.
@@ -221,27 +222,37 @@ print_lane() {
   [[ -z $lane_pending ]] || printf 'edge_pending=%s\n' "$lane_pending"
 }
 
-# pacman.conf holds for the Aurora packages, the way the updater reads them.
+# The Aurora packages pacman holds back, as pacman itself reads its
+# configuration: IgnorePkg and IgnoreGroup wherever they are included from,
+# IgnoreGroup matched against the groups each package is in, installed or in
+# a synced repository. 1 when the configuration cannot be read.
 held_aurora_packages() {
-  local line section="" patterns package pattern held=()
-  local header='^[[:space:]]*\[([^]]+)\][[:space:]]*$' setting='^[[:space:]]*(IgnorePkg|IgnoreGroup)[[:space:]]*=[[:space:]]*(.*)$'
+  local ignored_packages ignored_groups package pattern group held=()
+  local -a groups
 
-  [[ -r $pacman_conf ]] || return 0
-  while IFS= read -r line || [[ -n $line ]]; do
-    if [[ $line =~ $header ]]; then
-      section=${BASH_REMATCH[1]}
-      continue
-    fi
-    [[ $section == options && $line =~ $setting ]] || continue
-    read -ra patterns <<<"${BASH_REMATCH[2]%$'\r'}"
-    for package in linux-aurora linux-aurora-headers m1n1-aurora; do
-      for pattern in "${patterns[@]}"; do
-        if [[ $package == $pattern && " ${held[*]} " != *" $package "* ]]; then
+  ignored_packages=$(pacman-conf --config "$pacman_conf" IgnorePkg 2>/dev/null) || return 1
+  ignored_groups=$(pacman-conf --config "$pacman_conf" IgnoreGroup 2>/dev/null) || return 1
+  for package in linux-aurora linux-aurora-headers m1n1-aurora; do
+    while IFS= read -r pattern; do
+      if [[ -n $pattern && $package == $pattern ]]; then
+        held+=("$package")
+        continue 2
+      fi
+    done <<<"$ignored_packages"
+    [[ -n $ignored_groups ]] || continue
+    mapfile -t groups < <(
+      { LC_ALL=C pacman -Qi "$package" 2>/dev/null || true; LC_ALL=C pacman -Si "$package" 2>/dev/null || true; } |
+        awk -F' : ' '/^Groups +:/ && $2 != "None" { n = split($2, names, / +/); for (i = 1; i <= n; i++) print names[i] }'
+    )
+    for group in "${groups[@]}"; do
+      while IFS= read -r pattern; do
+        if [[ -n $pattern && $group == $pattern ]]; then
           held+=("$package")
+          continue 3
         fi
-      done
+      done <<<"$ignored_groups"
     done
-  done <"$pacman_conf"
+  done
   echo "${held[*]}"
 }
 
@@ -398,7 +409,7 @@ case "$command" in
   hold) (( $# == 2 )) || { usage >&2; exit 2; } ;;
   locked) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
   verify-locked) (( $# == 1 )) || { usage >&2; exit 2; } ;;
-  lane | reset-rc) (( $# == 1 )) || { usage >&2; exit 2; } ;;
+  lane | reset-rc | held) (( $# == 1 )) || { usage >&2; exit 2; } ;;
   switch) (( $# == 2 )) && [[ $2 == rc || $2 == edge ]] || { usage >&2; exit 2; } ;;
   lane-write) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
   stage-descriptor) (( $# == 2 )) || { usage >&2; exit 2; } ;;
@@ -491,6 +502,9 @@ case "$command" in
     fi
     print_lane
     ;;
+  held)
+    held_aurora_packages || fail "pacman cannot read $pacman_conf"
+    ;;
   lane-write)
     shift
     verify_locked
@@ -537,7 +551,7 @@ case "$command" in
       fail "this Mac runs $record_kernel on $record_channel; rc and edge are the Aurora kernel's, and moving between kernel families is not available"
     [[ -z $record_hold ]] ||
       fail "this Mac's channel is held ($record_hold); omarchy-apple-silicon-channel release lifts the hold"
-    held=$(held_aurora_packages)
+    held=$(held_aurora_packages) || fail "pacman cannot read /etc/pacman.conf, so a hold on the Aurora packages cannot be ruled out"
     [[ -z $held ]] ||
       fail "IgnorePkg/IgnoreGroup in /etc/pacman.conf holds $held; remove that hold before switching"
     if [[ $target == edge && ! -f $verify_hook ]]; then

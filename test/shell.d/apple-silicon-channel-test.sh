@@ -71,6 +71,15 @@ SH
 # provides linux-asahi.
 cat >"$stub_bin/pacman" <<'SH'
 #!/bin/bash
+# Groups come from TEST_GROUPS, as package:group words.
+if [[ $1 == "-Qi" || $1 == "-Si" ]]; then
+  groups=()
+  for entry in ${TEST_GROUPS:-}; do
+    [[ ${entry%%:*} != "$2" ]] || groups+=("${entry#*:}")
+  done
+  printf 'Name            : %s\nGroups          : %s\n' "$2" "${groups[*]:-None}"
+  exit 0
+fi
 if [[ $* == "-Qq" ]]; then
   [[ ${TEST_PACMAN_FAIL:-0} != 1 ]] || exit 1
   printf '%s\n' $TEST_INSTALLED
@@ -842,8 +851,14 @@ switch_refused "a Mac without a record" "$record does not exist yet" edge
 write_record "$rc_record"
 printf '[options]\nIgnorePkg = linux-aurora\n' >"$pacman_conf"
 switch_refused "an IgnorePkg hold on linux-aurora" "IgnorePkg/IgnoreGroup in /etc/pacman.conf holds linux-aurora" edge
-printf '[options]\nIgnoreGroup = m1n1-*\r\n' >"$pacman_conf"
-switch_refused "an IgnoreGroup glob on m1n1-aurora" "holds m1n1-aurora" rc
+mkdir -p "$root/etc/pacman.d"
+printf 'IgnorePkg = linux-aurora-headers\n' >"$root/etc/pacman.d/holds.conf"
+printf '[options]\nArchitecture = aarch64\nInclude = %s\n' "$root/etc/pacman.d/holds.conf" >"$pacman_conf"
+switch_refused "an IgnorePkg hold in an included file" "holds linux-aurora-headers" edge
+printf '[options]\nIgnoreGroup = asahi-*\r\n' >"$pacman_conf"
+TEST_GROUPS="m1n1-aurora:asahi-boot" switch_refused "an IgnoreGroup glob on a group m1n1-aurora is in" "holds m1n1-aurora" rc
+printf '[options]\nInclude = %s\n' "$root/etc/pacman.d/missing.conf" >"$pacman_conf"
+switch_refused "a pacman configuration pacman cannot read" "pacman cannot read /etc/pacman.conf" edge
 printf '[options]\n#IgnorePkg = linux-aurora\n[extra]\nIgnorePkg = linux-aurora-headers\n' >"$pacman_conf"
 rm -f "$verify_hook"
 switch_refused "edge without the verification hook" "does not install $verify_hook" edge
@@ -852,8 +867,12 @@ write_lane 'format=1\nlane=edge\nsurprise=1\n'
 switch_refused "a malformed lane file" "has unknown key surprise; omarchy-apple-silicon-channel reset-rc" rc
 rm -f "$lane_file" "$test_tmp/lane-before"
 [[ ! -e $lane_file ]] || fail "refusals write no lane file"
-pass "switch needs the update lock and refuses holds, stable, invalid records, pacman holds, a missing hook and a malformed lane without writing"
+pass "switch needs the update lock and refuses holds, stable, invalid records, pacman holds as pacman reads them, a missing hook and a malformed lane without writing"
 
+lane_reset
+printf '[options]\nIgnoreGroup = m1n1-*\n' >"$pacman_conf"
+TEST_GROUPS="m1n1-aurora:asahi-boot" run_under_update_lock switch edge
+(( status == 0 )) || fail "an IgnoreGroup pattern matching no group of the Aurora packages holds nothing" "status $status: $(cat "$test_tmp/err")"
 lane_reset
 run_under_update_lock switch edge
 (( status == 0 )) || fail "an rc Mac switches to edge" "status $status: $(cat "$test_tmp/err")"
@@ -922,3 +941,14 @@ rm -f "$lane_file"
 TEST_INSTALLED="$asahi_installed" run reset-rc
 (( status == 2 )) && [[ ! -e $lane_file ]] || fail "reset-rc refuses a stable Mac" "status $status"
 pass "reset-rc writes lane=rc switch=rc, keeps edge history, repairs malformed content and refuses what is not a file"
+
+# held reports what pacman holds, the way the updater warns about it.
+lane_reset
+printf 'IgnorePkg = linux-aurora*\n' >"$root/etc/pacman.d/holds.conf"
+printf '[options]\nInclude = %s\nIgnoreGroup = kernels\n' "$root/etc/pacman.d/holds.conf" >"$pacman_conf"
+TEST_GROUPS="m1n1-aurora:kernels" run held
+expect_output "held through an Include and a group" 0 'linux-aurora linux-aurora-headers m1n1-aurora\n'
+printf '[options]\nIgnoreGroup = linux-aurora\n' >"$pacman_conf"
+run held
+expect_output "an IgnoreGroup naming a package, not a group" 0 '\n'
+pass "held follows Include and matches IgnoreGroup against real groups, not package names"

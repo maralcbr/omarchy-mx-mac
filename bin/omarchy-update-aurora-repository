@@ -187,26 +187,11 @@ done
 
 # A hold outlives any repin: pacman keeps the kernel it has. The hold was put
 # there on purpose, so it stays; say plainly what it blocks.
-held=()
-section=""
-for line in "${lines[@]}"; do
-  if [[ $line =~ $header ]]; then
-    section=${BASH_REMATCH[1]}
-    continue
+if [[ $mode == update ]]; then
+  held=$(omarchy-apple-silicon-channel held 2>/dev/null) || held=""
+  if [[ -n $held ]]; then
+    echo -e "\e[33mIgnorePkg/IgnoreGroup in /etc/pacman.conf holds $held, so omarchy update cannot install a newer Aurora kernel until that hold is removed.\e[0m" >&2
   fi
-  [[ $section == "options" && $line =~ $setting ]] || continue
-  [[ ${BASH_REMATCH[1]} == "IgnorePkg" || ${BASH_REMATCH[1]} == "IgnoreGroup" ]] || continue
-  read -ra patterns <<<"${BASH_REMATCH[2]%$'\r'}"
-  for package in "${aurora_packages[@]}"; do
-    for pattern in "${patterns[@]}"; do
-      if [[ $package == $pattern && " ${held[*]} " != *" $package "* ]]; then
-        held+=("$package")
-      fi
-    done
-  done
-done
-if (( ${#held[@]} )) && [[ $mode == update ]]; then
-  echo -e "\e[33mIgnorePkg/IgnoreGroup in /etc/pacman.conf holds ${held[*]}, so omarchy update cannot install a newer Aurora kernel until that hold is removed.\e[0m" >&2
 fi
 
 # The first line of the run of comments sitting directly on top of line $1.
