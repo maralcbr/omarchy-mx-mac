@@ -165,6 +165,20 @@ repositories. A fresh install cannot start until the package channel pointer or
 the release listing names a channel, and that channel's stable set is what it
 installs from.
 
+`omarchy-install-asahi-fresh --deferred-user` is the unattended mode for a
+bootstrap image's first boot; `install-omarchy-mx-mac.sh` and
+`install-omarchy-mx-mac` forward the flag unchanged. It asks for no username or
+terminal and creates no account: root system setup runs as
+`omarchy-apply-system --defer-provisioning --first-install`, and
+`omarchy-provision-owner` creates the owner afterwards, as on an image install.
+Its checkpoint is keyed on a fixed `deferred` identity, so a named install can
+never resume it or the reverse. Instead of requiring the kernel and GRUB
+configuration to stay byte-identical across retries, every attempt reruns
+`mkinitcpio -P`, `update-grub` and `update-m1n1`, then checks that
+`/boot/vmlinuz-<kernel>` is the installed package's image, that the initramfs
+carries its modules and that `grub.cfg` boots both. It ends without a reboot
+instruction.
+
 **Never withdraw the bootstrap package release.**
 `asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24` is what
 `install/hardware/pacman.sh` still writes on paths with no `[omarchy]` section

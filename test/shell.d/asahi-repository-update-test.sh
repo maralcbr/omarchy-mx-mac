@@ -1206,14 +1206,17 @@ if (( EUID != 0 )); then
 else
   require_command bsdtar
   fresh_installer="$ROOT/bin/omarchy-install-asahi-fresh"
-  configure_function=$(sed -n '/^configure_package_repository() {$/,/^}$/p' "$fresh_installer")
-  [[ -n $configure_function ]] || fail "the fresh installer defines its repository bootstrap as a function"
+  configure_function=$(sed -n '/^\(runtime_command\|configure_package_repository\)() {$/,/^}$/p' "$fresh_installer")
+  [[ $configure_function == *'configure_package_repository() {'* && $configure_function == *'runtime_command() {'* ]] ||
+    fail "the fresh installer defines its repository bootstrap as functions"
   flow="$test_tmp/flow"
   mkdir -p "$flow/dev/usr/bin" "$flow/settings/usr/share/omarchy/default" "$flow/setup-bin"
   # The runtime puts its usr/bin ahead of the system's, so these stand-ins for
   # the network, gpg, the keyring and pacman shadow the real tools; sudo is the
   # installer's own stand-in.
   cp "$updater" "$flow/dev/usr/bin/omarchy-update-asahi-repository"
+  # With no channel record the installer leaves [omarchy-aurora] alone.
+  cp "$ROOT/bin/omarchy-apple-silicon-channel" "$flow/dev/usr/bin/"
   cp "$stub_bin"/{omarchy-cmd-present,curl,gpg,pacman-key,pacman,pacman-conf} "$flow/dev/usr/bin/"
   cat >"$flow/dev/usr/bin/omarchy-hw-apple-silicon" <<'SH'
 #!/bin/bash
@@ -1241,7 +1244,8 @@ SH
         TEST_API_HITS="$test_tmp/api-hits" TEST_CALLS="$calls" TEST_KEY_STATE="$test_tmp/key-trusted" TEST_POINTER=pointer-3 \
         OMARCHY_ASAHI_TESTING=1 OMARCHY_ASAHI_ROOT="$root" OMARCHY_ASAHI_REPOSITORY_STATE="$state" \
         OMARCHY_ASAHI_PACKAGES_POINTER_URL="$pointer_url" OMARCHY_ASAHI_RELEASES_API_URL="$api_url" \
-        OMARCHY_PROC_ROOT="$root/proc" PATH="$stub_bin:$PATH"
+        OMARCHY_PROC_ROOT="$root/proc" PATH="$stub_bin:$PATH" \
+        OMARCHY_APPLE_SILICON_CHANNEL_ROOT="$root" OMARCHY_APPLE_SILICON_CHANNEL_TESTING=1
       configure_package_repository "$pacman_conf" "$settings_archive" "$dev_archive"
       [[ ! -e $package_runtime_root ]] || fail "the unpacked runtime is removed"
       [[ -z ${OMARCHY_ASAHI_PACKAGE_KEY_FILE:-}${OMARCHY_ASAHI_KEY_FILE:-} ]] || fail "the runtime's key files stay with the updater"

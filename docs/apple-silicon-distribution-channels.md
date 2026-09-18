@@ -318,8 +318,13 @@ are added and locally signed, the cached database is dropped if the `Server`
 changed, and `pacman -Sy` must succeed with `omarchy` first in
 `pacman-conf --repo-list`, or the backup is restored. The state file is written
 only when the final `Server` is the channel's stable set, never for a kept
-candidate or mirror. The installer then checks the order itself and exports the
-final `Server` as `OMARCHY_ASAHI_KEEP_SERVER` for the rest of the run.
+candidate or mirror. When `omarchy-apple-silicon-channel status` reports an rc
+record, the installer then runs the runtime's `omarchy-update-aurora-repository`
+the same way, which pins `[omarchy-aurora]` directly ahead of `[omarchy]`; an
+untrusted record or a failed pin stops the install before any package
+transaction. The installer then checks the order itself (`[omarchy]` first, or
+directly behind `[omarchy-aurora]`) and exports the final `Server` as
+`OMARCHY_ASAHI_KEEP_SERVER` for the rest of the run.
 
 ### The install-time `[omarchy]` pin
 

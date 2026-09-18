@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Install Omarchy on a fresh Asahi Arch system
-# omarchy:args=--asahi-packages DIR [--user USER]
+# omarchy:args=--asahi-packages DIR [--user USER|--deferred-user]
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
@@ -9,6 +9,7 @@ set -euo pipefail
 
 bundle_dir=""
 target_user=""
+deferred_user=0
 state_dir=/var/lib/omarchy/fresh-install
 
 fail() {
@@ -17,7 +18,7 @@ fail() {
 }
 
 usage() {
-  echo "Usage: omarchy-install-asahi-fresh --asahi-packages DIR [--user USER]" >&2
+  echo "Usage: omarchy-install-asahi-fresh --asahi-packages DIR [--user USER|--deferred-user]" >&2
 }
 
 retry() {
@@ -35,14 +36,30 @@ record_target_home_owner() {
   mv "$target_home/.omarchy-fresh-install-owner.tmp" "$target_home/.omarchy-fresh-install-owner"
 }
 
+# Runs one of the verified runtime's own commands before the runtime is
+# installed. Only these commands see the sudo stand-in and the runtime's key
+# files; everything else is inherited, including OMARCHY_PROC_ROOT for a VM's
+# Apple fixture.
+runtime_command() {
+  local defaults="$package_runtime_root/usr/share/omarchy/default"
+
+  env \
+    PATH="$package_runtime_root/sudo:$package_runtime_root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/bin" \
+    OMARCHY_PATH="$package_runtime_root/usr/share/omarchy" \
+    OMARCHY_ASAHI_KEY_FILE="$defaults/omarchy-release.gpg" \
+    OMARCHY_ASAHI_PACKAGE_KEY_FILE="$defaults/omarchy-arm-repository.asc" \
+    "$@"
+}
+
 # A clean Asahi Arch system has no [omarchy] repository. Without one ahead of
 # Arch Linux ARM, the first transaction finds no Omarchy-built package and
 # takes Hyprland from Arch Linux ARM. The verified runtime's own repository
 # updater configures it, with the same checks it applies on installed Macs.
-# Only that one command sees the sudo stand-in and the runtime's key files.
+# An rc Mac also takes its kernel and m1n1 from [omarchy-aurora], which only
+# the runtime's Aurora updater pins, directly ahead of [omarchy].
 configure_package_repository() {
   local pacman_conf="$1" settings_archive="$2" omarchy_archive="$3"
-  local archive updater defaults repositories server
+  local archive updater defaults repositories server channel_record channel_status=0
 
   package_runtime_root=$(mktemp -d)
   trap 'rm -rf "$package_runtime_root"' EXIT
@@ -64,19 +81,27 @@ EOF
   chmod 0755 "$package_runtime_root/sudo/sudo"
 
   echo "Configuring the signed Apple Silicon package repository"
-  # Everything else is inherited, including OMARCHY_PROC_ROOT for a VM's Apple fixture.
-  env \
-    PATH="$package_runtime_root/sudo:$package_runtime_root/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/bin" \
-    OMARCHY_PATH="$package_runtime_root/usr/share/omarchy" \
-    OMARCHY_ASAHI_KEY_FILE="$defaults/omarchy-release.gpg" \
-    OMARCHY_ASAHI_PACKAGE_KEY_FILE="$defaults/omarchy-arm-repository.asc" \
-    "$updater" --yes --bootstrap ||
+  runtime_command "$updater" --yes --bootstrap ||
     fail "Could not configure the signed Apple Silicon package repository; no packages were installed"
+
+  channel_record=$(runtime_command omarchy-apple-silicon-channel status) || channel_status=$?
+  case $channel_status in
+    0) ;;
+    3) channel_record="" ;;
+    *) fail "This Mac's Apple Silicon channel record cannot be trusted; no packages were installed" ;;
+  esac
+  if grep -Fxq channel=rc <<<"$channel_record"; then
+    echo "Pinning the Aurora kernel repository"
+    runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
+      fail "Could not pin the Aurora kernel repository; no packages were installed"
+  fi
   rm -rf "$package_runtime_root"
   trap - EXIT
 
   repositories=$(pacman-conf --config "$pacman_conf" --repo-list) || fail "Could not read the configured repositories"
-  [[ ${repositories%%$'\n'*} == "omarchy" ]] || fail "The [omarchy] repository must come before every other repository"
+  [[ ${repositories%%$'\n'*} != "omarchy-aurora" ]] || repositories=${repositories#omarchy-aurora$'\n'}
+  [[ ${repositories%%$'\n'*} == "omarchy" ]] ||
+    fail "The [omarchy] repository must come before every other repository, except an [omarchy-aurora] directly ahead of it"
   server=$(awk '
     /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; next }
     inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
@@ -86,6 +111,30 @@ EOF
   # System setup rewrites [omarchy] through install/hardware/pacman.sh, which
   # would otherwise swap a kept candidate or mirror for its own default.
   export OMARCHY_ASAHI_KEEP_SERVER="$server"
+}
+
+# The builder's GRUB and boot files are the image's, not this install's: a
+# deferred install regenerates them on every attempt and checks what it made
+# against the installed kernel package.
+regenerate_boot_files() {
+  update-grub || fail "Could not regenerate the GRUB configuration"
+  update-m1n1 || fail "Could not regenerate the m1n1 boot image"
+}
+
+verify_boot_files() {
+  local kernel_files kernel_version initramfs_files
+
+  kernel_files=$(pacman -Qlq "$kernel_package") || fail "Could not list the files of $kernel_package"
+  kernel_version=$(sed -n 's|^/usr/lib/modules/\([^/]*\)/vmlinuz$|\1|p' <<<"$kernel_files")
+  [[ -n $kernel_version && $kernel_version != *$'\n'* ]] || fail "Could not identify the installed $kernel_package kernel"
+  cmp -s "/boot/vmlinuz-$kernel_package" "/usr/lib/modules/$kernel_version/vmlinuz" ||
+    fail "/boot/vmlinuz-$kernel_package is not the installed $kernel_package kernel"
+  initramfs_files=$(lsinitcpio -l "/boot/initramfs-$kernel_package.img") ||
+    fail "Could not read the $kernel_package initramfs"
+  grep -Fq "usr/lib/modules/$kernel_version/" <<<"$initramfs_files" ||
+    fail "The $kernel_package initramfs does not carry the modules of $kernel_version"
+  grep -Fq "vmlinuz-$kernel_package" /boot/grub/grub.cfg && grep -Fq "initramfs-$kernel_package.img" /boot/grub/grub.cfg ||
+    fail "The GRUB configuration does not boot $kernel_package"
 }
 
 while (($#)); do
@@ -100,6 +149,10 @@ while (($#)); do
       target_user="$2"
       shift 2
       ;;
+    --deferred-user)
+      deferred_user=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -110,6 +163,7 @@ while (($#)); do
   esac
 done
 
+(( ! deferred_user )) || [[ -z $target_user ]] || fail "--user and --deferred-user cannot be combined"
 (( EUID == 0 )) || fail "Run the fresh installer as root"
 [[ -d $bundle_dir ]] || fail "The verified package directory is unavailable"
 [[ -n ${OMARCHY_ASAHI_PACKAGE_SOURCE:-} ]] || fail "Missing verified package source commit"
@@ -150,12 +204,18 @@ for package in "${expected_packages[@]}"; do
   archives+=("${filtered[0]}")
 done
 
-if [[ -z $target_user ]]; then
-  tty </dev/tty >/dev/null 2>&1 || fail "--user is required without an interactive terminal"
-  read -rp "Omarchy username: " target_user </dev/tty
+# A deferred install creates no account: omarchy-provision-owner creates the
+# owner on first boot, as it does for an image install.
+checkpoint_identity="identity=deferred"
+if (( ! deferred_user )); then
+  if [[ -z $target_user ]]; then
+    tty </dev/tty >/dev/null 2>&1 || fail "--user is required without an interactive terminal"
+    read -rp "Omarchy username: " target_user </dev/tty
+  fi
+  [[ $target_user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail "Invalid username: $target_user"
+  [[ $target_user != "root" ]] || fail "The Omarchy user cannot be root"
+  checkpoint_identity="user=$target_user"
 fi
-[[ $target_user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail "Invalid username: $target_user"
-[[ $target_user != "root" ]] || fail "The Omarchy user cannot be root"
 release_sequence=${OMARCHY_ASAHI_RELEASE_SEQUENCE:?Missing release sequence}
 release_tag=${OMARCHY_ASAHI_RELEASE_TAG:?Missing release tag}
 release_source=${OMARCHY_ASAHI_RELEASE_SOURCE:?Missing release source}
@@ -163,7 +223,7 @@ release_source=${OMARCHY_ASAHI_RELEASE_SOURCE:?Missing release source}
 [[ $release_tag == asahi-quattro-* && $release_tag != */* ]] || fail "Invalid signed Asahi release tag"
 [[ $release_source =~ ^[0-9a-f]{40}$ ]] || fail "Invalid signed Asahi release source"
 expected_state=$(printf '%s\n' \
-  "user=$target_user" \
+  "$checkpoint_identity" \
   "sequence=$release_sequence" \
   "tag=$release_tag" \
   "source_commit=$release_source" \
@@ -185,23 +245,25 @@ if [[ -e $state_dir ]]; then
   if [[ -f $state_dir/completing ]]; then
     [[ -f /var/lib/omarchy/asahi-quattro-release && $(< /var/lib/omarchy/asahi-quattro-release) == "$expected_release" ]] ||
       fail "The completed installation release marker is invalid"
-    getent passwd "$target_user" >/dev/null || fail "The completed installation target user is unavailable"
-    IFS=: read -r _ _ target_uid _ target_comment target_home target_shell < <(getent passwd "$target_user")
-    target_identity="$target_user:$target_uid:$target_home:$target_shell:$owner_token"
-    [[ -f $state_dir/target-user && $(<"$state_dir/target-user") == "$target_identity" ]] ||
-      fail "The completed installation target user is invalid"
-    [[ $target_comment == "$owner_token" || -z $target_comment ]] || fail "The completed installation target user is invalid"
-    if [[ -e $target_home/.omarchy-fresh-install-owner ]]; then
-      [[ -f $target_home/.omarchy-fresh-install-owner && $(<"$target_home/.omarchy-fresh-install-owner") == "$owner_token" ]] ||
-        fail "The completed installation target home is invalid"
-      rm -f "$target_home/.omarchy-fresh-install-owner"
+    if (( ! deferred_user )); then
+      getent passwd "$target_user" >/dev/null || fail "The completed installation target user is unavailable"
+      IFS=: read -r _ _ target_uid _ target_comment target_home target_shell < <(getent passwd "$target_user")
+      target_identity="$target_user:$target_uid:$target_home:$target_shell:$owner_token"
+      [[ -f $state_dir/target-user && $(<"$state_dir/target-user") == "$target_identity" ]] ||
+        fail "The completed installation target user is invalid"
+      [[ $target_comment == "$owner_token" || -z $target_comment ]] || fail "The completed installation target user is invalid"
+      if [[ -e $target_home/.omarchy-fresh-install-owner ]]; then
+        [[ -f $target_home/.omarchy-fresh-install-owner && $(<"$target_home/.omarchy-fresh-install-owner") == "$owner_token" ]] ||
+          fail "The completed installation target home is invalid"
+        rm -f "$target_home/.omarchy-fresh-install-owner"
+      fi
+      [[ -z $target_comment ]] || usermod --comment "" "$target_user"
     fi
-    [[ -z $target_comment ]] || usermod --comment "" "$target_user"
     rm -rf "$state_dir"
     echo "Fresh Omarchy 4 installation completion recovered"
     exit 0
   fi
-  if getent passwd "$target_user" >/dev/null; then
+  if (( ! deferred_user )) && getent passwd "$target_user" >/dev/null; then
     IFS=: read -r _ _ target_uid _ target_comment target_home target_shell < <(getent passwd "$target_user")
     target_identity="$target_user:$target_uid:$target_home:$target_shell:$owner_token"
     [[ -f $state_dir/target-user && $(<"$state_dir/target-user") == "$target_identity" ]] ||
@@ -213,16 +275,16 @@ if [[ -e $state_dir ]]; then
     else
       record_target_home_owner
     fi
-  elif [[ -e $state_dir/target-user ]]; then
+  elif (( ! deferred_user )) && [[ -e $state_dir/target-user ]]; then
     IFS=: read -r recorded_user target_uid target_home target_shell recorded_token <"$state_dir/target-user"
     [[ $recorded_user == "$target_user" && $target_uid =~ ^[0-9]+$ && $target_home == "/home/$target_user" &&
       $target_shell == "/bin/bash" && $recorded_token == "$owner_token" ]] ||
       fail "The target user checkpoint is invalid"
   fi
-elif getent passwd "$target_user" >/dev/null; then
+elif (( ! deferred_user )) && getent passwd "$target_user" >/dev/null; then
   fail "User already exists outside this release installation: $target_user"
 fi
-tty </dev/tty >/dev/null 2>&1 || fail "A controlling terminal is required to set the user password"
+(( deferred_user )) || tty </dev/tty >/dev/null 2>&1 || fail "A controlling terminal is required to set the user password"
 
 backup_dir="/var/lib/omarchy/backups/fresh-$(date +%Y%m%d%H%M%S)"
 install -d -m 0700 "$backup_dir"
@@ -232,8 +294,11 @@ pacman -Q >"$backup_dir/installed-packages.txt"
 if [[ -d $state_dir ]]; then
   asahi_kernel_sha256=$(<"$state_dir/asahi-kernel.sha256")
   grub_sha256=$(<"$state_dir/grub.sha256")
-  sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed after the interrupted installation"
-  sha256sum --check --status <<<"$grub_sha256" || fail "The GRUB configuration changed after the interrupted installation"
+  # A deferred install regenerates its boot files and checks those instead.
+  if (( ! deferred_user )); then
+    sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed after the interrupted installation"
+    sha256sum --check --status <<<"$grub_sha256" || fail "The GRUB configuration changed after the interrupted installation"
+  fi
 else
   asahi_kernel_sha256=$(sha256sum "/boot/vmlinuz-$kernel_package")
   grub_sha256=$(sha256sum /boot/grub/grub.cfg)
@@ -280,65 +345,79 @@ pacman -Syu --needed --noconfirm --ignore "$kernel_package,$kernel_package-heade
 echo "Installing the verified six-package Omarchy release"
 pacman -U --needed --noconfirm "${archives[@]}"
 
-if ! getent passwd "$target_user" >/dev/null; then
-  if [[ ! -f $state_dir/target-user ]]; then
-    uid_min=$(awk '$1 == "UID_MIN" { print $2; exit }' /etc/login.defs)
-    uid_max=$(awk '$1 == "UID_MAX" { print $2; exit }' /etc/login.defs)
-    [[ $uid_min =~ ^[0-9]+$ && $uid_max =~ ^[0-9]+$ ]] || fail "Could not read the user ID range"
-    target_uid=$uid_min
-    while getent passwd "$target_uid" >/dev/null; do
-      ((target_uid++))
-      (( target_uid <= uid_max )) || fail "No user ID is available for $target_user"
-    done
-    target_home="/home/$target_user"
-    target_shell=/bin/bash
-    target_identity="$target_user:$target_uid:$target_home:$target_shell:$owner_token"
-    printf '%s\n' "$target_identity" >"$state_dir/.target-user.tmp"
-    mv "$state_dir/.target-user.tmp" "$state_dir/target-user"
+if (( ! deferred_user )); then
+  if ! getent passwd "$target_user" >/dev/null; then
+    if [[ ! -f $state_dir/target-user ]]; then
+      uid_min=$(awk '$1 == "UID_MIN" { print $2; exit }' /etc/login.defs)
+      uid_max=$(awk '$1 == "UID_MAX" { print $2; exit }' /etc/login.defs)
+      [[ $uid_min =~ ^[0-9]+$ && $uid_max =~ ^[0-9]+$ ]] || fail "Could not read the user ID range"
+      target_uid=$uid_min
+      while getent passwd "$target_uid" >/dev/null; do
+        ((target_uid++))
+        (( target_uid <= uid_max )) || fail "No user ID is available for $target_user"
+      done
+      target_home="/home/$target_user"
+      target_shell=/bin/bash
+      target_identity="$target_user:$target_uid:$target_home:$target_shell:$owner_token"
+      printf '%s\n' "$target_identity" >"$state_dir/.target-user.tmp"
+      mv "$state_dir/.target-user.tmp" "$state_dir/target-user"
+    fi
+    useradd --uid "$target_uid" --home-dir "$target_home" --create-home --groups wheel \
+      --shell "$target_shell" --comment "$owner_token" "$target_user"
+    record_target_home_owner
   fi
-  useradd --uid "$target_uid" --home-dir "$target_home" --create-home --groups wheel \
-    --shell "$target_shell" --comment "$owner_token" "$target_user"
-  record_target_home_owner
-fi
-install -Dm440 /dev/stdin /etc/sudoers.d/10-omarchy-wheel <<'EOF'
+  install -Dm440 /dev/stdin /etc/sudoers.d/10-omarchy-wheel <<'EOF'
 %wheel ALL=(ALL:ALL) ALL
 EOF
 
-target_home=$(getent passwd "$target_user" | cut -d: -f6)
+  target_home=$(getent passwd "$target_user" | cut -d: -f6)
 
-echo "Set the password for $target_user"
-passwd "$target_user" </dev/tty
+  echo "Set the password for $target_user"
+  passwd "$target_user" </dev/tty
 
-# Seed SDDM's remembered user so the password-only greeter has a username to
-# authenticate on first boot. state.conf is otherwise empty until a login
-# succeeds, and the omarchy theme then passes an empty user to PAM, which
-# rejects every password as "user unknown".
-install -d -m 0755 -o sddm -g sddm /var/lib/sddm 2>/dev/null || install -d -m 0755 /var/lib/sddm
-# omarchy:heredoc-expands paths=none -- $target_user is validated against a strict username pattern above
-cat > /var/lib/sddm/state.conf <<EOF
+  # Seed SDDM's remembered user so the password-only greeter has a username to
+  # authenticate on first boot. state.conf is otherwise empty until a login
+  # succeeds, and the omarchy theme then passes an empty user to PAM, which
+  # rejects every password as "user unknown".
+  install -d -m 0755 -o sddm -g sddm /var/lib/sddm 2>/dev/null || install -d -m 0755 /var/lib/sddm
+  # omarchy:heredoc-expands paths=none -- $target_user is validated against a strict username pattern above
+  cat > /var/lib/sddm/state.conf <<EOF
 [Last]
 Session=omarchy.desktop
 User=$target_user
 EOF
-chown sddm:sddm /var/lib/sddm /var/lib/sddm/state.conf 2>/dev/null || true
+  chown sddm:sddm /var/lib/sddm /var/lib/sddm/state.conf 2>/dev/null || true
+fi
 
-OMARCHY_PATH=/usr/share/omarchy \
-  OMARCHY_INSTALL=/usr/share/omarchy/install \
-  omarchy-apply-system --install-user "$target_user" --first-install
+if (( deferred_user )); then
+  # Group grants are recorded for the owner omarchy-provision-owner creates.
+  OMARCHY_PATH=/usr/share/omarchy \
+    OMARCHY_INSTALL=/usr/share/omarchy/install \
+    omarchy-apply-system --defer-provisioning --first-install
+else
+  OMARCHY_PATH=/usr/share/omarchy \
+    OMARCHY_INSTALL=/usr/share/omarchy/install \
+    omarchy-apply-system --install-user "$target_user" --first-install
+fi
 
 echo "Rebuilding the initramfs with the Apple HID drivers"
 mkinitcpio -P
 install -Dm644 /dev/null /var/lib/omarchy/apple-hid-initramfs-ready
 
-runuser -u "$target_user" -- env \
-  HOME="$target_home" \
-  USER="$target_user" \
-  LOGNAME="$target_user" \
-  OMARCHY_PATH=/usr/share/omarchy \
-  OMARCHY_INSTALL=/usr/share/omarchy/install \
-  OMARCHY_SETUP_CONTEXT=fresh-install \
-  PATH="/usr/share/omarchy/bin:/usr/local/sbin:/usr/local/bin:/usr/bin" \
-  omarchy-provision-user --force --first-install
+if (( deferred_user )); then
+  echo "Regenerating the boot files"
+  regenerate_boot_files
+else
+  runuser -u "$target_user" -- env \
+    HOME="$target_home" \
+    USER="$target_user" \
+    LOGNAME="$target_user" \
+    OMARCHY_PATH=/usr/share/omarchy \
+    OMARCHY_INSTALL=/usr/share/omarchy/install \
+    OMARCHY_SETUP_CONTEXT=fresh-install \
+    PATH="/usr/share/omarchy/bin:/usr/local/sbin:/usr/local/bin:/usr/bin" \
+    omarchy-provision-user --force --first-install
+fi
 
 ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
@@ -346,11 +425,16 @@ pacman -Q omarchy-dev omarchy-settings-dev "$kernel_package" "$kernel_package-he
 [[ $(cat /usr/share/omarchy/version) == 4.* ]] || fail "Installed Omarchy version is not 4.x"
 NetworkManager --print-config 2>/dev/null | grep -Fxq 'wifi.backend=iwd' || fail "NetworkManager iwd backend was not configured"
 grep -Eqi '^[[:space:]]*LANG[[:space:]]*=[[:space:]]*"?[^"[:space:]#]*\.utf-?8(@[^"[:space:]#]+)?"?([[:space:]]*(#.*)?)?$' /etc/locale.conf || fail "The system locale is not UTF-8"
-sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed unexpectedly"
-sha256sum --check --status <<<"$grub_sha256" || fail "The GRUB configuration changed unexpectedly"
+if (( deferred_user )); then
+  verify_boot_files
+else
+  sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed unexpectedly"
+  sha256sum --check --status <<<"$grub_sha256" || fail "The GRUB configuration changed unexpectedly"
+fi
 
 # The stock Alarm account is also a wheel administrator. Retire it only after
-# the replacement administrator has a password and finalization has succeeded.
+# finalization has succeeded and, unless the owner is created on first boot,
+# the replacement administrator has a password.
 if [[ $target_user != "alarm" ]] && getent passwd alarm >/dev/null 2>&1; then
   [[ " $(id -nG alarm) " != *" wheel "* ]] || gpasswd -d alarm wheel
   usermod -L alarm
@@ -369,9 +453,11 @@ chown root:root "$state_dir/asahi-quattro-release.tmp"
 chmod 0644 "$state_dir/asahi-quattro-release.tmp"
 mv "$state_dir/asahi-quattro-release.tmp" /var/lib/omarchy/asahi-quattro-release
 touch "$state_dir/completing"
-usermod --comment "" "$target_user"
-rm -f "$target_home/.omarchy-fresh-install-owner"
+if (( ! deferred_user )); then
+  usermod --comment "" "$target_user"
+  rm -f "$target_home/.omarchy-fresh-install-owner"
+fi
 rm -rf "$state_dir"
 
 echo "Fresh Omarchy 4 installation complete (backup: $backup_dir)"
-echo "Reboot, then sign in as $target_user"
+(( deferred_user )) || echo "Reboot, then sign in as $target_user"
