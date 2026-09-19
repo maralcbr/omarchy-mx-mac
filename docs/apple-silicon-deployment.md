@@ -138,8 +138,10 @@ you are testing, and say so in the acceptance record.
 Passing means 23 `ok` lines and exit 0. Record it as
 `docs/releases/asahi-packages-candidate-<8hex>-acceptance.txt` (copy the
 previous one; `format=1`, `candidate_tag`, `candidate_sha256`,
-`signing_fingerprint` and `status=accepted` are validated, the log hashes come
-from `test/vm/asahi-fresh/test-runs/run/` of a `--keep` run).
+`signing_fingerprint` and `status=accepted` are validated; the `*_log_sha256`
+lines come from `~/vm-evidence/<run-id>/run.txt` on the M1). The harness holds a
+lease for the whole run, copies and verifies its evidence there, and deletes a
+passing run's ~23 GB disk; see `test/vm/asahi-fresh/README.md`.
 
 ### 3. Promote the packages
 
