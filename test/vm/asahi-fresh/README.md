@@ -48,11 +48,13 @@ process ID) and its own `omarchy-asahi-fresh-vm-<run-id>` container. Cleanup
 removes only the container ID that its own `docker run` recorded, so a run never
 removes another run's VM or directory. A run holds the host lock
 `/tmp/omarchy-asahi-fresh-vm.lock` from start until its evidence is exported and
-its directory cleaned up. The path is fixed, so every checkout, every user and
-`sudo` meet the same lock; the first run creates it readable and writable by
-all, and a lock file another user created still works. A second run is refused
-with the holder's run ID, user and state directory; `--wait-for-lease` queues
-it instead. A run also refuses to start while any container still forwards its
+its directory cleaned up. The path is fixed, so every checkout, user and `sudo`
+meet the same lock. One user runs VM acceptance on a host: the first run
+creates the lock 0644 for its user, and a lock file anyone else owns is refused,
+since its owner could replace it while a run holds it. A run also checks, once
+it holds the lock, that the path still names the file it locked. A second run
+is refused with the holder's run ID, user and state directory;
+`--wait-for-lease` queues it instead. A run also refuses to start while any container still forwards its
 SSH or VNC port (`OMARCHY_VM_SSH_PORT`, `OMARCHY_VM_VNC_PORT`), such as a VM
 kept with `--keep`. The state directory belongs to the user who created it: a
 run as anyone else is refused, and its `lease` file keeps a second run out even

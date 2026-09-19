@@ -336,24 +336,142 @@ touch "$test_tmp/unheld"
 wait "$ghost"
 pass "a lock held after its recorded run exited says so"
 
-# The first run creates the lock for every user; any readable lock file works,
-# even one this user cannot write, and anything else is refused.
+# The first run creates the lock for its user; one user runs VM acceptance on a
+# host, so a lock anyone else owns is refused, whoever can read it.
 rm -f "$host_lock"
 OMARCHY_VM_RUN_ID=creates-lock run_harness --evidence-dir "$evidence_root"
-(( status == 0 )) && [[ $(stat -c %a "$host_lock") == 666 ]] ||
-  fail "a run creates the host lock writable by every user" "$(stat -c %a "$host_lock" 2>&1) $output"
-chmod 0444 "$host_lock"
-OMARCHY_VM_RUN_ID=read-only-lock run_harness --evidence-dir "$evidence_root"
-(( status == 0 )) || fail "a run takes a host lock it can only read" "$output"
-chmod 0666 "$host_lock"
+(( status == 0 )) && [[ $(stat -c '%a %u' "$host_lock") == "644 $EUID" ]] ||
+  fail "a run creates the host lock 0644 for its own user" "$(stat -c '%a %u' "$host_lock" 2>&1) $output"
+if (( EUID == 0 )); then
+  foreign_lock="$test_tmp/foreign.lock"
+  echo 'run_id=theirs' >"$foreign_lock"
+  chown 65534 "$foreign_lock"
+else
+  foreign_lock=/etc/passwd
+fi
+foreign_before=$(sha256sum "$foreign_lock")
+set +e
+output=$(PATH="$stub_bin:$PATH" HOME="$test_tmp/home" OMARCHY_VM_STATE_DIR="$state" OMARCHY_VM_HOST_LOCK="$foreign_lock" \
+  OMARCHY_VM_RUN_ID=foreign-lock "$harness/run" --evidence-dir "$evidence_root" 2>&1)
+status=$?
+set -e
+(( status != 0 )) && [[ $output == *"The host VM lock $foreign_lock is another user's lock ("*"); one user runs VM acceptance on this host"* ]] ||
+  fail "a lock another user owns is refused" "$output"
+[[ $(sha256sum "$foreign_lock") == "$foreign_before" && ! -e $evidence_root/foreign-lock ]] ||
+  fail "a refused lock is left untouched and nothing runs"
 mv "$host_lock" "$host_lock.real"
 ln -s "$host_lock.real" "$host_lock"
 OMARCHY_VM_RUN_ID=symlinked-lock run_harness --evidence-dir "$evidence_root"
-(( status != 0 )) && [[ $output == *"The host VM lock $host_lock must be a regular file"* ]] ||
+(( status != 0 )) && [[ $output == *"The host VM lock $host_lock is a symlink"* ]] ||
   fail "a symlinked host lock is refused" "$output"
 rm "$host_lock"
 mv "$host_lock.real" "$host_lock"
-pass "the host lock works for any user who can read it"
+pass "the host lock belongs to one user and a lock anyone else owns is refused"
+
+# A lock taken on an inode the path no longer names protects nothing. Queue a
+# run behind a holder, replace the lock file under it, then release: the run
+# must notice, take the new file instead, and record itself only there.
+hold_lock() {
+  local marker=$1
+  shift
+
+  rm -f "$test_tmp/$marker".{held,release}
+  flock "$1" bash -c 'touch "$1.held"; while [[ ! -e $1.release ]]; do sleep 0.05; done' _ "$test_tmp/$marker" &
+  held_pid=$!
+  for (( i = 0; i < 100; i++ )); do
+    [[ -e $test_tmp/$marker.held ]] && break
+    sleep 0.05
+  done
+  [[ -e $test_tmp/$marker.held ]] || fail "the test holds $1"
+}
+
+queue_run() {
+  PATH="$stub_bin:$PATH" HOME="$test_tmp/home" OMARCHY_VM_STATE_DIR="$state" OMARCHY_VM_HOST_LOCK="$host_lock" \
+    OMARCHY_VM_RUN_ID="$1" "$harness/run" --wait-for-lease --evidence-dir "$evidence_root" >"$test_tmp/$1.log" 2>&1 &
+  queued_pid=$!
+}
+
+wait_for_waiting() {
+  for (( i = 0; i < 100; i++ )); do
+    (( $(grep -c 'Waiting for the host lock' "$test_tmp/$1.log" 2>/dev/null) >= $2 )) && return
+    sleep 0.05
+  done
+  fail "the queued run waits for the host lock ($2)" "$(cat "$test_tmp/$1.log")"
+}
+
+printf 'run_id=first-holder\n' >"$host_lock"
+hold_lock first "$host_lock"
+first_holder=$held_pid
+ln "$host_lock" "$test_tmp/replaced-inode"
+queue_run swapped
+wait_for_waiting swapped 1
+echo 'run_id=replacement' >"$host_lock.new"
+mv -f "$host_lock.new" "$host_lock"
+touch "$test_tmp/first.release"
+wait "$first_holder"
+set +e
+wait "$queued_pid"
+status=$?
+set -e
+(( status == 0 )) || fail "a run whose lock file was replaced while it waited takes the new one" "$(<"$test_tmp/swapped.log")"
+grep -Fq "The host VM lock $host_lock changed while it was being taken; taking it again" "$test_tmp/swapped.log" ||
+  fail "a run says its lock file changed" "$(<"$test_tmp/swapped.log")"
+[[ $(head -n 1 "$host_lock") == "run_id=swapped pid="* ]] || fail "the run records itself in the lock file it holds" "$(<"$host_lock")"
+[[ $(head -n 1 "$test_tmp/replaced-inode") == run_id=first-holder ]] ||
+  fail "the run writes nothing to the replaced inode it no longer holds" "$(<"$test_tmp/replaced-inode")"
+pass "a lock file replaced while a run waits is noticed and the new one taken"
+
+# Replaced again while the run waits for the new file: something keeps
+# replacing the lock, and the run refuses rather than chase it.
+hold_lock first "$host_lock"
+first_holder=$held_pid
+queue_run swapped-twice
+wait_for_waiting swapped-twice 1
+echo 'run_id=second-holder' >"$host_lock.second"
+hold_lock second "$host_lock.second"
+second_holder=$held_pid
+mv -f "$host_lock.second" "$host_lock"
+touch "$test_tmp/first.release"
+wait "$first_holder"
+wait_for_waiting swapped-twice 2
+echo 'run_id=third' >"$host_lock.third"
+mv -f "$host_lock.third" "$host_lock"
+touch "$test_tmp/second.release"
+wait "$second_holder"
+set +e
+wait "$queued_pid"
+status=$?
+set -e
+(( status != 0 )) && grep -Fq "The host VM lock $host_lock changed again while it was being taken" "$test_tmp/swapped-twice.log" ||
+  fail "a run refuses a lock file that keeps changing" "$(<"$test_tmp/swapped-twice.log")"
+[[ ! -e $evidence_root/swapped-twice && $(<"$host_lock") == run_id=third ]] ||
+  fail "a run refused for a changing lock starts nothing and records nothing"
+pass "a lock file replaced twice while a run waits is refused"
+
+# The holder line goes through the validated descriptor, never the path: the
+# record's own `date` is the last step before the write, so swap the file there.
+real_date=$(command -v date)
+cat >"$stub_bin/date" <<SH
+#!/bin/bash
+if [[ -n \${TEST_SWAP_LOCK_ON_DATE:-} && ! -e \$TEST_SWAP_LOCK_ON_DATE.done ]]; then
+  touch "\$TEST_SWAP_LOCK_ON_DATE.done"
+  echo 'run_id=swapped-in' >"\$TEST_SWAP_LOCK_ON_DATE.new"
+  mv -f "\$TEST_SWAP_LOCK_ON_DATE.new" "\$TEST_SWAP_LOCK_ON_DATE"
+fi
+exec "$real_date" "\$@"
+SH
+chmod +x "$stub_bin/date"
+rm -f "$host_lock"
+: >"$host_lock"
+ln "$host_lock" "$test_tmp/locked-inode"
+TEST_SWAP_LOCK_ON_DATE="$host_lock" OMARCHY_VM_RUN_ID=via-descriptor run_harness --evidence-dir "$evidence_root"
+rm "$stub_bin/date"
+[[ -e $host_lock.done ]] || fail "the lock file was swapped before the holder record was written"
+rm -f "$host_lock.done"
+[[ $(head -n 1 "$test_tmp/locked-inode") == "run_id=via-descriptor pid="* ]] ||
+  fail "the holder record goes to the locked inode" "$(cat "$test_tmp/locked-inode")"
+[[ $(<"$host_lock") == run_id=swapped-in ]] || fail "the holder record never follows the path to another file" "$(<"$host_lock")"
+pass "the holder record is written through the validated descriptor, not the path"
 
 # A state directory belongs to one identity.
 if (( EUID == 0 )); then

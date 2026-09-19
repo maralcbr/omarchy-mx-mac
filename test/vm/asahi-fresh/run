@@ -133,32 +133,61 @@ command -v flock >/dev/null || {
   exit 1
 }
 
-# One lock for the whole host, whoever runs the harness and from whichever
-# checkout: every run drives the same Docker daemon, forwarded ports, container
-# names and KVM. The path is fixed, never derived from HOME or TMPDIR, which
-# differ between users and under sudo; OMARCHY_VM_HOST_LOCK exists for tests.
-# The first run creates it 0666 so any user can record itself as the holder;
-# the lock is taken on a read-only descriptor, so a lock file another user
-# created still works. It is held until the evidence is exported and the run
-# cleaned up. The lock lives on the descriptor, which the commands started from
-# here inherit, so it ends once this script and anything still holding the
-# descriptor have exited.
+# One lock for the whole host, from whichever checkout: every run drives the
+# same Docker daemon, forwarded ports, container names and KVM. The path is
+# fixed, never derived from HOME or TMPDIR, which differ between users and
+# under sudo; OMARCHY_VM_HOST_LOCK exists for tests. One user runs VM acceptance
+# on a host: the lock file must belong to that user, because in a sticky /tmp
+# whoever owns the file can unlink and recreate it while another run holds the
+# old inode. The lock is held until the evidence is exported and the run cleaned
+# up. It lives on the descriptor, which the commands started from here inherit,
+# so it ends once this script and anything still holding the descriptor exit.
 host_lock=${OMARCHY_VM_HOST_LOCK:-/tmp/omarchy-asahi-fresh-vm.lock}
-if [[ ! -e $host_lock && ! -L $host_lock ]]; then
-  (umask 0000 && set -o noclobber && : >"$host_lock") 2>/dev/null || true
-fi
-if [[ -L $host_lock || ! -f $host_lock || ! -r $host_lock ]]; then
-  echo "The host VM lock $host_lock must be a regular file every user can read; remove it to let the next run recreate it" >&2
+host_lock_fd=""
+
+refuse_host_lock() {
+  echo "$1" >&2
   exit 1
-fi
-exec {host_lock_fd}<"$host_lock"
+}
 
-# The recorded holder may have exited while a process it started still holds
-# the descriptor, so say when the recorded process is gone.
+# Opens the lock (created 0644 when absent) and validates what was opened, not
+# the path: a regular file this user owns.
+open_host_lock() {
+  local owner mode uid previous_umask
+
+  if [[ -n $host_lock_fd ]]; then
+    exec {host_lock_fd}<&-
+  fi
+  if [[ -L $host_lock ]]; then
+    refuse_host_lock "The host VM lock $host_lock is a symlink; remove it to let the next run recreate it"
+  fi
+  previous_umask=$(umask)
+  umask 022
+  if ! { exec {host_lock_fd}<>"$host_lock"; } 2>/dev/null; then
+    umask "$previous_umask"
+    owner=$(stat -c %u -- "$host_lock" 2>/dev/null) || owner=""
+    if [[ -n $owner && $owner != "$EUID" ]]; then
+      refuse_host_lock "The host VM lock $host_lock is another user's lock ($(stat -c %U -- "$host_lock")); one user runs VM acceptance on this host"
+    fi
+    refuse_host_lock "Cannot open the host VM lock $host_lock for writing"
+  fi
+  umask "$previous_umask"
+
+  read -r mode uid host_lock_id < <(stat -L -c '%f %u %d:%i' "/proc/self/fd/$host_lock_fd")
+  if (( (16#$mode & 16#F000) != 16#8000 )); then
+    refuse_host_lock "The host VM lock $host_lock is not a regular file; remove it to let the next run recreate it"
+  fi
+  if [[ $uid != "$EUID" ]]; then
+    refuse_host_lock "The host VM lock $host_lock is another user's lock ($(stat -L -c %U "/proc/self/fd/$host_lock_fd")); one user runs VM acceptance on this host"
+  fi
+}
+
+# The holder is read through a fresh description of the locked inode, never the
+# path. It may have exited while a process it started still holds the lock.
 lock_holder() {
-  local holder
+  local holder=""
 
-  holder=$(<"$host_lock")
+  read -r holder <"/proc/self/fd/$host_lock_fd" || true
   if [[ -z $holder ]]; then
     printf 'unknown holder'
     return
@@ -169,7 +198,10 @@ lock_holder() {
   fi
 }
 
-if ! flock -n "$host_lock_fd"; then
+take_host_lock() {
+  if flock -n "$host_lock_fd"; then
+    return
+  fi
   if (( wait_for_lease == 0 )); then
     echo "Another VM run holds the host lock $host_lock: $(lock_holder)" >&2
     echo "Wait for it to finish, or pass --wait-for-lease to queue behind it." >&2
@@ -177,12 +209,26 @@ if ! flock -n "$host_lock_fd"; then
   fi
   echo "Waiting for the host lock $host_lock, held by: $(lock_holder)" >&2
   flock "$host_lock_fd"
+}
+
+# The lock only counts while the path still names the locked inode.
+host_lock_current() {
+  [[ ! -L $host_lock && $(stat -c '%d:%i' -- "$host_lock" 2>/dev/null) == "$host_lock_id" ]]
+}
+
+open_host_lock
+take_host_lock
+if ! host_lock_current; then
+  echo "The host VM lock $host_lock changed while it was being taken; taking it again" >&2
+  open_host_lock
+  take_host_lock
+  host_lock_current ||
+    refuse_host_lock "The host VM lock $host_lock changed again while it was being taken; is something replacing it?"
 fi
-# Recorded without O_CREAT, which a sticky /tmp refuses for another user's file;
-# a lock file this user cannot write keeps its old text, flagged as stale above.
-truncate --no-create --size=0 "$host_lock" 2>/dev/null &&
-  printf 'run_id=%s pid=%s user=%s state=%s started_at=%s\n' "$run_id" "$$" "$(id -un)" "$state" \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | dd of="$host_lock" conv=nocreat,notrunc status=none 2>/dev/null || true
+# One line at offset 0 of the locked inode, through the validated descriptor.
+# Readers take the first line, so a longer earlier record needs no truncation.
+printf 'run_id=%s pid=%s user=%s state=%s started_at=%s\n' "$run_id" "$$" "$(id -un)" "$state" \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >&"$host_lock_fd"
 
 # The state directory also has one owner and one run at a time. A run under
 # another identity (sudo, another docker-group user) would leave files the
