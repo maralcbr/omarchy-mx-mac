@@ -82,16 +82,19 @@ run_migration() {
 
   # Keep the privileged production destination fixed in the shipped migration.
   # For this isolated test only, rewrite that one assignment in the input fed to
-  # bash so no scenario can touch the host's /etc.
-  sed "s|^config=/etc/ssh/sshd_config.d/10-omarchy-hardening.conf$|config=$config|" "$migration" |
-    HOME="$home" CALL_LOG="$test_dir/$scenario.calls" PATH="$stub_bin:$PATH" \
-      SSHD_ENABLED="${SSHD_ENABLED:-0}" SSHD_ACTIVE="${SSHD_ACTIVE:-0}" \
-      SSHD_SYNTAX_VALID="${SSHD_SYNTAX_VALID:-1}" \
-      SSHD_PASSWORD_AUTH="${SSHD_PASSWORD_AUTH:-no}" \
-      SSHD_KBD_AUTH="${SSHD_KBD_AUTH:-no}" \
-      SSHD_RELOAD_VALID="${SSHD_RELOAD_VALID:-1}" \
-      SUDO_ALLOWED="${SUDO_ALLOWED:-1}" \
-      bash -euo pipefail
+  # bash so no scenario can touch the host's /etc. The script goes through a
+  # file, not a pipe: a migration that exits early stops reading, and a sed
+  # still writing the rest would die of SIGPIPE and fail the scenario.
+  sed "s|^config=/etc/ssh/sshd_config.d/10-omarchy-hardening.conf$|config=$config|" "$migration" \
+    >"$test_dir/$scenario.migration"
+  HOME="$home" CALL_LOG="$test_dir/$scenario.calls" PATH="$stub_bin:$PATH" \
+    SSHD_ENABLED="${SSHD_ENABLED:-0}" SSHD_ACTIVE="${SSHD_ACTIVE:-0}" \
+    SSHD_SYNTAX_VALID="${SSHD_SYNTAX_VALID:-1}" \
+    SSHD_PASSWORD_AUTH="${SSHD_PASSWORD_AUTH:-no}" \
+    SSHD_KBD_AUTH="${SSHD_KBD_AUTH:-no}" \
+    SSHD_RELOAD_VALID="${SSHD_RELOAD_VALID:-1}" \
+    SUDO_ALLOWED="${SUDO_ALLOWED:-1}" \
+    bash -euo pipefail <"$test_dir/$scenario.migration"
 }
 
 sshd_disabled() {
