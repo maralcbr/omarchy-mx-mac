@@ -377,6 +377,8 @@ remove_run_dir() {
 finish() {
   local status=$? delete_run=0 gone=1
   set +e
+  # A second Ctrl-C must not cut cleanup short and leave the VM running.
+  trap '' INT TERM
 
   if [[ -z $container_id && -s $cid_file ]]; then
     container_id=$(<"$cid_file")
@@ -423,8 +425,8 @@ finish() {
   exit "$status"
 }
 trap finish EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+trap 'trap "" INT TERM; exit 130' INT
+trap 'trap "" INT TERM; exit 143' TERM
 
 docker build -t "$image" "$harness"
 docker run -d \

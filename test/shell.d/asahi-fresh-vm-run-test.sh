@@ -45,6 +45,10 @@ case $1 in
     ;;
   container) [[ ${3:-} == "${TEST_DOCKER_EXISTING:-}" ]] || exit 1 ;;
   rm)
+    if [[ -n ${TEST_BLOCK_RM:-} ]]; then
+      touch "$TEST_BLOCK_DIR/rm-blocked"
+      while [[ ! -e $TEST_BLOCK_DIR/rm-release ]]; do sleep 0.05; done
+    fi
     [[ ${TEST_DOCKER_RM_FAILS:-0} == 0 ]] || exit 1
     [[ ${TEST_DOCKER_RM_IGNORED:-0} == 0 ]] || exit 0
     grep -Fvx "$3" "$TEST_CONTAINERS" >"$TEST_CONTAINERS.new" || true
@@ -439,6 +443,42 @@ for failure in TEST_DOCKER_RM_FAILS TEST_DOCKER_RM_IGNORED TEST_DOCKER_PS_FAILS;
     fail "a run exports nothing while its container may run ($failure)"
 done
 pass "a run whose container is not confirmed gone keeps everything and fails"
+
+# An interrupted run still removes its container and exports its evidence when
+# further signals arrive during cleanup, as from a second Ctrl-C.
+interrupt="$test_tmp/interrupt"
+mkdir -p "$interrupt"
+: >"$TEST_CONTAINERS"
+PATH="$stub_bin:$PATH" HOME="$test_tmp/home" OMARCHY_VM_STATE_DIR="$state" OMARCHY_VM_HOST_LOCK="$host_lock" \
+  OMARCHY_VM_RUN_ID=interrupted TEST_BLOCK_STAGE=install TEST_BLOCK_RM=1 TEST_BLOCK_DIR="$interrupt" \
+  "$harness/run" --evidence-dir "$evidence_root" >"$test_tmp/interrupted.out" 2>&1 &
+interrupted=$!
+for (( i = 0; i < 200; i++ )); do
+  [[ -e $interrupt/blocked ]] && break
+  sleep 0.05
+done
+kill -TERM "$interrupted"
+touch "$interrupt/release"
+for (( i = 0; i < 200; i++ )); do
+  [[ -e $interrupt/rm-blocked ]] && break
+  sleep 0.05
+done
+[[ -e $interrupt/rm-blocked ]] || fail "an interrupted run starts its cleanup" "$(<"$test_tmp/interrupted.out")"
+kill -TERM "$interrupted"
+sleep 0.3
+kill -INT "$interrupted"
+sleep 0.3
+touch "$interrupt/rm-release"
+set +e
+wait "$interrupted"
+status=$?
+set -e
+(( status == 143 )) || fail "an interrupted run exits with the first signal's status" "$status $(<"$test_tmp/interrupted.out")"
+[[ ! -s $TEST_CONTAINERS ]] || fail "an interrupted run removes its container"
+grep -Fxq 'exit_status=143' "$evidence_root/interrupted/run.txt" 2>/dev/null ||
+  fail "an interrupted run exports its evidence despite further signals" "$(<"$test_tmp/interrupted.out")"
+[[ -d $state/runs/interrupted ]] || fail "an interrupted run keeps its disk like any failed run"
+pass "further signals during cleanup do not cut a VM run's cleanup short"
 
 # --keep leaves the VM running on its run directory and pauses it for the copy.
 OMARCHY_VM_RUN_ID=kept run_harness --keep --evidence-dir "$evidence_root"
