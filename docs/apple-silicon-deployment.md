@@ -95,8 +95,13 @@ gh workflow run release-asahi-package-incremental.yml -R maralcbr/omarchy-pkgs -
   -f predecessor_signing_fingerprint=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 ```
 
-`mode=full` rebuilds everything (~1 h); the planner also falls back to full
-when workflows or the build contract changed in the compared range. Approve
+Every release uses `mode=incremental` with the predecessor inputs, including
+full-lane releases: VM acceptance and promotion apply to what the planner
+rebuilt, not to a full rebuild. `mode=full` rebuilds everything (~30 min of CI
+plus a longer acceptance) and is only for the cases the planner itself reports
+as rebuild-all (toolchain, builder image, repository definitions, signing
+trust, or a change to the planner or verifier); the planner falls back to full
+on its own when the compared range contains such an input. Approve
 the environment gate when the publish job reaches it (`gh api … /pending_deployments`
 with a JSON body of integer `environment_ids`). Read the result from the
 candidate release: `CANDIDATE` (descriptor; its sha256 is the candidate's
@@ -118,13 +123,17 @@ export OMARCHY_VM_RUNTIME_SOURCE=<source_commit from that manifest>
 # optional: pin the channel guest/verify checks, and the pointer both guest stages read
 export OMARCHY_VM_ASAHI_CHANNEL_URL=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-<N>/asahi-quattro-channel
 export OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL=https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel
-# default mirror is the snapshot the payload pins; a live mirror needs its own shape:
-export OMARCHY_VM_ALARM_MIRROR='https://ca.us.mirror.archlinuxarm.org/$arch/$repo'
 test/vm/asahi-fresh/run --optional-packages
 ```
 
 Without the two runtime exports the harness installs the last published
 runtime release and fails on its version mismatch with the candidate.
+
+The harness installs from the dated R2 snapshot of the Arch Linux ARM mirror
+that the payload pins. Keep that default for acceptance: it is fast from here
+and immutable. Point `OMARCHY_VM_ALARM_MIRROR` at a live mirror (it needs the
+`https://<host>/$arch/$repo` shape) only when the live mirror itself is what
+you are testing, and say so in the acceptance record.
 
 Passing means 23 `ok` lines and exit 0. Record it as
 `docs/releases/asahi-packages-candidate-<8hex>-acceptance.txt` (copy the
