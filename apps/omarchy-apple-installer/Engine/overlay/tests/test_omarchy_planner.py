@@ -79,6 +79,41 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(resize["kind"], "free")
         self.assertEqual(resize["length_bytes"], 100 * 1024**3)
 
+    def test_inventory_reports_a_container_too_tight_to_install(self):
+        self.installer.resize_bounds = {
+            "available_bytes": 40 * 1024**3,
+            "minimum_size_bytes": 460 * 1024**3,
+        }
+
+        inventory = collect_inventory(
+            self.installer,
+            [],
+            self.resize,
+            stub_size=2 * 1024**3,
+            part_align=1024**2,
+        )
+
+        (resize,) = inventory["candidates"]
+        self.assertEqual(resize["kind"], "resize")
+        self.assertEqual(resize["minimum_install_bytes"], 66 * 1024**3)
+        self.assertEqual(resize["minimum_container_bytes"], 460 * 1024**3)
+
+    def test_inventory_omits_a_container_with_nothing_to_give(self):
+        self.installer.resize_bounds = {
+            "available_bytes": 0,
+            "minimum_size_bytes": 500 * 1024**3,
+        }
+
+        inventory = collect_inventory(
+            self.installer,
+            [],
+            self.resize,
+            stub_size=2 * 1024**3,
+            part_align=1024**2,
+        )
+
+        self.assertEqual(inventory["candidates"], [])
+
     def test_emit_inventory_and_plan_share_one_journal_contract(self):
         inventory = emit_inventory(
             self.installer,
@@ -255,12 +290,13 @@ class FakeInstaller:
         }
         self.dutil = object()
         self.sys_disk = "disk0"
-
-    def get_resize_bounds(self, part):
-        return {
+        self.resize_bounds = {
             "available_bytes": 180 * 1024**3,
             "minimum_size_bytes": 320 * 1024**3,
         }
+
+    def get_resize_bounds(self, part):
+        return self.resize_bounds
 
 
 if __name__ == "__main__":

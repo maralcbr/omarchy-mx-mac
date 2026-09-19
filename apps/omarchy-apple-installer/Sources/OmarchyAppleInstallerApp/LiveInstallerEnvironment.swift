@@ -353,13 +353,54 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       blocked = false
     }
 
+    let existing = Self.existingInstalls(in: engine)
+    let space = existing.isEmpty ? Self.spaceCheck(engine: engine, host: host) : nil
+    var chipAndSpace =
+      "\(host.identity.chip) · \(PlainLanguage.bytes(host.storage.containerFreeBytes)) free"
+    if case .fits(let maximumBytes) = space {
+      chipAndSpace += " · up to \(PlainLanguage.bytes(maximumBytes)) for Omarchy"
+    }
+
     return HostDisplay(
-      chipAndSpace:
-        "\(host.identity.chip) · \(PlainLanguage.bytes(host.storage.containerFreeBytes)) free",
+      chipAndSpace: chipAndSpace,
       supported: !blocked && engine?.support == .supported,
       blockingReason: blockingReason(host: host, engineFailure: engineFailure),
-      existingInstalls: Self.existingInstalls(in: engine)
+      existingInstalls: existing,
+      spaceShortfall: space?.shortfall
     )
+  }
+
+  private enum SpaceCheck {
+    case fits(maximumBytes: UInt64)
+    case shortfall(InstallerAllocationRecommendationError)
+
+    var shortfall: InstallerAllocationRecommendationError? {
+      if case .shortfall(let error) = self { error } else { nil }
+    }
+  }
+
+  /// Runs the allocation recommendation on the bundled engine's inventory, so
+  /// a disk that cannot hold Omarchy is reported before the catalog is fetched
+  /// or the release downloaded. The handoff reserve is not known yet, so this
+  /// can only be more generous than the check after the download.
+  private static func spaceCheck(
+    engine: ValidatedEngineTranscript?,
+    host: AppleSiliconHostInspection
+  ) -> SpaceCheck? {
+    guard engine?.support == .supported, let inventory = engine?.inventory else {
+      return nil
+    }
+    do {
+      let recommendation = try InstallerAllocationRecommendation(
+        inventory: inventory,
+        snapshotConstraint: { APFSSnapshotInspector().constraint(in: host.storage) }
+      )
+      return .fits(maximumBytes: recommendation.maximumBytes)
+    } catch let error as InstallerAllocationRecommendationError {
+      return .shortfall(error)
+    } catch {
+      return nil
+    }
   }
 
   /// Existing Omarchy installs the bundled engine's inventory reports as

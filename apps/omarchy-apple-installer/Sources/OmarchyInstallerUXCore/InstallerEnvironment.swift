@@ -15,17 +15,23 @@
     /// download, from the bundled validation engine's inventory; the session
     /// refuses to go further when this is not empty.
     public let existingInstalls: [ExistingInstallDisplay]
+    /// Why the bundled engine's inventory cannot hold Omarchy. Known before
+    /// any download; the session stops here instead of fetching a release
+    /// that could not be installed.
+    public let spaceShortfall: InstallerAllocationRecommendationError?
 
     public init(
       chipAndSpace: String,
       supported: Bool,
       blockingReason: String? = nil,
-      existingInstalls: [ExistingInstallDisplay] = []
+      existingInstalls: [ExistingInstallDisplay] = [],
+      spaceShortfall: InstallerAllocationRecommendationError? = nil
     ) {
       self.chipAndSpace = chipAndSpace
       self.supported = supported
       self.blockingReason = blockingReason
       self.existingInstalls = existingInstalls
+      self.spaceShortfall = spaceShortfall
     }
   }
 
@@ -314,6 +320,15 @@
       self.device = device
       self.actionURL = actionURL
       self.actionTitle = actionTitle
+    }
+
+    /// The same failure, shown under the header of the Mac it concerns.
+    public func on(_ device: HostDisplay) -> FailureDisplay {
+      FailureDisplay(
+        headline: headline, plainDetail: plainDetail, technicalDetail: technicalDetail,
+        remedy: remedy, retryRecoveryAvailable: retryRecoveryAvailable,
+        isBlockedModel: isBlockedModel, device: device, actionURL: actionURL,
+        actionTitle: actionTitle)
     }
   }
 

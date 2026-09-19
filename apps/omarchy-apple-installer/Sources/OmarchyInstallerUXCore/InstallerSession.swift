@@ -152,6 +152,11 @@
           // Refuse before anything is fetched: no catalog, no download.
           lastHost = host
           phase = .existingInstallRefused(host: host)
+        } else if host.supported, !environment.installationBlocked,
+          let shortfall = host.spaceShortfall
+        {
+          // Refuse before anything is fetched: the release could not fit.
+          phase = .unsupported(PlainLanguage.failure(for: shortfall).on(host))
         } else if host.supported, !environment.installationBlocked {
           lastHost = host
           phase = .welcome(host)
