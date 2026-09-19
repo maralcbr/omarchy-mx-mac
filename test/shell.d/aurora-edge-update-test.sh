@@ -65,6 +65,12 @@ echo "boot-check $*" >>"$TEST_CALLS"
 [[ ${TEST_BOOT_STATUS:-0} == 0 ]] || echo "Aurora boot check: m1n1/boot.bin on the system ESP is stale" >&2
 exit "${TEST_BOOT_STATUS:-0}"
 SH
+cat >"$stub_bin/omarchy-apple-silicon-retire-saved-modules" <<'SH'
+#!/bin/bash
+echo "retire-saved-modules $*" >>"$TEST_CALLS"
+[[ ${TEST_RETIRE_STATUS:-0} == 0 ]] || echo "Apple Silicon saved modules: could not remove /usr/lib/modules/6.18.0-ARCH" >&2
+exit "${TEST_RETIRE_STATUS:-0}"
+SH
 # The pointer, the release listing pages and release assets, all from the fixture.
 cat >"$stub_bin/curl" <<'SH'
 #!/bin/bash
@@ -549,12 +555,23 @@ cmp -s "$assets/$pin_tag/AURORA" "$staged" || fail "the pin's descriptor is stag
 expect_targets "the way back, which installs older packages"
 run_step --complete
 expect_status 1 "completing rc while the edge kernel is still installed"
+! grep -q retire-saved-modules "$calls" || fail "nothing is moved aside before the pin's packages are installed" "$(cat "$calls")"
 installed_from "$pin_tag"
+TEST_RETIRE_STATUS=1 run_step --complete
+expect_status 1 "the way back when the running kernel's saved modules cannot be moved aside"
+grep -Fq "the running kernel's saved modules could not be moved aside for m1n1" "$test_tmp/err" ||
+  fail "a failed move is named" "$(cat "$test_tmp/err")"
+! grep -q boot-check "$calls" && grep -Fq "$pin_tag is not verified: the running kernel's saved modules" "$reboot_blocked" ||
+  fail "a failed move is not checked into success and blocks the reboot" "$(cat "$calls")"
+expect_lane "a failed move keeps the switch open" 'format=1\nlane=rc\nswitch=rc\nedge_accepted=7:%s\nedge_pending=8:%s\n' "$(digest aurora-edge-7)" "$(digest aurora-edge-8)"
 run_step --complete
 expect_status 0 "completing the way back"
+[[ $(grep -E '^(retire-saved-modules|boot-check) ' "$calls") == $'retire-saved-modules linux-aurora\nboot-check linux-aurora' ]] ||
+  fail "a downgrade's saved modules are moved aside before the boot check" "$(cat "$calls")"
+[[ ! -e $reboot_blocked ]] || fail "the verified way back lifts the reboot block"
 expect_lane "rc keeps what edge accepted and closes the rest" 'format=1\nlane=rc\nedge_accepted=7:%s\n' "$(digest aurora-edge-7)"
 grep -Fq "back on rc ($pin_tag)" "$test_tmp/out" || fail "the way back says so" "$(cat "$test_tmp/out")"
-pass "an edge section goes back to the pin only on a switch to rc, which completes like any other"
+pass "an edge section goes back to the pin only on a switch to rc, which completes like any other once the running kernel's saved modules are out of m1n1's way"
 
 # Opposing switches: the last request wins, even with the first one half done.
 write_lane 'format=1\nlane=edge\nswitch=edge\nedge_accepted=7:%s\n' "$(digest aurora-edge-7)"

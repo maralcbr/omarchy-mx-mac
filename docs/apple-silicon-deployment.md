@@ -621,6 +621,18 @@ reset-rc` records the same request, then run `omarchy update`.
   -P`, `sudo grub-mkconfig -o /boot/grub/grub.cfg`, `sudo update-m1n1`), then
   `omarchy update`, which checks again and lifts the block. Do not reboot
   before that.
+- `device tree /lib/modules/<running>/dtbs/… is not one of linux-aurora
+  <installed>'s` after a downgrade (edge → rc, `reset-rc`): update-m1n1's
+  default took kernel-modules-hook's copy of the running kernel's modules, the
+  newest `-ARCH` directory until `linux-modules-cleanup` moves it to
+  `/usr/lib/modules/.old` at boot. Completion now makes that move itself and
+  reruns `update-m1n1` before the boot check
+  (`omarchy-apple-silicon-retire-saved-modules`), only when the directory is
+  `uname -r`'s, owned by no package and directly above the installed kernel's,
+  and DTBS comes from that default. The running kernel then cannot load new
+  modules until the reboot. Any other newer directory still fails the check.
+  If `update-m1n1` failed after the move, run `sudo update-m1n1`, then
+  `omarchy update`.
 - `this Mac's Aurora lane cannot be read`: `omarchy-apple-silicon-channel
   reset-rc` rewrites the lane file as rc (its edge history is lost).
 - A runtime downgraded by hand ignores the lane file and leaves an

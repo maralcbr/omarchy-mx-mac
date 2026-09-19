@@ -362,6 +362,9 @@ if [[ $mode == complete ]]; then
     [[ $installed == "${package_version[$package]}" ]] ||
       unverified "$package $installed is installed, but $target_tag has ${package_version[$package]}"
   done
+  # A downgrade leaves the running kernel's modules where update-m1n1 looks first.
+  omarchy-apple-silicon-retire-saved-modules linux-aurora ||
+    unverified "the running kernel's saved modules could not be moved aside for m1n1"
   omarchy-apple-silicon-boot-check linux-aurora || unverified "the boot files do not match the installed kernel"
 
   if [[ $lane == rc ]]; then
