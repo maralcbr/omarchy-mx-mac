@@ -68,15 +68,19 @@ git worktree add --detach ../pkgs-release origin/asahi-quattro && cd ../pkgs-rel
 2. **Candidate.** Builds an incremental candidate on the nearest published
    candidate and pins it by tag, `CANDIDATE` SHA-256 and commit. Every later
    step checks all three again.
-3. **Path.** Compares the candidate's package set (name, version and archive
-   SHA-256 of every package) with the set the live package channel publishes.
-   - Same set: the **fast path** publishes the next runtime channel and stops.
-   - Different set (rebuilt here, or inherited from a candidate that was never
-     promoted), or a live set it cannot verify: the **full path** runs VM
-     acceptance on the M1 Pro, promotes the candidate there, publishes the
-     package channel, then the runtime channel.
-4. **Macs** (`--update-macs`). `omarchy update -y` on the M2 Max and its
-   checks, then the same on the M1 Pro. It never reboots.
+3. **Path.** The **fast path** needs both of these: the candidate rebuilt
+   only runtime packages, and its package set (name, version and archive
+   SHA-256 of every package) is the set the live package channel publishes.
+   It publishes the next runtime channel and stops. Anything else takes the
+   **full path**: a rebuilt non-runtime package (even when the set still
+   matches), a different set (including packages inherited from a candidate
+   that was never promoted), or a live set it cannot verify. The full path
+   runs VM acceptance on the M1 Pro, promotes the candidate there, publishes
+   the package channel, then the runtime channel.
+4. **Macs** (`--update-macs`). `omarchy update -y` and its checks on each host
+   in `ASAHI_RELEASE_UPDATE_HOSTS`, in that order; there is no default.
+   Configure the M2 Max first, then the M1 Pro. A failed check stops before
+   the next Mac. It never reboots.
 
 It approves the `asahi-quattro-release` gates itself, only on its own runs and
 only after checking what each will publish, then prints one report. It does
@@ -106,9 +110,11 @@ Each prints one message and the command to resume with. The full table is in
 `omarchy-pkgs/docs/asahi-resumable-release.md`. It stops when:
 
 - a signature, digest or inventory does not verify;
-- acceptance evidence is missing or does not match: nothing is promoted or
-  published without a passing run whose `run.txt` names this candidate and
-  runtime, or a matching record on `main`;
+- acceptance evidence is missing or does not match: no stable set is promoted
+  or adopted, and no package channel is published, without a passing run
+  whose `run.txt` names this candidate and runtime, or a matching record on
+  `main` (the candidate itself is published before acceptance, and the fast
+  path's runtime channel needs none);
 - a boot package or kernel pin moves against the live channels and
   `--hardware-evidence` does not name a matching record (below);
 - publication state is unresolved: a draft or half-published release, a
@@ -126,8 +132,12 @@ Each prints one message and the command to resume with. The full table is in
 Boot packages are the kernels, m1n1, U-Boot, `asahi-fwextract`,
 `asahi-scripts`, `omarchy-apple-boot`, `limine-mkinitcpio-hook` and DKMS
 modules. One moves when the release would publish it at another version than
-the live package set, or when its recipe changed since that set; a
-same-version rebuild from an unchanged recipe does not. A kernel pin moves
+the live package set, or when its recipe changed since that set. A package at
+the same version from an unchanged recipe does not move only when its archive
+is the live one or installs the same payload (every file with its type, mode,
+owner, link and content digest; package metadata aside). Another payload, or a
+comparison that cannot be made (including a live set that cannot be
+verified), counts as a move. A kernel pin moves
 when `default/aurora-qualified-release` differs from the live runtime
 channel's source. VM acceptance boots a generic kernel and cannot clear
 either: test exactly that move on a real Mac, then pass a record of free text
@@ -144,10 +154,11 @@ pin=aurora-packages-<commit>             # one per repinned Aurora kernel
 
 The script carries no lab defaults. It reads `ASAHI_RELEASE_SSH_USER`,
 `ASAHI_RELEASE_VM_HOST` (VM acceptance and promotion; the M1 Pro),
-`ASAHI_RELEASE_UPDATE_HOSTS` (the Macs `--update-macs` updates, in order),
+`ASAHI_RELEASE_UPDATE_HOSTS` (the Macs `--update-macs` updates, space-separated
+in update order: the M2 Max first, then the M1 Pro),
 `ASAHI_RELEASE_AUTHOR_NAME` and `ASAHI_RELEASE_AUTHOR_EMAIL` (the pin commit) from the
 operator's settings file, `$ASAHI_RELEASE_CONFIG` (default
-`~/.config/omarchy/asahi-release.conf`, plain `KEY=value` lines), or from the environment,
+`${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/asahi-release.conf`, plain `KEY=value` lines), or from the environment,
 which wins. A step that needs a missing key stops and names it; `--dry-run` lists them.
 `ASAHI_RELEASE_VM_STATE_DIR` sets the harness state directory on the VM host, shared with
 hand runs. See `omarchy-pkgs/docs/asahi-resumable-release.md`.
@@ -164,7 +175,8 @@ Applies when the change is confined to what `omarchy-dev` and
    gate installs the predecessor set from its dated snapshot and upgrades over
    it), `asahi-quattro-channel-<N+1>` and its pointer.
 3. Installed Macs receive it on their next `omarchy update`
-   (`--update-macs` runs it on both test Macs). Verify on one:
+   (`--update-macs` runs it on the Macs `ASAHI_RELEASE_UPDATE_HOSTS` names).
+   Verify on one:
 
    ```bash
    omarchy-update-asahi-bundle --check    # "… <tag> is available"
@@ -186,9 +198,10 @@ commit, then full-lane [step 1](#1-candidate) and [step 4](#4-runtime-channel).
 
 ## Full lane: a package-set change or a new OS image
 
-The release command takes the full path whenever the candidate's package set
-differs from the live one: a PKGBUILD, `pkgbuilds/asahi-repository-*` or the
-builder changed, or an unpromoted predecessor carried new packages. It runs
+The release command takes the full path whenever the candidate rebuilt a
+non-runtime package or its package set differs from the live one: a PKGBUILD,
+`pkgbuilds/asahi-repository-*` or the builder changed, or an unpromoted
+predecessor carried new packages. It runs
 steps 1–4. A new OS image (finalizer, pins, base system) also needs steps 5–7,
 which stay manual; the catalog signature in step 7 is the owner's. Every step
 waits on the previous one.
@@ -619,12 +632,16 @@ Steps 2 through 4 need the owner's authorization, like every other publication.
 Both kernel lanes, rc (`release-aurora-package.yml`) and edge
 (`release-aurora-edge.yml`), build only when their inputs change.
 
-- **Input digest.** `bin/aurora-kernel-input-digest` writes every build input
-  (upstream archive, recipe files, build tooling, builder image, the exact
-  dependency archives) to a normalized record, `INPUTS`, published with the
-  release. Its SHA-256 is the `input_digest` recorded in `AURORA`. Anything
-  that cannot be proven equal builds; older releases without a digest are
-  never reused.
+- **Input digest.** `bin/aurora-kernel-input-digest` writes the build inputs
+  it can pin (upstream archive, recipe files, build tooling, builder image ID,
+  the exact dependency archives) to a normalized record, `INPUTS`, published
+  with the release. Its SHA-256 is the `input_digest` recorded in `AURORA`.
+  Anything that cannot be proven equal builds; older releases without a
+  digest are never reused.
+- **What it leaves out.** The Rust toolchains rustup downloads are recorded
+  only by version, the builder image only by its ID, and the runner host not
+  at all. An equal digest means equal recorded inputs, not byte-identical
+  toolchains; the script header lists the gaps.
 - **Edge.** When the latest published edge release verifies and records the
   same digest, the run ends with nothing new: nothing is built, signed or
   published. `force=true` builds anyway, as a new sequence `N`; no sequence is
@@ -638,9 +655,13 @@ Both kernel lanes, rc (`release-aurora-package.yml`) and edge
   and only a run with something new to publish asks for it.
 - **Retries.** The build must consume exactly the recorded dependencies; if
   the mirror moves one mid-run, the check fails: dispatch again. An edge
-  release is never republished: if only its pointer step failed, run
-  `publish-asahi-channel-pointer.yml -f kind=aurora-edge -f sequence=<N>`;
-  otherwise delete what was left and dispatch a new run.
+  release is never republished. If only its pointer step failed, run the
+  command below and approve its gate; otherwise delete what was left and
+  dispatch a new run.
+
+  ```bash
+  gh workflow run publish-asahi-channel-pointer.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro -f kind=aurora-edge -f sequence=<N>
+  ```
 
 ### Promoting a qualified Aurora kernel
 
@@ -839,8 +860,12 @@ Aurora is qualified on real hardware.
 Delete `pkgbuilds/*aurora*` (both kernels, `m1n1-aurora` and the Aurora
 package lists), `bin/aurora-*`, `test/aurora-*` and both
 `.github/workflows/release-aurora-*.yml` from `omarchy-pkgs` (and the Aurora
-case in `bin/asahi-incremental-plan`'s classifier, and the Aurora half of the
-bootstrap lane in `bin/apple-bootstrap-inputs` and `bin/build-apple-bootstrap`); the `builder/*aurora*`,
+case in `bin/asahi-incremental-plan`'s classifier, the Aurora half of the
+bootstrap lane in `bin/apple-bootstrap-inputs` and `bin/build-apple-bootstrap`,
+and, in the shared `publish-asahi-channel-pointer.yml`, the
+`test/aurora-edge-release` step that runs for every pointer kind, with the
+`aurora-edge` kind there and in `bin/publish-asahi-channel-pointer`, or
+runtime and package pointer repairs fail); the `builder/*aurora*`,
 `builder/branding/branding-manifest-aurora.json`,
 `products/omarchy-mx-mac-aurora.json`, `*-arm-aurora.conf` and
 `test/unit/aurora-product-test.sh` files from `omarchy-iso`; and
