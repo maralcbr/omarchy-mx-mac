@@ -156,7 +156,7 @@ SH
 cat >"$stub_bin/pacman" <<'SH'
 #!/bin/bash
 if [[ $* == "-Qq" ]]; then
-  printf '%s\n' linux-aurora linux-aurora-headers m1n1-aurora
+  printf '%s\n' $TEST_INSTALLED
   exit 0
 fi
 if [[ $1 == "-Q" && $# == 2 ]]; then
@@ -257,7 +257,7 @@ run_step() {
     TEST_CALLS="$calls" \
     TEST_CHANNEL_CALLS="$channel_calls" \
     TEST_VERSIONS="$versions" \
-    TEST_INSTALLED="linux-aurora linux-aurora-headers m1n1-aurora" \
+    TEST_INSTALLED="${TEST_INSTALLED:-linux-aurora linux-aurora-headers m1n1-aurora}" \
     OMARCHY_APPLE_SILICON_CHANNEL_ROOT="$root" \
     OMARCHY_APPLE_SILICON_CHANNEL_TESTING=1 \
     OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT=10 \
@@ -604,3 +604,22 @@ expect_status 2 "a lane file this runtime cannot read"
 grep -Fq "omarchy-apple-silicon-channel reset-rc" "$test_tmp/err" && grep -Fq "$lane_file has unsupported format 2" "$test_tmp/err" ||
   fail "an unreadable lane file names the file and the repair" "$(cat "$test_tmp/err")"
 pass "a hold or a hand pin stops an edge Mac without discovery, and an unreadable lane file stops the update with its repair"
+
+# A Mac without linux-aurora-headers (some still hold linux-asahi-headers, which
+# conflict with them) moves and completes without them.
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$record"
+conf_on "$downloads/$pin_tag"
+installed_from "$pin_tag"
+sed -i '/^linux-aurora-headers /d' "$versions"
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_accepted=7:%s\n' "$(digest aurora-edge-7)"
+write_pointer 8
+TEST_INSTALLED="linux-aurora m1n1-aurora" run_step
+expect_status 0 "an edge switch on a Mac without the headers"
+[[ $(cat "$targets") == $'omarchy-aurora/linux-aurora\nomarchy-aurora/m1n1-aurora' ]] ||
+  fail "a Mac without the headers is not given them" "$(cat "$targets")"
+installed_from aurora-edge-8
+sed -i '/^linux-aurora-headers /d' "$versions"
+TEST_INSTALLED="linux-aurora m1n1-aurora" run_step --complete
+expect_status 0 "completing an edge switch without the headers"
+expect_lane "the switch without the headers completes" 'format=1\nlane=edge\nedge_accepted=8:%s\n' "$(digest aurora-edge-8)"
+pass "a Mac without linux-aurora-headers switches without gaining them"

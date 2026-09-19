@@ -45,6 +45,17 @@ listing_page_limit=10
 comment_line="# Aurora kernel and bootloader, kept on the qualified release by omarchy update"
 aurora_packages=(linux-aurora linux-aurora-headers m1n1-aurora)
 
+# A move carries the headers only where they are installed: some Aurora Macs
+# still hold linux-asahi-headers, which conflict with them.
+move_packages() {
+  local installed package
+  installed=$(pacman -Qq) || return 1
+  for package in "${aurora_packages[@]}"; do
+    [[ $package != linux-aurora-headers ]] || grep -Fxq -- "$package" <<<"$installed" || continue
+    printf '%s\n' "$package"
+  done
+}
+
 fail() {
   echo "Aurora kernel repository update: $*" >&2
   exit 2
@@ -356,7 +367,8 @@ if [[ $mode == complete ]]; then
   [[ $current_tag == "$target_tag" ]] || unverified "[omarchy-aurora] is on ${current[*]:-no server}"
   trusted_staged "$target_digest" && read_descriptor "$staged_descriptor" ||
     unverified "the staged descriptor is not $target_tag's"
-  for package in "${aurora_packages[@]}"; do
+  moved=$(move_packages) || unverified "the installed packages cannot be listed"
+  for package in $moved; do
     installed=$(pacman -Q "$package" 2>/dev/null) || unverified "$package is not installed"
     installed=${installed#"$package "}
     [[ $installed == "${package_version[$package]}" ]] ||
@@ -668,5 +680,6 @@ fi
 # An open move installs exactly the staged release's packages, older or not.
 if [[ -n ${OMARCHY_AURORA_TARGETS:-} ]] &&
   [[ ($lane == rc && $switch == rc) || ($lane == edge && ($switch == edge || -n $pending)) ]]; then
-  printf 'omarchy-aurora/%s\n' "${aurora_packages[@]}" >"$OMARCHY_AURORA_TARGETS"
+  moved=$(move_packages) || fail "the installed packages cannot be listed"
+  printf 'omarchy-aurora/%s\n' $moved >"$OMARCHY_AURORA_TARGETS"
 fi
