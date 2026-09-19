@@ -6,9 +6,92 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 TEST_DIR="$ROOT/test/shell.d"
 source "$ROOT/test/require-modern-bash"
 
+usage() {
+  cat <<'EOF'
+Usage: test/shell [--shard K/N] [--jobs N] [--list] [test/shell.d/NAME-test.sh ...]
+
+Runs every test/shell.d/*-test.sh file, or only the named ones, and reports
+every failing file at the end.
+
+  --shard K/N  Run only shard K of N. The files are dealt round-robin in byte
+               order, so shards 1..N together run every file exactly once.
+  --jobs N     Run up to N files at once. Each file's output is printed whole
+               once it finishes. Without an XDG_RUNTIME_DIR (a container, CI),
+               every file gets a private one.
+  --list       Print the selected files instead of running them.
+EOF
+}
+
+shard_index=1
+shard_count=1
+jobs=1
+list=0
+requested=()
+while (( $# > 0 )); do
+  case $1 in
+    --shard | --jobs)
+      if (( $# < 2 )); then
+        printf '%s needs a value.\n' "$1" >&2
+        exit 2
+      fi
+      option=$1 value=$2
+      shift
+      ;;
+    --shard=* | --jobs=*)
+      option=${1%%=*} value=${1#*=}
+      ;;
+    --list)
+      list=1
+      shift
+      continue
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      requested+=("$@")
+      break
+      ;;
+    -*)
+      printf 'Unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      requested+=("$1")
+      shift
+      continue
+      ;;
+  esac
+  shift
+
+  if [[ $option == "--shard" ]]; then
+    if [[ ! $value =~ ^([1-9][0-9]{0,3})/([1-9][0-9]{0,3})$ ]] || (( BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+      printf 'Invalid shard: %s (expected K/N with 1 <= K <= N)\n' "$value" >&2
+      exit 2
+    fi
+    shard_index=${BASH_REMATCH[1]}
+    shard_count=${BASH_REMATCH[2]}
+  else
+    if [[ ! $value =~ ^[1-9][0-9]{0,3}$ ]]; then
+      printf 'Invalid job count: %s\n' "$value" >&2
+      exit 2
+    fi
+    jobs=$value
+  fi
+done
+
+# Parallel runs collect finished files with `wait -n -p`, which arrived in 5.1.
+if (( jobs > 1 )) && (( BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 1 )); then
+  printf 'test/shell --jobs requires Bash 5.1+; found %s.\n' "$BASH_VERSION" >&2
+  exit 2
+fi
+
 tests=()
-if (( $# > 0 )); then
-  for requested_test in "$@"; do
+if (( ${#requested[@]} > 0 )); then
+  for requested_test in "${requested[@]}"; do
     requested_test=$(cd -- "$(dirname -- "$requested_test")" && pwd)/$(basename "$requested_test")
     if [[ $requested_test != $TEST_DIR/*-test.sh || ! -f $requested_test ]]; then
       printf 'Invalid focused shell test: %s\n' "$requested_test" >&2
@@ -35,16 +118,134 @@ if (( ${#tests[@]} == 0 )); then
   exit 1
 fi
 
+# Shard membership comes from each file's position in byte order, never from the
+# locale's glob order, so every machine and CI runner deals the same shards.
+# The selected files still run in the usual order.
+if (( shard_count > 1 )); then
+  mapfile -t ordered < <(printf '%s\n' "${tests[@]}" | LC_ALL=C sort -u)
+  declare -A in_shard=()
+  for index in "${!ordered[@]}"; do
+    if (( index % shard_count == shard_index - 1 )); then
+      in_shard[${ordered[index]}]=1
+    fi
+  done
+  selected=()
+  for test in "${tests[@]}"; do
+    if [[ -n ${in_shard[$test]:-} ]]; then
+      selected+=("$test")
+    fi
+  done
+  tests=("${selected[@]}")
+
+  if (( ${#tests[@]} == 0 )); then
+    printf 'Shard %d/%d selects no test files.\n' "$shard_index" "$shard_count"
+    exit 0
+  fi
+fi
+
+if (( list )); then
+  printf '%s\n' "${tests[@]#$ROOT/}"
+  exit 0
+fi
+
 # Keep going after a failing file. A test file exits at its first failed
 # assertion, so aborting the run there too would hide every file after it --
 # one packaging failure was masking 114 of 134 files.
 failed=()
-for test in "${tests[@]}"; do
-  printf '==> %s\n' "${test#$ROOT/}"
-  if ! bash "$test"; then
-    failed+=("${test#$ROOT/}")
+
+run_sequential() {
+  local test
+
+  for test in "${tests[@]}"; do
+    printf '==> %s\n' "${test#$ROOT/}"
+    if ! bash "$test"; then
+      failed+=("${test#$ROOT/}")
+    fi
+  done
+}
+
+# Files run concurrently share nothing the runner controls: output goes to a
+# per-file log printed whole when the file finishes and stdin is closed. With no
+# XDG_RUNTIME_DIR, runtime-dir users fall back to shared /tmp paths (the update
+# lock among them), so each file gets a private one there. A desktop session's
+# own runtime dir is kept, since the compositor-backed tests need it.
+#
+# Each file starts with job control on. A plain `&` from a script starts the
+# job with SIGINT and SIGQUIT ignored, which no test can undo and which breaks
+# every test that interrupts its own children; with job control the file keeps
+# the default handlers and gets its own process group, which is also what the
+# runner kills if it is interrupted.
+declare -A index_of=()
+work=""
+
+stop_parallel() {
+  local pid
+
+  for pid in "${!index_of[@]}"; do
+    kill -TERM -- "-$pid" 2>/dev/null || true
+  done
+  if [[ -n $work ]]; then
+    rm -rf "$work"
   fi
-done
+}
+
+run_parallel() {
+  local next=0 running=0 finished status index started elapsed runtime_dir
+  local private_runtime=0
+  local -A started_at=()
+  local -a statuses=()
+
+  [[ -n ${XDG_RUNTIME_DIR:-} ]] || private_runtime=1
+  work=$(mktemp -d)
+  trap stop_parallel EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  while (( next < ${#tests[@]} || running > 0 )); do
+    while (( running < jobs && next < ${#tests[@]} )); do
+      runtime_dir=${XDG_RUNTIME_DIR:-}
+      if (( private_runtime )); then
+        runtime_dir=$work/runtime-$next
+        mkdir -m 0700 "$runtime_dir"
+      fi
+      set -m
+      XDG_RUNTIME_DIR=$runtime_dir bash "${tests[next]}" </dev/null >"$work/$next.log" 2>&1 &
+      index_of[$!]=$next
+      set +m
+      started_at[$next]=${EPOCHREALTIME/[.,]/}
+      (( ++running ))
+      (( ++next ))
+    done
+
+    status=0
+    wait -n -p finished || status=$?
+    index=${index_of[$finished]}
+    unset 'index_of[$finished]'
+    (( --running )) || true
+    statuses[index]=$status
+
+    started=${started_at[$index]}
+    elapsed=$(( ${EPOCHREALTIME/[.,]/} - started ))
+    printf '==> %s (%d.%01ds)\n' "${tests[index]#$ROOT/}" $(( elapsed / 1000000 )) $(( elapsed % 1000000 / 100000 ))
+    cat "$work/$index.log"
+    if (( status != 0 )); then
+      printf -- '--> %s failed with exit status %d\n' "${tests[index]#$ROOT/}" "$status"
+    fi
+  done
+
+  # Report failures in run order, whatever order they finished in.
+  for index in "${!tests[@]}"; do
+    if (( statuses[index] != 0 )); then
+      failed+=("${tests[index]#$ROOT/}")
+    fi
+  done
+}
+
+if (( jobs > 1 && ${#tests[@]} > 1 )); then
+  run_parallel
+else
+  run_sequential
+fi
 
 if (( ${#failed[@]} > 0 )); then
   printf '\n%d of %d test files failed:\n' "${#failed[@]}" "${#tests[@]}" >&2
