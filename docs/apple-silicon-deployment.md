@@ -142,11 +142,15 @@ pin=aurora-packages-<commit>             # one per repinned Aurora kernel
 
 ### Configuration
 
-There is no config file. Environment variables override the defaults in the
-script: `ASAHI_RELEASE_VM_HOST` (VM acceptance and promotion; the M1 Pro),
+The script carries no lab defaults. It reads `ASAHI_RELEASE_SSH_USER`,
+`ASAHI_RELEASE_VM_HOST` (VM acceptance and promotion; the M1 Pro),
 `ASAHI_RELEASE_UPDATE_HOSTS` (the Macs `--update-macs` updates, in order),
-`ASAHI_RELEASE_SSH_USER`, and `ASAHI_RELEASE_VM_STATE_DIR` (the harness state
-directory on the VM host, shared with hand runs).
+`ASAHI_RELEASE_AUTHOR_NAME` and `ASAHI_RELEASE_AUTHOR_EMAIL` (the pin commit) from the
+operator's settings file, `$ASAHI_RELEASE_CONFIG` (default
+`~/.config/omarchy/asahi-release.conf`, plain `KEY=value` lines), or from the environment,
+which wins. A step that needs a missing key stops and names it; `--dry-run` lists them.
+`ASAHI_RELEASE_VM_STATE_DIR` sets the harness state directory on the VM host, shared with
+hand runs. See `omarchy-pkgs/docs/asahi-resumable-release.md`.
 
 ## Fast lane: a runtime-only change
 
