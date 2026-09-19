@@ -15,7 +15,7 @@ This document is the sequence of commands.
 | Repository | Ships | Pinned by |
 | --- | --- | --- |
 | `omarchy-mx-mac` (this) | the runtime pair `omarchy-dev` / `omarchy-settings-dev`, the installer app, the acceptance harness, release tooling | `omarchy-pkgs/pkgbuilds/omarchy-source.conf` names the runtime source commit |
-| `omarchy-pkgs` (branch `asahi-quattro`) | the 55-package `[omarchy]` repository and the 6-package runtime bundle, as immutable GitHub releases and signed release channels | `omarchy-iso/builder/arm-package-snapshots.conf`, `configs/airootfs/…/pacman-online-installed-arm.conf` |
+| `omarchy-pkgs` (branch `asahi-quattro`) | the 63-package `[omarchy]` repository and the 6-package runtime bundle, as immutable GitHub releases and signed release channels | `omarchy-iso/builder/arm-package-snapshots.conf`, `configs/airootfs/…/pacman-online-installed-arm.conf` |
 | `omarchy-iso` | the OS payload (`omarchy-<date>-aarch64-apple-silicon-asahi-os-package.zip`) | `apps/omarchy-apple-installer/scripts/release-inputs.template.json`, `Engine/installer_data.json` |
 
 Artifacts, in the order they are produced:
@@ -29,17 +29,124 @@ Artifacts, in the order they are produced:
 | runtime channel `asahi-quattro-channel-<N>` | GitHub release; `omarchy update` follows the highest N | `promote-asahi-quattro-runtime.yml mode=publish` |
 | runtime channel pointer `pointers/asahi-quattro-channel` | R2, mutable; names the highest N | the last step of the same publish job, see [below](#the-runtime-channel-pointer) |
 | Arch Linux ARM snapshot `mirror/alarm/<YYYYMMDD>/` | R2 | rsync + rclone, see below |
-| OS release `releases/os-v4.0.2-mac.1.<date>/` + signed catalog | R2, immutable (7-day age lock) | `publish-m1-release` + `make-unsigned-catalog.py` + `catalog-signing.swift` |
+| OS release `releases/os-v<version>.<date>/` (e.g. `os-v4.0.3-mac.1.20260913`) + signed catalog | R2, immutable (7-day age lock) | `publish-m1-release` + `make-unsigned-catalog.py` + `catalog-signing.swift` |
 | channel `channels/rc` or `channels/stable` | R2, mutable | `publish-channels os-promote` |
 | installer `installer/<version>/` and `installer/rc|stable/` | R2 | `publish-channels app-publish` |
 
-Machines: **this Mac (M4)** builds the payload and publishes to R2; **GitHub**
-builds candidates and publishes runtime channels; **the M1** runs VM
-acceptance (it needs KVM, which GitHub's ARM runners lack) — grant yourself
-access with the LAN-only helper described in the workspace `AGENTS.md`.
-Anything with `bash`, `find`, or a case-insensitive disk in the path runs on
-Linux (the M1) or under `/opt/homebrew/bin/bash` with the GNU `gnubin`
-directories first on `PATH`; see the gotchas at the end.
+Machines: **this Mac (M4)** runs the release command, builds the payload and
+publishes to R2; **GitHub** builds candidates and publishes the channels;
+**the M1 Pro** runs VM acceptance and the package promotion (acceptance needs
+KVM, which GitHub's ARM runners lack) — grant yourself access with the
+LAN-only helper described in the workspace `AGENTS.md`. Anything with `bash`,
+`find`, or a case-insensitive disk in the path runs on Linux (the M1 Pro) or
+under `/opt/homebrew/bin/bash` with the GNU `gnubin` directories first on
+`PATH`; see the gotchas at the end.
+
+## The release command
+
+One command takes an omarchy-mx-mac commit on `main` to installed Macs, on
+either lane:
+
+```bash
+bin/asahi-release [--dry-run] [--update-macs] [--hardware-evidence FILE] OMARCHY_MX_MAC_COMMIT
+```
+
+Run it from a fresh `origin/asahi-quattro` worktree of `omarchy-pkgs`, with
+Bash 5 and a signed-in `gh`:
+
+```bash
+cd omarchy-pkgs && git fetch origin
+git worktree add --detach ../pkgs-release origin/asahi-quattro && cd ../pkgs-release
+/opt/homebrew/bin/bash bin/asahi-release --dry-run <commit>   # the plan; changes nothing
+/opt/homebrew/bin/bash bin/asahi-release <commit>
+```
+
+### What it does
+
+1. **Pin.** Points `pkgbuilds/omarchy-source.conf` at the commit through a
+   squash-merged PR. Skipped when the commit is already pinned.
+2. **Candidate.** Builds an incremental candidate on the nearest published
+   candidate and pins it by tag, `CANDIDATE` SHA-256 and commit. Every later
+   step checks all three again.
+3. **Path.** Compares the candidate's package set (name, version and archive
+   SHA-256 of every package) with the set the live package channel publishes.
+   - Same set: the **fast path** publishes the next runtime channel and stops.
+   - Different set (rebuilt here, or inherited from a candidate that was never
+     promoted), or a live set it cannot verify: the **full path** runs VM
+     acceptance on the M1 Pro, promotes the candidate there, publishes the
+     package channel, then the runtime channel.
+4. **Macs** (`--update-macs`). `omarchy update -y` on the M2 Max and its
+   checks, then the same on the M1 Pro. It never reboots.
+
+It approves the `asahi-quattro-release` gates itself, only on its own runs and
+only after checking what each will publish, then prints one report. It does
+not build the OS payload or touch the installer catalog (full-lane steps 5–7).
+
+After a full path, commit the acceptance record it wrote (`acceptance.txt`,
+beside the evidence it copied to `~/vm-evidence/<candidate tag>/<run-id>/`) to
+this repository as `docs/releases/asahi-packages-candidate-<8hex>-acceptance.txt`.
+A valid record of the same candidate already on `main` stands in for a new VM
+run.
+
+### Resume
+
+Run the same command again. State lives in
+`${XDG_STATE_HOME:-~/.local/state}/omarchy-release/`, one directory per
+release. A dispatched run, VM run, promotion or Mac update that outlived the
+command is reattached to, never started twice.
+
+- One release at a time: `release.lock` is an `flock`, so there is no stale
+  lock to clear. `--abandon` sets the release in progress aside.
+- A dispatch with no run is never resent on its own. Once the Actions page
+  shows no run of it, resume with `--dispatch-again candidate|packages|runtime`.
+
+### Hard stops
+
+Each prints one message and the command to resume with. The full table is in
+`omarchy-pkgs/docs/asahi-resumable-release.md`. It stops when:
+
+- a signature, digest or inventory does not verify;
+- acceptance evidence is missing or does not match: nothing is promoted or
+  published without a passing run whose `run.txt` names this candidate and
+  runtime, or a matching record on `main`;
+- a boot package or kernel pin moves against the live channels and
+  `--hardware-evidence` does not name a matching record (below);
+- publication state is unresolved: a draft or half-published release, a
+  channel whose pointer lags (run the repair it prints), or a promotion job
+  that is neither running nor finished;
+- another release superseded this runtime, or it would move Macs back:
+  release from the live runtime's commit instead;
+- the candidate inherits packages that differ from the live set and its chain
+  of candidates does not lead back to the one the live set came from: they
+  may be older builds, so rebuild (a full candidate) and release again;
+- a run, VM acceptance or a Mac's update checks fail.
+
+### Hardware evidence
+
+Boot packages are the kernels, m1n1, U-Boot, `asahi-fwextract`,
+`asahi-scripts`, `omarchy-apple-boot`, `limine-mkinitcpio-hook` and DKMS
+modules. One moves when the release would publish it at another version than
+the live package set, or when its recipe changed since that set; a
+same-version rebuild from an unchanged recipe does not. A kernel pin moves
+when `default/aurora-qualified-release` differs from the live runtime
+channel's source. VM acceptance boots a generic kernel and cannot clear
+either: test exactly that move on a real Mac, then pass a record of free text
+plus these lines, matching what the release publishes exactly (the stop
+prints them):
+
+```
+candidate_sha256=<the candidate's CANDIDATE digest>
+boot=<package> <epoch:pkgver-pkgrel>     # one per moved boot package
+pin=aurora-packages-<commit>             # one per repinned Aurora kernel
+```
+
+### Configuration
+
+There is no config file. Environment variables override the defaults in the
+script: `ASAHI_RELEASE_VM_HOST` (VM acceptance and promotion; the M1 Pro),
+`ASAHI_RELEASE_UPDATE_HOSTS` (the Macs `--update-macs` updates, in order),
+`ASAHI_RELEASE_SSH_USER`, and `ASAHI_RELEASE_VM_STATE_DIR` (the harness state
+directory on the VM host, shared with hand runs).
 
 ## Fast lane: a runtime-only change
 
@@ -48,40 +155,42 @@ Applies when the change is confined to what `omarchy-dev` and
 `migrations/`, tests, docs. Nothing in the repository package set moves.
 
 1. Land the change on `main` with its `test/shell.d` coverage, and push.
-2. In `omarchy-pkgs`:
-
-   ```bash
-   bin/asahi-runtime-release <full main commit>     # --dry-run to preview
-   ```
-
-   It pins `omarchy-source.conf` to the commit and merges that as a PR, builds
-   an incremental candidate on the newest published candidate (only the
-   runtime pair rebuilds; the gate installs the predecessor set from its dated
-   snapshot and upgrades over it), approves the `asahi-quattro-release` gates,
-   checks the candidate rebuilt nothing outside the runtime, and publishes
-   `asahi-quattro-channel-<N+1>`. The publish job's last step points
-   `pointers/asahi-quattro-channel` at it. If that step fails, the command
-   prints the [repair command](#the-runtime-channel-pointer) and exits
-   non-zero.
-3. Installed Macs receive it on their next `omarchy update`. Verify on one:
+2. Run [the release command](#the-release-command). It takes the fast path on
+   its own: pin, incremental candidate (only the runtime pair rebuilds; the
+   gate installs the predecessor set from its dated snapshot and upgrades over
+   it), `asahi-quattro-channel-<N+1>` and its pointer.
+3. Installed Macs receive it on their next `omarchy update`
+   (`--update-macs` runs it on both test Macs). Verify on one:
 
    ```bash
    omarchy-update-asahi-bundle --check    # "… <tag> is available"
    ```
 
+`bin/asahi-runtime-release [--dry-run] <commit>` still works: it is the fast
+path alone, and stops when the release needs the full path; `bin/asahi-release`
+with the same commit then resumes it there.
+
 What the lane skips on purpose: VM acceptance, package promotion, and the OS
 payload — the repository set is byte-identical to a set that already passed
-them, and fresh installs sync their repositories and update on first boot.
-The command refuses a candidate that rebuilt a repository package; that change
-is a full-lane change.
+them, and fresh installs sync their repositories and update on first boot. A
+runtime that repins the Aurora kernel still needs `--hardware-evidence`.
 
 Timing: ~12–15 minutes, dominated by the runtime build and the upgrade gate.
 
+**By hand**: a squash-merged PR pinning `pkgbuilds/omarchy-source.conf` to the
+commit, then full-lane [step 1](#1-candidate) and [step 4](#4-runtime-channel).
+
 ## Full lane: a package-set change or a new OS image
 
-Use it when `pkgbuilds/asahi-repository-*`, a PKGBUILD, the builder, or the
-workflows change, or when the image itself must change (finalizer, pins, base
-system). Every step below waits on the previous one.
+The release command takes the full path whenever the candidate's package set
+differs from the live one: a PKGBUILD, `pkgbuilds/asahi-repository-*` or the
+builder changed, or an unpromoted predecessor carried new packages. It runs
+steps 1–4. A new OS image (finalizer, pins, base system) also needs steps 5–7,
+which stay manual; the catalog signature in step 7 is the owner's. Every step
+waits on the previous one.
+
+**By hand**: steps 1–4 are what the command does. Use them only when it
+cannot run.
 
 ### 1. Candidate
 
@@ -98,20 +207,23 @@ gh workflow run release-asahi-package-incremental.yml -R maralcbr/omarchy-pkgs -
 Every release uses `mode=incremental` with the predecessor inputs, including
 full-lane releases: VM acceptance and promotion apply to what the planner
 rebuilt, not to a full rebuild. `mode=full` rebuilds everything (~30 min of CI
-plus a longer acceptance) and is only for the cases the planner itself reports
-as rebuild-all (toolchain, builder image, repository definitions, signing
-trust, or a change to the planner or verifier); the planner falls back to full
-on its own when the compared range contains such an input. Approve
-the environment gate when the publish job reaches it (`gh api … /pending_deployments`
-with a JSON body of integer `environment_ids`). Read the result from the
-candidate release: `CANDIDATE` (descriptor; its sha256 is the candidate's
-identity), `asahi-quattro-bundle.manifest` (runtime), `PLAN.json`.
+plus a longer acceptance) and is only for what the planner itself classes as
+rebuild-all: signing trust, the shared build, toolchain or base image, the
+repository lists, the planner, assembly, verifier or candidate workflow, and
+any unclassified path. The planner falls back to full on its own when the
+compared range contains one; `bin/asahi-incremental-plan --classify` (paths on stdin)
+shows each path's class. Approve the environment gate when the publish job
+reaches it (`gh api … /pending_deployments` with a JSON body of integer
+`environment_ids`). Read the result from the candidate release: `CANDIDATE`
+(descriptor; its sha256 is the candidate's identity),
+`asahi-quattro-bundle.manifest` (runtime), `PLAN.json`.
 
-### 2. VM acceptance on the M1
+### 2. VM acceptance on the M1 Pro
 
-Sync the harness (`rsync -a --exclude .git … omarchy-mx-mac/ 192.168.0.192:~/omarchy-src/`),
-keep the machine awake (the harness needs `docker` group membership and KVM),
-then:
+Copy this repository to `~/omarchy-src/` on the M1 Pro
+(`rsync -a --exclude .git`); running from there shares the release command's
+state directory and cached base. Keep the machine awake (the harness needs `docker` group
+membership and KVM), then:
 
 ```bash
 export OMARCHY_VM_CANDIDATE_TAG=asahi-packages-candidate-<commit>
@@ -123,7 +235,7 @@ export OMARCHY_VM_RUNTIME_SOURCE=<source_commit from that manifest>
 # optional: pin the channel guest/verify checks, and the pointer both guest stages read
 export OMARCHY_VM_ASAHI_CHANNEL_URL=https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-quattro-channel-<N>/asahi-quattro-channel
 export OMARCHY_VM_ASAHI_CHANNEL_POINTER_URL=https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel
-test/vm/asahi-fresh/run --optional-packages
+test/vm/asahi-fresh/run --optional-packages --wait-for-lease
 ```
 
 Without the two runtime exports the harness installs the last published
@@ -135,17 +247,29 @@ and immutable. Point `OMARCHY_VM_ALARM_MIRROR` at a live mirror (it needs the
 `https://<host>/$arch/$repo` shape) only when the live mirror itself is what
 you are testing, and say so in the acceptance record.
 
-Passing means 23 `ok` lines and exit 0. Record it as
+Passing means every check prints `ok` and the run exits 0 (25 `ok` lines
+today with `--optional-packages`).
+
+- **Evidence.** Pass or fail, the run copies its logs to
+  `~/vm-evidence/<run-id>/` on the VM host, checks the copy against hashes of
+  the originals, and writes `run.txt` there: the run's identities (candidate
+  tag and digest, runtime manifest and source, mirror), its result and the
+  `*_log_sha256` lines.
+- **Disk.** A passing run then deletes its ~23 GB disk. A failed run keeps it
+  for debugging; `--discard-failed-run` deletes it.
+- **One user per host.** A host lock admits one run at a time, and a lock
+  owned by another user is refused. `--wait-for-lease` queues behind a running
+  run instead of failing.
+
+Record the result as
 `docs/releases/asahi-packages-candidate-<8hex>-acceptance.txt` (copy the
 previous one; `format=1`, `candidate_tag`, `candidate_sha256`,
 `signing_fingerprint` and `status=accepted` are validated; the `*_log_sha256`
-lines come from `~/vm-evidence/<run-id>/run.txt` on the M1). The harness holds a
-lease for the whole run, copies and verifies its evidence there, and deletes a
-passing run's ~23 GB disk; see `test/vm/asahi-fresh/README.md`.
+lines come from `run.txt`). See `test/vm/asahi-fresh/README.md`.
 
 ### 3. Promote the packages
 
-On Linux (the M1), with a GitHub token that can create releases:
+On Linux (the M1 Pro), with a GitHub token that can create releases:
 
 ```bash
 bin/promote-asahi-package-candidate --publish maralcbr/omarchy-pkgs \
@@ -254,7 +378,7 @@ base image every run and compares it, so re-running it against an existing
 In `apps/omarchy-apple-installer` of this repository:
 
 ```bash
-A=apps/omarchy-apple-installer; W=~/omarchy-cutover/release-<date>; TAG=os-v4.0.2-mac.1.<date>
+A=apps/omarchy-apple-installer; W=~/omarchy-cutover/release-<date>; TAG=os-v<version>.<date>
 P=../omarchy-iso/release/omarchy-<date>-aarch64-apple-silicon-asahi-os-package.zip
 cp "$P.installer-data.json" $W/installer_data.json          # names this payload; also copy it to $A/Engine/
 # That copy is per payload and is not pinned by the engine source lock, which pins the
@@ -328,9 +452,9 @@ curl -fsS https://downloads.aicodelabs.com.au/pointers/asahi-quattro-channel
 
 ### Repair it
 
-When a publish job failed at the pointer step, or `asahi-runtime-release`
-printed this command, the channel release is public but the pointer still
-names the previous channel:
+When a publish job failed at the pointer step, or `asahi-release` stopped
+with this command, the channel release is public but the pointer still names
+the previous channel:
 
 ```bash
 gh workflow run publish-asahi-channel-pointer.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro -f sequence=<N>
@@ -456,10 +580,11 @@ product produces the same bytes it did before this lane existed.
 | channel `channels/rc-aurora` | R2 | `publish-channels os-promote --to rc-aurora` |
 
 1. Build and publish the kernel from `omarchy-pkgs`, then record the tag and
-   the `AURORA` digest the run prints:
+   the `AURORA` digest the run prints. A run can also end with nothing new;
+   see [kernel builds](#kernel-builds-run-only-on-new-inputs).
 
    ```bash
-   gh workflow run release-aurora-package.yml -f publish=true
+   gh workflow run release-aurora-package.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro -f publish=true
    ```
 
 2. Pin both halves in `omarchy-iso` — they are compared at build time and the
@@ -480,10 +605,38 @@ product produces the same bytes it did before this lane existed.
    set the new channel is the only reference to:
 
    ```bash
-   publish-channels os-promote --tag os-v4.0.2-mac.1.<date>-aurora --to rc-aurora --no-prune
+   publish-channels os-promote --tag os-v<version>.<date>-aurora --to rc-aurora --no-prune
    ```
 
 Steps 2 through 4 need the owner's authorization, like every other publication.
+
+### Kernel builds run only on new inputs
+
+Both kernel lanes, rc (`release-aurora-package.yml`) and edge
+(`release-aurora-edge.yml`), build only when their inputs change.
+
+- **Input digest.** `bin/aurora-kernel-input-digest` writes every build input
+  (upstream archive, recipe files, build tooling, builder image, the exact
+  dependency archives) to a normalized record, `INPUTS`, published with the
+  release. Its SHA-256 is the `input_digest` recorded in `AURORA`. Anything
+  that cannot be proven equal builds; older releases without a digest are
+  never reused.
+- **Edge.** When the latest published edge release verifies and records the
+  same digest, the run ends with nothing new: nothing is built, signed or
+  published. `force=true` builds anyway, as a new sequence `N`; no sequence is
+  published twice.
+- **rc.** When `aurora-packages-<commit>` already exists, the run only
+  verifies it, even with `force`; a real rebuild needs a new commit. When
+  another published `aurora-packages` release records the same digest, the
+  run ends with nothing new and names that release: qualify it instead.
+  `force=true` builds this commit's release anyway.
+- **Gate.** The `asahi-quattro-release` signing gate now comes after the build,
+  and only a run with something new to publish asks for it.
+- **Retries.** The build must consume exactly the recorded dependencies; if
+  the mirror moves one mid-run, the check fails: dispatch again. An edge
+  release is never republished: if only its pointer step failed, run
+  `publish-asahi-channel-pointer.yml -f kind=aurora-edge -f sequence=<N>`;
+  otherwise delete what was left and dispatch a new run.
 
 ### Promoting a qualified Aurora kernel
 
@@ -519,7 +672,10 @@ runs against the repository the section already names.
    rather than copying it: `gh release download <tag> --repo
    maralcbr/omarchy-pkgs --pattern AURORA --dir <tmp>`, then
    `sha256sum <tmp>/AURORA`.
-4. Ship it as a runtime release ([fast lane](#fast-lane-a-runtime-only-change)).
+4. Ship it as a runtime release ([fast lane](#fast-lane-a-runtime-only-change))
+   with `bin/asahi-release --hardware-evidence FILE <commit>`: the repin is a
+   kernel pin move, so the command stops without a record of step 2 that
+   names `pin=aurora-packages-<commit>` ([hardware evidence](#hardware-evidence)).
 5. Verify on the M2 Max: put its `[omarchy-aurora]` `Server` back on the
    previous release (now a predecessor), run `omarchy update`, and check that
    the section names the new tag, `pacman -Q linux-aurora` shows the new
@@ -561,10 +717,13 @@ refuses on a runtime without it.
 **Publish an edge release** (in `omarchy-pkgs`, with the owner's authorization
 like any publication):
 
-1. `gh workflow run release-aurora-edge.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro`,
+1. `gh workflow run release-aurora-edge.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro -f publish=true`,
    then approve the `asahi-quattro-release` gate after checking what changed on
-   `aurora-wip` and that the build passed. The run number is the sequence `N`,
-   and the release is `aurora-edge-N` (not a draft, not a prerelease).
+   `aurora-wip`; the gate opens only after the build passed. An unchanged
+   input ends with nothing new and no gate
+   ([kernel builds](#kernel-builds-run-only-on-new-inputs)). The run number is
+   the sequence `N`, and the release is `aurora-edge-N` (not a draft, not a
+   prerelease).
 2. `bin/publish-asahi-channel-pointer --kind aurora-edge` points
    `pointers/aurora-edge-channel` at it once the release's signed descriptor
    reads back correctly. Check it:
@@ -673,10 +832,11 @@ Aurora is qualified on real hardware.
 
 ### Removing the lane
 
-Delete `pkgbuilds/linux-aurora`, `pkgbuilds/aurora-*`,
-`bin/aurora-package-descriptor`, `test/aurora-package-descriptor` and
-`.github/workflows/release-aurora-package.yml` from `omarchy-pkgs` (and the
-aurora ignore rule in `bin/asahi-incremental-plan`); the `builder/*aurora*`,
+Delete `pkgbuilds/*aurora*` (both kernels, `m1n1-aurora` and the Aurora
+package lists), `bin/aurora-*`, `test/aurora-*` and both
+`.github/workflows/release-aurora-*.yml` from `omarchy-pkgs` (and the Aurora
+case in `bin/asahi-incremental-plan`'s classifier, and the Aurora half of the
+bootstrap lane in `bin/apple-bootstrap-inputs` and `bin/build-apple-bootstrap`); the `builder/*aurora*`,
 `builder/branding/branding-manifest-aurora.json`,
 `products/omarchy-mx-mac-aurora.json`, `*-arm-aurora.conf` and
 `test/unit/aurora-product-test.sh` files from `omarchy-iso`; and
@@ -718,7 +878,7 @@ byte for byte, which is how to check it.
 - macOS: `/bin/bash` is 3.2 (`mapfile`, `declare -A`, `${x,,}` fail),
   BSD `find` has no `-printf`, `sed -i` needs `''`, and the default disk is
   case-insensitive (`candidate/` collides with `CANDIDATE`). Run release
-  scripts on the M1, or on this Mac under `/opt/homebrew/bin/bash` with
+  scripts on the M1 Pro, or on this Mac under `/opt/homebrew/bin/bash` with
   `gnubin` first on `PATH` and `TMPDIR` on a case-sensitive volume.
 - Helpers launched as `bash <script>` take whatever `bash` is first on `PATH`
   — put `/opt/homebrew/bin` first for the payload build.
