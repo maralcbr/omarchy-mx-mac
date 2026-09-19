@@ -122,16 +122,24 @@ This copies `$OMARCHY_PATH/config/hypr/hyprland.lua` to `~/.config/hypr/hyprland
 is interpolated into both paths and only checked with `[[ -e ]]`, so pass a plain relative path: a
 name containing `..` resolves and copies, landing outside `~/.config` rather than being rejected.
 
-# Apple Silicon integration safety
+# Apple Silicon work
 
-For Apple Silicon handoff, installer, trust, authorization, ISO, package,
-release, or physical-device work, read
-[`docs/apple-silicon-m4-integration-matrix.md`](docs/apple-silicon-m4-integration-matrix.md)
-before acting.
+Read the matching guide before acting:
 
-Keep integration source-only and local. Stop and obtain the owner's explicit
-authorization immediately before any push, pull request, merge, signing,
-notarization, publication, channel change, deployment, installed-user
-integration, user-default change, privileged authorization run, or physical
-device mutation. Keep public release authorization false, the physical
-allowlist empty, and `apple,j614s` rejected until that authorization is given.
+- [`docs/apple-silicon-deployment.md`](docs/apple-silicon-deployment.md) - packages, candidates, releases and channels
+- [`docs/apple-silicon-hardware-validation.md`](docs/apple-silicon-hardware-validation.md) - checking a change on a test Mac, including remote checks after a cold boot
+- [`docs/apple-silicon-m4-integration-matrix.md`](docs/apple-silicon-m4-integration-matrix.md) - installer handoff, trust and M4-generation support
+
+Authority:
+
+- Routine work proceeds without asking: pushes, pull requests, reviews, merges,
+  release-gate approvals, releases, channel publication and test-Mac updates.
+- The M1 Pro and M2 Max test Macs allow anything on their Omarchy side,
+  including remote reboots and kernel swaps. The M1 Pro's macOS side is personal.
+- The owner's primary Mac, the M4 Pro, is never a test target, and any system
+  change on it needs the owner's explicit authorization.
+- The installer catalog's Keychain signature and physical cabling are the
+  owner's; CI package signing is approved like any other release gate.
+- M4-generation support stays gated: keep public release authorization false,
+  the physical allowlist empty, and `apple,j614s` rejected until the owner
+  authorizes it.
