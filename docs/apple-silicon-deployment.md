@@ -625,7 +625,8 @@ reset-rc` records the same request, then run `omarchy update`.
   <installed>'s` after a downgrade (edge → rc, `reset-rc`): update-m1n1's
   default took kernel-modules-hook's copy of the running kernel's modules, the
   newest `-ARCH` directory until `linux-modules-cleanup` moves it to
-  `/usr/lib/modules/.old` at boot. Completion now makes that move itself and
+  `/usr/lib/modules/.old` at boot. Completion now makes that move itself,
+  holding pacman's `db.lck` (a held lock fails it: rerun `omarchy update`), and
   reruns `update-m1n1` before the boot check
   (`omarchy-apple-silicon-retire-saved-modules`), only when the directory is
   `uname -r`'s, owned by no package and directly above the installed kernel's,

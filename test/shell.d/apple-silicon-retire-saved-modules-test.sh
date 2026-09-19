@@ -32,9 +32,15 @@ stub() {
   chmod +x "$stub_bin/$1"
 }
 
+# Taking pacman's lock can be raced by a transaction that reinstalls the saved
+# release, and removing the saved modules can be made to fail.
 stub sudo <<'SH'
 #!/bin/bash
 printf 'sudo %s\n' "$*" >>"$TEST_CALLS"
+if [[ $1 == bash && ${TEST_REINSTALLED_BEFORE_LOCK:-0} == 1 ]]; then
+  printf '/usr/lib/modules/%s/\n' "$TEST_RUNNING" >"$TEST_FILES/linux-aurora-edge"
+fi
+[[ ! ($1 == rm && $2 == -rf && ${TEST_RM_FAILS:-0} == 1) ]] || exit 1
 exec "$@"
 SH
 stub uname <<'SH'
@@ -42,16 +48,26 @@ stub uname <<'SH'
 [[ $* == -r ]] || exec /usr/bin/uname "$@"
 echo "$TEST_RUNNING"
 SH
-# Owners come from each package's file list, as pacman -Qo answers them.
+# Owners come from each package's file list, as pacman -Qo answers them. With
+# --root, only the fixture's root and database are accepted, file lists carry the
+# root, and -Qo takes paths under it, as pacman's do.
 stub pacman <<'SH'
 #!/bin/bash
+prefix=""
+if [[ $1 == --root ]]; then
+  [[ $2 == "$TEST_ROOT" && $3 == --dbpath && $4 == "$TEST_ROOT/var/lib/pacman/" ]] || { echo "pacman: wrong root $*" >&2; exit 2; }
+  prefix=$TEST_ROOT
+  shift 4
+fi
 case "$1" in
   -Qq) cat "$TEST_FILES/installed" ;;
-  -Qlq) [[ -f $TEST_FILES/$2 ]] && cat "$TEST_FILES/$2" ;;
+  -Qlq) [[ -f $TEST_FILES/$2 ]] && sed "s|^|$prefix|" "$TEST_FILES/$2" ;;
   -Qqo)
+    [[ -n $prefix || $2 != "$TEST_ROOT"/* ]] || { echo "pacman: a fixture path without --root" >&2; exit 2; }
+    [[ $2 == "$prefix"/* ]] || exit 2
     for list in "$TEST_FILES"/*; do
       [[ ${list##*/} != installed ]] || continue
-      if grep -Fxq -- "$2/" "$list"; then
+      if grep -Fxq -- "${2#"$prefix"}/" "$list"; then
         echo "${list##*/}"
         exit 0
       fi
@@ -68,8 +84,10 @@ printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\n' "$TES
 SH
 stub rsync <<'SH'
 #!/bin/bash
-printf 'rsync %s\n' "$*" >>"$TEST_CALLS"
-[[ $1 == -AHXal && $# == 3 ]] || exit 1
+lock=unlocked
+[[ ! -e $TEST_ROOT/var/lib/pacman/db.lck ]] || lock=locked
+printf 'rsync %s %s\n' "$lock" "$*" >>"$TEST_CALLS"
+[[ ${TEST_RSYNC_FAILS:-0} != 1 && $1 == -AHXal && $# == 3 ]] || exit 1
 mkdir -p "$3"
 cp -a "$2" "$3"
 SH
@@ -95,7 +113,9 @@ SH
 # environment and arguments are logged, and it writes TARGET when one is set.
 stub update-m1n1 <<'SH'
 #!/bin/bash
-printf 'update-m1n1 args=%s TARGET=%s DTBS=%s\n' "$*" "${TARGET-unset}" "${DTBS-unset}" >>"$TEST_CALLS"
+lock=unlocked
+[[ ! -e $TEST_ROOT/var/lib/pacman/db.lck ]] || lock=locked
+printf 'update-m1n1 %s args=%s TARGET=%s DTBS=%s\n' "$lock" "$*" "${TARGET-unset}" "${DTBS-unset}" >>"$TEST_CALLS"
 [[ ${TEST_M1N1_FAILS:-0} != 1 ]] || exit 1
 export LC_ALL=C
 : ${TARGET:="$1"}
@@ -113,7 +133,8 @@ SH
 downgraded() {
   local kver dtb
   rm -rf "$root" "$files"
-  mkdir -p "$root/boot/grub" "$root/usr/lib/asahi-boot" "$root/usr/bin" "$root/etc/default" "$root/run" "$esp/m1n1" "$files"
+  mkdir -p "$root/boot/grub" "$root/usr/lib/asahi-boot" "$root/usr/bin" "$root/etc/default" "$root/run" "$esp/m1n1" "$files" \
+    "$root/var/lib/pacman"
   : >"$mounts"
   ln -s usr/lib "$root/lib"
   for kver in "$rc" "$edge"; do
@@ -156,6 +177,7 @@ SH
 in_env() {
   env TEST_CALLS="$calls" TEST_FILES="$files" TEST_MOUNTS="$mounts" TEST_ROOT="$root" TEST_KVER="$rc" \
     TEST_RUNNING="${running:-$edge}" OMARCHY_SAVED_MODULES_ROOT="$root" OMARCHY_BOOT_CHECK_ROOT="$root" \
+    OMARCHY_SAVED_MODULES_REBUILD="$stub_bin/update-m1n1" \
     PATH="$stub_bin:$ROOT/bin:$PATH" "$@"
 }
 
@@ -164,6 +186,14 @@ run_retire() {
   set +e
   in_env TARGET="$test_tmp/elsewhere" DTBS="$modules/$edge/dtbs/*.dtb" \
     bash "$retire" linux-aurora >"$test_tmp/out" 2>"$test_tmp/err"
+  status=$?
+  set -e
+}
+
+run_retire_without_rebuild() {
+  : >"$calls"
+  set +e
+  in_env env -u OMARCHY_SAVED_MODULES_REBUILD bash "$retire" linux-aurora >"$test_tmp/out" 2>"$test_tmp/err"
   status=$?
   set -e
 }
@@ -188,7 +218,7 @@ expect_check_refuses_edge_dtbs() {
 
 expect_left_alone() {
   (( status == 0 )) || fail "$1 exits 0" "status $status: $(cat "$test_tmp/err")"
-  [[ ! -s $calls && ! -s $test_tmp/out && -d $modules/$edge && ! -e $modules/.old ]] ||
+  [[ ! -s $calls && ! -s $test_tmp/out && -d $modules/$edge && ! -e $modules/.old && ! -e $root/var/lib/pacman/db.lck ]] ||
     fail "$1 moves nothing and runs nothing" "$(cat "$calls" "$test_tmp/out")"
   expect_check_refuses_edge_dtbs "$1"
 }
@@ -214,9 +244,12 @@ run_retire
 cmp -s "$modules/.old/$edge/kernel/apple-dcp.ko.zst" <(printf 'module %s\n' "$edge") &&
   cmp -s "$modules/.old/$edge/dtbs/${names[0]}" <(printf 'device tree %s from %s\n' "${names[0]}" "$edge") ||
   fail "they are kept in /usr/lib/modules/.old, as linux-modules-cleanup keeps them" "$(find "$modules/.old")"
-grep -Fxq "rsync -AHXal $modules/$edge $modules/.old/" "$calls" || fail "they are copied the way linux-modules-cleanup copies them" "$(cat "$calls")"
-(( $(grep -c '^update-m1n1 ' "$calls") == 1 )) && grep -Fxq 'update-m1n1 args= TARGET=unset DTBS=unset' "$calls" ||
-  fail "update-m1n1 runs once, without TARGET, DTBS or arguments" "$(cat "$calls")"
+grep -Fxq "rsync locked -AHXal $modules/$edge $modules/.old/" "$calls" &&
+  grep -Fxq "sudo rm -rf $modules/$edge" "$calls" && grep -Fxq "sudo bash -c set -C; : >\"\$1\" _ $root/var/lib/pacman/db.lck" "$calls" ||
+  fail "they are copied the way linux-modules-cleanup copies them, holding pacman's lock taken the way libalpm takes it" "$(cat "$calls")"
+(( $(grep -c '^update-m1n1 ' "$calls") == 1 )) && grep -Fxq 'update-m1n1 unlocked args= TARGET=unset DTBS=unset' "$calls" ||
+  fail "update-m1n1 runs once, after the lock is released, without TARGET, DTBS or arguments" "$(cat "$calls")"
+[[ ! -e $root/var/lib/pacman/db.lck ]] || fail "the lock it took is released"
 [[ ! -e $test_tmp/elsewhere ]] || fail "a TARGET in the caller's environment is never written"
 awk '/^rsync /{ r = NR } /^sudo rm -rf /{ d = NR } /^update-m1n1 /{ u = NR } END { exit !(r && d && u && r < d && d < u) }' "$calls" ||
   fail "the modules are copied, then removed, then m1n1 rebuilt" "$(cat "$calls")"
@@ -266,6 +299,37 @@ sed -i '/DTBS:=/d' "$root/usr/bin/update-m1n1"
 run_retire
 (( status == 0 )) && [[ ! -s $calls && -d $modules/$edge ]] || fail "an update-m1n1 without the -ARCH default leaves everything alone" "$(cat "$calls")"
 pass "without kernel-modules-hook, with another kernel in between, or with DTBS not from the -ARCH default, nothing moves"
+
+# pacman's lock: held by someone else, raced, and kept through a failed move.
+expect_nothing_removed() {
+  (( status == 1 )) && grep -Fq "$2" "$test_tmp/err" || fail "$1 fails and says why" "status $status: $(cat "$test_tmp/err")"
+  [[ -d $modules/$edge ]] && ! grep -q '^update-m1n1 ' "$calls" || fail "$1 removes nothing and rebuilds nothing" "$(cat "$calls")"
+}
+downgraded
+printf 'pacman\n' >"$root/var/lib/pacman/db.lck"
+run_retire
+expect_nothing_removed "a lock pacman holds" "pacman's database is locked ($root/var/lib/pacman/db.lck)"
+! grep -Eq '^(rsync|sudo rm -rf)' "$calls" && [[ $(cat "$root/var/lib/pacman/db.lck") == pacman && ! -e $modules/.old ]] ||
+  fail "a lock pacman holds is left exactly as it is, and nothing is copied" "$(cat "$calls")"
+downgraded
+TEST_REINSTALLED_BEFORE_LOCK=1 run_retire
+(( status == 0 )) && [[ -d $modules/$edge && ! -e $modules/.old && ! -e $root/var/lib/pacman/db.lck ]] &&
+  ! grep -Eq '^(rsync|sudo rm -rf|update-m1n1)' "$calls" ||
+  fail "a directory a transaction took ownership of before the lock is left alone and the lock released" "$(cat "$calls")"
+expect_check_refuses_edge_dtbs "a directory reinstalled before the lock"
+downgraded
+TEST_RSYNC_FAILS=1 run_retire
+expect_nothing_removed "a failed copy" "could not copy /usr/lib/modules/$edge to /usr/lib/modules/.old; nothing was removed"
+! grep -q '^sudo rm -rf' "$calls" && [[ ! -e $root/var/lib/pacman/db.lck ]] || fail "a failed copy deletes nothing and releases the lock" "$(cat "$calls")"
+downgraded
+TEST_RM_FAILS=1 run_retire
+expect_nothing_removed "a failed removal" "could not remove /usr/lib/modules/$edge; m1n1 was not rebuilt"
+[[ ! -e $root/var/lib/pacman/db.lck ]] || fail "a failed removal releases the lock"
+downgraded
+run_retire_without_rebuild
+(( status == 1 )) && grep -Fq "an alternate root needs OMARCHY_SAVED_MODULES_REBUILD" "$test_tmp/err" && [[ ! -s $calls && -d $modules/$edge ]] ||
+  fail "an alternate root never falls back to the host's update-m1n1" "status $status: $(cat "$test_tmp/err" "$calls")"
+pass "a held lock, a transaction racing the lock, a failed copy or removal, and a root without its own rebuild move and rebuild nothing"
 
 downgraded
 TEST_M1N1_FAILS=1 run_retire
