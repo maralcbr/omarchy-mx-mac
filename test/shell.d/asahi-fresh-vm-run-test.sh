@@ -195,6 +195,9 @@ grep -Fxq "install_log_sha256=$(sha256sum "$evidence/install.log" | cut -d' ' -f
 grep -Fxq "serial_log_sha256=$(sha256sum "$evidence/serial.log" | cut -d' ' -f1)" "$evidence/run.txt" ||
   fail "the run record carries the serial log hash"
 grep -Fxq "expected_repository=$stable_tag" "$evidence/run.txt" || fail "the run record names the resolved stable set"
+for key in candidate_tag candidate_sha256 runtime_manifest_sha256 runtime_source; do
+  [[ $(grep -c "^$key=" "$evidence/run.txt") == 1 ]] || fail "the run record names its $key once" "$(<"$evidence/run.txt")"
+done
 [[ ! -e $state/runs/pass-1 ]] || fail "a passing run deletes its run directory once the evidence verifies"
 [[ $(<"$state/run/disk.qcow2") == legacy ]] || fail "a run never deletes an earlier run's directory"
 [[ $output == *"$state/run"* ]] || fail "a run lists the run directories still on disk" "$output"

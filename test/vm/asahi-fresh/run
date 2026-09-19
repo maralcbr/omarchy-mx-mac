@@ -385,6 +385,9 @@ export_evidence() {
     echo "packages_channel_url=$packages_channel_url"
     echo "expected_repository=$expected_repository"
     echo "candidate_tag=$candidate_tag"
+    echo "candidate_sha256=$candidate_sha256"
+    echo "runtime_manifest_sha256=${OMARCHY_VM_RUNTIME_MANIFEST_SHA256:-}"
+    echo "runtime_source=${OMARCHY_VM_RUNTIME_SOURCE:-}"
     # The same keys as the acceptance record, e.g. install_log_sha256.
     while read -r sum file; do
       if [[ $file != */* ]]; then
