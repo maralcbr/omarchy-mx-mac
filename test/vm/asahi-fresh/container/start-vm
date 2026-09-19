@@ -2,11 +2,22 @@
 
 set -euo pipefail
 
-run=/work/run
+# The runner names a directory per run so a retained run is never reused.
+run=${OMARCHY_VM_RUN_DIR:-/work/run}
 base=/work/cache/archarm-base.qcow2
 code=/usr/share/AAVMF/AAVMF_CODE.fd
 vars_template=/usr/share/AAVMF/AAVMF_VARS.fd
 memory_mb=${OMARCHY_VM_MEMORY_MB:-6144}
+cpus=${OMARCHY_VM_CPUS:-8}
+
+[[ $run == /work/* && $run != *..* ]] || {
+  echo "OMARCHY_VM_RUN_DIR must be a directory under /work" >&2
+  exit 1
+}
+[[ $cpus =~ ^[1-9][0-9]*$ ]] || {
+  echo "OMARCHY_VM_CPUS must be a positive integer" >&2
+  exit 1
+}
 
 rm -rf "$run"
 mkdir -p "$run"
@@ -17,7 +28,7 @@ qemu-system-aarch64 \
   -nodefaults \
   -machine virt,accel=kvm,gic-version=host \
   -cpu host \
-  -smp 8 \
+  -smp "$cpus" \
   -m "$memory_mb" \
   -drive if=pflash,format=raw,readonly=on,file="$code" \
   -drive if=pflash,format=raw,file="$run/AAVMF_VARS.fd" \
