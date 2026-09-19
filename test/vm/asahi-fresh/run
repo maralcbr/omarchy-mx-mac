@@ -62,7 +62,15 @@ done
   echo "The evidence directory must not be empty" >&2
   exit 1
 }
-[[ $evidence_root == /* ]] || evidence_root=$PWD/$evidence_root
+# Cleanup deletes run directories inside the state directory, so evidence kept
+# anywhere beneath it, directly or through a symlink, could be deleted with the
+# disk it describes. Compare the paths with every symlink resolved.
+state_real=$(realpath -m -- "$state")
+evidence_root=$(realpath -m -- "$evidence_root")
+if [[ $evidence_root == "$state_real" || $evidence_root == "$state_real"/* ]]; then
+  echo "The evidence directory $evidence_root is inside the VM state directory $state_real, whose run directories are deleted; choose one outside it" >&2
+  exit 1
+fi
 container=omarchy-asahi-fresh-vm-$run_id
 run_dir=$state/runs/$run_id
 guest_run=/work/runs/$run_id

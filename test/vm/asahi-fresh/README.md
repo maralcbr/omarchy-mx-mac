@@ -56,7 +56,8 @@ container still forwards its SSH or VNC port (`OMARCHY_VM_SSH_PORT`,
 
 When a run ends, pass or fail, it stops the VM and copies its evidence to
 `~/vm-evidence/<run-id>/` (`--evidence-dir DIR` or `OMARCHY_VM_EVIDENCE_DIR`
-changes the parent): the logs an acceptance record hashes
+changes the parent, which must be outside the state directory): the logs an
+acceptance record hashes
 (`candidate-repository.log`, `install.log`, `serial.log`, `verify.log`,
 `optional-packages.log`, `rerun.log`), `optional-package-logs/`, the final
 `desktop.ppm`, `SHA256SUMS`, and `run.txt` with the run's inputs, its result and

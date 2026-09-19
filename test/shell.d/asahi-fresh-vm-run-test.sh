@@ -226,6 +226,23 @@ TEST_DOCKER_EXISTING=omarchy-asahi-fresh-vm-taken OMARCHY_VM_RUN_ID=taken run_ha
 ! grep -Eq '^(rm|run|build) ' "$TEST_DOCKER_LOG" || fail "a run never removes a container it did not create" "$(<"$TEST_DOCKER_LOG")"
 pass "a reused run ID is refused before anything starts"
 
+# Evidence inside the state directory could be deleted with the run directory,
+# whichever path names it.
+mkdir -p "$state/runs"
+ln -s "$state/runs" "$test_tmp/runs-alias"
+for destination in "$state" "$state/runs" "$state/runs/inside/evidence" "$test_tmp/runs-alias" "$test_tmp/runs-alias/../cache"; do
+  OMARCHY_VM_RUN_ID=inside run_harness --evidence-dir "$destination"
+  (( status != 0 )) && [[ $output == *"is inside the VM state directory $state"* ]] ||
+    fail "evidence inside the state directory is refused: $destination" "$output"
+  [[ ! -s $TEST_DOCKER_LOG && ! -e $state/runs/inside ]] || fail "a refused evidence directory starts nothing: $destination"
+done
+OMARCHY_VM_EVIDENCE_DIR="$test_tmp/runs-alias" OMARCHY_VM_RUN_ID=inside run_harness
+(( status != 0 )) && [[ $output == *'is inside the VM state directory'* ]] ||
+  fail "OMARCHY_VM_EVIDENCE_DIR inside the state directory is refused" "$output"
+(cd "$test_tmp" && OMARCHY_VM_RUN_ID=relative run_harness --evidence-dir relative-evidence)
+[[ -f $test_tmp/relative-evidence/relative/run.txt ]] || fail "a relative evidence directory resolves from the caller's directory"
+pass "evidence inside the state directory is refused, symlinks included"
+
 # A docker run that loses the name to another run creates nothing, so the run
 # must not remove anything; one that created its container but could not start
 # it removes exactly that container.
