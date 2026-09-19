@@ -200,31 +200,46 @@ run_suite --shard 3/9 "$suite/test/shell.d/alpha-test.sh"
   fail "an empty shard passes and says so" "$output"
 pass "an empty shard passes and says so"
 
-# Interrupting a parallel run stops the files it started, children included.
+# Interrupting a parallel run stops the files it started, children included,
+# even a child that ignores TERM, before it removes their runtime directories.
 write_test golf <<SH
-sleep 60 &
+bash -c 'trap "" TERM; while :; do sleep 0.1; done' &
 echo "\$!" >"$test_tmp/golf.child"
+echo "\$XDG_RUNTIME_DIR" >"$test_tmp/golf.runtime"
 wait
 SH
 env -u XDG_RUNTIME_DIR "$suite/test/shell" --jobs 2 "$suite/test/shell.d/golf-test.sh" "$suite/test/shell.d/alpha-test.sh" >/dev/null 2>&1 &
 runner_pid=$!
 for (( i = 0; i < 100; i++ )); do
-  [[ -s $test_tmp/golf.child ]] && break
+  [[ -s $test_tmp/golf.child && -s $test_tmp/golf.runtime ]] && break
   sleep 0.1
 done
 golf_child=$(<"$test_tmp/golf.child")
+golf_runtime=$(<"$test_tmp/golf.runtime")
+[[ -d $golf_runtime ]] || fail "the interrupted file had a runtime directory"
+interrupted_at=$SECONDS
 kill -TERM "$runner_pid"
 set +e
 wait "$runner_pid"
 status=$?
 set -e
 (( status == 143 )) || fail "an interrupted parallel run exits with the signal's status" "$status"
-for (( i = 0; i < 50; i++ )); do
-  kill -0 "$golf_child" 2>/dev/null || break
+(( SECONDS - interrupted_at <= 10 )) || fail "an interrupted parallel run stops within its bounded wait"
+
+# A killed child can linger as a zombie until init reaps it; that is not alive.
+alive() {
+  local stat
+
+  stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+  [[ ${stat##*) } != Z* ]]
+}
+for (( i = 0; i < 20; i++ )); do
+  alive "$golf_child" || break
   sleep 0.1
 done
-if kill -0 "$golf_child" 2>/dev/null; then
-  kill "$golf_child" 2>/dev/null || true
-  fail "an interrupted parallel run stops the processes its files started"
+if alive "$golf_child"; then
+  kill -KILL "$golf_child" 2>/dev/null || true
+  fail "an interrupted parallel run stops a child that ignores TERM"
 fi
-pass "an interrupted parallel run stops the processes its files started"
+[[ ! -e $golf_runtime ]] || fail "an interrupted parallel run removes the runtime directories"
+pass "an interrupted parallel run stops every process its files started, then cleans up"

@@ -178,12 +178,49 @@ run_sequential() {
 declare -A index_of=()
 work=""
 
-stop_parallel() {
-  local pid
+# True while any process is left in any of the given process groups.
+groups_alive() {
+  local group
 
-  for pid in "${!index_of[@]}"; do
-    kill -TERM -- "-$pid" 2>/dev/null || true
+  for group in "$@"; do
+    if kill -0 -- "-$group" 2>/dev/null; then
+      return 0
+    fi
   done
+  return 1
+}
+
+# Waits up to the given number of tenths of a second for the groups to empty.
+wait_for_groups() {
+  local tenths=$1 attempt
+  shift
+
+  for (( attempt = 0; attempt < tenths; attempt++ )); do
+    groups_alive "$@" || return 0
+    sleep 0.1
+  done
+  ! groups_alive "$@"
+}
+
+# An interrupted run stops the files still running before removing the
+# directories they use: TERM to each file's process group, three seconds to
+# finish, then KILL for whatever ignored it, and the files themselves reaped.
+stop_parallel() {
+  local group
+  local -a groups=("${!index_of[@]}")
+
+  if (( ${#groups[@]} > 0 )); then
+    for group in "${groups[@]}"; do
+      kill -TERM -- "-$group" 2>/dev/null || true
+    done
+    if ! wait_for_groups 30 "${groups[@]}"; then
+      for group in "${groups[@]}"; do
+        kill -KILL -- "-$group" 2>/dev/null || true
+      done
+      wait_for_groups 20 "${groups[@]}" || true
+    fi
+    wait "${groups[@]}" 2>/dev/null || true
+  fi
   if [[ -n $work ]]; then
     rm -rf "$work"
   fi
