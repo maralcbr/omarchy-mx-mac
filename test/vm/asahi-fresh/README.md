@@ -68,6 +68,9 @@ against hashes of the originals and only then renamed from `<run-id>.partial`.
   deletes it once the evidence is exported. Remove kept directories by hand when
   done; each run lists the ones still on disk.
 - An export that does not verify keeps the run directory and fails the run.
+- A container that cannot be confirmed removed may still be running its guest
+  on the run directory, so the run exports nothing, keeps everything, and
+  fails.
 - `--keep` leaves the VM running in its container on its run directory,
   pausing the guest while the evidence is copied.
 

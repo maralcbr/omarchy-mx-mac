@@ -299,6 +299,15 @@ export_evidence() {
   mv -T "$partial" "$evidence_dir"
 }
 
+# A failed docker rm, or a daemon that cannot answer, leaves the guest possibly
+# still running on the run directory; only an empty listing counts as gone.
+container_gone() {
+  local listed
+
+  listed=$(docker ps --all --quiet --no-trunc --filter "id=$container_id") || return 1
+  [[ -z $listed ]]
+}
+
 remove_run_dir() {
   # Files qemu created before the ownership hand-back belong to root.
   rm -rf "$run_dir" 2>/dev/null ||
@@ -314,7 +323,7 @@ remove_run_dir() {
 # export and verify the evidence, then drop the run directory only when the run
 # passed (or --discard-failed-run asked for it) and the export verified.
 finish() {
-  local status=$? delete_run=0
+  local status=$? delete_run=0 gone=1
   set +e
 
   if [[ -z $container_id && -s $cid_file ]]; then
@@ -324,10 +333,19 @@ finish() {
     docker exec "$container_id" chown -R "$(id -u):$(id -g)" "$guest_run" >/dev/null 2>&1
     if (( keep == 0 )); then
       docker rm -f "$container_id" >/dev/null 2>&1
+      container_gone || gone=0
     else
       # The retained guest keeps writing its serial log; pause it for the copy.
       vm_monitor stop
     fi
+  fi
+
+  if (( gone == 0 )); then
+    echo "Could not confirm that container $container ($container_id) is gone; its guest may still be using $run_dir." >&2
+    echo "Kept $run_dir and exported no evidence: remove the container, then copy the evidence by hand." >&2
+    (( status != 0 )) || status=1
+    rm -rf "$scratch"
+    exit "$status"
   fi
 
   if export_evidence "$status"; then

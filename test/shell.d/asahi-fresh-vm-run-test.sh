@@ -34,6 +34,7 @@ host_path() { printf '%s\n' "${1/#\/work/$TEST_STATE}"; }
 case $1 in
   ps)
     if [[ $2 == --all ]]; then
+      [[ ${TEST_DOCKER_PS_FAILS:-0} == 0 ]] || exit 1
       wanted=${!#}
       grep -Fx -- "${wanted#id=}" "$TEST_CONTAINERS" || true
       exit 0
@@ -43,6 +44,7 @@ case $1 in
   container) [[ ${3:-} == "${TEST_DOCKER_EXISTING:-}" ]] || exit 1 ;;
   rm)
     [[ ${TEST_DOCKER_RM_FAILS:-0} == 0 ]] || exit 1
+    [[ ${TEST_DOCKER_RM_IGNORED:-0} == 0 ]] || exit 0
     grep -Fvx "$3" "$TEST_CONTAINERS" >"$TEST_CONTAINERS.new" || true
     mv "$TEST_CONTAINERS.new" "$TEST_CONTAINERS"
     ;;
@@ -328,6 +330,22 @@ rm "$stub_bin/cp"
 [[ ! -e $evidence_root/corrupt && -d $evidence_root/corrupt.partial ]] ||
   fail "an unverified copy never takes the evidence directory's name"
 pass "an export that does not verify keeps the run directory"
+
+# Until the container is confirmed gone its guest may still be writing the run
+# directory: export nothing, delete nothing, and fail even a passing run.
+for failure in TEST_DOCKER_RM_FAILS TEST_DOCKER_RM_IGNORED TEST_DOCKER_PS_FAILS; do
+  : >"$TEST_CONTAINERS"
+  export "$failure=1"
+  OMARCHY_VM_RUN_ID="stuck-$failure" run_harness --evidence-dir "$evidence_root"
+  unset "$failure"
+  (( status != 0 )) || fail "a passing run fails when its container is not confirmed gone ($failure)" "$output"
+  [[ $output == *"Could not confirm that container omarchy-asahi-fresh-vm-stuck-$failure"* ]] ||
+    fail "a run says it could not confirm its container is gone ($failure)" "$output"
+  [[ -f $state/runs/stuck-$failure/disk.qcow2 ]] || fail "a run keeps its disk while its container may run ($failure)"
+  [[ ! -e $evidence_root/stuck-$failure && ! -e $evidence_root/stuck-$failure.partial ]] ||
+    fail "a run exports nothing while its container may run ($failure)"
+done
+pass "a run whose container is not confirmed gone keeps everything and fails"
 
 # --keep leaves the VM running on its run directory and pauses it for the copy.
 OMARCHY_VM_RUN_ID=kept run_harness --keep --evidence-dir "$evidence_root"
