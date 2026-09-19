@@ -32,6 +32,21 @@ stub() {
   chmod +x "$stub_bin/$1"
 }
 
+# TEST_SLOW=<step> holds rsync or the removal until $TEST_SLOW_DIR/go exists,
+# after recording the helper's pid, so a signal can land mid-move.
+slow() {
+  [[ ${TEST_SLOW:-} == "$1" ]] || return 0
+  echo "$PPID" >"$TEST_SLOW_DIR/pid"
+  : >"$TEST_SLOW_DIR/started"
+  for _ in {1..200}; do
+    [[ ! -e $TEST_SLOW_DIR/go ]] || return 0
+    sleep 0.05
+  done
+}
+lock_state() {
+  [[ -e $TEST_ROOT/var/lib/pacman/db.lck ]] && echo locked || echo unlocked
+}
+export -f slow lock_state
 # Taking pacman's lock can be raced by a transaction that reinstalls the saved
 # release, and removing the saved modules can be made to fail.
 stub sudo <<'SH'
@@ -40,7 +55,13 @@ printf 'sudo %s\n' "$*" >>"$TEST_CALLS"
 if [[ $1 == bash && ${TEST_REINSTALLED_BEFORE_LOCK:-0} == 1 ]]; then
   printf '/usr/lib/modules/%s/\n' "$TEST_RUNNING" >"$TEST_FILES/linux-aurora-edge"
 fi
-[[ ! ($1 == rm && $2 == -rf && ${TEST_RM_FAILS:-0} == 1) ]] || exit 1
+if [[ $1 == rm && $2 == -rf ]]; then
+  [[ ${TEST_RM_FAILS:-0} != 1 ]] || exit 1
+  slow rm
+  "$@"
+  printf 'rm-done %s\n' "$(lock_state)" >>"$TEST_CALLS"
+  exit
+fi
 exec "$@"
 SH
 stub uname <<'SH'
@@ -84,12 +105,12 @@ printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\n' "$TES
 SH
 stub rsync <<'SH'
 #!/bin/bash
-lock=unlocked
-[[ ! -e $TEST_ROOT/var/lib/pacman/db.lck ]] || lock=locked
-printf 'rsync %s %s\n' "$lock" "$*" >>"$TEST_CALLS"
+printf 'rsync %s %s\n' "$(lock_state)" "$*" >>"$TEST_CALLS"
 [[ ${TEST_RSYNC_FAILS:-0} != 1 && $1 == -AHXal && $# == 3 ]] || exit 1
+slow rsync
 mkdir -p "$3"
 cp -a "$2" "$3"
+printf 'rsync-done %s\n' "$(lock_state)" >>"$TEST_CALLS"
 SH
 # A read-only bind of /boot/efi, the way the check reads an ESP the device tree does not name.
 stub mount <<'SH'
@@ -330,6 +351,36 @@ run_retire_without_rebuild
 (( status == 1 )) && grep -Fq "an alternate root needs OMARCHY_SAVED_MODULES_REBUILD" "$test_tmp/err" && [[ ! -s $calls && -d $modules/$edge ]] ||
   fail "an alternate root never falls back to the host's update-m1n1" "status $status: $(cat "$test_tmp/err" "$calls")"
 pass "a held lock, a transaction racing the lock, a failed copy or removal, and a root without its own rebuild move and rebuild nothing"
+
+# SIGTERM mid-move: the lock stays until rsync or rm is done, and the move finishes under it.
+for step in rsync rm; do
+  downgraded
+  : >"$calls"
+  rm -rf "$test_tmp/slow"
+  mkdir "$test_tmp/slow"
+  in_env TEST_SLOW=$step TEST_SLOW_DIR="$test_tmp/slow" bash "$retire" linux-aurora >"$test_tmp/out" 2>"$test_tmp/err" &
+  runner=$!
+  for _ in {1..200}; do
+    [[ ! -e $test_tmp/slow/started ]] || break
+    sleep 0.05
+  done
+  [[ -e $test_tmp/slow/started ]] || fail "the slow $step starts"
+  helper=$(cat "$test_tmp/slow/pid")
+  kill -TERM "$helper"
+  sleep 0.5
+  kill -0 "$helper" 2>/dev/null && [[ -e $root/var/lib/pacman/db.lck ]] ||
+    fail "SIGTERM during $step leaves the helper running and pacman's lock held" "$(cat "$calls" "$test_tmp/err")"
+  : >"$test_tmp/slow/go"
+  set +e
+  wait "$runner"
+  status=$?
+  set -e
+  (( status == 0 )) || fail "the move interrupted during $step finishes" "status $status: $(cat "$test_tmp/err")"
+  grep -Fxq 'rsync-done locked' "$calls" && grep -Fxq 'rm-done locked' "$calls" ||
+    fail "SIGTERM during $step never releases the lock before the copy and removal are done" "$(cat "$calls")"
+  [[ ! -e $modules/$edge && ! -e $root/var/lib/pacman/db.lck ]] || fail "the move interrupted during $step completes and releases the lock"
+done
+pass "SIGTERM during the copy or the removal keeps pacman's lock until both are done"
 
 downgraded
 TEST_M1N1_FAILS=1 run_retire

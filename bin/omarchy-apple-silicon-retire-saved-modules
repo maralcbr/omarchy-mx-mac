@@ -99,6 +99,8 @@ release() {
 trap release EXIT
 
 eligible || exit 0
+# INT, TERM and HUP wait until the move is done, so the lock never goes while rsync or rm runs; SIGKILL leaves a stale db.lck, which pacman refuses safely.
+trap '' INT TERM HUP
 sudo bash -c 'set -C; : >"$1"' _ "$lock" 2>/dev/null ||
   fail "pacman's database is locked ($lock), so a package transaction may be running; run omarchy update again once it has finished"
 locked=1
@@ -107,6 +109,7 @@ eligible || exit 0
 echo "Moving the running kernel's saved modules ($running) to $modules/.old, as linux-modules-cleanup does at boot, so m1n1 carries $kernel $kver's device trees. Reboot soon: until then the running kernel cannot load new modules."
 sudo rsync -AHXal "$root$saved" "$root$modules/.old/" || fail "could not copy $saved to $modules/.old; nothing was removed"
 sudo rm -rf "$root$saved" || fail "could not remove $saved; m1n1 was not rebuilt"
+trap - INT TERM HUP
 release || fail "could not remove pacman's lock $lock"
 sudo env -u TARGET -u DTBS -u SOURCE -u M1N1 -u U_BOOT -u CONFIG -u M1N1_UPDATE_DISABLED "${rebuild[@]}" </dev/null ||
   fail "update-m1n1 failed after $saved was moved to $modules/.old; run sudo update-m1n1, then omarchy update"
