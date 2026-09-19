@@ -39,18 +39,20 @@ URL naming `$repo` and `$arch`, so a live Arch Linux ARM mirror works too). Only
 
 Use `--rebuild-base` to discard the cached Arch Linux ARM base. State is kept
 in `test/vm/asahi-fresh/test-runs/` (ignored by Git; `OMARCHY_VM_STATE_DIR`
-moves it): the cached base, the guest SSH key, a lease, and one
-`runs/<run-id>/` directory per run holding the guest disk (about 23 GB by the
+moves it): the cached base, the guest SSH key, and one `runs/<run-id>/`
+directory per run holding the guest disk (about 23 GB by the
 end of a run) and its logs.
 
 Each run gets an ID (`OMARCHY_VM_RUN_ID`, by default the UTC start time and
-process ID) and its own `omarchy-asahi-fresh-vm-<run-id>` container, so a run
-never removes another run's VM or directory. A run holds the state directory's
-`lease` from start until its evidence is exported and its directory cleaned up.
-A second run on the same state directory is refused with the holder's run ID;
+process ID) and its own `omarchy-asahi-fresh-vm-<run-id>` container. Cleanup
+removes only the container ID that its own `docker run` recorded, so a run never
+removes another run's VM or directory. A run holds the host lease
+`~/.cache/omarchy/asahi-fresh-vm.lease`, shared by every checkout, from start
+until its evidence is exported and its directory cleaned up. A second run from
+any checkout is refused with the holder's run ID and state directory;
 `--wait-for-lease` queues it instead. A run also refuses to start while any
 container still forwards its SSH or VNC port (`OMARCHY_VM_SSH_PORT`,
-`OMARCHY_VM_VNC_PORT`), such as a VM kept from another checkout.
+`OMARCHY_VM_VNC_PORT`), such as a VM kept with `--keep`.
 
 When a run ends, pass or fail, it stops the VM and copies its evidence to
 `~/vm-evidence/<run-id>/` (`--evidence-dir DIR` or `OMARCHY_VM_EVIDENCE_DIR`
