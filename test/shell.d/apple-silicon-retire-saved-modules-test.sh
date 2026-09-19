@@ -55,6 +55,13 @@ printf 'sudo %s\n' "$*" >>"$TEST_CALLS"
 if [[ $1 == bash && ${TEST_REINSTALLED_BEFORE_LOCK:-0} == 1 ]]; then
   printf '/usr/lib/modules/%s/\n' "$TEST_RUNNING" >"$TEST_FILES/linux-aurora-edge"
 fi
+if [[ $1 == rm && $2 == -f && ${3:-} == */db.lck ]]; then
+  slow release
+  "$@"
+  # Another transaction takes the lock as soon as it is free.
+  [[ ${TEST_SLOW:-} != release ]] || echo other >"$3"
+  exit
+fi
 if [[ $1 == rm && $2 == -rf ]]; then
   [[ ${TEST_RM_FAILS:-0} != 1 ]] || exit 1
   slow rm
@@ -353,7 +360,8 @@ run_retire_without_rebuild
 pass "a held lock, a transaction racing the lock, a failed copy or removal, and a root without its own rebuild move and rebuild nothing"
 
 # SIGTERM mid-move: the lock stays until rsync or rm is done, and the move finishes under it.
-for step in rsync rm; do
+# During the release itself, a lock another transaction takes right after must survive.
+for step in rsync rm release; do
   downgraded
   : >"$calls"
   rm -rf "$test_tmp/slow"
@@ -378,9 +386,15 @@ for step in rsync rm; do
   (( status == 0 )) || fail "the move interrupted during $step finishes" "status $status: $(cat "$test_tmp/err")"
   grep -Fxq 'rsync-done locked' "$calls" && grep -Fxq 'rm-done locked' "$calls" ||
     fail "SIGTERM during $step never releases the lock before the copy and removal are done" "$(cat "$calls")"
-  [[ ! -e $modules/$edge && ! -e $root/var/lib/pacman/db.lck ]] || fail "the move interrupted during $step completes and releases the lock"
+  if [[ $step == release ]]; then
+    [[ ! -e $modules/$edge && $(cat "$root/var/lib/pacman/db.lck" 2>/dev/null) == other ]] ||
+      fail "SIGTERM during the release leaves the next transaction's lock alone"
+    rm -f "$root/var/lib/pacman/db.lck"
+  else
+    [[ ! -e $modules/$edge && ! -e $root/var/lib/pacman/db.lck ]] || fail "the move interrupted during $step completes and releases the lock"
+  fi
 done
-pass "SIGTERM during the copy or the removal keeps pacman's lock until both are done"
+pass "SIGTERM during the copy, the removal or the release keeps pacman's lock exactly as long as the move owns it"
 
 downgraded
 TEST_M1N1_FAILS=1 run_retire

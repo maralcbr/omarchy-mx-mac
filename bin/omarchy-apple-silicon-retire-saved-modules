@@ -109,7 +109,7 @@ eligible || exit 0
 echo "Moving the running kernel's saved modules ($running) to $modules/.old, as linux-modules-cleanup does at boot, so m1n1 carries $kernel $kver's device trees. Reboot soon: until then the running kernel cannot load new modules."
 sudo rsync -AHXal "$root$saved" "$root$modules/.old/" || fail "could not copy $saved to $modules/.old; nothing was removed"
 sudo rm -rf "$root$saved" || fail "could not remove $saved; m1n1 was not rebuilt"
-trap - INT TERM HUP
 release || fail "could not remove pacman's lock $lock"
+trap - INT TERM HUP
 sudo env -u TARGET -u DTBS -u SOURCE -u M1N1 -u U_BOOT -u CONFIG -u M1N1_UPDATE_DISABLED "${rebuild[@]}" </dev/null ||
   fail "update-m1n1 failed after $saved was moved to $modules/.old; run sudo update-m1n1, then omarchy update"
