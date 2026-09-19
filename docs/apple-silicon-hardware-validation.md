@@ -89,6 +89,33 @@ known-good baseline.
 - If an update is later approved, verify the signed release identity, reboot,
   repeat this checklist, and explain every protected boot/package change.
 
+## Remote checks after a cold boot
+
+Most of the checklist can be run over SSH once the owner has logged in at the
+greeter. Run these after every boot that follows a kernel or boot-file change:
+
+- **Kernel and boot chain:** `uname -r` matches the installed kernel package, and
+  `sudo omarchy-apple-silicon-boot-check` passes (kernel image, initramfs, GRUB
+  entry, and m1n1 stage 2 rebuilt and compared byte for byte, read-only).
+- **Services:** `systemctl --failed` is empty; `omarchy-vendor-firmware.service`
+  finished in this boot.
+- **Displays:** read them from the user's session, not from the SSH session:
+  `XDG_RUNTIME_DIR=/run/user/$(id -u)` and `HYPRLAND_INSTANCE_SIGNATURE` set to
+  the directory under `$XDG_RUNTIME_DIR/hypr/`, then `hyprctl monitors`. Compare
+  the count and modes with the connected displays.
+- **Audio:** the kernel sees the devices in `/proc/asound/cards`, and the speaker
+  path works end to end: play a short, quiet 1 kHz tone with `pw-play` while
+  `pw-record` captures the built-in microphones, then measure the 1 kHz energy
+  (Goertzel) against a silent baseline recording. A clear rise is a pass. SSH
+  sessions have no seat, so run this as the logged-in user.
+- **Networking:** `nmcli device` shows Wi-Fi connected; `bluetoothctl show`
+  reports `Powered: yes`.
+- **Known noise, not failures:** the greeter's Hyprland (user `sddm`) segfaults
+  when the owner logs in, and a crash popup can follow; Thunderbolt logs
+  "PCIe-C … m1n1 handoff" when m1n1 did not hand over PCIe tunnelling. Compare
+  both with an earlier boot (`coredumpctl list`, `journalctl -k -b -1`) before
+  calling anything a regression.
+
 ## Evidence record
 
 For each check, record the date, hardware model, pass/fail/not-tested state,
