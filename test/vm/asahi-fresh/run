@@ -156,7 +156,7 @@ exec {host_lock_fd}<"$host_lock"
 # The recorded holder may have exited while a process it started still holds
 # the descriptor, so say when the recorded process is gone.
 lock_holder() {
-  local holder pid
+  local holder
 
   holder=$(<"$host_lock")
   if [[ -z $holder ]]; then
