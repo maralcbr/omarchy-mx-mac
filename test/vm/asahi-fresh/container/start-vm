@@ -21,7 +21,13 @@ cpus=${OMARCHY_VM_CPUS:-8}
 
 rm -rf "$run"
 mkdir -p "$run"
-qemu-img create -f qcow2 -F qcow2 -b "$base" "$run/disk.qcow2"
+# The disk is an overlay, so it is only as durable as the base under it. Back
+# it with the run's own link to the base it starts from, named relative to the
+# disk: --rebuild-base and a changed base identity replace the cached base with
+# a new file, and a failed run kept for debugging still has the base its disk
+# was written against. The link costs nothing until the cached base moves on.
+ln "$base" "$run/base.qcow2" 2>/dev/null || cp --sparse=always "$base" "$run/base.qcow2"
+qemu-img create -f qcow2 -F qcow2 -b base.qcow2 "$run/disk.qcow2"
 cp "$vars_template" "$run/AAVMF_VARS.fd"
 
 qemu-system-aarch64 \

@@ -67,7 +67,10 @@ against hashes of the originals and only then renamed from `<run-id>.partial`.
 - A passing run then deletes its run directory.
 - A failed run keeps its run directory for debugging; `--discard-failed-run`
   deletes it once the evidence is exported. Remove kept directories by hand when
-  done; each run lists the ones still on disk.
+  done; each run lists the ones still on disk. A run's disk is backed by the
+  run's own `base.qcow2`, a hard link to the cached base it started from, so a
+  kept disk stays usable after `--rebuild-base` or a new base replaces the
+  cached one (the old base's space is then held until the kept run is removed).
 - An export that does not verify keeps the run directory and fails the run.
 - A container that cannot be confirmed removed may still be running its guest
   on the run directory, so the run exports nothing, keeps everything, and

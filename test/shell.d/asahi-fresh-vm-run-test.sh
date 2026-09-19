@@ -375,6 +375,54 @@ evidence_verifies "$evidence_root/kept" || fail "a kept run's evidence verifies"
 [[ $output == *'VM retained in Docker container omarchy-asahi-fresh-vm-kept'* ]] || fail "a kept run names its container" "$output"
 pass "--keep exports verified evidence and keeps the VM and its disk"
 
+# --- The launcher ------------------------------------------------------------
+
+# start-vm runs in the container against /work. Run a copy against a scratch
+# /work with QEMU stubbed out, recording what it would create and boot.
+launcher="$test_tmp/launcher"
+work="$launcher/work"
+mkdir -p "$work/cache" "$launcher/aavmf" "$launcher/bin"
+sed -e "s|/work|$work|g" -e "s|/usr/share/AAVMF|$launcher/aavmf|g" "$harness/container/start-vm" >"$launcher/start-vm"
+: >"$launcher/aavmf/AAVMF_CODE.fd"
+: >"$launcher/aavmf/AAVMF_VARS.fd"
+cat >"$launcher/bin/qemu-img" <<SH
+#!/bin/bash
+printf '%s\n' "\$*" >>"$launcher/qemu-img.log"
+: >"\${!#}"
+SH
+cat >"$launcher/bin/qemu-system-aarch64" <<SH
+#!/bin/bash
+printf '%s\n' "\$*" >"$launcher/qemu-system.log"
+SH
+chmod +x "$launcher/bin"/*
+echo original-base >"$work/cache/archarm-base.qcow2"
+
+PATH="$launcher/bin:$PATH" OMARCHY_VM_RUN_DIR="$work/runs/r1" bash "$launcher/start-vm" ||
+  fail "the launcher starts a run"
+[[ $(stat -c %i "$work/runs/r1/base.qcow2") == "$(stat -c %i "$work/cache/archarm-base.qcow2")" ]] ||
+  fail "a run's disk is backed by its own link to the cached base"
+grep -Fxq "create -f qcow2 -F qcow2 -b base.qcow2 $work/runs/r1/disk.qcow2" "$launcher/qemu-img.log" ||
+  fail "a run's disk names its backing file relative to itself" "$(<"$launcher/qemu-img.log")"
+grep -Fq -- "-smp 8 " "$launcher/qemu-system.log" && grep -Fq -- "-drive file=$work/runs/r1/disk.qcow2," "$launcher/qemu-system.log" ||
+  fail "the guest boots the run's own disk with 8 vCPUs" "$(<"$launcher/qemu-system.log")"
+
+# --rebuild-base removes the cached base; build-base writes a new file over it.
+rm -f "$work/cache/archarm-base.qcow2"
+echo rebuilt-base >"$work/cache/archarm-base.qcow2.tmp"
+mv "$work/cache/archarm-base.qcow2.tmp" "$work/cache/archarm-base.qcow2"
+[[ $(<"$work/runs/r1/base.qcow2") == original-base ]] ||
+  fail "a retained run keeps the base its disk was written against after the base is rebuilt"
+
+# Where the run directory cannot link to the cache, it gets its own copy.
+printf '#!/bin/bash\nexit 1\n' >"$launcher/bin/ln"
+chmod +x "$launcher/bin/ln"
+PATH="$launcher/bin:$PATH" OMARCHY_VM_RUN_DIR="$work/runs/r2" bash "$launcher/start-vm" ||
+  fail "the launcher starts a run that cannot link the base"
+[[ $(<"$work/runs/r2/base.qcow2") == rebuilt-base &&
+  $(stat -c %i "$work/runs/r2/base.qcow2") != "$(stat -c %i "$work/cache/archarm-base.qcow2")" ]] ||
+  fail "a run that cannot link the base copies it"
+pass "each run's disk is backed by its own base, which survives a base rebuild"
+
 # --- Static guards -----------------------------------------------------------
 
 grep -Fq 'cpus=${OMARCHY_VM_CPUS:-8}' "$harness/container/start-vm" || fail "the launcher defaults to 8 vCPUs"
