@@ -51,11 +51,12 @@ removes another run's VM or directory. A run holds the host lock
 its directory cleaned up. The path is fixed, so every checkout, every user and
 `sudo` meet the same lock; the first run creates it readable and writable by
 all, and a lock file another user created still works. A second run is refused
-with the holder's run ID, user and state directory; `--wait-for-lease` queues it instead. A run also refuses to start while any
-container still forwards its SSH or VNC port (`OMARCHY_VM_SSH_PORT`,
-`OMARCHY_VM_VNC_PORT`), such as a VM kept with `--keep`. The state directory
-belongs to the user who created it: a run as anyone else is refused, and its
-`lease` file keeps a second run out even past the host lock.
+with the holder's run ID, user and state directory; `--wait-for-lease` queues
+it instead. A run also refuses to start while any container still forwards its
+SSH or VNC port (`OMARCHY_VM_SSH_PORT`, `OMARCHY_VM_VNC_PORT`), such as a VM
+kept with `--keep`. The state directory belongs to the user who created it: a
+run as anyone else is refused, and its `lease` file keeps a second run out even
+past the host lock.
 
 When a run ends, pass or fail, it stops the VM and copies its evidence to
 `~/vm-evidence/<run-id>/` (`--evidence-dir DIR` or `OMARCHY_VM_EVIDENCE_DIR`
