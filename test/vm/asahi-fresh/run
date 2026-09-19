@@ -133,26 +133,70 @@ command -v flock >/dev/null || {
   exit 1
 }
 
-# One lease per host user, at a fixed path every checkout shares: runs from two
-# checkouts would otherwise contend for the same forwarded ports, container
-# names and KVM. It is taken before anything is checked or started and held
-# until the evidence is exported and the run cleaned up. The lock lives on this
-# descriptor, which the commands started from here inherit, so it is released
-# once this script and anything still holding the descriptor have exited.
-lease_file=$HOME/.cache/omarchy/asahi-fresh-vm.lease
-mkdir -p "${lease_file%/*}" "$state"
-exec {lease_fd}<>"$lease_file"
-if ! flock -n "$lease_fd"; then
-  lease_holder=$(<"$lease_file")
+# One lock for the whole host, whoever runs the harness and from whichever
+# checkout: every run drives the same Docker daemon, forwarded ports, container
+# names and KVM. The path is fixed, never derived from HOME or TMPDIR, which
+# differ between users and under sudo; OMARCHY_VM_HOST_LOCK exists for tests.
+# The first run creates it 0666 so any user can record itself as the holder;
+# the lock is taken on a read-only descriptor, so a lock file another user
+# created still works. It is held until the evidence is exported and the run
+# cleaned up. The lock lives on the descriptor, which the commands started from
+# here inherit, so it ends once this script and anything still holding the
+# descriptor have exited.
+host_lock=${OMARCHY_VM_HOST_LOCK:-/tmp/omarchy-asahi-fresh-vm.lock}
+if [[ ! -e $host_lock && ! -L $host_lock ]]; then
+  (umask 0000 && set -o noclobber && : >"$host_lock") 2>/dev/null || true
+fi
+if [[ -L $host_lock || ! -f $host_lock || ! -r $host_lock ]]; then
+  echo "The host VM lock $host_lock must be a regular file every user can read; remove it to let the next run recreate it" >&2
+  exit 1
+fi
+exec {host_lock_fd}<"$host_lock"
+
+# The recorded holder may have exited while a process it started still holds
+# the descriptor, so say when the recorded process is gone.
+lock_holder() {
+  local holder pid
+
+  holder=$(<"$host_lock")
+  if [[ -z $holder ]]; then
+    printf 'unknown holder'
+    return
+  fi
+  printf '%s' "$holder"
+  if [[ $holder =~ (^|[[:space:]])pid=([0-9]+) && ! -d /proc/${BASH_REMATCH[2]} ]]; then
+    printf ' (no longer running; a process it started still holds the lock)'
+  fi
+}
+
+if ! flock -n "$host_lock_fd"; then
   if (( wait_for_lease == 0 )); then
-    echo "Another VM run holds the host lease $lease_file: ${lease_holder:-unknown holder}" >&2
+    echo "Another VM run holds the host lock $host_lock: $(lock_holder)" >&2
     echo "Wait for it to finish, or pass --wait-for-lease to queue behind it." >&2
     exit 1
   fi
-  echo "Waiting for the host lease $lease_file, held by: ${lease_holder:-unknown holder}" >&2
-  flock "$lease_fd"
+  echo "Waiting for the host lock $host_lock, held by: $(lock_holder)" >&2
+  flock "$host_lock_fd"
 fi
-printf 'run_id=%s pid=%s state=%s started_at=%s\n' "$run_id" "$$" "$state" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$lease_file"
+# Recorded without O_CREAT, which a sticky /tmp refuses for another user's file;
+# a lock file this user cannot write keeps its old text, flagged as stale above.
+truncate --no-create --size=0 "$host_lock" 2>/dev/null &&
+  printf 'run_id=%s pid=%s user=%s state=%s started_at=%s\n' "$run_id" "$$" "$(id -un)" "$state" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | dd of="$host_lock" conv=nocreat,notrunc status=none 2>/dev/null || true
+
+# The state directory also has one owner and one run at a time. A run under
+# another identity (sudo, another docker-group user) would leave files the
+# owner's runs cannot replace, so it is refused rather than shared.
+mkdir -p "$state"
+if [[ ! -O $state ]]; then
+  echo "The VM state directory $state belongs to $(stat -c %U -- "$state"), not $(id -un); run as that user or set OMARCHY_VM_STATE_DIR" >&2
+  exit 1
+fi
+exec {state_lock_fd}<>"$state/lease"
+if ! flock -n "$state_lock_fd"; then
+  echo "Another VM run is using the state directory $state" >&2
+  exit 1
+fi
 
 [[ ! -e $run_dir && ! -e $evidence_dir && ! -e $evidence_dir.partial ]] || {
   echo "Run $run_id already has a run or evidence directory; choose another OMARCHY_VM_RUN_ID" >&2

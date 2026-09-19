@@ -20,7 +20,9 @@ evidence_root="$test_tmp/evidence"
 mkdir -p "$stub_bin" "$test_tmp/home"
 export TEST_STATE="$state" TEST_DOCKER_LOG="$test_tmp/docker.log" TEST_SSH_LOG="$test_tmp/ssh.log"
 export TEST_BOOT_FILE="$test_tmp/boot-id" TEST_CONTAINERS="$test_tmp/containers"
-lease="$test_tmp/home/.cache/omarchy/asahi-fresh-vm.lease"
+# The host lock's real path is shared by everything on the machine; the test
+# keeps its own so a VM run on the same host cannot interfere.
+host_lock="$test_tmp/host.lock"
 : >"$TEST_CONTAINERS"
 
 # docker: the container sees the state directory as /work. A created container
@@ -108,11 +110,15 @@ printf '%s\n' "$command" >>"$TEST_SSH_LOG"
 case $command in
   true) exit 0 ;;
   "cat /proc/sys/kernel/random/boot_id") cat "$TEST_BOOT_FILE" 2>/dev/null || echo boot-1; exit 0 ;;
-  "systemctl reboot --no-block") echo boot-2 >"$TEST_BOOT_FILE"; exit 0 ;;
+  "systemctl reboot --no-block") echo "boot-$EPOCHREALTIME" >"$TEST_BOOT_FILE"; exit 0 ;;
 esac
 stage=${!#}
 stage=${stage##*/omarchy-vm-}
 echo "$stage stage output"
+if [[ $stage == "${TEST_BLOCK_STAGE:-}" ]]; then
+  touch "$TEST_BLOCK_DIR/blocked"
+  while [[ ! -e $TEST_BLOCK_DIR/release ]]; do sleep 0.05; done
+fi
 [[ $stage != "${TEST_FAIL_STAGE:-}" ]]
 SH
 
@@ -147,15 +153,15 @@ run_harness() {
   rm -f "$TEST_BOOT_FILE" "$TEST_DOCKER_LOG" "$TEST_SSH_LOG"
   : >"$TEST_DOCKER_LOG"
   set +e
-  PATH="$stub_bin:$PATH" HOME="$test_tmp/home" OMARCHY_VM_STATE_DIR="$state" \
-    "$harness/run" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
+  PATH="$stub_bin:$PATH" HOME="${TEST_HOME:-$test_tmp/home}" OMARCHY_VM_STATE_DIR="${TEST_STATE_DIR:-$state}" \
+    OMARCHY_VM_HOST_LOCK="$host_lock" "$harness/run" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
   status=$?
   set -e
   output="$(<"$test_tmp/out")"$'\n'"$(<"$test_tmp/err")"
 }
 
 lease_is_free() {
-  flock -n "$lease" true
+  flock -n "$host_lock" true && flock -n "$state/lease" true
 }
 
 evidence_verifies() {
@@ -200,7 +206,8 @@ grep -Fq 'exec -e OMARCHY_VM_MEMORY_MB=6144 -e OMARCHY_VM_CPUS=8 -e OMARCHY_VM_R
 grep -Fxq 'exec -e ARCHARM_MIRROR_URL=https://downloads.aicodelabs.com.au/mirror/alarm/20260906/$repo/os/$arch cid-omarchy-asahi-fresh-vm-pass-1 /usr/local/lib/omarchy-asahi-vm/build-base' "$TEST_DOCKER_LOG" ||
   fail "the guest takes its packages from the dated R2 snapshot by default" "$(<"$TEST_DOCKER_LOG")"
 lease_is_free || fail "a finished run releases the lease"
-grep -q "^run_id=pass-1 pid=[0-9]* state=$state started_at=" "$lease" || fail "the lease names the run that held it" "$(<"$lease")"
+grep -q "^run_id=pass-1 pid=[0-9]* user=$(id -un) state=$state started_at=" "$host_lock" ||
+  fail "the host lock names the run that held it" "$(<"$host_lock")"
 pass "each run has its own container and directory, and the defaults stay 8 vCPUs and the R2 snapshot"
 
 # Generated run IDs never repeat, so neither do container names.
@@ -259,46 +266,115 @@ TEST_DOCKER_RUN_FAILS=start OMARCHY_VM_RUN_ID=unstarted run_harness --evidence-d
 [[ ! -s $TEST_CONTAINERS ]] || fail "an unstarted container is not left behind"
 pass "a run removes only the container it created, by the ID docker recorded"
 
-# --- The host lease ----------------------------------------------------------
+# --- The host lock -----------------------------------------------------------
 
-printf 'run_id=holder pid=1 state=/elsewhere started_at=2026-09-19T00:00:00Z\n' >"$lease"
-flock "$lease" bash -c 'touch "$1/held"; while [[ ! -e $1/release ]]; do sleep 0.05; done' _ "$test_tmp" &
+# Hold the lock with a real run parked in its install stage, then start runs as
+# another identity would: another HOME (sudo, another docker-group user), with
+# the same state directory and with another checkout's.
+block="$test_tmp/block"
+mkdir -p "$block"
+PATH="$stub_bin:$PATH" HOME="$test_tmp/home-a" OMARCHY_VM_STATE_DIR="$state" OMARCHY_VM_HOST_LOCK="$host_lock" \
+  OMARCHY_VM_RUN_ID=holder TEST_BLOCK_STAGE=install TEST_BLOCK_DIR="$block" \
+  "$harness/run" --evidence-dir "$evidence_root" >"$test_tmp/holder.out" 2>&1 &
 holder=$!
+for (( i = 0; i < 200; i++ )); do
+  [[ -e $block/blocked ]] && break
+  sleep 0.05
+done
+[[ -e $block/blocked ]] || fail "the holding run reaches its install stage" "$(<"$test_tmp/holder.out")"
+
+for other_state in "$state" "$test_tmp/other-checkout-state"; do
+  TEST_HOME="$test_tmp/home-b" TEST_STATE_DIR="$other_state" OMARCHY_VM_RUN_ID=refused run_harness --evidence-dir "$evidence_root"
+  (( status != 0 )) || fail "a run as another identity is refused while the lock is held ($other_state)"
+  [[ $output == *"Another VM run holds the host lock $host_lock: run_id=holder pid=$holder user=$(id -un) state=$state started_at="* &&
+    $output == *'--wait-for-lease'* && $output != *'no longer running'* ]] ||
+    fail "a refused run names the holding run and the way to queue" "$output"
+  [[ ! -s $TEST_DOCKER_LOG && ! -e $evidence_root/refused ]] || fail "a refused run touches no container and exports nothing"
+done
+pass "a run under any HOME and from any checkout is refused while another holds the host lock"
+
+PATH="$stub_bin:$PATH" HOME="$test_tmp/home-b" OMARCHY_VM_STATE_DIR="$state" OMARCHY_VM_HOST_LOCK="$host_lock" \
+  OMARCHY_VM_RUN_ID=queued "$harness/run" --wait-for-lease --evidence-dir "$evidence_root" \
+  >"$test_tmp/queued.out" 2>"$test_tmp/queued.err" &
+queued=$!
+for (( i = 0; i < 100; i++ )); do
+  grep -q 'Waiting for the host lock' "$test_tmp/queued.err" 2>/dev/null && break
+  sleep 0.05
+done
+grep -Fq "Waiting for the host lock $host_lock, held by: run_id=holder pid=$holder" "$test_tmp/queued.err" ||
+  fail "a queued run says whom it waits for" "$(cat "$test_tmp/queued.err" 2>/dev/null)"
+[[ ! -e $evidence_root/queued ]] || fail "a queued run waits for the lock"
+touch "$block/release"
+set +e
+wait "$holder"
+holder_status=$?
+wait "$queued"
+status=$?
+set -e
+(( holder_status == 0 )) || fail "the holding run finishes" "$(<"$test_tmp/holder.out")"
+(( status == 0 )) || fail "a queued run proceeds once the lock is free" "$(<"$test_tmp/queued.err")"
+[[ -d $evidence_root/holder && -d $evidence_root/queued ]] || fail "the holding and the queued run both export their evidence"
+pass "--wait-for-lease queues behind the running holder"
+
+# A holder that exited while something it started keeps the descriptor is
+# reported as gone rather than as the runner of record.
+printf 'run_id=ghost pid=999999999 user=nobody state=/elsewhere\n' >"$host_lock"
+flock "$host_lock" bash -c 'touch "$1/held"; while [[ ! -e $1/unheld ]]; do sleep 0.05; done' _ "$test_tmp" &
+ghost=$!
 for (( i = 0; i < 100; i++ )); do
   [[ -e $test_tmp/held ]] && break
   sleep 0.05
 done
-[[ -e $test_tmp/held ]] || fail "the test holds the lease"
-
-# The holder is another checkout: a different state directory, the same host.
 OMARCHY_VM_RUN_ID=refused run_harness --evidence-dir "$evidence_root"
-(( status != 0 )) || fail "a second run on a leased host is refused"
-[[ $output == *"Another VM run holds the host lease $lease: run_id=holder pid=1 state=/elsewhere"* && $output == *'--wait-for-lease'* ]] ||
-  fail "a refused run names the lease holder and the way to queue" "$output"
-[[ ! -s $TEST_DOCKER_LOG && ! -e $evidence_root/refused ]] || fail "a refused run touches no container and exports nothing"
-pass "a run from any checkout is refused while another holds the host lease"
+[[ $output == *'run_id=ghost pid=999999999 user=nobody state=/elsewhere (no longer running; a process it started still holds the lock)'* ]] ||
+  fail "a holder whose recorded process is gone is reported as such" "$output"
+touch "$test_tmp/unheld"
+wait "$ghost"
+pass "a lock held after its recorded run exited says so"
 
-(
-  PATH="$stub_bin:$PATH" HOME="$test_tmp/home" OMARCHY_VM_STATE_DIR="$state" OMARCHY_VM_RUN_ID=queued \
-    "$harness/run" --wait-for-lease --evidence-dir "$evidence_root" >"$test_tmp/queued.out" 2>"$test_tmp/queued.err"
-) &
-queued=$!
+# The first run creates the lock for every user; any readable lock file works,
+# even one this user cannot write, and anything else is refused.
+rm -f "$host_lock"
+OMARCHY_VM_RUN_ID=creates-lock run_harness --evidence-dir "$evidence_root"
+(( status == 0 )) && [[ $(stat -c %a "$host_lock") == 666 ]] ||
+  fail "a run creates the host lock writable by every user" "$(stat -c %a "$host_lock" 2>&1) $output"
+chmod 0444 "$host_lock"
+OMARCHY_VM_RUN_ID=read-only-lock run_harness --evidence-dir "$evidence_root"
+(( status == 0 )) || fail "a run takes a host lock it can only read" "$output"
+chmod 0666 "$host_lock"
+mv "$host_lock" "$host_lock.real"
+ln -s "$host_lock.real" "$host_lock"
+OMARCHY_VM_RUN_ID=symlinked-lock run_harness --evidence-dir "$evidence_root"
+(( status != 0 )) && [[ $output == *"The host VM lock $host_lock must be a regular file"* ]] ||
+  fail "a symlinked host lock is refused" "$output"
+rm "$host_lock"
+mv "$host_lock.real" "$host_lock"
+pass "the host lock works for any user who can read it"
+
+# A state directory belongs to one identity.
+if (( EUID == 0 )); then
+  foreign_state="$test_tmp/foreign-state"
+  mkdir -p "$foreign_state"
+  chown 65534 "$foreign_state"
+else
+  foreign_state=/usr
+fi
+TEST_STATE_DIR="$foreign_state" OMARCHY_VM_RUN_ID=foreign run_harness --evidence-dir "$evidence_root"
+(( status != 0 )) && [[ $output == *"The VM state directory $foreign_state belongs to "*", not $(id -un)"* ]] ||
+  fail "a state directory another identity owns is refused" "$output"
+[[ ! -s $TEST_DOCKER_LOG ]] || fail "a refused state directory starts nothing"
+flock "$state/lease" bash -c 'touch "$1/state-held"; while [[ ! -e $1/state-unheld ]]; do sleep 0.05; done' _ "$test_tmp" &
+state_holder=$!
 for (( i = 0; i < 100; i++ )); do
-  grep -q 'Waiting for the host lease' "$test_tmp/queued.err" 2>/dev/null && break
+  [[ -e $test_tmp/state-held ]] && break
   sleep 0.05
 done
-grep -Fq "Waiting for the host lease $lease, held by: run_id=holder" "$test_tmp/queued.err" ||
-  fail "a queued run says whom it waits for" "$(cat "$test_tmp/queued.err" 2>/dev/null)"
-[[ ! -e $evidence_root/queued ]] || fail "a queued run waits for the lease"
-touch "$test_tmp/release"
-wait "$holder"
-set +e
-wait "$queued"
-status=$?
-set -e
-(( status == 0 )) || fail "a queued run proceeds once the lease is free" "$(<"$test_tmp/queued.err")"
-[[ -d $evidence_root/queued ]] || fail "a queued run exports its evidence"
-pass "--wait-for-lease queues behind the running holder"
+OMARCHY_VM_RUN_ID=state-busy run_harness --evidence-dir "$evidence_root"
+(( status != 0 )) && [[ $output == *"Another VM run is using the state directory $state"* ]] ||
+  fail "a state directory in use is refused even past the host lock" "$output"
+touch "$test_tmp/state-unheld"
+wait "$state_holder"
+pass "a state directory belongs to one identity and one run at a time"
 
 # A --keep VM from another state directory still owns the forwarded ports.
 TEST_DOCKER_PS=$'omarchy-asahi-fresh-vm-old 127.0.0.1:22222->22/tcp, 127.0.0.1:25900->5900/tcp\n' \
@@ -425,6 +501,8 @@ pass "each run's disk is backed by its own base, which survives a base rebuild"
 
 # --- Static guards -----------------------------------------------------------
 
+grep -Fq 'host_lock=${OMARCHY_VM_HOST_LOCK:-/tmp/omarchy-asahi-fresh-vm.lock}' "$harness/run" ||
+  fail "every real run shares one fixed host lock"
 grep -Fq 'cpus=${OMARCHY_VM_CPUS:-8}' "$harness/container/start-vm" || fail "the launcher defaults to 8 vCPUs"
 grep -Fq -- '-smp "$cpus"' "$harness/container/start-vm" || fail "QEMU uses the configured vCPU count"
 grep -Fq 'run=${OMARCHY_VM_RUN_DIR:-/work/run}' "$harness/container/start-vm" || fail "the launcher takes the run's directory"
