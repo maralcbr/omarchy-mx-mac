@@ -202,29 +202,13 @@ pass "an empty shard passes and says so"
 
 # Interrupting a parallel run stops the files it started, children included,
 # even a child that ignores TERM, before it removes their runtime directories.
+# Further signals during that cleanup, as from a second Ctrl-C, are ignored.
 write_test golf <<SH
 bash -c 'trap "" TERM; while :; do sleep 0.1; done' &
 echo "\$!" >"$test_tmp/golf.child"
 echo "\$XDG_RUNTIME_DIR" >"$test_tmp/golf.runtime"
 wait
 SH
-env -u XDG_RUNTIME_DIR "$suite/test/shell" --jobs 2 "$suite/test/shell.d/golf-test.sh" "$suite/test/shell.d/alpha-test.sh" >/dev/null 2>&1 &
-runner_pid=$!
-for (( i = 0; i < 100; i++ )); do
-  [[ -s $test_tmp/golf.child && -s $test_tmp/golf.runtime ]] && break
-  sleep 0.1
-done
-golf_child=$(<"$test_tmp/golf.child")
-golf_runtime=$(<"$test_tmp/golf.runtime")
-[[ -d $golf_runtime ]] || fail "the interrupted file had a runtime directory"
-interrupted_at=$SECONDS
-kill -TERM "$runner_pid"
-set +e
-wait "$runner_pid"
-status=$?
-set -e
-(( status == 143 )) || fail "an interrupted parallel run exits with the signal's status" "$status"
-(( SECONDS - interrupted_at <= 10 )) || fail "an interrupted parallel run stops within its bounded wait"
 
 # A killed child can linger as a zombie until init reaps it; that is not alive.
 alive() {
@@ -233,13 +217,45 @@ alive() {
   stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
   [[ ${stat##*) } != Z* ]]
 }
-for (( i = 0; i < 20; i++ )); do
-  alive "$golf_child" || break
-  sleep 0.1
-done
-if alive "$golf_child"; then
-  kill -KILL "$golf_child" 2>/dev/null || true
-  fail "an interrupted parallel run stops a child that ignores TERM"
-fi
-[[ ! -e $golf_runtime ]] || fail "an interrupted parallel run removes the runtime directories"
+
+interrupt_run() {
+  local description=$1 signal
+  shift
+
+  rm -f "$test_tmp/golf.child" "$test_tmp/golf.runtime"
+  env -u XDG_RUNTIME_DIR "$suite/test/shell" --jobs 2 "$suite/test/shell.d/golf-test.sh" "$suite/test/shell.d/alpha-test.sh" >/dev/null 2>&1 &
+  runner_pid=$!
+  for (( i = 0; i < 100; i++ )); do
+    [[ -s $test_tmp/golf.child && -s $test_tmp/golf.runtime ]] && break
+    sleep 0.1
+  done
+  golf_child=$(<"$test_tmp/golf.child")
+  golf_runtime=$(<"$test_tmp/golf.runtime")
+  [[ -d $golf_runtime ]] || fail "the interrupted file had a runtime directory ($description)"
+  interrupted_at=$SECONDS
+  for signal in "$@"; do
+    kill "-$signal" "$runner_pid" 2>/dev/null || true
+    sleep 0.3
+  done
+  set +e
+  wait "$runner_pid"
+  status=$?
+  set -e
+  (( status == 143 )) || fail "an interrupted parallel run exits with the first signal's status ($description)" "$status"
+  (( SECONDS - interrupted_at <= 10 )) || fail "an interrupted parallel run stops within its bounded wait ($description)"
+  for (( i = 0; i < 20; i++ )); do
+    alive "$golf_child" || break
+    sleep 0.1
+  done
+  if alive "$golf_child"; then
+    kill -KILL "$golf_child" 2>/dev/null || true
+    fail "an interrupted parallel run stops a child that ignores TERM ($description)"
+  fi
+  [[ ! -e $golf_runtime ]] || fail "an interrupted parallel run removes the runtime directories ($description)"
+}
+
+interrupt_run "one TERM" TERM
 pass "an interrupted parallel run stops every process its files started, then cleans up"
+
+interrupt_run "TERM, TERM, INT" TERM TERM INT
+pass "further signals during cleanup do not cut it short"

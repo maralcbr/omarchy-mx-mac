@@ -205,9 +205,13 @@ wait_for_groups() {
 # An interrupted run stops the files still running before removing the
 # directories they use: TERM to each file's process group, three seconds to
 # finish, then KILL for whatever ignored it, and the files themselves reaped.
+# Once cleanup starts a further INT or TERM is ignored, so a second Ctrl-C
+# cannot cut it short, and the run exits with the status it was leaving with.
 stop_parallel() {
-  local group
+  local status=$? group
   local -a groups=("${!index_of[@]}")
+
+  trap '' INT TERM
 
   if (( ${#groups[@]} > 0 )); then
     for group in "${groups[@]}"; do
@@ -224,6 +228,7 @@ stop_parallel() {
   if [[ -n $work ]]; then
     rm -rf "$work"
   fi
+  exit "$status"
 }
 
 run_parallel() {
@@ -235,8 +240,8 @@ run_parallel() {
   [[ -n ${XDG_RUNTIME_DIR:-} ]] || private_runtime=1
   work=$(mktemp -d)
   trap stop_parallel EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+  trap 'trap "" INT TERM; exit 130' INT
+  trap 'trap "" INT TERM; exit 143' TERM
 
   while (( next < ${#tests[@]} || running > 0 )); do
     while (( running < jobs && next < ${#tests[@]} )); do
