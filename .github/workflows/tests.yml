@@ -14,10 +14,16 @@ permissions:
   contents: read
 
 jobs:
-  source-tests:
-    name: Source test suites
+  # The shell suite is dealt across the matrix by `test/shell --shard K/N`; N is
+  # the number of matrix entries, so adding an entry re-deals every file.
+  source-test-shards:
+    name: Source test shard ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     env:
       OMARCHY_PATH: ${{ github.workspace }}
       OMARCHY_PKGS_PATH: ${{ github.workspace }}/dependencies/omarchy-pkgs
@@ -37,10 +43,13 @@ jobs:
           path: dependencies/omarchy-iso
           persist-credentials: false
       - name: Run source suites with Arch runtime tools
+        env:
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: |
           docker run --rm --init \
             -v "$GITHUB_WORKSPACE:/src" -w /src \
             -e TEST_UID="$(id -u)" \
+            -e SHARD \
             -e OMARCHY_PATH=/src \
             -e OMARCHY_PKGS_PATH=/src/dependencies/omarchy-pkgs \
             -e OMARCHY_ISO_PATH=/src/dependencies/omarchy-iso \
@@ -49,5 +58,33 @@ jobs:
               pacman -Syu --noconfirm --needed git jq libarchive lua ripgrep shellcheck imagemagick gum plocate openssh nodejs npm python unzip bc
               useradd --create-home --uid "$TEST_UID" tester
               export PATH="/src/bin:$PATH"
-              runuser -u tester -- bash -euo pipefail -c "./test/all && bash test/shell.d/stable-release-test.sh"
+              # test/cli is one suite, not a set of files; the last shard, which
+              # is dealt the fewest shell files, runs it. A failing test/cli
+              # still lets the shard run its shell files.
+              runuser -u tester -- bash -euo pipefail -c "
+                status=0
+                if [[ \${SHARD%/*} == \${SHARD#*/} ]]; then
+                  ./test/cli || status=1
+                fi
+                ./test/shell --shard \"\$SHARD\" || status=1
+                exit \$status
+              "
             '
+
+  # The check branch protection and pull requests look for: it passes only when
+  # every shard passed, and fails when any shard failed or was cancelled.
+  source-tests:
+    name: Source test suites
+    needs: source-test-shards
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every shard to pass
+        env:
+          SHARDS_RESULT: ${{ needs.source-test-shards.result }}
+        run: |
+          if [[ $SHARDS_RESULT != "success" ]]; then
+            echo "Source test shards finished with: $SHARDS_RESULT" >&2
+            exit 1
+          fi
