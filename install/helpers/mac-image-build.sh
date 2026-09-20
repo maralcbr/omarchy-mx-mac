@@ -1,8 +1,35 @@
 # Image-build helpers for OMARCHY_MAC_IMAGE_BUILD=1. Sourced from the fresh
 # installer and from install/hardware/all.sh; no shebang.
+#
+# Image builds cannot inspect the target Mac. They export
+# OMARCHY_MAC_TARGET=generic-apple-silicon so omarchy-hw-apple-silicon reports
+# the generic Apple Silicon configuration without reading /proc/device-tree.
+# Model-specific hardware leaves are recorded in deferred-steps and run on
+# first boot with OMARCHY_MAC_TARGET unset so they probe the real machine.
 
 omarchy_mac_image_build() {
   [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]
+}
+
+omarchy_mac_generic_target() {
+  printf '%s\n' generic-apple-silicon
+}
+
+omarchy_mac_export_image_identity() {
+  omarchy_mac_image_build || return 1
+  export OMARCHY_MAC_IMAGE_BUILD=1
+  export OMARCHY_MAC_TARGET=generic-apple-silicon
+}
+
+omarchy_mac_deferred_step_rebuilds_initramfs() {
+  case $1 in
+    install/hardware/apple/fix-asahi-hid-race.sh | install/hardware/apple/fix-asahi-btrfs-race.sh)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 omarchy_mac_deferred_steps_file() {

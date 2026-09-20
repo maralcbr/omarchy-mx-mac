@@ -530,16 +530,11 @@ EOF
 fi
 
 if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
-  export OMARCHY_MAC_IMAGE_BUILD=1
-  export OMARCHY_MAC_DEFERRED_STEPS=/var/lib/omarchy/mac-first-boot/deferred-steps
-  if [[ -z ${OMARCHY_PROC_ROOT:-} ]]; then
-    export OMARCHY_PROC_ROOT=/var/lib/omarchy/mac-first-boot/image-build-proc
-    install -d -m 0755 "$OMARCHY_PROC_ROOT/device-tree"
-    printf 'apple,omarchy-image\0' >"$OMARCHY_PROC_ROOT/device-tree/compatible"
-  fi
   OMARCHY_PATH=/usr/share/omarchy
   OMARCHY_INSTALL=/usr/share/omarchy/install
   source "$OMARCHY_INSTALL/helpers/mac-image-build.sh"
+  omarchy_mac_export_image_identity
+  export OMARCHY_MAC_DEFERRED_STEPS=/var/lib/omarchy/mac-first-boot/deferred-steps
   omarchy_mac_record_deferred_hardware_steps || fail "Could not record deferred hardware steps for the image"
 fi
 
@@ -597,9 +592,6 @@ if [[ $target_user != "alarm" ]] && getent passwd alarm >/dev/null 2>&1; then
 fi
 
 install -d -m 0755 /var/lib/omarchy
-if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
-  rm -rf /var/lib/omarchy/mac-first-boot/image-build-proc
-fi
 # omarchy:heredoc-expands paths=none -- the release identity values are pattern-validated at startup
 cat >"$state_dir/asahi-quattro-release.tmp" <<EOF
 format=1

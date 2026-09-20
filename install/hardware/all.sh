@@ -1,5 +1,6 @@
 if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
   source "$OMARCHY_INSTALL/helpers/mac-image-build.sh"
+  omarchy_mac_export_image_identity
   omarchy_mac_record_deferred_hardware_steps
   return 0
 fi

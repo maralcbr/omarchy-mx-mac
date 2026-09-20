@@ -2,7 +2,23 @@
 
 # omarchy:summary=Detect whether the computer is an Apple Silicon Mac.
 
+# Image builds cannot probe /proc/device-tree. They export
+# OMARCHY_MAC_TARGET=generic-apple-silicon (see install/helpers/mac-image-build.sh)
+# so this command reports the generic Apple Silicon configuration. Unset, the
+# running machine is probed. Any other value is not Apple Silicon.
+
 proc_root="${OMARCHY_PROC_ROOT:-/proc}"
 
-[[ $(uname -m) == "aarch64" ]] &&
-  grep -aq 'apple,' "$proc_root/device-tree/compatible" 2>/dev/null
+[[ $(uname -m) == "aarch64" ]] || exit 1
+
+case ${OMARCHY_MAC_TARGET:-} in
+  generic-apple-silicon)
+    exit 0
+    ;;
+  "")
+    grep -aq 'apple,' "$proc_root/device-tree/compatible" 2>/dev/null
+    ;;
+  *)
+    exit 1
+    ;;
+esac
