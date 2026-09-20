@@ -242,6 +242,16 @@ elif [[ $current_server == "$legacy_prefix"* && ${current_server#"$legacy_prefix
   current_commit=${current_server#"$legacy_prefix"}
 fi
 
+# Image builds pin [omarchy] to the builder's selected snapshot. Do not follow
+# the signed channel or rewrite the section; only verify the pin, the way an
+# offline install checks the Server without requiring a package cache.
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
+  [[ -n $current_server ]] || fail "image mode requires a pinned [omarchy] repository"
+  [[ -n $current_commit && $current_server == "$stable_prefix"* ]] ||
+    fail "image mode requires [omarchy] to name an asahi-packages-stable tag"
+  leave "image mode keeps the builder's [omarchy] on $current_server"
+fi
+
 channel_tag=""
 if [[ -n ${OMARCHY_ASAHI_PACKAGES_CHANNEL_URL:-} ]]; then
   channel_url=$OMARCHY_ASAHI_PACKAGES_CHANNEL_URL

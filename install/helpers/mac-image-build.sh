@@ -34,10 +34,16 @@ omarchy_mac_deferred_steps_file() {
 }
 
 omarchy_mac_hardware_step_paths() {
-  local all="${OMARCHY_INSTALL:-$OMARCHY_PATH/install}/hardware/all.sh"
+  local all="${OMARCHY_INSTALL:-$OMARCHY_PATH/install}/hardware/all.sh" line
 
   [[ -f $all ]] || return 1
-  sed -n 's/^run_logged "\$OMARCHY_INSTALL\/\(hardware\/.*\)"$/install\/\1/p' "$all"
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line =~ run_logged[[:space:]]+\"\$OMARCHY_INSTALL/(hardware/[^\"\;]+)\" ]]; then
+      printf 'install/%s\n' "${BASH_REMATCH[1]}"
+    elif [[ $line =~ run_logged[[:space:]]+\$OMARCHY_INSTALL/(hardware/[^\"\;[:space:]]+) ]]; then
+      printf 'install/%s\n' "${BASH_REMATCH[1]}"
+    fi
+  done <"$all"
 }
 
 omarchy_mac_record_deferred_step() {

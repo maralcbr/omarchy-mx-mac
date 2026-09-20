@@ -283,7 +283,7 @@ reset_sandbox() {
     "$sandbox/var/cache/pacman/pkg"
   printf 'apple,j314s\0apple,arm-platform\0' >"$sandbox/proc/device-tree/compatible"
   echo "4.0.3" >"$sandbox/usr/share/omarchy/version"
-  [[ $kernel == linux-asahi ]] || echo "$kernel" >"$sandbox/usr/share/omarchy/apple-silicon-kernel"
+  echo "$kernel" >"$sandbox/usr/share/omarchy/apple-silicon-kernel"
   echo "kernel image $version" >"$sandbox/usr/lib/modules/$version/vmlinuz"
   cp "$sandbox/usr/lib/modules/$version/vmlinuz" "$sandbox/boot/vmlinuz-$kernel"
   printf '%s\n' "${builder_grub//KERNEL/$kernel}" >"$sandbox/boot/grub/grub.cfg"

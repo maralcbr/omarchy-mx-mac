@@ -129,13 +129,17 @@ EOF
     *) fail "This Mac's Apple Silicon channel record cannot be trusted; no packages were installed" ;;
   esac
   if grep -Fxq channel=rc <<<"$channel_record"; then
-    echo "Pinning the Aurora kernel repository"
-    if (( offline )); then
-      runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
-        aurora_offline_fail "Could not pin the Aurora kernel repository; no packages were installed"
+    if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
+      echo "Keeping the image's pinned Aurora kernel repository"
     else
-      runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
-        fail "Could not pin the Aurora kernel repository; no packages were installed"
+      echo "Pinning the Aurora kernel repository"
+      if (( offline )); then
+        runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
+          aurora_offline_fail "Could not pin the Aurora kernel repository; no packages were installed"
+      else
+        runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
+          fail "Could not pin the Aurora kernel repository; no packages were installed"
+      fi
     fi
   fi
   rm -rf "$package_runtime_root"
@@ -151,14 +155,21 @@ EOF
     inside && /^[[:space:]]*Server[[:space:]]*=/ { sub(/^[[:space:]]*Server[[:space:]]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print }
   ' "$pacman_conf")
   [[ -n $server && $server != *$'\n'* ]] || repo_config_fail "The [omarchy] repository must have exactly one Server"
-  if (( offline )); then
+  if (( offline )) || [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
     stable_prefix="https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-stable-"
-    [[ $server == "$stable_prefix"* && ${server#"$stable_prefix"} =~ ^[0-9a-f]{40}$ ]] ||
-      offline_config_fail "The [omarchy] repository must name an asahi-packages-stable tag"
-    [[ -n ${OMARCHY_ASAHI_KEEP_SERVER:-} ]] ||
-      offline_config_fail "OMARCHY_ASAHI_KEEP_SERVER must name the expected asahi-packages-stable Server"
-    [[ $server == "$OMARCHY_ASAHI_KEEP_SERVER" ]] ||
-      offline_config_fail "The [omarchy] repository does not match OMARCHY_ASAHI_KEEP_SERVER"
+    if [[ $server != "$stable_prefix"* || ! ${server#"$stable_prefix"} =~ ^[0-9a-f]{40}$ ]]; then
+      if (( offline )); then
+        offline_config_fail "The [omarchy] repository must name an asahi-packages-stable tag"
+      else
+        repo_config_fail "The [omarchy] repository must name an asahi-packages-stable tag"
+      fi
+    fi
+    if (( offline )); then
+      [[ -n ${OMARCHY_ASAHI_KEEP_SERVER:-} ]] ||
+        offline_config_fail "OMARCHY_ASAHI_KEEP_SERVER must name the expected asahi-packages-stable Server"
+      [[ $server == "$OMARCHY_ASAHI_KEEP_SERVER" ]] ||
+        offline_config_fail "The [omarchy] repository does not match OMARCHY_ASAHI_KEEP_SERVER"
+    fi
   fi
   # System setup rewrites [omarchy] through install/hardware/pacman.sh, which
   # would otherwise swap a kept candidate or mirror for its own default.
@@ -238,21 +249,23 @@ verify_boot_files() {
   verify_boot_chain
 }
 
-# HID and btrfs drop-ins must be in the image before mkinitcpio. The leaves
-# only write files; model-specific probes stay deferred. Re-running them is
-# idempotent, so missing package-owned copies are filled in here.
+# HID and btrfs drop-ins must be in the image before mkinitcpio.
+# install/hardware/all.sh's image-mode branch is the one place that decides
+# which leaves run statically; it applies them through run_logged.
 apply_static_boot_prerequisites() {
   local hid_conf=/etc/mkinitcpio.conf.d/apple_hid_modules.conf
   local btrfs_dropin=/etc/systemd/system/kmod-static-nodes.service.d/10-before-tmpfiles-setup-dev.conf
-  local leaf leaf_path="/usr/share/omarchy/bin:$PATH"
-  for leaf in \
-    /usr/share/omarchy/install/hardware/apple/fix-asahi-hid-race.sh \
-    /usr/share/omarchy/install/hardware/apple/fix-asahi-btrfs-race.sh
-  do
-    [[ -f $leaf ]] || fail "Static Apple boot leaf is missing: $leaf"
-    PATH="$leaf_path" bash -eE -c 'source "$1"' bash "$leaf" </dev/null ||
-      fail "Could not apply $(basename "$leaf") to the image"
-  done
+  [[ -n ${OMARCHY_PATH:-} && $OMARCHY_PATH == /* ]] || fail "OMARCHY_PATH is unset"
+  OMARCHY_INSTALL=${OMARCHY_INSTALL:-$OMARCHY_PATH/install}
+  [[ -f $OMARCHY_INSTALL/helpers/logging.sh && -f $OMARCHY_INSTALL/hardware/all.sh ]] ||
+    fail "Install helpers are missing under $OMARCHY_INSTALL"
+  # Source in a child so all.sh's image-mode `return 0` cannot skip the drop-in checks.
+  OMARCHY_PATH="$OMARCHY_PATH" OMARCHY_INSTALL="$OMARCHY_INSTALL" \
+    OMARCHY_MAC_IMAGE_BUILD=1 OMARCHY_MAC_TARGET=generic-apple-silicon \
+    OMARCHY_MAC_DEFERRED_STEPS="${OMARCHY_MAC_DEFERRED_STEPS:-/var/lib/omarchy/mac-first-boot/deferred-steps}" \
+    PATH="$OMARCHY_PATH/bin:$PATH" bash -eE -c 'source "$1"; source "$2"' bash \
+      "$OMARCHY_INSTALL/helpers/logging.sh" "$OMARCHY_INSTALL/hardware/all.sh" </dev/null ||
+    fail "Could not apply static Apple boot leaves to the image"
   [[ -f $hid_conf ]] || fail "The Apple HID initramfs drop-in is missing from the image"
   [[ -f $btrfs_dropin ]] || fail "The btrfs static-nodes drop-in is missing from the image"
 }
@@ -309,7 +322,9 @@ if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]]; then
 fi
 
 kernel_marker=/usr/share/omarchy/apple-silicon-kernel
-kernel_package=linux-asahi
+# Aurora is the kernel this installer picks. linux-asahi remains only if the
+# image's kernel marker already names it; the installer never selects it.
+kernel_package=linux-aurora
 if [[ -f $kernel_marker && ! -L $kernel_marker ]]; then
   read -r kernel_package <"$kernel_marker" || true
 fi
@@ -558,11 +573,10 @@ fi
 
 if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
   OMARCHY_PATH=/usr/share/omarchy
-  OMARCHY_INSTALL=/usr/share/omarchy/install
+  OMARCHY_INSTALL="$OMARCHY_PATH/install"
   source "$OMARCHY_INSTALL/helpers/mac-image-build.sh"
   omarchy_mac_export_image_identity
   export OMARCHY_MAC_DEFERRED_STEPS=/var/lib/omarchy/mac-first-boot/deferred-steps
-  omarchy_mac_record_deferred_hardware_steps || fail "Could not record deferred hardware steps for the image"
 fi
 
 if (( deferred_user )); then

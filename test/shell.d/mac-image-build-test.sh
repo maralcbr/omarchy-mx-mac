@@ -18,13 +18,23 @@ trap 'rm -rf "$test_tmp"' EXIT
 
 OMARCHY_PATH="$ROOT" OMARCHY_INSTALL="$ROOT/install" source "$helper"
 
+# Independent of omarchy_mac_hardware_step_paths: every hardware/*.sh path
+# mentioned in all.sh, in file order, minus the static initramfs leaves.
 expected_deferred_steps() {
   local relative
   while IFS= read -r relative; do
     [[ -n $relative ]] || continue
     omarchy_mac_deferred_step_rebuilds_initramfs "$relative" && continue
     printf '%s\n' "$relative"
-  done < <(omarchy_mac_hardware_step_paths)
+  done < <(awk '
+    {
+      rest = $0
+      while (match(rest, /hardware\/[-A-Za-z0-9._/]+\.sh/)) {
+        print "install/" substr(rest, RSTART, RLENGTH)
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+    }
+  ' "$hardware_all")
 }
 
 bash -n "$installer"
@@ -39,6 +49,10 @@ grep -Fq 'OMARCHY_MAC_TARGET=generic-apple-silicon' "$helper" ||
   fail "the unused generic-target helper is gone"
 grep -Fq 'omarchy_mac_export_image_identity' "$installer" ||
   fail "the installer exports the generic image-build identity"
+grep -Fq '"$OMARCHY_INSTALL/hardware/all.sh"' "$installer" ||
+  fail "the installer applies static boot leaves through hardware/all.sh"
+! grep -Fq '/usr/share/omarchy/install/hardware/apple/fix-asahi-hid-race.sh' "$installer" ||
+  fail "the installer does not hard-code static Apple boot leaf paths"
 export_line=$(grep -n 'export OMARCHY_MAC_TARGET=generic-apple-silicon' "$installer" | head -n 1 | cut -d: -f1)
 config_line=$(grep -n 'configure_package_repository /etc/pacman.conf' "$installer" | head -n 1 | cut -d: -f1)
 [[ -n $export_line && -n $config_line ]] || fail "the installer exports identity and configures the repository"
@@ -52,6 +66,22 @@ awk '
   END { exit !(mark && drop && mark < drop) }
 ' "$runner" || fail "rebuild intent is recorded before a successful leaf is dropped"
 pass "image-build commands are syntactically valid and hidden"
+
+# --- run_logged parser accepts formatting variants ----------------------------
+
+fmt_install="$test_tmp/fmt-install/hardware"
+mkdir -p "$fmt_install"
+cat >"$fmt_install/all.sh" <<'EOF'
+# comment with hardware/ignored.sh should still parse run_logged lines
+run_logged "$OMARCHY_INSTALL/hardware/network.sh"
+  run_logged  "$OMARCHY_INSTALL/hardware/bluetooth.sh"
+run_logged "$OMARCHY_INSTALL/hardware/apple/fix-speaker-pop.sh" || true
+run_logged $OMARCHY_INSTALL/hardware/pacman.sh
+EOF
+fmt_paths=$(OMARCHY_INSTALL="$test_tmp/fmt-install" omarchy_mac_hardware_step_paths)
+[[ $fmt_paths == $'install/hardware/network.sh\ninstall/hardware/bluetooth.sh\ninstall/hardware/apple/fix-speaker-pop.sh\ninstall/hardware/pacman.sh' ]] ||
+  fail "run_logged parser accepts indented, extra-arg and unquoted lines" "$fmt_paths"
+pass "run_logged parser accepts formatting variants"
 
 # --- hardware/all.sh applies static drop-ins and defers probing leaves --------
 
@@ -177,7 +207,7 @@ OMARCHY_MAC_TARGET=generic-apple-silicon OMARCHY_PROC_ROOT="$empty_proc" \
     "$(cat "$test_tmp/updater-generic.out" "$test_tmp/updater-generic.err")"
 pass "generic-apple-silicon lets the real updater past hardware detection"
 
-# --- omarchy-mac-run-deferred-steps runs the real HID and btrfs leaves --------
+# --- omarchy-mac-run-deferred-steps is fail-closed and resumable --------------
 
 omarchy="$test_tmp/omarchy"
 first_boot="$test_tmp/var/lib/omarchy/mac-first-boot"
@@ -194,13 +224,6 @@ sed -e "s|/etc/systemd/system|$omarchy/etc/systemd/system|g" "$btrfs_leaf" \
 cat >"$omarchy/install/hardware/apple/fix-speaker-pop.sh" <<'EOF'
 printf 'speaker target=%s image=%s\n' "${OMARCHY_MAC_TARGET-unset}" "${OMARCHY_MAC_IMAGE_BUILD-unset}" >>"$MAC_IMAGE_BUILD_RAN"
 EOF
-printf '%s\n' \
-  install/hardware/apple/fix-asahi-hid-race.sh \
-  install/hardware/apple/fix-asahi-btrfs-race.sh \
-  install/hardware/apple/fix-speaker-pop.sh >"$first_boot/deferred-steps"
-chmod 0644 "$first_boot/deferred-steps"
-: >"$test_tmp/ran"
-: >"$test_tmp/mkinitcpio.log"
 mkdir -p "$test_tmp/apple-proc/device-tree"
 printf 'apple,j314s\0apple,arm-platform\0' >"$test_tmp/apple-proc/device-tree/compatible"
 
@@ -228,45 +251,6 @@ env -u OMARCHY_PATH bash "$runnable_runner" >"$test_tmp/missing-path.out" 2>"$te
 grep -Fq 'OMARCHY_PATH is unset' "$test_tmp/missing-path.err" ||
   fail "the deferred runner reports a missing OMARCHY_PATH" "$(cat "$test_tmp/missing-path.err")"
 pass "omarchy-mac-run-deferred-steps fails when OMARCHY_PATH is unset"
-
-MAC_IMAGE_BUILD_RAN="$test_tmp/ran" \
-  MAC_IMAGE_BUILD_MKINITCPIO="$test_tmp/mkinitcpio.log" \
-  OMARCHY_PATH="$omarchy" \
-  OMARCHY_PROC_ROOT="$test_tmp/apple-proc" \
-  OMARCHY_MAC_DEFERRED_STEPS="$first_boot/deferred-steps" \
-  OMARCHY_MAC_FIRST_BOOT_LOG="$log_dir/mac-first-boot.log" \
-  OMARCHY_MAC_IMAGE_BUILD=1 \
-  OMARCHY_MAC_TARGET=generic-apple-silicon \
-  PATH="$test_tmp/bin:$PATH" \
-  bash "$runnable_runner"
-[[ -f $omarchy/etc/mkinitcpio.conf.d/apple_hid_modules.conf ]] ||
-  fail "the real HID leaf wrote its drop-in"
-[[ -f $omarchy/etc/systemd/system/kmod-static-nodes.service.d/10-before-tmpfiles-setup-dev.conf ]] ||
-  fail "the real btrfs leaf wrote its drop-in"
-[[ $(cat "$test_tmp/ran") == $'speaker target=unset image=unset' ]] ||
-  fail "deferred steps ran in the live-machine environment" "$(cat "$test_tmp/ran")"
-[[ ! -s $first_boot/deferred-steps ]] || fail "successful deferred steps are removed from the list" "$(cat "$first_boot/deferred-steps")"
-[[ -f $first_boot/deferred-steps ]] || fail "the deferred-steps file remains after it is cleared"
-grep -Fq 'Completed install/hardware/apple/fix-asahi-hid-race.sh' "$log_dir/mac-first-boot.log" ||
-  fail "first-boot log records completed steps" "$(cat "$log_dir/mac-first-boot.log")"
-[[ $(cat "$test_tmp/mkinitcpio.log") == $'mkinitcpio -P' ]] ||
-  fail "HID and btrfs leaves rebuild the initramfs once" "$(cat "$test_tmp/mkinitcpio.log")"
-[[ ! -e $first_boot/rebuild-initramfs ]] || fail "a successful initramfs rebuild clears the marker"
-grep -Fq 'Rebuilt the initramfs' "$log_dir/mac-first-boot.log" ||
-  fail "first-boot log records the initramfs rebuild" "$(cat "$log_dir/mac-first-boot.log")"
-: >"$test_tmp/ran"
-: >"$test_tmp/mkinitcpio.log"
-MAC_IMAGE_BUILD_RAN="$test_tmp/ran" \
-  MAC_IMAGE_BUILD_MKINITCPIO="$test_tmp/mkinitcpio.log" \
-  OMARCHY_PATH="$omarchy" \
-  OMARCHY_PROC_ROOT="$test_tmp/apple-proc" \
-  OMARCHY_MAC_DEFERRED_STEPS="$first_boot/deferred-steps" \
-  OMARCHY_MAC_FIRST_BOOT_LOG="$log_dir/mac-first-boot.log" \
-  PATH="$test_tmp/bin:$PATH" \
-  bash "$runnable_runner"
-[[ ! -s $test_tmp/ran ]] || fail "a second run does not repeat cleared steps" "$(cat "$test_tmp/ran")"
-[[ ! -s $test_tmp/mkinitcpio.log ]] || fail "a second run does not rebuild the initramfs again" "$(cat "$test_tmp/mkinitcpio.log")"
-pass "omarchy-mac-run-deferred-steps runs the real HID and btrfs leaves"
 
 printf '%s\n' install/hardware/apple/fix-asahi-hid-race.sh install/hardware/apple/broken.sh >"$first_boot/deferred-steps"
 cat >"$omarchy/install/hardware/apple/broken.sh" <<'EOF'
@@ -487,7 +471,7 @@ EOF
 
 stable_commit=901e39bdc0dd42a93644bce14a07eeb9bb18a12c
 release_dir="$assets/asahi-packages-stable-$stable_commit"
-mkdir -p "$release_dir" "$assets/asahi-packages-channel-1"
+mkdir -p "$release_dir" "$assets/asahi-packages-channel-1" "$assets/asahi-packages-channel-2"
 printf 'omarchy database for %s\n' "$stable_commit" >"$release_dir/omarchy.db"
 printf 'signature\n' >"$release_dir/omarchy.db.sig"
 cat >"$release_dir/CANDIDATE" <<EOF
@@ -508,9 +492,14 @@ package=2|yay|12.6.0-1|aarch64|yay-12.6.0-1-aarch64.pkg.tar.zst|$(printf '%064d'
 EOF
 printf 'signature\n' >"$release_dir/CANDIDATE.sig"
 descriptor=$(sha256sum "$release_dir/CANDIDATE" | cut -d' ' -f1)
+pinned_commit=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 printf 'format=1\nchannel=asahi-packages\nsequence=1\nstable_tag=asahi-packages-stable-%s\ndescriptor_sha256=%s\nsupersedes=\n' \
   "$stable_commit" "$descriptor" >"$assets/asahi-packages-channel-1/asahi-packages-channel"
 printf 'signature\n' >"$assets/asahi-packages-channel-1/asahi-packages-channel.sig"
+# An advanced channel that supersedes the builder's pin. Image mode must ignore it.
+printf 'format=1\nchannel=asahi-packages\nsequence=2\nstable_tag=asahi-packages-stable-%s\ndescriptor_sha256=%s\nsupersedes=%s\n' \
+  "$stable_commit" "$descriptor" "$pinned_commit" >"$assets/asahi-packages-channel-2/asahi-packages-channel"
+printf 'signature\n' >"$assets/asahi-packages-channel-2/asahi-packages-channel.sig"
 
 runtime="$test_tmp/runtime"
 mkdir -p "$runtime/usr/bin" "$runtime/usr/share/omarchy/default" "$runtime/usr/share/omarchy/install"
@@ -523,7 +512,9 @@ printf '%s\n' hyprland linux-aurora linux-aurora-headers m1n1-aurora omarchy-dev
   >"$runtime/usr/share/omarchy/install/omarchy-base-asahi.packages"
 cat >"$runtime/usr/bin/omarchy-apple-silicon-channel" <<'EOF'
 #!/bin/bash
-exit 3
+[[ ${1:-} == status ]] || exit 2
+printf 'channel=rc\nkernel=linux-aurora\n'
+exit 0
 EOF
 cat >"$runtime/usr/bin/uname" <<'EOF'
 #!/bin/bash
@@ -543,10 +534,10 @@ done
 printf '%s\n' "$url" >>"$FRESH_TEST_LOG"
 case $url in
   https://example.test/asahi-packages-channel)
-    source="$FRESH_TEST_ASSETS/asahi-packages-channel-1/asahi-packages-channel"
+    source="$FRESH_TEST_ASSETS/asahi-packages-channel-2/asahi-packages-channel"
     ;;
   https://example.test/asahi-packages-channel.sig)
-    source="$FRESH_TEST_ASSETS/asahi-packages-channel-1/asahi-packages-channel.sig"
+    source="$FRESH_TEST_ASSETS/asahi-packages-channel-2/asahi-packages-channel.sig"
     ;;
   https://github.com/maralcbr/omarchy-pkgs/releases/download/*)
     source="$FRESH_TEST_ASSETS/${url#https://github.com/maralcbr/omarchy-pkgs/releases/download/}"
@@ -651,6 +642,14 @@ reset_sandbox() {
 [options]
 Architecture = aarch64
 
+[omarchy-aurora]
+SigLevel = Required DatabaseOptional
+Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/aurora-packages-cccccccccccccccccccccccccccccccccccccccc
+
+[omarchy]
+SigLevel = Required DatabaseOptional
+Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
 [asahi-alarm]
 Server = https://example.test/asahi-alarm
 
@@ -713,6 +712,7 @@ grep -Fq 'OMARCHY_MAC_IMAGE_BUILD=1 requires --deferred-user' "$test_tmp/named.e
 pass "an image build keeps --deferred-user"
 
 reset_sandbox
+cp "$sandbox/etc/pacman.conf" "$test_tmp/image-pacman.conf.orig"
 status=0
 run_installer image OMARCHY_MAC_IMAGE_BUILD=1 --deferred-user || status=$?
 [[ $status == 0 ]] || fail "an image-build deferred install completes without device-tree, swap or zswap" "$(cat "$test_tmp/image.out" "$test_tmp/image.err")"
@@ -729,12 +729,80 @@ diff -u <(expected_deferred_steps) "$deferred" || fail "the installer deferred p
   fail "the image contains the btrfs static-nodes drop-in"
 [[ -f $sandbox/var/lib/omarchy/apple-hid-initramfs-ready ]] ||
   fail "the installer recorded the HID initramfs rebuild"
-grep -Fq '[omarchy]' "$sandbox/etc/pacman.conf" ||
-  fail "the real repository updater wrote [omarchy]" "$(cat "$sandbox/etc/pacman.conf")"
-grep -Fq "asahi-packages-stable-$stable_commit" "$sandbox/etc/pacman.conf" ||
-  fail "the real repository updater pinned the fixture channel" "$(cat "$sandbox/etc/pacman.conf")"
+diff -u "$test_tmp/image-pacman.conf.orig" "$sandbox/etc/pacman.conf" ||
+  fail "an advanced package channel leaves the image's pinned pacman.conf byte-identical"
+grep -Fq 'aurora-packages-cccccccccccccccccccccccccccccccccccccccc' "$sandbox/etc/pacman.conf" ||
+  fail "the image keeps the builder's [omarchy-aurora] pin" "$(cat "$sandbox/etc/pacman.conf")"
+grep -Fq "asahi-packages-stable-$pinned_commit" "$sandbox/etc/pacman.conf" ||
+  fail "the image keeps the builder's [omarchy] pin" "$(cat "$sandbox/etc/pacman.conf")"
+! grep -Fq "$stable_commit" "$sandbox/etc/pacman.conf" ||
+  fail "image mode does not advance [omarchy] to the fixture channel" "$(cat "$sandbox/etc/pacman.conf")"
+grep -Eq 'image mode keeps the builder|Keeping the image' "$test_tmp/image.out" ||
+  fail "image mode reports that it kept the builder's repository pins" "$(cat "$test_tmp/image.out")"
+! grep -Fq 'https://example.test/asahi-packages-channel' "$calls" ||
+  fail "image mode does not download an advanced package channel" "$(cat "$calls")"
 grep -Fq 'pacman -Syu ignore=linux-aurora,linux-aurora-headers,m1n1-aurora' "$calls" ||
   fail "the first transaction holds the Aurora boot packages" "$(cat "$calls")"
 grep -Fq 'Fresh Omarchy 4 installation complete' "$test_tmp/image.out" || fail "an image build reports completion"
 ! grep -Fq 'Reboot' "$test_tmp/image.out" || fail "an image build gives no reboot instruction"
-pass "the fresh installer records probing steps, keeps HID/btrfs, and uses the real updater"
+pass "the fresh installer records probing steps, keeps HID/btrfs, and keeps pinned pacman sections"
+
+# Hand the installer-produced deferred list to the runner (not a handcrafted list).
+cp "$deferred" "$first_boot/deferred-steps"
+chmod 0644 "$first_boot/deferred-steps"
+rm -f "$first_boot/rebuild-initramfs"
+: >"$test_tmp/ran"
+: >"$test_tmp/mkinitcpio.log"
+: >"$log_dir/mac-first-boot.log"
+while IFS= read -r relative; do
+  [[ -n $relative ]] || continue
+  mkdir -p "$omarchy/$(dirname "$relative")"
+  printf 'echo %q >>"$MAC_IMAGE_BUILD_RAN"\n' "$relative" >"$omarchy/$relative"
+done <"$first_boot/deferred-steps"
+cat >"$omarchy/install/hardware/apple/fix-speaker-pop.sh" <<'EOF'
+printf 'speaker target=%s image=%s\n' "${OMARCHY_MAC_TARGET-unset}" "${OMARCHY_MAC_IMAGE_BUILD-unset}" >>"$MAC_IMAGE_BUILD_RAN"
+EOF
+status=0
+MAC_IMAGE_BUILD_RAN="$test_tmp/ran" \
+  MAC_IMAGE_BUILD_MKINITCPIO="$test_tmp/mkinitcpio.log" \
+  OMARCHY_PATH="$omarchy" \
+  OMARCHY_PROC_ROOT="$test_tmp/apple-proc" \
+  OMARCHY_MAC_DEFERRED_STEPS="$first_boot/deferred-steps" \
+  OMARCHY_MAC_FIRST_BOOT_LOG="$log_dir/mac-first-boot.log" \
+  OMARCHY_MAC_IMAGE_BUILD=1 \
+  OMARCHY_MAC_TARGET=generic-apple-silicon \
+  PATH="$test_tmp/bin:$PATH" \
+  bash "$runnable_runner" >"$test_tmp/deferred-run.out" 2>"$test_tmp/deferred-run.err" || status=$?
+(( status == 0 )) ||
+  fail "the runner completes the installer-produced deferred list" \
+    "$(cat "$test_tmp/deferred-run.out" "$test_tmp/deferred-run.err")"
+grep -Fq 'speaker target=unset image=unset' "$test_tmp/ran" ||
+  fail "installer-produced deferred steps run in the live-machine environment" "$(cat "$test_tmp/ran")"
+[[ $(grep -c . "$test_tmp/ran") == $(grep -c . "$deferred") ]] ||
+  fail "the runner ran every installer-produced deferred step" "$(cat "$test_tmp/ran")"
+[[ ! -s $first_boot/deferred-steps ]] ||
+  fail "successful installer-produced steps are removed from the list" "$(cat "$first_boot/deferred-steps")"
+[[ ! -s $test_tmp/mkinitcpio.log ]] ||
+  fail "the production deferred list does not rebuild the initramfs" "$(cat "$test_tmp/mkinitcpio.log")"
+: >"$test_tmp/ran"
+: >"$test_tmp/mkinitcpio.log"
+MAC_IMAGE_BUILD_RAN="$test_tmp/ran" \
+  MAC_IMAGE_BUILD_MKINITCPIO="$test_tmp/mkinitcpio.log" \
+  OMARCHY_PATH="$omarchy" \
+  OMARCHY_PROC_ROOT="$test_tmp/apple-proc" \
+  OMARCHY_MAC_DEFERRED_STEPS="$first_boot/deferred-steps" \
+  OMARCHY_MAC_FIRST_BOOT_LOG="$log_dir/mac-first-boot.log" \
+  PATH="$test_tmp/bin:$PATH" \
+  bash "$runnable_runner"
+[[ ! -s $test_tmp/ran ]] || fail "a second run does not repeat cleared installer-produced steps" "$(cat "$test_tmp/ran")"
+pass "the runner executes the installer-produced deferred list"
+
+reset_sandbox
+rm -f "$sandbox/usr/share/omarchy/apple-silicon-kernel"
+status=0
+run_installer no-marker OMARCHY_MAC_IMAGE_BUILD=1 --deferred-user || status=$?
+[[ $status == 0 ]] ||
+  fail "an image build with no kernel marker completes" "$(cat "$test_tmp/no-marker.out" "$test_tmp/no-marker.err")"
+grep -Fq 'pacman -Syu ignore=linux-aurora,linux-aurora-headers,m1n1-aurora' "$calls" ||
+  fail "kernel marker absent defaults to the Aurora kernel" "$(cat "$calls")"
+pass "kernel marker absent defaults to the Aurora kernel"
