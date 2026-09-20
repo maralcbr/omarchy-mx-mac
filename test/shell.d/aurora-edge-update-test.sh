@@ -189,6 +189,8 @@ write_release() {
   local tag=$1 extra=${2:-} kernel channel=aurora sequence=""
   if [[ $tag == aurora-edge-* ]]; then
     channel=aurora-edge sequence=${tag#aurora-edge-} kernel=6.18.0.aurora1.$sequence-1
+  elif [[ $tag == aurora-stable-packages-* ]]; then
+    channel=aurora-stable kernel=6.16.0.aurora1-1
   else
     kernel=6.17.0.aurora1-1
   fi
@@ -706,3 +708,83 @@ grep -q 'retire-saved-modules linux-aurora' "$calls" || fail "a custom DTBS stil
 grep -q 'boot-check linux-aurora' "$calls" || fail "a custom DTBS still checks boot" "$(cat "$calls")"
 expect_lane "a custom DTBS still completes the switch" 'format=1\nlane=edge\nedge_accepted=8:%s\n' "$(digest aurora-edge-8)"
 pass "a custom DTBS skips the leftover-headers diagnostic and completes as usual"
+
+# Stable lane: its own pin, the same switch / verify / downgrade rules as rc.
+stable_tag=aurora-stable-packages-77cb8f2477cb8f2477cb8f2477cb8f2477cb8f24
+write_release "$stable_tag"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' "$stable_tag" "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$record"
+installed_from "$pin_tag"
+conf_on "$downloads/$pin_tag"
+write_lane 'format=1\nlane=stable\nswitch=stable\n'
+run_step
+expect_status 0 "a switch from rc to stable"
+[[ $(section_tag) == "$stable_tag" ]] || fail "a switch to stable moves the section to the stable pin" "$(section_tag)"
+cmp -s "$assets/$stable_tag/AURORA" "$staged" || fail "the stable pin's descriptor is staged"
+expect_targets "the switch to stable, which may install older packages"
+run_step --complete
+expect_status 1 "completing stable while the rc kernel is still installed"
+installed_from "$stable_tag"
+run_step --complete
+expect_status 0 "completing the switch to stable"
+expect_lane "stable closes the switch and keeps edge history empty" 'format=1\nlane=stable\n'
+grep -Fq "back on stable ($stable_tag)" "$test_tmp/out" || fail "the stable switch says so" "$(cat "$test_tmp/out")"
+grep -qx 'boot-check linux-aurora' "$calls" || fail "stable completion checks the boot chain" "$(cat "$calls")"
+pass "rc to stable pins the stable release, names the older packages and completes once they boot"
+
+write_lane 'format=1\nlane=edge\nswitch=edge\n'
+write_pointer 5
+write_listing "aurora-edge-5"
+run_step
+expect_status 0 "stable then edge"
+[[ $(section_tag) == aurora-edge-5 ]] || fail "stable to edge follows the listing" "$(section_tag)"
+installed_from aurora-edge-5
+run_step --complete
+expect_lane "edge from stable completes" 'format=1\nlane=edge\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
+write_lane 'format=1\nlane=rc\nswitch=rc\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
+run_step
+expect_status 0 "edge then rc"
+[[ $(section_tag) == "$pin_tag" ]] || fail "edge to rc returns to the qualified pin" "$(section_tag)"
+installed_from "$pin_tag"
+run_step --complete
+expect_lane "rc from edge after stable keeps what edge accepted" 'format=1\nlane=rc\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
+pass "switch walks rc to stable to edge to rc and completes each move"
+
+conf_on "$downloads/$stable_tag"
+cp "$assets/$stable_tag/AURORA" "$staged"
+installed_from "$stable_tag"
+write_lane 'format=1\nlane=stable\nswitch=stable\n'
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\nhold=qualifying by hand\n' >"$record"
+run_step
+expect_status 0 "a held stable Mac"
+[[ ! -s $curl_log && $(section_tag) == "$stable_tag" ]] || fail "a held stable Mac discovers and moves nothing"
+expect_no_targets "a held stable Mac"
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$record"
+pass "a hold stops a stable Mac without moving [omarchy-aurora]"
+
+write_lane 'format=1\nlane=stable\nswitch=stable\n'
+printf 'tag=not-a-release\ndescriptor_sha256=%s\npredecessors=\n' "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+run_step
+expect_status 2 "a malformed stable pin"
+grep -Fq "the stable Aurora release pin is malformed" "$test_tmp/err" ||
+  fail "a malformed stable pin is named" "$(cat "$test_tmp/err")"
+[[ $(section_tag) == "$stable_tag" && ! -s $calls ]] || fail "a malformed stable pin changes nothing"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' "$stable_tag" "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+write_release "$stable_tag"
+sed -i 's/^channel=aurora-stable$/channel=aurora/' "$assets/$stable_tag/AURORA"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' "$stable_tag" "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+rm -f "$staged"
+run_step
+expect_status 2 "a stable descriptor with channel=aurora"
+grep -Fq "does not describe that Aurora release" "$test_tmp/err" || fail "a stable channel cross-check is named" "$(cat "$test_tmp/err")"
+write_release "$stable_tag"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' "$stable_tag" "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+rm -f "$staged"
+run_step
+expect_status 0 "a well-formed stable pin after the malformed one"
+pass "a malformed stable pin or a descriptor that is not aurora-stable is refused without edits"

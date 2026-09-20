@@ -739,6 +739,11 @@ run lane
 expect_output "lane prints every field" 0 'lane=rc\nswitch=rc\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
 run current
 expect_output "current of an rc lane" 0 'rc\n'
+write_lane 'format=1\nlane=stable\n'
+run current
+expect_output "current of an rc record whose lane is stable" 0 'stable\n'
+run lane
+expect_output "lane of a stable Aurora Mac" 0 'lane=stable\n'
 reset
 write_record "$stable_record"
 write_lane 'format=1\nlane=edge\n'
@@ -762,10 +767,10 @@ write_lane 'format=2\nlane=edge\n'
 lane_invalid "format 2" "$lane_file has unsupported format 2"
 write_lane 'format=1\nlane=edge\nsequence=4\n'
 lane_invalid "an unknown key" "$lane_file has unknown key sequence"
-write_lane 'format=1\nlane=stable\n'
-lane_invalid "a stable lane" "$lane_file has lane stable, which is neither rc nor edge"
+write_lane 'format=1\nlane=dev\n'
+lane_invalid "a dev lane" "$lane_file has lane dev, which is not stable, rc or edge"
 write_lane 'format=1\nlane=edge\nswitch=dev\n'
-lane_invalid "a dev switch" "$lane_file has switch dev, which is neither rc nor edge"
+lane_invalid "a dev switch" "$lane_file has switch dev, which is not stable, rc or edge"
 write_lane 'format=1\nlane=edge\nlane=rc\n'
 lane_invalid "a repeated key" "$lane_file repeats lane"
 write_lane 'format=1\n'
@@ -800,7 +805,9 @@ expect_lane "lane-write adds a field and keeps the others" 'format=1\nlane=edge\
 grep -Eq "^sudo:mv -f $state_dir/\.apple-silicon-aurora-lane\.[A-Za-z0-9]{6} $lane_file\$" "$calls" || fail "the lane file is renamed into place" "$(cat "$calls")"
 run locked bash "$helper" lane-write "edge_accepted=$pending" edge_pending= switch=
 expect_lane "lane-write clears fields given empty" 'format=1\nlane=edge\nedge_accepted=%s\n' "$pending"
-for bad in lane= lane=stable switch=dev edge_pending=07:x hold=x nonsense; do
+run locked bash "$helper" lane-write lane=stable
+expect_lane "lane-write accepts stable" 'format=1\nlane=stable\nedge_accepted=%s\n' "$pending"
+for bad in lane= lane=dev switch=dev edge_pending=07:x hold=x nonsense; do
   cp "$lane_file" "$test_tmp/lane-before"
   run locked bash "$helper" lane-write "$bad"
   (( status == 2 )) || fail "lane-write refuses $bad" "status $status"
@@ -899,7 +906,25 @@ grep -Fq "already follows rc" "$test_tmp/out" && [[ ! -e $lane_file ]] || fail "
 printf '[omarchy-aurora]\nServer = https://github.com/maralcbr/omarchy-pkgs/releases/download/aurora-edge-7\n' >>"$pacman_conf"
 run_under_update_lock switch rc
 expect_lane "rc on a section left on edge is a switch back" 'format=1\nlane=rc\nswitch=rc\n'
+lane_reset
+run_under_update_lock switch stable
+(( status == 0 )) || fail "an rc Mac switches to stable" "status $status: $(cat "$test_tmp/err")"
+expect_lane "switch stable writes the requested lane" 'format=1\nlane=stable\nswitch=stable\n'
+run current
+expect_output "current right after switching to stable" 0 'stable\n'
+run_under_update_lock switch edge
+expect_lane "stable then edge" 'format=1\nlane=edge\nswitch=edge\n'
+run_under_update_lock switch rc
+expect_lane "edge then rc" 'format=1\nlane=rc\nswitch=rc\n'
+write_lane 'format=1\nlane=stable\n'
+run_under_update_lock switch stable
+grep -Fq "already follows stable" "$test_tmp/out" && cmp -s "$test_tmp/lane-before" "$lane_file" ||
+  fail "a Mac settled on stable stays as it is" "$(cat "$test_tmp/out")"
+printf '[omarchy-aurora]\nServer = https://github.com/maralcbr/omarchy-pkgs/releases/download/aurora-edge-7\n' >>"$pacman_conf"
+run_under_update_lock switch stable
+expect_lane "stable on a section left on edge is a switch back" 'format=1\nlane=stable\nswitch=stable\n'
 pass "switch records lane and switch, the last request wins, repeats are no-ops, and rc still returns a section left on edge"
+pass "switch walks rc to stable to edge to rc, and stable still returns a section left on edge"
 
 # A hold that commits while switch waits for the lock is read under it.
 lane_reset

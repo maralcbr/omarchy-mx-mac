@@ -10,9 +10,11 @@ require_command truncate
 updater="$ROOT/bin/omarchy-update-aurora-repository"
 system_packages="$ROOT/bin/omarchy-update-system-pkgs"
 shipped_pin="$ROOT/default/aurora-qualified-release"
+shipped_stable_pin="$ROOT/default/aurora-stable-release"
 subkey_fingerprint=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 repo=maralcbr/omarchy-pkgs
 release_ere='aurora-packages-[0-9a-f]{40}'
+stable_ere='aurora-(packages|stable-packages)-[0-9a-f]{40}'
 
 grep -Fq '# omarchy:hidden=true' "$updater" || fail "Aurora repository updater is hidden from command listings"
 grep -Fq '# omarchy:requires-sudo=true' "$updater" || fail "Aurora repository updater declares its sudo requirement"
@@ -26,6 +28,15 @@ grep -Exq "predecessors=($release_ere( $release_ere)*)?" "$shipped_pin" || fail 
 (( $(grep -c '^tag=' "$shipped_pin") == 1 && $(grep -c '^descriptor_sha256=' "$shipped_pin") == 1 )) ||
   fail "the runtime pins exactly one Aurora release"
 pass "the qualified Aurora release is pinned in the runtime"
+
+grep -Exq "tag=$stable_ere" "$shipped_stable_pin" || fail "the runtime pins a stable aurora-packages or aurora-stable-packages release"
+grep -Exq 'descriptor_sha256=[0-9a-f]{64}' "$shipped_stable_pin" || fail "the runtime pins that stable release's descriptor digest"
+grep -Exq "predecessors=($stable_ere( $stable_ere)*)?" "$shipped_stable_pin" || fail "the runtime lists the releases the stable pin replaces"
+(( $(grep -c '^tag=' "$shipped_stable_pin") == 1 && $(grep -c '^descriptor_sha256=' "$shipped_stable_pin") == 1 )) ||
+  fail "the runtime pins exactly one stable Aurora release"
+grep -Fq 'Placeholder until an aurora-stable build exists' "$shipped_stable_pin" ||
+  fail "the stable pin is commented as a placeholder until a stable build exists"
+pass "the stable Aurora release is pinned in the runtime"
 
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
