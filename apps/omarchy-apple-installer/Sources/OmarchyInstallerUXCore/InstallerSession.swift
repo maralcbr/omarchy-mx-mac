@@ -679,6 +679,8 @@
       hasExecutionStarted = false
       recoveryRetryAvailable = false
       isExecuting = false
+      prefetchState = environment.payloadPrefetchRequired ? .idle : .verified
+      environment.cancelPayloadPrefetch()
     }
   }
   /// Receipt is synchronous even when UI delivery needs a main-actor hop.

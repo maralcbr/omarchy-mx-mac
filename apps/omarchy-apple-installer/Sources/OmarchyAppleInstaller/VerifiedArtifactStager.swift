@@ -240,6 +240,16 @@ public struct VerifiedArtifactStager: Sendable {
     return overflow ? UInt64.max : doubled
   }
 
+  /// Resume check: verified parts already occupy space, so only the remaining
+  /// payload bytes plus assembly headroom are required — never 2× again.
+  public static func requiredFreeBytes(
+    forPayloadSize size: UInt64,
+    alreadyOnDisk: UInt64
+  ) -> UInt64 {
+    let total = requiredFreeBytes(forPayloadSize: size)
+    return total > alreadyOnDisk ? total - alreadyOnDisk : 0
+  }
+
   private static let chunkBytes = 1_048_576
 
   private let downloader: any ArtifactDownloading

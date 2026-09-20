@@ -176,6 +176,37 @@
       XCTAssertEqual(environment.approveCount, 0)
     }
 
+    func testReplanResetsPrefetchSoInstallWaitsForTheSelectedPayload() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.payloadPrefetchRequired = true
+      let first = OperationGate()
+      environment.prefetchGate = first
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      await first.waitUntilEntered()
+      XCTAssertNotEqual(session.prefetchState, .verified)
+      await first.release()
+      await waitUntil { session.prefetchState == .verified }
+
+      session.continueToPlanReview()
+      let second = OperationGate()
+      environment.prefetchGate = second
+      await session.replan(omarchyBytes: 200_000_000_000)
+
+      XCTAssertGreaterThanOrEqual(environment.prefetchCancelCount, 1)
+      await second.waitUntilEntered()
+      XCTAssertNotEqual(session.prefetchState, .verified)
+      XCTAssertEqual(environment.prefetchStartCount, 2)
+      session.setAcknowledged(true)
+      session.approve()
+      XCTAssertFalse(session.canStartInstallation)
+
+      await second.release()
+      await waitUntil { session.prefetchState == .verified }
+      XCTAssertTrue(session.canStartInstallation)
+    }
+
     func testApproveRequiresAcknowledgement() async {
       let environment = MockInstallerEnvironment()
       let session = InstallerSession(environment: environment)
@@ -620,6 +651,15 @@
       )
     }
 
+    private func waitUntil(
+      _ predicate: @escaping @MainActor () -> Bool
+    ) async {
+      for _ in 0..<200 {
+        if predicate() { return }
+        try? await Task.sleep(for: .milliseconds(10))
+      }
+    }
+
     // MARK: Existing install
 
     func testAnExistingInstallIsRefusedBeforeAnythingIsFetched() async {
@@ -812,6 +852,11 @@
     }
 
     var lastOmarchyBytes: UInt64?
+    var payloadPrefetchRequired = false
+    var prefetchGate: OperationGate?
+    private(set) var prefetchStartCount = 0
+    private(set) var prefetchCancelCount = 0
+    var payloadPrefetchState: PayloadPrefetchState = .idle
 
     func preparePlan(
       omarchyBytes: UInt64?,
@@ -857,6 +902,24 @@
 
     func setEncryptLinuxDisk(_ encrypt: Bool) {
       storedEncryptLinuxDisk = encrypt
+    }
+
+    func prefetchPayload(
+      progress: @escaping @Sendable (PayloadPrefetchState) -> Void
+    ) async throws {
+      prefetchStartCount += 1
+      progress(.idle)
+      await prefetchGate?.wait()
+      payloadPrefetchState = .verified
+      progress(.verified)
+    }
+
+    func waitUntilPayloadVerified() async throws {
+      await prefetchGate?.wait()
+    }
+
+    func cancelPayloadPrefetch() {
+      prefetchCancelCount += 1
     }
 
     func execute(

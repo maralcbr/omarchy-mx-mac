@@ -153,6 +153,13 @@
         if case .cancelled = state {
           return
         }
+        if case .paused(let current, let knownTotal) = state {
+          completed = current
+          total = knownTotal
+        } else if case .downloading(let current, let knownTotal) = state {
+          completed = current
+          total = knownTotal
+        }
         let path = network.current()
         if !path.allowsPrefetch {
           if completed > 0 {
@@ -165,9 +172,10 @@
         }
         do {
           let available = try freeSpace.availableBytes()
-          if available < requiredBytes {
+          let requiredNow = requiredBytes > completed ? requiredBytes - completed : 0
+          if available < requiredNow {
             let error = PayloadPrefetchError.insufficientSpace(
-              requiredBytes: requiredBytes,
+              requiredBytes: requiredNow,
               availableBytes: available
             )
             setState(.failed(String(describing: error)))
@@ -191,6 +199,10 @@
         } catch is CancellationError {
           if case .cancelled = state {
             return
+          }
+          if case .downloading(let current, let knownTotal) = state {
+            completed = current
+            total = knownTotal
           }
           setState(.paused(completed: completed, total: total))
           await waitForUnmeteredPath()

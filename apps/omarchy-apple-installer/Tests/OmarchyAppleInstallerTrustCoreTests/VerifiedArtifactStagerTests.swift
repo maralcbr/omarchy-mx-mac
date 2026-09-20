@@ -570,6 +570,18 @@ final class VerifiedArtifactStagerTests: XCTestCase {
       VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: UInt64.max), UInt64.max)
   }
 
+  func testRequiredFreeBytesOnResumeCountsVerifiedPartsAlreadyOnDisk() {
+    XCTAssertEqual(
+      VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: 100, alreadyOnDisk: 80),
+      120)
+    XCTAssertEqual(
+      VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: 100, alreadyOnDisk: 200),
+      0)
+    XCTAssertEqual(
+      VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: 100, alreadyOnDisk: 0),
+      200)
+  }
+
   func testMatchesHashesTheOnDiskFile() throws {
     let data = Data("pinned installer payload".utf8)
     let artifact = try descriptor(data: data)

@@ -94,6 +94,44 @@
       }
     }
 
+    func testResumeRequiresRemainingBytesPlusAssemblyHeadroom() async throws {
+      let network = MockNetworkPath(
+        InstallerNetworkPathSnapshot(isSatisfied: true, isExpensive: false, isConstrained: false)
+      )
+      let freeSpace = MutableFreeSpace(bytes: 8_000_000_000)
+      let downloader = MockPrefetchDownloader(delayNanoseconds: 800_000_000)
+      let controller = PayloadPrefetchController(
+        network: network,
+        freeSpace: freeSpace,
+        keepAwake: MockKeepAwake()
+      )
+      let payloadSize: UInt64 = 100
+      let required = VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: payloadSize)
+      await controller.start(requiredBytes: required, downloader: downloader)
+      try await Task.sleep(for: .milliseconds(40))
+      network.publish(
+        InstallerNetworkPathSnapshot(isSatisfied: true, isExpensive: true, isConstrained: false)
+      )
+      try await Task.sleep(for: .milliseconds(80))
+      let paused = await controller.currentState()
+      guard case .paused(let completed, _) = paused else {
+        return XCTFail("Expected paused, got \(paused)")
+      }
+      XCTAssertGreaterThan(completed, 0)
+      let remaining = VerifiedArtifactStager.requiredFreeBytes(
+        forPayloadSize: payloadSize,
+        alreadyOnDisk: completed
+      )
+      XCTAssertLessThan(remaining, required)
+      freeSpace.bytes = remaining
+      network.publish(
+        InstallerNetworkPathSnapshot(isSatisfied: true, isExpensive: false, isConstrained: false)
+      )
+      try await controller.waitUntilVerified()
+      let state = await controller.currentState()
+      XCTAssertEqual(state, .verified)
+    }
+
     func testCancelStopsWaiters() async throws {
       let network = MockNetworkPath(
         InstallerNetworkPathSnapshot(isSatisfied: true, isExpensive: false, isConstrained: false)
@@ -331,6 +369,22 @@
     func availableBytes() throws -> UInt64 { bytes }
   }
 
+  private final class MutableFreeSpace: InstallerFreeSpaceChecking, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: UInt64
+
+    init(bytes: UInt64) {
+      storage = bytes
+    }
+
+    var bytes: UInt64 {
+      get { lock.withLock { storage } }
+      set { lock.withLock { storage = newValue } }
+    }
+
+    func availableBytes() throws -> UInt64 { bytes }
+  }
+
   private final class MockKeepAwake: InstallerKeepAwakeHolding, @unchecked Sendable {
     private(set) var acquired = 0
     private(set) var released = 0
@@ -351,7 +405,7 @@
     ) async throws {
       starts += 1
       report(50, 100)
-      if delayNanoseconds > 0 {
+      if starts == 1, delayNanoseconds > 0 {
         try await Task.sleep(nanoseconds: delayNanoseconds)
       }
       try Task.checkCancellation()

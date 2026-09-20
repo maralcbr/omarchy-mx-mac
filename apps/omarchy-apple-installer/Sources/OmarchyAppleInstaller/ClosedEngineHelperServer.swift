@@ -309,18 +309,23 @@
       let store = completed.storeIdentifier
       let offset = completed.offsetBytes
       let length = completed.lengthBytes
-      try await Task.detached {
-        try InstallConfESPMountWriter(
-          disks: disks,
-          workingDirectory: workingDirectory
-        ).write(
-          conf,
-          storeIdentifier: store,
-          offsetBytes: offset,
-          lengthBytes: length
-        )
-      }.value
-      installConfConsumed = true
+      do {
+        try await Task.detached {
+          try InstallConfESPMountWriter(
+            disks: disks,
+            workingDirectory: workingDirectory
+          ).write(
+            conf,
+            storeIdentifier: store,
+            offsetBytes: offset,
+            lengthBytes: length
+          )
+        }.value
+        installConfConsumed = true
+      } catch let error as InstallConfESPError where error.followedConfirmedWrite {
+        installConfConsumed = true
+        throw error
+      }
     }
   }
 
@@ -421,7 +426,7 @@
       lengthBytes: UInt64,
       machineOwner: String,
       password: Data,
-      reply: @escaping @Sendable (NSError?) -> Void
+      reply: @escaping @Sendable (Data?, NSError?) -> Void
     ) {
       let server = server
       Task {
@@ -437,9 +442,15 @@
             lengthBytes: lengthBytes,
             authorization: authorization
           )
-          reply(nil)
+          let (data, error) = InstallConfXPCCodec.encodeReply(error: nil, encrypt: true)
+          reply(data, error)
         } catch {
-          reply(EngineXPCErrorBridge.serviceError(for: error))
+          let encrypt = (try? InstallConf.parse(document))?.encrypt ?? true
+          let (data, nsError) = InstallConfXPCCodec.encodeReply(
+            error: error,
+            encrypt: encrypt
+          )
+          reply(data, nsError)
         }
       }
     }

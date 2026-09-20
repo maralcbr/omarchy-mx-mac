@@ -10,13 +10,59 @@
     case writeFailed
     case readbackMismatch
     case unmountFailed
+
+    /// True after the atomic replacement has landed, even if a later step failed.
+    var followedConfirmedWrite: Bool {
+      switch self {
+      case .readbackMismatch, .unmountFailed:
+        return true
+      case .invalidStoreIdentifier, .notFound, .ambiguous, .mountFailed, .writeFailed:
+        return false
+      }
+    }
   }
 
-  public enum InstallConfHandoff: Equatable, Sendable {
+  public enum InstallConfHandoff: Equatable, Sendable, Codable {
     case recorded
-    /// Written and read back, but the ESP unmount could not be confirmed.
+    /// The document was written, but a later readback or unmount was not confirmed.
     case unconfirmed(encrypt: Bool)
     case notRecorded
+
+    private enum CodingKeys: String, CodingKey {
+      case code
+      case encrypt
+    }
+
+    private enum Code: Int, Codable {
+      case recorded = 0
+      case unconfirmed = 1
+      case notRecorded = 2
+    }
+
+    public init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      switch try container.decode(Code.self, forKey: .code) {
+      case .recorded:
+        self = .recorded
+      case .unconfirmed:
+        self = .unconfirmed(encrypt: try container.decode(Bool.self, forKey: .encrypt))
+      case .notRecorded:
+        self = .notRecorded
+      }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+      var container = encoder.container(keyedBy: CodingKeys.self)
+      switch self {
+      case .recorded:
+        try container.encode(Code.recorded, forKey: .code)
+      case .unconfirmed(let encrypt):
+        try container.encode(Code.unconfirmed, forKey: .code)
+        try container.encode(encrypt, forKey: .encrypt)
+      case .notRecorded:
+        try container.encode(Code.notRecorded, forKey: .code)
+      }
+    }
   }
 
   public enum InstallConfRecordPolicy {
@@ -97,12 +143,15 @@
       }
       let end = offsetBytes + lengthBytes
       let matches = partitions.filter { partition in
-        partition.storeIdentifier == storeIdentifier
+        let partitionEnd = partition.offsetBytes.addingReportingOverflow(partition.lengthBytes)
+        return partition.storeIdentifier == storeIdentifier
           && Self.efiTypes.contains(partition.type)
           && partition.name == volumeName
           && partition.lengthBytes > 0
+          && !partitionEnd.overflow
           && partition.offsetBytes >= offsetBytes
           && partition.offsetBytes < end
+          && partitionEnd.partialValue <= end
           && partition.identifier.range(
             of: partitionPattern, options: .regularExpression) != nil
           && partition.identifier.hasPrefix(storeIdentifier)
@@ -124,7 +173,7 @@
       storeIdentifier: String,
       offsetBytes: UInt64,
       lengthBytes: UInt64
-    ) async throws
+    ) async throws -> InstallConfHandoff
   }
 
   /// App-side recorder: any helper failure becomes the default-on summary,
@@ -143,14 +192,13 @@
       lengthBytes: UInt64
     ) async -> InstallConfHandoff {
       do {
-        try await helper.write(
+        return try await helper.write(
           conf,
           storeIdentifier: storeIdentifier,
           offsetBytes: offsetBytes,
           lengthBytes: lengthBytes
         )
-        return .recorded
-      } catch let error as InstallConfESPError where error == .unmountFailed {
+      } catch let error as InstallConfESPError where error.followedConfirmedWrite {
         return .unconfirmed(encrypt: conf.encrypt)
       } catch {
         return .notRecorded
@@ -175,7 +223,7 @@
       storeIdentifier: String,
       offsetBytes: UInt64,
       lengthBytes: UInt64
-    ) async throws {
+    ) async throws -> InstallConfHandoff {
       try await submitter.writeInstallConf(
         conf,
         storeIdentifier: storeIdentifier,
