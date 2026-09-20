@@ -4,15 +4,12 @@
 # Image builds cannot inspect the target Mac. They export
 # OMARCHY_MAC_TARGET=generic-apple-silicon so omarchy-hw-apple-silicon reports
 # the generic Apple Silicon configuration without reading /proc/device-tree.
-# Model-specific hardware leaves are recorded in deferred-steps and run on
-# first boot with OMARCHY_MAC_TARGET unset so they probe the real machine.
+# HID and btrfs drop-ins stay in the image. Model-specific hardware leaves are
+# recorded in deferred-steps and run on first boot with OMARCHY_MAC_TARGET
+# unset so they probe the real machine.
 
 omarchy_mac_image_build() {
   [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]
-}
-
-omarchy_mac_generic_target() {
-  printf '%s\n' generic-apple-silicon
 }
 
 omarchy_mac_export_image_identity() {
@@ -71,6 +68,7 @@ omarchy_mac_record_deferred_hardware_steps() {
   [[ -n $paths ]] || return 1
   while IFS= read -r relative; do
     [[ -n $relative ]] || continue
+    omarchy_mac_deferred_step_rebuilds_initramfs "$relative" && continue
     omarchy_mac_record_deferred_step "$relative" || return 1
     count=$((count + 1))
   done <<<"$paths"

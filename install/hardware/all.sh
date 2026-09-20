@@ -1,6 +1,9 @@
 if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
   source "$OMARCHY_INSTALL/helpers/mac-image-build.sh"
   omarchy_mac_export_image_identity
+  # These two only write initramfs drop-ins; they must exist before mkinitcpio.
+  run_logged "$OMARCHY_INSTALL/hardware/apple/fix-asahi-hid-race.sh"
+  run_logged "$OMARCHY_INSTALL/hardware/apple/fix-asahi-btrfs-race.sh"
   omarchy_mac_record_deferred_hardware_steps
   return 0
 fi

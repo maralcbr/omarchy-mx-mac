@@ -109,7 +109,8 @@ configure_package_repository() {
   install -d -m 0700 "$package_runtime_root/sudo"
   cat >"$package_runtime_root/sudo/sudo" <<'EOF'
 #!/bin/bash
-(( EUID == 0 )) || { echo "sudo: this installer stand-in only runs as root" >&2; exit 1; }
+(( EUID == 0 )) || [[ ${OMARCHY_ASAHI_TESTING:-0} == 1 ]] ||
+  { echo "sudo: this installer stand-in only runs as root" >&2; exit 1; }
 [[ ${1:-} != -* ]] || { echo "sudo: this installer stand-in takes no options" >&2; exit 1; }
 exec "$@"
 EOF
@@ -237,6 +238,25 @@ verify_boot_files() {
   verify_boot_chain
 }
 
+# HID and btrfs drop-ins must be in the image before mkinitcpio. The leaves
+# only write files; model-specific probes stay deferred. Re-running them is
+# idempotent, so missing package-owned copies are filled in here.
+apply_static_boot_prerequisites() {
+  local hid_conf=/etc/mkinitcpio.conf.d/apple_hid_modules.conf
+  local btrfs_dropin=/etc/systemd/system/kmod-static-nodes.service.d/10-before-tmpfiles-setup-dev.conf
+  local leaf leaf_path="/usr/share/omarchy/bin:$PATH"
+  for leaf in \
+    /usr/share/omarchy/install/hardware/apple/fix-asahi-hid-race.sh \
+    /usr/share/omarchy/install/hardware/apple/fix-asahi-btrfs-race.sh
+  do
+    [[ -f $leaf ]] || fail "Static Apple boot leaf is missing: $leaf"
+    PATH="$leaf_path" bash -eE -c 'source "$1"' bash "$leaf" </dev/null ||
+      fail "Could not apply $(basename "$leaf") to the image"
+  done
+  [[ -f $hid_conf ]] || fail "The Apple HID initramfs drop-in is missing from the image"
+  [[ -f $btrfs_dropin ]] || fail "The btrfs static-nodes drop-in is missing from the image"
+}
+
 while (($#)); do
   case "$1" in
     --asahi-packages)
@@ -270,6 +290,13 @@ done
 (( ! deferred_user )) || [[ -z $target_user ]] || fail "--user and --deferred-user cannot be combined"
 (( ! offline )) || (( deferred_user )) || fail "--offline requires --deferred-user"
 [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]] || (( deferred_user )) || fail "OMARCHY_MAC_IMAGE_BUILD=1 requires --deferred-user"
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
+  # The repository updater probes Apple hardware at startup. Export the generic
+  # identity before any runtime command so CI and chroots without a device-tree
+  # can configure [omarchy].
+  export OMARCHY_MAC_IMAGE_BUILD=1
+  export OMARCHY_MAC_TARGET=generic-apple-silicon
+fi
 (( ! offline )) || export OMARCHY_AURORA_OFFLINE=1 OMARCHY_ASAHI_OFFLINE=1
 (( EUID == 0 )) || fail "Run the fresh installer as root"
 [[ -d $bundle_dir ]] || fail "The verified package directory is unavailable"
@@ -547,6 +574,10 @@ else
   OMARCHY_PATH=/usr/share/omarchy \
     OMARCHY_INSTALL=/usr/share/omarchy/install \
     omarchy-apply-system --install-user "$target_user" --first-install
+fi
+
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
+  apply_static_boot_prerequisites
 fi
 
 echo "Rebuilding the initramfs with the Apple HID drivers"

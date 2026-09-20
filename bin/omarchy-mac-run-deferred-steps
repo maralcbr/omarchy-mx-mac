@@ -13,7 +13,6 @@
 
 set -euo pipefail
 
-omarchy_path=${OMARCHY_PATH:-/usr/share/omarchy}
 deferred_file="${OMARCHY_MAC_DEFERRED_STEPS:-/var/lib/omarchy/mac-first-boot/deferred-steps}"
 log_file="${OMARCHY_MAC_FIRST_BOOT_LOG:-/var/log/omarchy/mac-first-boot.log}"
 rebuild_marker="${OMARCHY_MAC_INITRAMFS_REBUILD:-$(dirname "$deferred_file")/rebuild-initramfs}"
@@ -28,8 +27,7 @@ log() {
 }
 
 (( EUID == 0 )) || fail "Run omarchy-mac-run-deferred-steps as root"
-[[ -n $omarchy_path && $omarchy_path == /* ]] || fail "OMARCHY_PATH is unset"
-export OMARCHY_PATH="$omarchy_path"
+[[ -n ${OMARCHY_PATH:-} && $OMARCHY_PATH == /* ]] || fail "OMARCHY_PATH is unset"
 export OMARCHY_INSTALL="${OMARCHY_INSTALL:-$OMARCHY_PATH/install}"
 export PATH="$OMARCHY_PATH/bin:$PATH"
 export OMARCHY_INSTALL_LOG_FILE="${OMARCHY_INSTALL_LOG_FILE:-$log_file}"
@@ -97,11 +95,11 @@ while ((${#remaining[@]})); do
     log "Failed $step"
     fail "Deferred step failed: $step"
   fi
-  remaining=("${remaining[@]:1}")
-  write_remaining
   if omarchy_mac_deferred_step_rebuilds_initramfs "$step"; then
     mark_initramfs_rebuild
   fi
+  remaining=("${remaining[@]:1}")
+  write_remaining
   log "Completed $step"
 done
 log "Deferred hardware steps finished"
