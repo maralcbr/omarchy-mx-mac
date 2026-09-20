@@ -96,6 +96,23 @@ grub_cfg=$(path /boot/grub/grub.cfg)
 sudo grep -Fq "vmlinuz-$kernel" "$grub_cfg" && sudo grep -Fq "initramfs-$kernel.img" "$grub_cfg" ||
   fail "/boot/grub/grub.cfg does not boot vmlinuz-$kernel with initramfs-$kernel.img"
 
+# Encrypted Apple Silicon roots (GRUB + sd-encrypt). Unencrypted roots skip
+# this: missing crypttab, or one without a `root` entry, is the opt-out and
+# also covers a consumed/absent /boot/efi/omarchy/install.conf.
+crypttab=$(path /etc/crypttab)
+if [[ -f $crypttab ]] && sudo grep -Eq '^[[:space:]]*root[[:space:]]' "$crypttab"; then
+  sudo grep -Fq "rd.luks.name=" "$grub_cfg" ||
+    fail "/boot/grub/grub.cfg does not set rd.luks.name= for the encrypted root"
+  sudo grep -Fq "root=/dev/mapper/root" "$grub_cfg" ||
+    fail "/boot/grub/grub.cfg does not set root=/dev/mapper/root for the encrypted root"
+  grep -Eq 'sd-encrypt|systemd-cryptsetup' "$workdir/initramfs" ||
+    fail "/boot/initramfs-$kernel.img does not contain sd-encrypt"
+  if [[ ! -f $(path /var/lib/omarchy/provisioning/luks-key) && ! -f $(path /boot/efi/omarchy/luks-key) ]]; then
+    sudo grep -q 'rd.luks.key=' "$grub_cfg" &&
+      fail "/boot/grub/grub.cfg still has rd.luks.key= after provisioning"
+  fi
+fi
+
 # m1n1 stage 2, built the way this update-m1n1 builds it.
 script=$(path /usr/bin/update-m1n1)
 [[ -r $script ]] || fail "/usr/bin/update-m1n1 is not installed"
