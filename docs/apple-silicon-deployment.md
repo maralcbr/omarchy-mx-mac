@@ -643,6 +643,18 @@ product produces the same bytes it did before this lane existed.
 
 Steps 2 through 4 need the owner's authorization, like every other publication.
 
+### The stable lane and what it lacks
+
+Decided 2026-09-21 (owner): the `stable` kernel lane is pinned to
+`aurora-silicon/linux` `aurora-stable` at `77cb8f24` (a 7.1.9 Asahi base;
+recipe `pkgbuilds/linux-aurora-stable` in `omarchy-pkgs`). That base has no
+Thunderbolt/USB4 (`USB4_APPLE_SOC`, `RESET_APPLE_CIO`) and no `dcpext2`/`dcpext3`,
+so on the stable lane an M2 Max has **no USB4 devices and at most two external
+displays**. `rc` and `edge` carry them. A display-count check on a Mac running
+stable is expected to show that limit; it is not a regression. The pin tool
+`bin/mac-aurora-pin` (omarchy-pkgs) moves `stable` the day `aurora-stable`
+advances; the recipe and this note change together.
+
 ### Kernel builds run only on new inputs
 
 Both kernel lanes, rc (`release-aurora-package.yml`) and edge

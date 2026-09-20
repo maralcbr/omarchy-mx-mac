@@ -50,7 +50,7 @@ and out) is described [below](#the-edge-lane-on-an-installed-mac).
 
 | Channel | Kernel | How it moves |
 | --- | --- | --- |
-| `stable` | `linux-asahi` | Unchanged for now. Once Aurora is fully qualified, `rc` is promoted into `stable` and the Asahi kernel is retired. |
+| `stable` | `linux-aurora` from `aurora-silicon/linux` branch `aurora-stable`, **pinned** to `77cb8f24` (decided 2026-09-21; the Asahi kernel is retired) | Moves only when `aurora-stable` advances and `bin/mac-aurora-pin` (omarchy-pkgs) repins it. That base has no Thunderbolt/USB4 and no `dcpext2`/`dcpext3`: on stable an M2 Max has no USB4 devices and at most two external displays; `rc` and `edge` carry them. Installer catalog notes for the stable channel must say so. |
 | `rc` | `linux-aurora` from `aurora-silicon/linux` branch `aurora-wip`, **pinned** to a commit qualified on real hardware | Moves only when a new pin passes hardware qualification. |
 | `edge` | `linux-aurora` from `aurora-wip`, **floating** on the branch head | Follows each new build. |
 
