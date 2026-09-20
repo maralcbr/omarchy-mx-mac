@@ -41,6 +41,36 @@
       "I have a current backup and approve the disk sizes shown above."
     public static let planInstall = "Install"
     public static let downloadingPackagesTitle = "Downloading installation files"
+    public static let encryptLinuxDiskTitle = "Encrypt this Mac's Linux disk"
+    public static let encryptLinuxDiskPassword =
+      "Your macOS login password unlocks the disk after setup."
+    public static let encryptLinuxDiskRecovery =
+      "A recovery key is shown once at first boot. Write it down."
+    public static let encryptionChoiceNotRecorded =
+      "Encryption choice not recorded: first boot will encrypt"
+    public static let prefetchWaitingForNetwork = "Waiting for Wi-Fi or Ethernet…"
+    public static let prefetchPaused = "Download paused"
+    public static let prefetchVerifying = "Verifying installation files…"
+    public static let prefetchFailed = "The installation files could not be verified."
+
+    public static func prefetchTitle(for state: PayloadPrefetchState) -> String {
+      switch state {
+      case .idle, .downloading:
+        downloadingPackagesTitle
+      case .waitingForUnmeteredNetwork:
+        prefetchWaitingForNetwork
+      case .paused:
+        prefetchPaused
+      case .verifying:
+        prefetchVerifying
+      case .verified:
+        downloadingPackagesTitle
+      case .failed:
+        prefetchFailed
+      case .cancelled:
+        prefetchPaused
+      }
+    }
 
     public static func preparingStageTitle(
       _ stage: AssetProgressUpdate.Stage
@@ -206,20 +236,27 @@
     ]
 
     public static func nextActionMessage(
-      _ action: InstallerNextAction
+      _ action: InstallerNextAction,
+      installConf: InstallConfHandoff = .recorded
     ) -> String {
+      let base: String
       switch action {
       case .continueInstallation:
-        "Your approved plan was accepted. Installation is continuing."
+        base = "Your approved plan was accepted. Installation is continuing."
       case .enterRecovery:
-        "Omarchy’s files are installed. Finish setup in Recovery to allow your Mac to start Omarchy."
+        base =
+          "Omarchy’s files are installed. Finish setup in Recovery to allow your Mac to start Omarchy."
       case .attachInstallationMedia:
-        "Preparation is complete. Connect the verified installation media to continue."
+        base = "Preparation is complete. Connect the verified installation media to continue."
       case .verifyInstalledSystem:
-        "Installation is complete. Start Omarchy and check that it works."
+        base = "Installation is complete. Start Omarchy and check that it works."
       case .manualRecovery:
-        "Installation needs manual recovery before it can continue."
+        base = "Installation needs manual recovery before it can continue."
       }
+      if installConf == .notRecorded {
+        return base + " " + encryptionChoiceNotRecorded
+      }
+      return base
     }
 
     // MARK: Blocked

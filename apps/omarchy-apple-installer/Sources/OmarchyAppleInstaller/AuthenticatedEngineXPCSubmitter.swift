@@ -21,6 +21,16 @@
       password: Data,
       reply: @escaping @Sendable (Data?, NSError?) -> Void
     )
+
+    func writeInstallConf(
+      document: Data,
+      storeIdentifier: String,
+      offsetBytes: UInt64,
+      lengthBytes: UInt64,
+      machineOwner: String,
+      password: Data,
+      reply: @escaping @Sendable (NSError?) -> Void
+    )
   }
 
   public enum EngineXPCSubmissionError: Error, Equatable, Sendable {
@@ -250,6 +260,54 @@
       }
     }
 
+    public func writeInstallConf(
+      _ conf: InstallConf,
+      storeIdentifier: String,
+      offsetBytes: UInt64,
+      lengthBytes: UInt64,
+      authorization: MachineOwnerAuthorization
+    ) async throws {
+      try await ping()
+      let connection = makeConnection()
+      let handle = SendableXPCConnection(connection)
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<Void, Error>) in
+        let gate = EngineXPCVoidGate(continuation: continuation)
+        connection.interruptionHandler = {
+          gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+        }
+        connection.invalidationHandler = {
+          gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+        }
+        connection.activate()
+        guard
+          let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in
+            gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+            handle.invalidate()
+          }) as? ClosedEngineXPCService
+        else {
+          gate.resume(throwing: EngineXPCSubmissionError.connectionFailed)
+          handle.invalidate()
+          return
+        }
+        proxy.writeInstallConf(
+          document: conf.serializedData,
+          storeIdentifier: storeIdentifier,
+          offsetBytes: offsetBytes,
+          lengthBytes: lengthBytes,
+          machineOwner: authorization.username,
+          password: authorization.password
+        ) { error in
+          defer { handle.invalidate() }
+          if let error {
+            gate.resume(throwing: EngineXPCErrorBridge.submissionError(error))
+          } else {
+            gate.resume(returning: ())
+          }
+        }
+      }
+    }
+
     static func isMachServiceName(_ value: String) -> Bool {
       guard (3...255).contains(value.utf8.count),
         value.contains("."),
@@ -402,6 +460,31 @@
     }
 
     private func takeContinuation() -> CheckedContinuation<Data, any Error>? {
+      lock.lock()
+      defer { lock.unlock() }
+      let candidate = continuation
+      continuation = nil
+      return candidate
+    }
+  }
+
+  private final class EngineXPCVoidGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, any Error>?
+
+    init(continuation: CheckedContinuation<Void, any Error>) {
+      self.continuation = continuation
+    }
+
+    func resume(returning _: Void) {
+      takeContinuation()?.resume(returning: ())
+    }
+
+    func resume(throwing error: any Error) {
+      takeContinuation()?.resume(throwing: error)
+    }
+
+    private func takeContinuation() -> CheckedContinuation<Void, any Error>? {
       lock.lock()
       defer { lock.unlock() }
       let candidate = continuation

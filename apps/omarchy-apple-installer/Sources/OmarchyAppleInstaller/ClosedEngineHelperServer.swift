@@ -35,6 +35,7 @@
     private let importer: EngineHandoffPackageImporter
     private let removalDisks: any RemovalDiskOperating
     private let removalAdminValidator: @Sendable (MachineOwnerAuthorization) throws -> Void
+    private let espDisks: any InstallConfESPDiskOperating
     private var isExecuting = false
     private var removalPlan:
       (ticket: OmarchyRemovalTicket, plan: OmarchyRemovalPlan, expires: Date)?
@@ -51,13 +52,15 @@
       importer = EngineHandoffPackageImporter()
       removalDisks = MacRemovalDiskOperator()
       removalAdminValidator = requireRemovalAdministrator
+      espDisks = DiskutilInstallConfESPOperator()
     }
 
     init(
       workingDirectory: URL, executor: any ImportedEngineHandoffExecuting,
       credentialValidator: any MachineOwnerCredentialValidating,
       removalDisks: any RemovalDiskOperating,
-      removalAdminValidator: @escaping @Sendable (MachineOwnerAuthorization) throws -> Void
+      removalAdminValidator: @escaping @Sendable (MachineOwnerAuthorization) throws -> Void,
+      espDisks: any InstallConfESPDiskOperating = DiskutilInstallConfESPOperator()
     ) {
       self.workingDirectory = workingDirectory
       self.executor = executor
@@ -65,6 +68,7 @@
       importer = EngineHandoffPackageImporter()
       self.removalDisks = removalDisks
       self.removalAdminValidator = removalAdminValidator
+      self.espDisks = espDisks
     }
 
     public func removal(
@@ -255,6 +259,37 @@
       }
       return result
     }
+
+    public func writeInstallConf(
+      document: Data,
+      storeIdentifier: String,
+      offsetBytes: UInt64,
+      lengthBytes: UInt64,
+      authorization: MachineOwnerAuthorization
+    ) async throws {
+      guard !isExecuting else { throw ClosedEngineHelperError.busy }
+      do {
+        try credentialValidator.validate(authorization)
+      } catch {
+        throw ClosedEngineHelperError.invalidMachineOwnerCredentials
+      }
+      isExecuting = true
+      defer { isExecuting = false }
+      let conf = try InstallConf.parse(document)
+      let disks = espDisks
+      let workingDirectory = self.workingDirectory
+      try await Task.detached {
+        try InstallConfESPMountWriter(
+          disks: disks,
+          workingDirectory: workingDirectory
+        ).write(
+          conf,
+          storeIdentifier: storeIdentifier,
+          offsetBytes: offsetBytes,
+          lengthBytes: lengthBytes
+        )
+      }.value
+    }
   }
 
   private struct RemovalJournal: Codable {
@@ -337,6 +372,36 @@
           reply(response, nil)
         } catch {
           reply(nil, EngineXPCErrorBridge.serviceError(for: error))
+        }
+      }
+    }
+
+    public func writeInstallConf(
+      document: Data,
+      storeIdentifier: String,
+      offsetBytes: UInt64,
+      lengthBytes: UInt64,
+      machineOwner: String,
+      password: Data,
+      reply: @escaping @Sendable (NSError?) -> Void
+    ) {
+      let server = server
+      Task {
+        do {
+          let authorization = try MachineOwnerAuthorization(
+            username: machineOwner,
+            password: password
+          )
+          try await server.writeInstallConf(
+            document: document,
+            storeIdentifier: storeIdentifier,
+            offsetBytes: offsetBytes,
+            lengthBytes: lengthBytes,
+            authorization: authorization
+          )
+          reply(nil)
+        } catch {
+          reply(EngineXPCErrorBridge.serviceError(for: error))
         }
       }
     }

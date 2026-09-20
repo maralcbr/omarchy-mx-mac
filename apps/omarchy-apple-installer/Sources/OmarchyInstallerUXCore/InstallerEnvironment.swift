@@ -410,15 +410,33 @@
     var engineSupported: Bool { get }
     var hasApprovedPlan: Bool { get }
     var helperStatus: HelperDisplay { get }
+    var payloadPrefetchRequired: Bool { get }
+    var payloadPrefetchState: PayloadPrefetchState { get }
 
     /// Asks macOS for a graceful shutdown (the Apple menu's Shut Down).
     /// Returns true when the machine is actually going down; the preview
     /// environment and tests return false so nothing powers off.
     func requestShutdown() -> Bool
+    func setEncryptLinuxDisk(_ encrypt: Bool)
+    func prefetchPayload(
+      progress: @escaping @Sendable (PayloadPrefetchState) -> Void
+    ) async throws
+    func waitUntilPayloadVerified() async throws
+    func cancelPayloadPrefetch()
   }
 
   extension InstallerEnvironment {
     public var isSimulation: Bool { false }
     public func requestShutdown() -> Bool { false }
+    public var payloadPrefetchRequired: Bool { false }
+    public var payloadPrefetchState: PayloadPrefetchState { .verified }
+    public func setEncryptLinuxDisk(_ encrypt: Bool) {}
+    public func prefetchPayload(
+      progress: @escaping @Sendable (PayloadPrefetchState) -> Void
+    ) async throws {
+      progress(.verified)
+    }
+    public func waitUntilPayloadVerified() async throws {}
+    public func cancelPayloadPrefetch() {}
   }
 #endif

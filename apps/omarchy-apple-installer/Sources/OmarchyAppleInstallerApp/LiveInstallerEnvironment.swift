@@ -24,6 +24,16 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private var planApproval: CandidateBoundPlanApproval?
   private var reusableAssets: PreparedInstallerAssets?
   private var releaseConfiguration: InstallerReleaseConfiguration?
+  private var encryptLinuxDisk = true
+  private var selectedLane = ReleaseChannel.stable.rawValue
+  private var prefetchController: PayloadPrefetchController?
+  private var latestPrefetchState: PayloadPrefetchState = .idle
+
+  var payloadPrefetchRequired: Bool { true }
+
+  var payloadPrefetchState: PayloadPrefetchState {
+    lock.withLock { latestPrefetchState }
+  }
 
   // MARK: Fail-closed gates
 
@@ -92,6 +102,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       planApproval = nil
       releaseConfiguration = nil
     }
+    cancelPayloadPrefetch()
 
     return display(host: host, engine: engine, engineFailure: engineFailure)
   }
@@ -144,9 +155,13 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         progress: { event in
           collector.record(event)
         },
-        previouslyPrepared: lock.withLock { reusableAssets }
+        previouslyPrepared: lock.withLock { reusableAssets },
+        includePayload: false
       )
-    lock.withLock { reusableAssets = release.assets }
+    lock.withLock {
+      reusableAssets = release.assets
+      selectedLane = channel.rawValue
+    }
     try catalogStore.store(release.assets.catalogIdentity)
 
     progress(
@@ -210,6 +225,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       planReview = prepared.review
       releaseConfiguration = configuration
     }
+    beginPayloadPrefetch(release.assets.payload)
 
     return .plan(
       Self.planDisplay(
@@ -283,6 +299,158 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
   }
 
+  func setEncryptLinuxDisk(_ encrypt: Bool) {
+    lock.withLock { encryptLinuxDisk = encrypt }
+  }
+
+  func cancelPayloadPrefetch() {
+    let controller = lock.withLock { () -> PayloadPrefetchController? in
+      latestPrefetchState = .idle
+      let existing = prefetchController
+      prefetchController = nil
+      return existing
+    }
+    if let controller {
+      Task { await controller.cancel() }
+    }
+  }
+
+  func prefetchPayload(
+    progress: @escaping @Sendable (PayloadPrefetchState) -> Void
+  ) async throws {
+    let controller = lock.withLock { prefetchController }
+    if let controller {
+      await publishPrefetch(await controller.currentState(), progress)
+      try await controller.waitUntilVerified()
+      await publishPrefetch(.verified, progress)
+      return
+    }
+    let payload = lock.withLock { reusableAssets?.payload }
+    if let payload, payloadFileIsPresent(payload) {
+      await publishPrefetch(.verified, progress)
+      return
+    }
+    throw PayloadPrefetchError.failed("Payload prefetch has not started.")
+  }
+
+  func waitUntilPayloadVerified() async throws {
+    let controller = lock.withLock { prefetchController }
+    if let controller {
+      try await controller.waitUntilVerified()
+      return
+    }
+    let payload = lock.withLock { reusableAssets?.payload }
+    guard let payload, payloadFileIsPresent(payload) else {
+      throw PayloadPrefetchError.failed("Installation files are not verified yet.")
+    }
+  }
+
+  private func beginPayloadPrefetch(_ payload: StagedInstallerArtifact) {
+    if payloadFileIsPresent(payload) {
+      lock.withLock {
+        latestPrefetchState = .verified
+        prefetchController = nil
+      }
+      return
+    }
+    let directory = payload.fileURL.deletingLastPathComponent()
+    let controller = PayloadPrefetchController(
+      network: NWInstallerNetworkPathObserver(),
+      freeSpace: StagingVolumeFreeSpace(directory: directory),
+      keepAwake: IOPMInstallerKeepAwake(),
+      onState: { [weak self] state in
+        self?.lock.withLock { self?.latestPrefetchState = state }
+      }
+    )
+    lock.withLock {
+      prefetchController = controller
+      latestPrefetchState = .idle
+    }
+    let artifact = payload.artifact
+    Task {
+      await controller.start(requiredBytes: artifact.expectedSizeBytes) {
+        let staged = try await InstallerAssetPreparer().stagePayload(
+          artifact,
+          in: directory
+        ) { event in
+          Task {
+            await controller.reportDownload(
+              completed: event.bytesCompleted,
+              total: event.totalBytes
+            )
+            if event.phase == .verified || event.phase == .assembling {
+              await controller.reportVerifying()
+            }
+          }
+        }
+        self.lock.withLock {
+          if let assets = self.reusableAssets {
+            self.reusableAssets = PreparedInstallerAssets(
+              catalogIdentity: assets.catalogIdentity,
+              installer: assets.installer,
+              engine: assets.engine,
+              metadata: assets.metadata,
+              payload: staged,
+              repairManifest: assets.repairManifest,
+              installerCompatibility: assets.installerCompatibility
+            )
+          }
+        }
+      }
+    }
+  }
+
+  private func publishPrefetch(
+    _ state: PayloadPrefetchState,
+    _ progress: @escaping @Sendable (PayloadPrefetchState) -> Void
+  ) async {
+    lock.withLock { latestPrefetchState = state }
+    progress(state)
+  }
+
+  private func payloadFileIsPresent(_ staged: StagedInstallerArtifact) -> Bool {
+    guard
+      let values = try? staged.fileURL.resourceValues(forKeys: [
+        .isRegularFileKey, .fileSizeKey,
+      ]),
+      values.isRegularFile == true,
+      let size = values.fileSize, size >= 0
+    else {
+      return false
+    }
+    return UInt64(size) == staged.artifact.expectedSizeBytes
+  }
+
+  private func recordInstallConf(
+    configuration: InstallerReleaseConfiguration,
+    plan: ValidatedEnginePlan,
+    authorization: MachineOwnerAuthorization
+  ) async -> InstallConfHandoff {
+    let encrypt = lock.withLock { encryptLinuxDisk }
+    let lane = lock.withLock { selectedLane }
+    guard let conf = try? InstallConf(encrypt: encrypt, lane: lane) else {
+      return .notRecorded
+    }
+    do {
+      let submitter = try AuthenticatedEngineXPCSubmitter(
+        machServiceName: configuration.helperMachServiceName,
+        helperCodeSigningRequirement: configuration.helperCodeSigningRequirement
+      )
+      let helper = AuthorizedInstallConfESPHelper(
+        submitter: submitter,
+        authorization: authorization
+      )
+      return await InstallConfESPWriter(helper: helper).record(
+        conf,
+        storeIdentifier: plan.storeIdentifier,
+        offsetBytes: plan.offsetBytes,
+        lengthBytes: plan.lengthBytes
+      )
+    } catch {
+      return .notRecorded
+    }
+  }
+
   // MARK: Execution
 
   func execute(
@@ -331,12 +499,17 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
         journalProgress: journal
       )
     }
-    let completion = Self.completionDisplay(progress)
-    if operation == .install, completion.nextAction == .enterRecovery {
+    var installConf: InstallConfHandoff = .recorded
+    if operation == .install, progress.nextAction == .enterRecovery {
+      installConf = await recordInstallConf(
+        configuration: configuration,
+        plan: prepared.review.plan,
+        authorization: authorization
+      )
       InstallationTimingHistory.recordCompleted(
         seconds: ProcessInfo.processInfo.systemUptime - executionStarted)
     }
-    return completion
+    return Self.completionDisplay(progress, installConf: installConf)
   }
 
   // MARK: Display mapping
@@ -459,7 +632,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   static func completionDisplay(
-    _ progress: InstallerExecutionProgress
+    _ progress: InstallerExecutionProgress,
+    installConf: InstallConfHandoff = .recorded
   ) -> CompletionDisplay {
     let handoff: HandoffDisplay?
     switch progress.nextAction {
@@ -481,7 +655,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       nextAction: progress.nextAction,
       headline: progress.nextAction == .verifyInstalledSystem
         ? PlainLanguage.doneHeadline : PlainLanguage.recoveryHeadline,
-      subheadline: PlainLanguage.nextActionMessage(progress.nextAction),
+      subheadline: PlainLanguage.nextActionMessage(
+        progress.nextAction, installConf: installConf),
       verified: PlainLanguage.doneVerifiedRows,
       handoff: handoff
     )

@@ -61,7 +61,8 @@
     public func prepareRelease(
       _ request: InstallerReleasePreparationRequest,
       progress: ArtifactStagingProgressHandler? = nil,
-      previouslyPrepared: PreparedInstallerAssets? = nil
+      previouslyPrepared: PreparedInstallerAssets? = nil,
+      includePayload: Bool = true
     ) async throws -> PreparedInstallerRelease {
       _ = try assetPreparer.validateHost(request.host)
       let catalog = try await catalogFetcher.fetch(
@@ -80,7 +81,8 @@
           stagingDirectory: request.stagingDirectory
         ),
         progress: progress,
-        previouslyPrepared: previouslyPrepared
+        previouslyPrepared: previouslyPrepared,
+        includePayload: includePayload
       )
       return PreparedInstallerRelease(
         assets: assets,

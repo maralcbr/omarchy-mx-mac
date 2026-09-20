@@ -54,6 +54,8 @@
     }
     public private(set) var allocationNotice: String?
     public private(set) var shutdownMessage: String?
+    public private(set) var encryptLinuxDisk = true
+    public private(set) var prefetchState: PayloadPrefetchState = .verified
 
     public var isSimulation: Bool { environment.isSimulation }
     public var canInspect: Bool { !isBusy && !isExecuting && !hasExecutionStarted }
@@ -93,6 +95,8 @@
 
     public init(environment: any InstallerEnvironment) {
       self.environment = environment
+      prefetchState = environment.payloadPrefetchRequired ? .idle : .verified
+      environment.setEncryptLinuxDisk(true)
     }
 
     // MARK: Derived state
@@ -124,6 +128,7 @@
         && environment.engineSupported
         && environment.hasApprovedPlan
         && helper.isEnabled
+        && prefetchState == .verified
     }
 
     /// Preserved verbatim from `canRetryRecoveryAuthorization`.
@@ -240,6 +245,7 @@
             }
           lastPrepared = (plan, lastUpdate)
           phase = hold ? .planPrepared(plan, lastUpdate) : .planReview(plan, acknowledged: false)
+          startPrefetchIfNeeded()
         case .existingInstallChoice(let options):
           // Never replace, never install alongside: say what was found and
           // stop. The only way forward is to remove the existing copy first.
@@ -306,6 +312,17 @@
         return
       }
       phase = .planReview(plan, acknowledged: value)
+    }
+
+    public func setEncryptLinuxDisk(_ value: Bool) {
+      guard !isBusy && !isExecuting else { return }
+      switch phase {
+      case .planReview, .awaitingInstall:
+        encryptLinuxDisk = value
+        environment.setEncryptLinuxDisk(value)
+      default:
+        break
+      }
     }
 
     public func approve() {
@@ -446,6 +463,10 @@
       defer { isExecuting = false }
 
       do {
+        if prefetchState != .verified {
+          try await environment.waitUntilPayloadVerified()
+          prefetchState = .verified
+        }
         let completion = try await environment.execute(
           operation: context.kind,
           authorization: authorization,
@@ -592,6 +613,39 @@
       return plan
     }
 
+    public func cancelPrefetchOnQuit() {
+      environment.cancelPayloadPrefetch()
+      if prefetchState != .verified {
+        prefetchState = .cancelled
+      }
+    }
+
+    private func startPrefetchIfNeeded() {
+      guard environment.payloadPrefetchRequired else {
+        prefetchState = .verified
+        return
+      }
+      if case .verified = prefetchState {
+        return
+      }
+      let currentOperation = operationID
+      Task { @MainActor in
+        do {
+          try await environment.prefetchPayload { [weak self] state in
+            Task { @MainActor in
+              guard let self, self.operationID == currentOperation else { return }
+              self.prefetchState = state
+            }
+          }
+          guard self.operationID == currentOperation else { return }
+          prefetchState = .verified
+        } catch {
+          guard self.operationID == currentOperation else { return }
+          prefetchState = .failed(String(describing: error))
+        }
+      }
+    }
+
     // MARK: Reset cascades
 
     /// Mirrors the field resets of `inspectThisMac()`: no approval, plan,
@@ -608,6 +662,9 @@
       recoveryRetryAvailable = false
       isExecuting = false
       lastHost = nil
+      encryptLinuxDisk = true
+      prefetchState = environment.payloadPrefetchRequired ? .idle : .verified
+      environment.cancelPayloadPrefetch()
     }
 
     /// Mirrors the field resets of `prepareSignedPlan()`.

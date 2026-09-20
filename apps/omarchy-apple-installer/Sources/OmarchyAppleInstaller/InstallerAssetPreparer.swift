@@ -108,7 +108,8 @@
     public func prepare(
       _ request: InstallerAssetPreparationRequest,
       progress: ArtifactStagingProgressHandler? = nil,
-      previouslyPrepared: PreparedInstallerAssets? = nil
+      previouslyPrepared: PreparedInstallerAssets? = nil,
+      includePayload: Bool = true
     ) async throws -> PreparedInstallerAssets {
       let deviceIdentifier = try validateHost(request.host)
 
@@ -148,9 +149,11 @@
       )
 
       if let previous = previouslyPrepared, previous.installer == installer {
-        let artifacts =
-          [previous.engine, previous.metadata, previous.payload]
-          + (previous.repairManifest.map { [$0] } ?? [])
+        var artifacts = [previous.engine, previous.metadata]
+        if includePayload {
+          artifacts.append(previous.payload)
+        }
+        artifacts += previous.repairManifest.map { [$0] } ?? []
         let available = artifacts.allSatisfy { staged in
           guard
             staged.fileURL.deletingLastPathComponent().standardizedFileURL
@@ -184,23 +187,49 @@
         in: stagingDirectory,
         progress: progress
       )
-      async let payload = stager.stage(
-        delivery.payload,
-        in: stagingDirectory,
-        progress: progress
-      )
       async let repairManifest = stageRepairManifest(
         delivery.repairManifest,
         in: stagingDirectory,
         progress: progress
       )
+      if includePayload {
+        async let payload = stager.stage(
+          delivery.payload,
+          in: stagingDirectory,
+          progress: progress
+        )
+        return PreparedInstallerAssets(
+          catalogIdentity: catalog.acceptedIdentity,
+          installer: installer,
+          engine: try await engine,
+          metadata: try await metadata,
+          payload: try await payload,
+          repairManifest: try await repairManifest,
+          installerCompatibility: catalog.installerCompatibility
+        )
+      }
 
+      let stagedPayload: StagedInstallerArtifact
+      if let previous = previouslyPrepared, previous.installer == installer,
+        payloadFileIsPresent(previous.payload)
+      {
+        stagedPayload = previous.payload
+      } else {
+        stagedPayload = StagedInstallerArtifact(
+          artifact: delivery.payload,
+          fileURL: stagingDirectory.appendingPathComponent(
+            delivery.payload.fileName,
+            isDirectory: false
+          ),
+          reusedExistingFile: false
+        )
+      }
       return PreparedInstallerAssets(
         catalogIdentity: catalog.acceptedIdentity,
         installer: installer,
         engine: try await engine,
         metadata: try await metadata,
-        payload: try await payload,
+        payload: stagedPayload,
         repairManifest: try await repairManifest,
         installerCompatibility: catalog.installerCompatibility
       )
@@ -232,6 +261,31 @@
         in: stagingDirectory,
         progress: progress
       )
+    }
+
+    public func stagePayload(
+      _ artifact: PinnedInstallerArtifact,
+      in stagingDirectory: URL,
+      progress: ArtifactStagingProgressHandler? = nil
+    ) async throws -> StagedInstallerArtifact {
+      try await stager.stage(
+        artifact,
+        in: stagingDirectory,
+        progress: progress
+      )
+    }
+
+    private func payloadFileIsPresent(_ staged: StagedInstallerArtifact) -> Bool {
+      guard
+        let values = try? staged.fileURL.resourceValues(forKeys: [
+          .isRegularFileKey, .fileSizeKey,
+        ]),
+        values.isRegularFile == true,
+        let size = values.fileSize, size >= 0
+      else {
+        return false
+      }
+      return UInt64(size) == staged.artifact.expectedSizeBytes
     }
 
     func validateHost(

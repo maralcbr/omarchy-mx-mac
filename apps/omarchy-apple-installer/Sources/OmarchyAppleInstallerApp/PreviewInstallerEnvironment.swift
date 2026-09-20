@@ -195,7 +195,7 @@
     private static let previewArtifacts = [
       PreviewArtifact(
         role: "payload",
-        fileName: "omarchy-2026.09.02-aarch64-apple-silicon-asahi-os-package.zip",
+        fileName: "omarchy-2026.09.02-aarch64-apple-silicon-os-package.zip",
         expectedBytes: 3_638_729_568
       ),
       PreviewArtifact(

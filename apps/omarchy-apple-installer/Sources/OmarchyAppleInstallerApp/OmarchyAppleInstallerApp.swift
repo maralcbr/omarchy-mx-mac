@@ -132,6 +132,11 @@ struct OmarchyAppleInstallerApp: App {
         }
       }
       .id(generation)
+      .onReceive(
+        NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
+      ) { _ in
+        liveSession?.cancelPrefetchOnQuit()
+      }
       .disabled(showsRemoval)
       .sheet(isPresented: $showsRemoval, onDismiss: { generation = UUID() }) {
         OmarchyRemovalSheet(

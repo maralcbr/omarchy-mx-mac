@@ -42,6 +42,23 @@
         "4.0.2-mac.1.20260907-aurora")
     }
 
+    func testPrepareCanDeferThePayloadUntilPrefetch() async throws {
+      let fixture = try makeFixture(schemaVersion: 2)
+      let directory = temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: directory) }
+
+      let result = try await fixture.preparer.prepare(
+        fixture.request(stagingDirectory: directory),
+        includePayload: false
+      )
+
+      XCTAssertEqual(try Data(contentsOf: result.engine.fileURL), fixture.engine)
+      XCTAssertEqual(try Data(contentsOf: result.metadata.fileURL), fixture.metadata)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: result.payload.fileURL.path))
+      let downloadCount = await fixture.downloader.downloadCount
+      XCTAssertEqual(downloadCount, 2)
+    }
+
     func testSignedSchemaTwoCatalogStagesExactAdmittedAssets() async throws {
       let fixture = try makeFixture(schemaVersion: 2)
       let directory = temporaryDirectory()

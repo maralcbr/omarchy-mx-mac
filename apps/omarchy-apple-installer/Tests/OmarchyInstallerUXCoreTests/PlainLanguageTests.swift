@@ -78,7 +78,7 @@
         .continueInstallation, .enterRecovery, .attachInstallationMedia,
         .verifyInstalledSystem, .manualRecovery,
       ]
-      let messages = actions.map(PlainLanguage.nextActionMessage)
+      let messages = actions.map { PlainLanguage.nextActionMessage($0) }
 
       XCTAssertEqual(Set(messages).count, actions.count)
       XCTAssertTrue(messages.allSatisfy { !$0.isEmpty })
@@ -250,6 +250,72 @@
       XCTAssertEqual(PlainLanguage.bytes(137_438_953_472), "137 GB")
       XCTAssertEqual(PlainLanguage.bytes(18_400_000), "18 MB")
       XCTAssertEqual(PlainLanguage.bytes(512), "512 bytes")
+    }
+
+    func testEncryptionCopyNamesTheCheckboxAndDefaultOnFailure() {
+      XCTAssertEqual(
+        PlainLanguage.encryptLinuxDiskTitle, "Encrypt this Mac's Linux disk")
+      XCTAssertEqual(
+        PlainLanguage.encryptionChoiceNotRecorded,
+        "Encryption choice not recorded: first boot will encrypt")
+      XCTAssertTrue(
+        PlainLanguage.nextActionMessage(.enterRecovery, installConf: .notRecorded)
+          .contains(PlainLanguage.encryptionChoiceNotRecorded))
+    }
+
+    func testCopyAuditOmitsAsahiExceptTheInstallerEngine() throws {
+      let tests = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+      let roots = [
+        tests.appendingPathComponent("Sources/OmarchyInstallerUXCore"),
+        tests.appendingPathComponent("Sources/OmarchyAppleInstallerApp"),
+      ]
+      var offenders = [String]()
+      for root in roots {
+        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        while let file = files?.nextObject() as? URL {
+          guard file.pathExtension == "swift" else { continue }
+          let text = try String(contentsOf: file, encoding: .utf8)
+          for snippet in swiftStringLiterals(in: text) {
+            guard snippet.localizedCaseInsensitiveContains("asahi") else { continue }
+            if snippet.localizedCaseInsensitiveContains("Asahi installer") {
+              continue
+            }
+            offenders.append("\(file.lastPathComponent): \(snippet)")
+          }
+        }
+      }
+      XCTAssertTrue(offenders.isEmpty, offenders.joined(separator: "\n"))
+    }
+
+    private func swiftStringLiterals(in text: String) -> [String] {
+      var literals = [String]()
+      var index = text.startIndex
+      while index < text.endIndex {
+        if text[index] == "\"" {
+          let start = index
+          index = text.index(after: index)
+          var escaped = false
+          while index < text.endIndex {
+            let character = text[index]
+            if escaped {
+              escaped = false
+            } else if character == "\\" {
+              escaped = true
+            } else if character == "\"" {
+              literals.append(String(text[start...index]))
+              index = text.index(after: index)
+              break
+            }
+            index = text.index(after: index)
+          }
+          continue
+        }
+        index = text.index(after: index)
+      }
+      return literals
     }
   }
 

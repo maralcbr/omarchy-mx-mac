@@ -204,6 +204,12 @@ struct OnePageInstallerView: View {
         onEditingChange: { session.setSizeEditing($0) }
       )
       .id(session.planRevision)
+      PrefetchStrip(state: session.prefetchState)
+      EncryptDiskToggle(
+        isOn: session.encryptLinuxDisk,
+        enabled: !session.isBusy && !session.isEditingSize,
+        onChange: { session.setEncryptLinuxDisk($0) }
+      )
       if let notice = session.allocationNotice {
         Text(notice).font(OmarchyTheme.body).foregroundStyle(OmarchyTheme.caution)
       }
@@ -211,6 +217,12 @@ struct OnePageInstallerView: View {
 
     case .awaitingInstall(let plan, let helper, _):
       DiskSplitPanel(plan: plan, editable: false, isBusy: false, onSizeChosen: { _ in })
+      PrefetchStrip(state: session.prefetchState)
+      EncryptDiskToggle(
+        isOn: session.encryptLinuxDisk,
+        enabled: false,
+        onChange: { _ in }
+      )
       if !helper.isEnabled {
         helperNote
       }
@@ -269,7 +281,10 @@ struct OnePageInstallerView: View {
         }
       }
       .omarchyPrimaryButton()
-      .disabled(!acknowledged || session.isBusy || session.isEditingSize)
+      .disabled(
+        !acknowledged || session.isBusy || session.isEditingSize
+          || session.prefetchState != .verified
+      )
       .keyboardShortcut(.defaultAction)
 
     case .awaitingInstall:
@@ -503,6 +518,93 @@ struct OnePageInstallerView: View {
     default:
       break
     }
+  }
+}
+
+// MARK: - Prefetch strip and encryption
+
+private struct PrefetchStrip: View {
+  let state: PayloadPrefetchState
+
+  var body: some View {
+    if showsStrip {
+      Panel {
+        VStack(alignment: .leading, spacing: 8) {
+          HStack {
+            Text(PlainLanguage.prefetchTitle(for: state))
+              .font(.system(size: 13, weight: .medium))
+            Spacer(minLength: 8)
+            if let accessory {
+              Text(accessory)
+                .font(OmarchyTheme.caption.monospacedDigit())
+                .foregroundStyle(OmarchyTheme.secondaryText)
+            }
+          }
+          ProgressTrack(fraction: fraction, height: 10)
+        }
+        .padding(.vertical, 2)
+      }
+    }
+  }
+
+  private var showsStrip: Bool {
+    switch state {
+    case .verified, .idle: false
+    default: true
+    }
+  }
+
+  private var fraction: Double? {
+    switch state {
+    case .downloading(let completed, let total), .paused(let completed, let total):
+      total > 0 ? Double(completed) / Double(total) : nil
+    case .verifying:
+      1
+    default:
+      nil
+    }
+  }
+
+  private var accessory: String? {
+    switch state {
+    case .downloading(let completed, let total), .paused(let completed, let total):
+      total > 0
+        ? "\(PlainLanguage.bytes(completed)) of \(PlainLanguage.bytes(total))" : nil
+    default:
+      nil
+    }
+  }
+}
+
+private struct EncryptDiskToggle: View {
+  let isOn: Bool
+  let enabled: Bool
+  let onChange: (Bool) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Toggle(
+        PlainLanguage.encryptLinuxDiskTitle,
+        isOn: Binding(
+          get: { isOn },
+          set: { value in onChange(value) }
+        )
+      )
+      .toggleStyle(.checkbox)
+      .controlSize(.large)
+      .tint(OmarchyTheme.accent)
+      .disabled(!enabled)
+      Text(PlainLanguage.encryptLinuxDiskPassword)
+        .font(OmarchyTheme.caption)
+        .foregroundStyle(OmarchyTheme.secondaryText)
+        .fixedSize(horizontal: false, vertical: true)
+      Text(PlainLanguage.encryptLinuxDiskRecovery)
+        .font(OmarchyTheme.caption)
+        .foregroundStyle(OmarchyTheme.secondaryText)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(.horizontal, 4)
+    .padding(.top, 4)
   }
 }
 
