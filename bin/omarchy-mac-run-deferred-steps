@@ -6,13 +6,17 @@
 
 # First boot calls this once the image is on real hardware. Each remaining
 # line in /var/lib/omarchy/mac-first-boot/deferred-steps is a path relative
-# to $OMARCHY_PATH; a successful step is dropped so a rerun resumes.
+# to $OMARCHY_PATH; a successful step is dropped so a rerun resumes. Steps
+# run with the installer's environment: OMARCHY_PATH, sourced helpers, and
+# OMARCHY_MAC_TARGET unset so they probe this Mac. The initramfs is rebuilt
+# once at the end if a HID or btrfs leaf ran.
 
 set -euo pipefail
 
 omarchy_path=${OMARCHY_PATH:-/usr/share/omarchy}
 deferred_file="${OMARCHY_MAC_DEFERRED_STEPS:-/var/lib/omarchy/mac-first-boot/deferred-steps}"
 log_file="${OMARCHY_MAC_FIRST_BOOT_LOG:-/var/log/omarchy/mac-first-boot.log}"
+rebuild_marker="${OMARCHY_MAC_INITRAMFS_REBUILD:-$(dirname "$deferred_file")/rebuild-initramfs}"
 
 fail() {
   echo "Error: $*" >&2
@@ -28,22 +32,37 @@ log() {
 export OMARCHY_PATH="$omarchy_path"
 export OMARCHY_INSTALL="${OMARCHY_INSTALL:-$OMARCHY_PATH/install}"
 export PATH="$OMARCHY_PATH/bin:$PATH"
+export OMARCHY_INSTALL_LOG_FILE="${OMARCHY_INSTALL_LOG_FILE:-$log_file}"
+unset OMARCHY_MAC_TARGET
+unset OMARCHY_MAC_IMAGE_BUILD
 
-[[ -e $deferred_file ]] || exit 0
-[[ -f $deferred_file && ! -L $deferred_file ]] || fail "$deferred_file is not a regular file"
+[[ -f $OMARCHY_INSTALL/helpers/logging.sh && -f $OMARCHY_INSTALL/helpers/mac-image-build.sh ]] ||
+  fail "Install helpers are missing under $OMARCHY_INSTALL/helpers"
+source "$OMARCHY_INSTALL/helpers/logging.sh"
+source "$OMARCHY_INSTALL/helpers/mac-image-build.sh"
+
+if [[ ! -e $deferred_file && ! -e $rebuild_marker ]]; then
+  exit 0
+fi
+if [[ -e $deferred_file ]]; then
+  [[ -f $deferred_file && ! -L $deferred_file ]] || fail "$deferred_file is not a regular file"
+fi
 
 install -d -m 0755 "$(dirname "$log_file")"
 touch "$log_file"
 chmod 0644 "$log_file" 2>/dev/null || true
 
-mapfile -t steps <"$deferred_file"
 remaining=()
-for step in "${steps[@]}"; do
-  [[ -n $step ]] && remaining+=("$step")
-done
+if [[ -f $deferred_file ]]; then
+  mapfile -t steps <"$deferred_file"
+  for step in "${steps[@]}"; do
+    [[ -n $step ]] && remaining+=("$step")
+  done
+fi
 
 write_remaining() {
   local tmp
+  [[ -f $deferred_file ]] || return 0
   tmp=$(mktemp "$(dirname "$deferred_file")/.deferred-steps.XXXXXX")
   if ((${#remaining[@]})); then
     printf '%s\n' "${remaining[@]}" >"$tmp"
@@ -54,6 +73,12 @@ write_remaining() {
   mv "$tmp" "$deferred_file"
 }
 
+mark_initramfs_rebuild() {
+  install -d -m 0755 "$(dirname "$rebuild_marker")"
+  : >"$rebuild_marker"
+  chmod 0644 "$rebuild_marker"
+}
+
 run_step() {
   local relative=$1 script
 
@@ -61,7 +86,7 @@ run_step() {
     fail "Deferred step is not a packaged install path: $relative"
   script="$OMARCHY_PATH/$relative"
   [[ -f $script && ! -L $script ]] || fail "Deferred step is missing: $relative"
-  bash -eE -c 'source "$1"' bash "$script"
+  run_logged "$script"
 }
 
 log "Starting deferred hardware steps ($deferred_file)"
@@ -74,6 +99,16 @@ while ((${#remaining[@]})); do
   fi
   remaining=("${remaining[@]:1}")
   write_remaining
+  if omarchy_mac_deferred_step_rebuilds_initramfs "$step"; then
+    mark_initramfs_rebuild
+  fi
   log "Completed $step"
 done
 log "Deferred hardware steps finished"
+
+if [[ -f $rebuild_marker && ! -L $rebuild_marker ]]; then
+  log "Rebuilding the initramfs"
+  mkinitcpio -P </dev/null || fail "Initramfs rebuild failed"
+  rm -f "$rebuild_marker"
+  log "Rebuilt the initramfs"
+fi
