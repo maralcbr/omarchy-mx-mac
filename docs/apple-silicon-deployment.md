@@ -645,7 +645,7 @@ Steps 2 through 4 need the owner's authorization, like every other publication.
 
 ### The stable lane and what it lacks
 
-Decided 2026-09-21 (owner): the `stable` kernel lane is pinned to
+Decided 2026-09-20 (owner): the `stable` kernel lane is pinned to
 `aurora-silicon/linux` `aurora-stable` at `77cb8f24` (a 7.1.9 Asahi base;
 recipe `pkgbuilds/linux-aurora-stable` in `omarchy-pkgs`). That base has no
 Thunderbolt/USB4 (`USB4_APPLE_SOC`, `RESET_APPLE_CIO`) and no `dcpext2`/`dcpext3`,
@@ -657,7 +657,8 @@ advances; the recipe and this note change together.
 
 ### Kernel builds run only on new inputs
 
-Both kernel lanes, rc (`release-aurora-package.yml`) and edge
+All three kernel lanes, stable (`release-aurora-stable.yml`), rc
+(`release-aurora-rc.yml`, formerly `release-aurora-package.yml`) and edge
 (`release-aurora-edge.yml`), build only when their inputs change.
 
 - **Input digest.** `bin/aurora-kernel-input-digest` writes the build inputs

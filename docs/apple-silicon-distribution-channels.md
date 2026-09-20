@@ -50,7 +50,7 @@ and out) is described [below](#the-edge-lane-on-an-installed-mac).
 
 | Channel | Kernel | How it moves |
 | --- | --- | --- |
-| `stable` | `linux-aurora` from `aurora-silicon/linux` branch `aurora-stable`, **pinned** to `77cb8f24` (decided 2026-09-21; the Asahi kernel is retired) | Moves only when `aurora-stable` advances and `bin/mac-aurora-pin` (omarchy-pkgs) repins it. That base has no Thunderbolt/USB4 and no `dcpext2`/`dcpext3`: on stable an M2 Max has no USB4 devices and at most two external displays; `rc` and `edge` carry them. Installer catalog notes for the stable channel must say so. |
+| `stable` | `linux-aurora` from `aurora-silicon/linux` branch `aurora-stable`, **pinned** to `77cb8f24` (decided 2026-09-20; the Asahi kernel stays only on Macs that still run it, as the legacy `stable:linux-asahi` record) | Moves only when `aurora-stable` advances and `bin/mac-aurora-pin` (omarchy-pkgs) repins it. That base has no Thunderbolt/USB4 and no `dcpext2`/`dcpext3`: on stable an M2 Max has no USB4 devices and at most two external displays; `rc` and `edge` carry them. Installer catalog notes for the stable channel must say so. |
 | `rc` | `linux-aurora` from `aurora-silicon/linux` branch `aurora-wip`, **pinned** to a commit qualified on real hardware | Moves only when a new pin passes hardware qualification. |
 | `edge` | `linux-aurora` from `aurora-wip`, **floating** on the branch head | Follows each new build. |
 
@@ -67,8 +67,9 @@ The rename happened on 2026-09-18:
 - `rc-aurora` stays as an alias of `rc` for installers built before the
   rename, which list it by that name.
 
-Installed Macs are unaffected. Each one records its channel from its installed
-kernel (`linux-asahi` → `stable`, `linux-aurora` → `rc`, see
+Installed Macs are unaffected. Each one records its channel and its kernel
+(`stable:linux-aurora` or `rc:linux-aurora` by lane; `stable:linux-asahi` is the
+legacy record of a Mac still on the Asahi kernel, see
 `bin/omarchy-apple-silicon-channel`) and updates through the runtime and
 package channels, not through these installer catalogs.
 
