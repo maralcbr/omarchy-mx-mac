@@ -294,6 +294,12 @@ expect_pass "an encrypted root named by the UUID of the filesystem inside the ma
 
 system
 encrypt_root
+printf "set root='hd0,gpt1'\nlinux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root root=UUID=1111-2222\ninitrd /initramfs-linux-aurora.img\n" >"$root/boot/grub/grub.cfg"
+TEST_MAPPER_UUID=1111-2222 run_check
+expect_pass "grub's own set root= line is not mistaken for the kernel's root="
+
+system
+encrypt_root
 printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root root=UUID=1111-2222\ninitrd /initramfs-linux-aurora.img\n' >"$root/boot/grub/grub.cfg"
 TEST_MAPPER_UUID=3333-4444 run_check
 expect_fail "an encrypted root whose root=UUID= names another filesystem" "does not name the filesystem on /dev/mapper/root"

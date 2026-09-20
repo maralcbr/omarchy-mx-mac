@@ -225,7 +225,9 @@ if (( has_crypttab_root )); then
     fail "/boot/grub/grub.cfg rd.luks.name= UUID does not match crypttab"
   # update-grub emits root=UUID=<filesystem inside the mapper> unless
   # GRUB_DISABLE_LINUX_UUID is set; both name the opened root.
-  root_arg=$(sudo grep -Eo 'root=[^[:space:]]+' "$grub_cfg" | head -n 1 || true)
+  # Only the kernel lines: grub's own `set root=` and other entries do not
+  # count. The kernel honours the last root= on its line, so does this.
+  root_arg=$(sudo grep -E '^[[:space:]]*linux[[:space:]]' "$grub_cfg" | grep -Eo 'root=[^[:space:]]+' | tail -n 1 || true)
   case $root_arg in
     root=/dev/mapper/root) ;;
     root=UUID=*)
