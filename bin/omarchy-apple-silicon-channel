@@ -394,7 +394,12 @@ write_state() {
   safe_state_dir || fail "$problem"
   staging=$(sudo mktemp -p "$state_dir" ".${path##*/}.XXXXXX") || fail "could not stage $path"
   sudo tee "$staging" >/dev/null || fail "could not write $path"
-  sudo chown root:root "$staging" && sudo chmod 0644 "$staging" || fail "could not write $path"
+  # Tests run the real writer as an unprivileged user with a sudo stub: ownership
+  # is root's job only when root is doing the writing.
+  if (( EUID == 0 )) || [[ -z ${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-} ]]; then
+    sudo chown root:root "$staging" || fail "could not write $path"
+  fi
+  sudo chmod 0644 "$staging" || fail "could not write $path"
   sudo mv -f "$staging" "$path" || fail "could not write $path"
   staging=""
 }

@@ -30,6 +30,13 @@ gpg --batch --verify "$RUNNER_TEMP/alarm.tar.gz.sig" "$RUNNER_TEMP/alarm.tar.gz"
 # installer consumes it. OMARCHY_ASAHI_REPOSITORY_TAG selects the immutable
 # release to test against; the default is the tag the installed image pins.
 repository_tag=${OMARCHY_ASAHI_REPOSITORY_TAG:-asahi-packages-stable-650a68db78ca87bfedee923a927c7d231aa90f56}
+# The Aurora kernel packages the base manifest names come from the qualified
+# Aurora release the runtime pins.
+aurora_tag=${OMARCHY_AURORA_REPOSITORY_TAG:-$(sed -n 's/^tag=//p' "$(dirname "$0")/../default/aurora-qualified-release" | head -1)}
+[[ $aurora_tag =~ ^aurora-(stable-)?packages-[0-9a-f]{40}$ ]] || {
+  echo "OMARCHY_AURORA_REPOSITORY_TAG must name an immutable aurora-packages release" >&2
+  exit 1
+}
 [[ $repository_tag =~ ^asahi-packages-(stable|candidate)-[0-9a-f]{40}$ ]] || {
   echo "OMARCHY_ASAHI_REPOSITORY_TAG must name an immutable asahi-packages release" >&2
   exit 1
@@ -62,6 +69,10 @@ ParallelDownloads = 5
 [omarchy]
 SigLevel = Required DatabaseOptional
 Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/$repository_tag
+
+[omarchy-aurora]
+SigLevel = Required DatabaseOptional
+Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/$aurora_tag
 
 [asahi-alarm]
 SigLevel = Never
