@@ -129,7 +129,7 @@ boot files into package 1.
 | PR | Title (sketch) | Payload today in `omarchy-mac-boot` | Origin |
 | --- | --- | --- | --- |
 | M1a | Enable speakersafetyd from package 1 | `files/usr/lib/systemd/system-preset/80-omarchy-mac.preset` line `enable speakersafetyd.service` (and drop MX/debug double-enable). Distilled leftover `install/hardware/apple/audio.sh` + mx `migrations/1787552067.sh` join this. | preset / `audio.sh` |
-| M1b | Speaker no-suspend + DSP overlay | `files/etc/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf`; still-missing `software-dsp.lua` (mx `default/wireplumber/scripts/node/software-dsp.lua`). Same `conf.d` as Scott's headset file; **different filename**. | those two mx paths |
+| M1b | Speaker no-suspend + DSP overlay | still-missing `software-dsp.lua` (mx `default/wireplumber/scripts/node/software-dsp.lua`). Do **not** ship `/etc/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf`: `omarchy-settings-dev` owns that path until a coordinated transfer (INTERFACES v3 item 2a). Headset file in package 1 is a different filename; that does not free the `/etc/` drop-in. | `default/` source + DSP lua; `/etc/` stays settings |
 | M1c | Apple zram drop-in | must **not** be `90-omarchy.conf` (quattro settings already ships that path — pacman conflict). Vendor `90-omarchy-mac.conf` or wait. T3a currently copied the colliding name; rename before any publish. | `default/systemd/zram-generator.conf.d/90-omarchy.conf` |
 | M1d | Trackpad / cursor bindings | Hypr snippet: `apple-mtp-multi-touch` / `apple-spi-trackpad` `tap_to_click = false`; `no_hardware_cursors` from `default/hypr/apple.lua`. Distilled `install/user/hardware/apple/touchpad.sh` becomes a no-op when the snippet exists. | `default/hypr/input.lua` (two device lines only), `default/hypr/apple.lua` |
 
@@ -153,8 +153,11 @@ the Origin header comes off; M2 `candidate` as a new package.
 ### Collision resolutions (delta § “five collisions”)
 
 1. **WirePlumber `conf.d`.** Package 1 keeps `asahi-headset-mic.conf`.
-   We ship only `asahi-audio-no-suspend.conf` (+ DSP lua). Never a
-   second headset file. M1b later moves no-suspend into package 1.
+   `/etc/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf`
+   stays in `omarchy-settings-dev` until a coordinated transfer
+   (INTERFACES v3 item 2a); `omarchy-mac-boot` must not claim it.
+   We may still vendor DSP lua. Never a second headset file. M1b
+   later moves no-suspend into package 1 after that transfer.
 2. **speakersafetyd.** One enabler. Prefer M1a. Until then the T3
    preset may enable the unit; mx must not, and Scott's `audio.sh` must
    `pacman -Qq omarchy-mac && return 0` (and the same for
@@ -211,8 +214,15 @@ need S1/S2 plus the collision guards in mx `install/hardware/apple/*.sh`.
 
 ## 3. Kernel lane tools → `omarchy-mac-boot` (PR after validation)
 
-Stays in mx **tonight** (INTERFACES §3). After S1/S2, one coordinated
-mx + pkgs release moves:
+Stays in mx **tonight** (INTERFACES §3). This later extraction
+**supersedes** `docs/apple-feature-delta.md` §4 ("Impossible to
+move" for kernel lane / Aurora tools). The delta forbade a
+same-night move into the boot package because that would couple
+boot-file ownership to lane policy without a migration. INTERFACES
+§3 authorizes the **staged** move after validation: one coordinated
+mx + pkgs release transfers the helpers in the same `pacman -Syu`
+so hook, body, and caller do not split across packages. After S1/S2
+that release moves:
 
 | Path | Role under `omarchy-update` |
 | --- | --- |
@@ -272,22 +282,27 @@ package carries them afterwards.
 ## 4. mx `main` → `quattro-upstream` cutover
 
 **After** T7 ships stable from an E image and S1/S2 pass. Not overnight.
-**Replace the desktop base; do not rebase 955 commits.**
+**Merge to adopt the upstream desktop tree; do not rebase 955 commits.
+Never force-push published history.**
 
 `quattro-upstream` is Scott's distillation of this fork (incl. `#9835`)
 onto quattro. Rebasing 955-ahead / 426-behind history onto `fe18cd6c`
 replays every Apple commit through 460 desktop commits we have not
-taken. Reset-onto-upstream + overlay is the cut.
+taken. The cut is a merge that keeps current `main` as a parent and
+adopts the selected `quattro-upstream` tree plus the overlay below.
 
 ### Order relative to shipping stable
 
 1. T7 publishes `mac-image-<S>-<lane>` from **current** mx `main`.
 2. S1/S2 on that image (encrypted, three lanes).
 3. Open Q0–Q3 and M1/M2 from this plan (still no cutover).
-4. Tag mx `main` `mx-pre-cutover` (keep the 955-commit history).
-5. New `main` = `omacom/omarchy-mac` `quattro-upstream` (`fe18cd6c` or
-   newer) **plus** the overlay below. Fast-forward testers via a
-   packaged mx release, not `git pull` on `/usr/share/omarchy`.
+4. Merge `omacom/omarchy-mac` `quattro-upstream` (`fe18cd6c` or newer)
+   into mx `main`, keeping current `main` as a parent. The merge tree
+   is that upstream commit **plus** the overlay below. A
+   `mx-pre-cutover` tag may bookmark pre-merge `main`; it does not
+   replace ancestry. Published history is never force-pushed.
+5. Fast-forward testers via a packaged mx release, not `git pull`
+   on `/usr/share/omarchy`.
 6. Mechanical `asahi`→`mac` rename (PLAN R) is last and separate.
 
 ### Overlay (stays fork-only on mx)
@@ -310,10 +325,11 @@ Counted from mx-only paths (526). Keep:
 
 ### Drop / do not import
 
-From **our** 526: `bin/omarchy-update-asahi-bundle` (delta drop);
-leaves T3 already owns once `pacman -Qq omarchy-mac-boot` (HID, btrfs,
-speaker-pop) become no-ops; Apple lines in `default/hypr/input.lua`
-once M1d/T3 owns them.
+From **our** 526: leaves T3 already owns once `pacman -Qq
+omarchy-mac-boot` (HID, btrfs, speaker-pop) become no-ops; Apple
+lines in `default/hypr/input.lua` once M1d/T3 owns them. Keep
+`bin/omarchy-update-asahi-bundle` at cutover (`omarchy-update` still
+calls it); the delta's later drop is not this merge.
 
 From **their** 274: do **not** copy `packages/omarchy-mac/` (25) into
 mx — depend on the signed package. Do not copy
@@ -324,17 +340,38 @@ Steam leftovers stay Scott desktop, not boot.
 
 Shared 1706 paths: take `quattro-upstream` **content** for generic
 desktop (we are 426 behind; 79 theme files unique each way — their
-theme layout wins). Re-apply only Apple-gated interleaves quattro-
-upstream did not distill: `install/hardware/pacman.sh` signed channel,
-`install/config/enable-services.sh` oomd skip, `bin/omarchy-update-system-pkgs`
-Aurora + boot admission.
+theme layout wins). Re-apply Apple-gated mx files quattro-upstream
+did not distill. Upstream's updater and migrator lack the signed-
+repository update, Aurora completion/reboot checks, kernel-channel
+routing, and migration skip handling, so the preserved set must
+include those callers **and** every lane tool they invoke:
+
+- `install/hardware/pacman.sh` (signed channel)
+- `install/config/enable-services.sh` (oomd skip)
+- `bin/omarchy-update-system-pkgs` (Aurora + boot admission)
+- `bin/omarchy-update`
+- `bin/omarchy-channel-set`
+- `bin/omarchy-migrate`
+- `bin/omarchy-update-asahi-bundle`
+- `bin/omarchy-update-asahi-repository`
+- `bin/omarchy-update-aurora-repository`
+- `bin/omarchy-apple-silicon-channel`
+- `bin/omarchy-apple-silicon-boot-check`
+- `bin/omarchy-apple-silicon-retire-saved-modules`
+- `bin/omarchy-update-aurora-verify`
+- `default/libalpm/hooks/01-omarchy-aurora-verify.hook`
+
+Taking only the first three interleaves would drop the signed
+`[omarchy]` / `[omarchy-aurora]` update, Aurora `--complete` /
+reboot-block, Apple Silicon channel routing, and Asahi skip markers.
 
 ### Cutover risks (highest first)
 
-1. **History replace vs installed Macs.** Testers on mx `main` packages
+1. **Installed Macs cannot git-ff.** Testers on mx `main` packages
    cannot fast-forward 955/460. The cutover is a **pacman release**
    whose files match the overlayed tree, with migrations that no-op on
-   machines that already applied HID/btrfs/audio/trust.
+   machines that already applied HID/btrfs/audio/trust. Git `main`
+   keeps both parents; do not force-push.
 2. **Trust and leftovers.** Importing `pacman.sh` or skipping the
    signed-channel interleave unpins `[omarchy]` / `[omarchy-aurora]`.
 3. **Five collisions on first mixed update.** quattro-upstream `all.sh`
