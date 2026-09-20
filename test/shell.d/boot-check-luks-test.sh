@@ -30,6 +30,10 @@ case "$*" in
   -Qq) cat "$TEST_FILES/installed" ;;
   "-Qlq "*) [[ -f $TEST_FILES/$2 ]] && cat "$TEST_FILES/$2" ;;
   "-Qkk "*) exit 0 ;;
+  "-Q "*)
+    [[ -f $TEST_FILES/version-$2 ]] || exit 1
+    echo "$2 $(cat "$TEST_FILES/version-$2")"
+    ;;
   *) exit 1 ;;
 esac
 SH
@@ -192,6 +196,16 @@ system() {
   printf '/usr/lib/asahi-boot/\n/usr/lib/asahi-boot/m1n1.bin\n' >"$test_tmp/files/m1n1-aurora"
   printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\nusr/bin/init\n' "$kver" >"$test_tmp/initramfs"
   write_boot_bin "${dtbs[@]}"
+  # The running kernel is bound to the staged release: descriptor, lane and
+  # the installed version pacman -Q reports.
+  mkdir -p "$root/var/lib/omarchy"
+  {
+    printf 'format=1\nchannel=aurora\nrelease_tag=aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c\n'
+    printf 'package=1|linux-aurora|6.17.0.aurora1-1|aarch64|linux-aurora.pkg.tar.zst|%064d|linux-aurora.pkg.tar.zst.sig|%064d\n' 1 2
+  } >"$root/var/lib/omarchy/aurora-target.descriptor"
+  printf 'format=1\nlane=rc\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
+  printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$root/var/lib/omarchy/apple-silicon-channel"
+  printf '6.17.0.aurora1-1\n' >"$test_tmp/files/version-linux-aurora"
 }
 
 run_check() {
@@ -208,6 +222,7 @@ run_check() {
     TEST_INITRAMFS_ANALYZE="${TEST_INITRAMFS_ANALYZE:-$test_tmp/initramfs.analyze}" \
     TEST_LSBLK="${TEST_LSBLK:-}" \
     OMARCHY_BOOT_CHECK_ROOT="$root" \
+    OMARCHY_BOOT_CHECK_UNAME="$kver" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
     bash "$check" linux-aurora >"$test_tmp/out" 2>"$test_tmp/err"
   status=$?
