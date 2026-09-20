@@ -104,6 +104,10 @@ case "$*" in
   *) exit 1 ;;
 esac
 SH
+cat >"$stub_bin/lsblk" <<'SH'
+#!/bin/bash
+exit 0
+SH
 chmod +x "$stub_bin"/*
 
 # update-m1n1 as asahi-scripts 20260127.1 ships it, with the DTBS default ALARM adds.

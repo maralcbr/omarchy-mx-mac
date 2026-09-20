@@ -63,7 +63,7 @@ root_is_btrfs_at() {
 }
 
 apple_silicon() {
-  command -v omarchy-hw-apple-silicon >/dev/null 2>&1 && omarchy-hw-apple-silicon
+  omarchy-hw-apple-silicon
 }
 
 BOOT_LUKS_KEY="${OMARCHY_BOOT_LUKS_KEY:-/boot/omarchy/luks-key}"
@@ -139,11 +139,20 @@ confirm_reset() {
 
 # Insert rd.luks.key= into GRUB_CMDLINE_LINUX so the reset boot auto-unlocks
 # from the Boot-partition keyfile (the same token T4a writes for first boot).
+# Replace any existing token: a stale UUID or path would unlock from the
+# wrong keyfile after reset.
 grub_add_rd_luks_key() {
   local file=$1 uuid=$2
   local token="rd.luks.key=${uuid}=/omarchy/luks-key:UUID=$BOOT_FS_UUID"
   [[ -f $file ]] || return 1
-  grep -q 'rd.luks.key=' "$file" && return 0
+  if grep -q 'rd.luks.key=' "$file"; then
+    local tmp
+    tmp=$(mktemp)
+    sed -E "s|[[:space:]]*rd\\.luks\\.key=[^[:space:]\"]+| ${token}|g" "$file" >"$tmp"
+    cat "$tmp" >"$file"
+    rm -f "$tmp"
+    return 0
+  fi
   if grep -q '^GRUB_CMDLINE_LINUX=' "$file"; then
     sed -i -E "s|^(GRUB_CMDLINE_LINUX=\"[^\"]*)\"|\\1 ${token}\"|" "$file"
   else

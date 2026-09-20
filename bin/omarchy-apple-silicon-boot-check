@@ -96,16 +96,59 @@ grub_cfg=$(path /boot/grub/grub.cfg)
 sudo grep -Fq "vmlinuz-$kernel" "$grub_cfg" && sudo grep -Fq "initramfs-$kernel.img" "$grub_cfg" ||
   fail "/boot/grub/grub.cfg does not boot vmlinuz-$kernel with initramfs-$kernel.img"
 
-# Encrypted Apple Silicon roots (GRUB + sd-encrypt). Unencrypted roots skip
-# this: missing crypttab, or one without a `root` entry, is the opt-out and
-# also covers a consumed/absent /boot/efi/omarchy/install.conf.
+# Encrypted Apple Silicon roots (GRUB + sd-encrypt). A mapper or crypto_LUKS
+# root with no crypttab is a failure, not an unencrypted opt-out.
+root_block_device() {
+  local src=""
+  if [[ -n $root ]]; then
+    src=$(awk '$1 !~ /^#/ && $2 == "/" { print $1; exit }' "$(path /etc/fstab)" 2>/dev/null || true)
+  else
+    src=$(findmnt -no SOURCE / 2>/dev/null || true)
+  fi
+  src=${src%%[*}
+  src=${src%%[[:space:]]*}
+  printf '%s' "$src"
+}
+
+root_on_luks() {
+  local src part
+  src=$(root_block_device)
+  [[ $src == /dev/mapper/* ]] && return 0
+  [[ -n $src ]] || return 1
+  part=$(lsblk -nspo NAME,FSTYPE "$src" 2>/dev/null | awk '$2=="crypto_LUKS"{print $1; exit}')
+  [[ -n $part ]]
+}
+
+sd_encrypt_in_mkinitcpio() {
+  local file dir
+  file=$(path /etc/mkinitcpio.conf)
+  if [[ -f $file ]] && grep -Eq '^[[:space:]]*HOOKS=\([^)]*sd-encrypt' "$file"; then
+    return 0
+  fi
+  dir=$(path /etc/mkinitcpio.conf.d)
+  [[ -d $dir ]] || return 1
+  for file in "$dir"/*.conf; do
+    [[ -f $file ]] || continue
+    grep -Eq '^[[:space:]]*HOOKS\+?=\([^)]*sd-encrypt' "$file" && return 0
+  done
+  return 1
+}
+
+sd_encrypt_in_initramfs() {
+  grep -Eq '(^|/)sd-encrypt([/[:space:]]|$)' "$workdir/initramfs"
+}
+
 crypttab=$(path /etc/crypttab)
+has_crypttab_root=0
 if [[ -f $crypttab ]] && sudo grep -Eq '^[[:space:]]*root[[:space:]]' "$crypttab"; then
+  has_crypttab_root=1
+fi
+if (( has_crypttab_root )); then
   sudo grep -Fq "rd.luks.name=" "$grub_cfg" ||
     fail "/boot/grub/grub.cfg does not set rd.luks.name= for the encrypted root"
   sudo grep -Fq "root=/dev/mapper/root" "$grub_cfg" ||
     fail "/boot/grub/grub.cfg does not set root=/dev/mapper/root for the encrypted root"
-  grep -Eq 'sd-encrypt|systemd-cryptsetup' "$workdir/initramfs" ||
+  sd_encrypt_in_mkinitcpio || sd_encrypt_in_initramfs ||
     fail "/boot/initramfs-$kernel.img does not contain sd-encrypt"
 
   # First-boot window: throwaway keyfile and rd.luks.key= are allowed until
@@ -137,6 +180,8 @@ if [[ -f $crypttab ]] && sudo grep -Eq '^[[:space:]]*root[[:space:]]' "$crypttab
     grep -Fxq 'phase=finished' "$encrypt_state" ||
       fail "/boot/omarchy/encrypt.state is not phase=finished after provisioning"
   fi
+elif root_on_luks; then
+  fail "encrypted root has no crypttab"
 fi
 
 # m1n1 stage 2, built the way this update-m1n1 builds it.

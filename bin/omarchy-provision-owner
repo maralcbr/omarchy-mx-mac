@@ -22,6 +22,7 @@ LOG_FILE="${OMARCHY_PROVISION_OWNER_LOG:-/var/log/omarchy-provision-owner.log}"
 BOOT_LUKS_KEY="${OMARCHY_BOOT_LUKS_KEY:-/boot/omarchy/luks-key}"
 ENCRYPT_STATE="${OMARCHY_ENCRYPT_STATE:-/boot/omarchy/encrypt.state}"
 GRUB_DEFAULT="${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}"
+REKEY_STATE="${OMARCHY_LUKS_REKEY_STATE:-$PROVISIONING_DIR/luks-rekey.state}"
 RECOVERY_ACK_PHRASE="I wrote it down"
 
 export PATH="$OMARCHY_PATH/bin:$PATH"
@@ -677,7 +678,7 @@ user_groups() {
 }
 
 apple_silicon() {
-  command -v omarchy-hw-apple-silicon >/dev/null 2>&1 && omarchy-hw-apple-silicon
+  omarchy-hw-apple-silicon
 }
 
 # 48 base32 characters (A-Z2-7), shown as groups of 4. Never written to disk.
@@ -866,8 +867,9 @@ grub_drop_rd_luks_key() {
 }
 
 # Show the recovery passphrase once, full-screen, until the owner types the
-# acknowledgement phrase. No re-show path. The value is never written to disk
-# and the screen is cleared afterwards so it does not linger.
+# acknowledgement phrase. No re-show path. The value is never written to disk,
+# never placed in a process argument list (ps), and the screen is cleared
+# afterwards so it does not linger.
 show_recovery_key() {
   local key="$1" typed=""
   [[ -n $key ]] || return 0
@@ -876,7 +878,7 @@ show_recovery_key() {
   say "This is your disk recovery key. Write it down and keep it somewhere safe."
   say "It will not be shown again, and it is not stored on this machine."
   echo
-  gum style --bold --foreground 3 --padding "1 0 1 $PADDING_LEFT" "$key"
+  printf '%s' "$key" | gum style --bold --foreground 3 --padding "1 0 1 $PADDING_LEFT"
   echo
   say "Type '$RECOVERY_ACK_PHRASE' to continue."
   while true; do
@@ -913,7 +915,7 @@ mark_encrypt_finished() {
       esac
     done <"$ENCRYPT_STATE"
   fi
-  [[ $format == 1 ]] || format=1
+  [[ $format == "1" ]] || format=1
   [[ -n $luks_uuid ]] || luks_uuid=$(cryptsetup luksUUID "$device" 2>/dev/null || true)
   if [[ -z $partition ]]; then
     partition=$(lsblk -no PARTUUID "$device" 2>/dev/null || true)
@@ -931,7 +933,57 @@ mark_encrypt_finished() {
 # Identify the slot unlocked by $1 (passphrase) on $2 (device).
 luks_slot_for() {
   cryptsetup open --test-passphrase --verbose --key-file <(printf '%s' "$1") "$2" 2>&1 |
-    grep -o 'Key slot [0-9]* unlocked' | grep -o '[0-9]*' | head -1
+    grep -o 'Key slot [0-9]* unlocked' | grep -o '[0-9]*' | head -1 || true
+}
+
+rekey_state_get() {
+  local key=$1
+  [[ -f $REKEY_STATE ]] || return 1
+  awk -F= -v k="$key" '$1 == k { print $2; exit }' "$REKEY_STATE"
+}
+
+rekey_state_put() {
+  local key=$1 value=$2 tmp owner_slot recovery_slot
+  owner_slot=$(rekey_state_get owner_slot || true)
+  recovery_slot=$(rekey_state_get recovery_slot || true)
+  case $key in
+    owner_slot) owner_slot=$value ;;
+    recovery_slot) recovery_slot=$value ;;
+  esac
+  install -d -m 700 "$(dirname "$REKEY_STATE")"
+  tmp=$(mktemp "${REKEY_STATE}.XXXXXX")
+  {
+    [[ -z $owner_slot ]] || printf 'owner_slot=%s\n' "$owner_slot"
+    [[ -z $recovery_slot ]] || printf 'recovery_slot=%s\n' "$recovery_slot"
+  } >"$tmp"
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$REKEY_STATE"
+}
+
+# Add $1 (passphrase) to $2 (device) once. Retries reuse the slot recorded in
+# the state file when it still unlocks, so failed GRUB/initramfs steps cannot
+# exhaust LUKS slots.
+luks_ensure_slot() {
+  local passphrase=$1 device=$2 name=$3 current recorded
+  recorded=$(rekey_state_get "$name" || true)
+  current=$(luks_slot_for "$passphrase" "$device")
+  if [[ -n $recorded && $current == "$recorded" ]]; then
+    printf '%s' "$recorded"
+    return 0
+  fi
+  case $name in
+    owner_slot)
+      cryptsetup luksAddKey --key-file "$PROVISIONING_DIR/luks-key" "$device" <(printf '%s' "$passphrase")
+      ;;
+    recovery_slot)
+      cryptsetup luksAddKey --key-file <(printf '%s' "$password") "$device" <(printf '%s' "$passphrase")
+      ;;
+    *) return 1 ;;
+  esac
+  current=$(luks_slot_for "$passphrase" "$device")
+  [[ -n $current ]] || return 1
+  rekey_state_put "$name" "$current"
+  printf '%s' "$current"
 }
 
 # Kill every LUKS slot except the ones listed after the device. Uses the owner's
@@ -958,11 +1010,13 @@ luks_kill_other_slots() {
   done
 }
 
-# Apple Silicon: GRUB + sd-encrypt. Drop rd.luks.key= via update-grub (the same
-# path the fresh installer uses), rebuild the initramfs, add a recovery keyslot,
-# shred both keyfiles, and mark /boot/omarchy/encrypt.state phase=finished.
+# Apple Silicon: GRUB + sd-encrypt. Owner and recovery slots are added once
+# (recorded in $REKEY_STATE) and the recovery key has already been shown and
+# acknowledged. Drop rd.luks.key= via update-grub (the same path the fresh
+# installer uses), rebuild the initramfs, kill the throwaway slot last, shred
+# both keyfiles, and mark /boot/omarchy/encrypt.state phase=finished.
 rekey_luks_apple() {
-  local device="$1" recovery_slot new_slot backup
+  local device="$1" recovery_slot new_slot staged_slot backup
 
   [[ -n ${recovery_key:-} ]] || recovery_key=$(generate_recovery_passphrase) || {
     log_step "could not generate a recovery passphrase"
@@ -970,7 +1024,30 @@ rekey_luks_apple() {
     return 1
   }
 
-  cryptsetup luksAddKey --key-file <(printf '%s' "$password") "$device" <(printf '%s' "$recovery_key")
+  new_slot=$(luks_ensure_slot "$password" "$device" owner_slot) || {
+    log_step "could not add or reuse the owner's LUKS slot; keeping the staged key for retry"
+    say --foreground 1 "Could not add the owner's disk password; will retry."
+    return 1
+  }
+  recovery_slot=$(luks_ensure_slot "$recovery_key" "$device" recovery_slot) || {
+    log_step "could not add or reuse the recovery LUKS slot; keeping the staged key for retry"
+    say --foreground 1 "Could not add the disk recovery key; will retry."
+    return 1
+  }
+
+  if ! cryptsetup open --test-passphrase --key-file <(printf '%s' "$password") "$device" 2>>"$LOG_FILE" ||
+    ! cryptsetup open --test-passphrase --key-file <(printf '%s' "$recovery_key") "$device" 2>>"$LOG_FILE"; then
+    log_step "owner or recovery slot does not unlock $device; keeping the staged key for retry"
+    say --foreground 1 "Could not confirm the LUKS re-key; will retry."
+    return 1
+  fi
+
+  staged_slot=$(luks_slot_for "$(cat "$PROVISIONING_DIR/luks-key")" "$device")
+  if [[ -z $staged_slot || $staged_slot == "$new_slot" || $staged_slot == "$recovery_slot" ]]; then
+    log_step "could not identify the staged-key slot; keeping it for retry"
+    say --foreground 1 "Could not confirm the throwaway LUKS key; will retry."
+    return 1
+  fi
 
   backup="${GRUB_DEFAULT}.omarchy-rekey.bak"
   [[ -f $GRUB_DEFAULT ]] || {
@@ -989,15 +1066,16 @@ rekey_luks_apple() {
   fi
   rm -f "$backup"
 
-  new_slot=$(luks_slot_for "$password" "$device")
-  recovery_slot=$(luks_slot_for "$recovery_key" "$device")
-  if [[ -z $new_slot || -z $recovery_slot ]]; then
-    log_step "could not identify the owner's or recovery LUKS slot after re-key; keeping the staged key for retry"
-    say --foreground 1 "Could not confirm the LUKS re-key; will retry."
+  # Keep the staged-key slot until every other leftover is gone, so a failed
+  # deletion still leaves a resumable auto-unlock.
+  luks_kill_other_slots "$device" "$password" "$new_slot" "$recovery_slot" "$staged_slot" || return 1
+  if ! cryptsetup luksKillSlot -q --key-file <(printf '%s' "$password") "$device" "$staged_slot"; then
+    log_step "failed to kill the staged-key slot $staged_slot; keeping it for retry"
+    say --foreground 1 "Could not remove the throwaway LUKS key; will retry."
     return 1
   fi
-  luks_kill_other_slots "$device" "$password" "$new_slot" "$recovery_slot" || return 1
   shred_luks_keyfiles
+  rm -f "$REKEY_STATE"
   mark_encrypt_finished "$device"
 }
 
@@ -1053,15 +1131,15 @@ rekey_luks() {
     return 1
   fi
 
+  if apple_silicon; then
+    rekey_luks_apple "$device"
+    return
+  fi
+
   # Add the user's key (a retry with a different password just adds another
   # slot; all but the current one are killed once the rebuild succeeds).
   cryptsetup luksAddKey --key-file "$PROVISIONING_DIR/luks-key" "$device" <(printf '%s' "$password")
-
-  if apple_silicon; then
-    rekey_luks_apple "$device"
-  else
-    rekey_luks_intel "$device"
-  fi
+  rekey_luks_intel "$device"
 }
 
 # Start the ESP's limine.conf over from the shipped template and drop foreign
@@ -1204,6 +1282,11 @@ run_setup() {
       say --foreground 1 "Could not generate a disk recovery key."
       return 1
     }
+    # Disclose and acknowledge the recovery key before any slot is added or
+    # provisioning state is removed. A crash after this leaves the pending
+    # markers and throwaway keyslot in place so the attempt is resumable.
+    printf '%s' "$SHOW_CURSOR"
+    show_recovery_key "$recovery_key"
   fi
 
   run_provisioning >>"$LOG_FILE" 2>&1 &
@@ -1227,12 +1310,7 @@ run_setup() {
     printf '%s' "$SHOW_CURSOR"
     return "$status"
   fi
-
-  if [[ -n ${recovery_key:-} ]]; then
-    printf '%s' "$SHOW_CURSOR"
-    show_recovery_key "$recovery_key"
-    recovery_key=""
-  fi
+  recovery_key=""
 
   # One full-bar frame so the finish doesn't cut in mid-progress.
   echo done >"$STATE_FILE"

@@ -49,6 +49,10 @@ SH
 cat >"$stub_bin/update-grub" <<SH
 #!/bin/bash
 printf 'update-grub %s\n' "\$*" >>"$calls"
+if [[ -f "$tmp/grub-fail" ]]; then
+  rm -f "$tmp/grub-fail"
+  exit 1
+fi
 exit 0
 SH
 
@@ -63,9 +67,11 @@ cat >"$stub_bin/stty" <<'SH'
 echo "24 80"
 SH
 
+: >"$tmp/gum-stdin"
 cat >"$stub_bin/gum" <<SH
 #!/bin/bash
 printf 'gum %s\n' "\$*" >>"$calls"
+cat >/dev/null
 exit 0
 SH
 
@@ -181,17 +187,80 @@ recovery_key=$(generate_recovery_passphrase)
 [[ $recovery_key =~ ^([A-Z2-7]{4}-){11}[A-Z2-7]{4}$ ]] ||
   fail "recovery key is 12 base32 groups of 4" "$recovery_key"
 
+touch "$prov/pending"
+: >"$calls"
+: >"$tmp/gum-stdin"
+printf 'nope\n%s\n' "$RECOVERY_ACK_PHRASE" >"$tmp/gum-input"
+cat >"$stub_bin/gum" <<SH
+#!/bin/bash
+printf 'gum %s\n' "\$*" >>"$calls"
+if [[ \$1 == style ]]; then
+  cat >>"$tmp/gum-stdin"
+fi
+if [[ \$1 == input ]]; then
+  cat >/dev/null
+  IFS= read -r line <"$tmp/gum-input" || exit 1
+  tail -n +2 "$tmp/gum-input" >"$tmp/gum-input.new"
+  mv "$tmp/gum-input.new" "$tmp/gum-input"
+  printf '%s\n' "\$line"
+fi
+exit 0
+SH
+chmod +x "$stub_bin/gum"
+
+show_recovery_key "$recovery_key"
+
+[[ -f $prov/luks-key ]] || fail "acknowledgement leaves the provisioning luks-key in place"
+[[ -f $boot_key ]] || fail "acknowledgement leaves the Boot-partition luks-key in place"
+[[ -f $prov/pending ]] || fail "acknowledgement leaves provisioning/pending in place"
+grep -Fxq 'phase=encrypted' "$encrypt_state" ||
+  fail "acknowledgement does not finalise encrypt.state" "$(cat "$encrypt_state")"
+! grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null ||
+  fail "acknowledgement happens before any keyslot is added"
+! grep -F "$recovery_key" "$calls" >/dev/null ||
+  fail "the recovery key is not passed as a gum argument" "$(cat "$calls")"
+[[ $(<"$tmp/gum-stdin") == "$recovery_key" ]] ||
+  fail "the recovery key is fed to gum on stdin" "$(cat "$tmp/gum-stdin")"
+grep -F "$RECOVERY_ACK_PHRASE" "$calls" >/dev/null ||
+  fail "the owner types the acknowledgement phrase"
+! grep -F 'Show it again' "$calls" >/dev/null || fail "there is no re-show path"
+! grep -F 'gum confirm' "$calls" >/dev/null || fail "acknowledgement is typed, not a confirm"
+(( $(grep -c '^gum input' "$calls") == 2 )) ||
+  fail "a wrong phrase is rejected until the owner types the acknowledgement" "$(cat "$calls")"
+! grep -Fq "$recovery_key" "$OMARCHY_PROVISION_OWNER_LOG" ||
+  fail "the recovery key is never written to the provision log after display"
+
+: >"$calls"
+touch "$tmp/grub-fail"
+if rekey_luks; then
+  fail "re-key fails closed when update-grub fails"
+fi
+[[ -f $prov/luks-key ]] || fail "a failed GRUB step keeps the staged key for retry"
+[[ -f $boot_key ]] || fail "a failed GRUB step keeps the Boot-partition key for retry"
+grep -q 'rd.luks.key=' "$grub_default" || fail "a failed GRUB step restores rd.luks.key="
+(( $(wc -l <"$slots") == 3 )) || fail "a failed GRUB step keeps throwaway+owner+recovery slots" "$(cat "$slots")"
+[[ -f $REKEY_STATE ]] || fail "slot numbers are recorded for retry"
+grep -q '^owner_slot=' "$REKEY_STATE" || fail "owner slot is recorded" "$(cat "$REKEY_STATE")"
+grep -q '^recovery_slot=' "$REKEY_STATE" || fail "recovery slot is recorded" "$(cat "$REKEY_STATE")"
+(( $(grep -cF 'cryptsetup luksAddKey' "$calls") == 2 )) ||
+  fail "first attempt adds the owner key and the recovery keyslot" "$(cat "$calls")"
+! grep -F 'cryptsetup luksKillSlot' "$calls" >/dev/null ||
+  fail "the staged-key slot is not deleted before owner and recovery unlock"
+
+: >"$calls"
 rekey_luks
 
-grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null || fail "re-key adds the owner's key"
-(( $(grep -cF 'cryptsetup luksAddKey' "$calls") == 2 )) ||
-  fail "re-key adds the owner key and the recovery keyslot" "$(cat "$calls")"
+! grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null ||
+  fail "retry reuses recorded owner and recovery slots" "$(cat "$calls")"
 grep -F 'cryptsetup luksKillSlot' "$calls" >/dev/null || fail "re-key retires the throwaway slot"
+(( $(grep -cF 'cryptsetup luksKillSlot' "$calls") == 1 )) ||
+  fail "only the staged-key slot is killed after owner and recovery verify" "$(cat "$calls")"
 grep -Fx 'update-grub ' "$calls" >/dev/null || fail "re-key regenerates grub.cfg with update-grub"
 grep -F 'mkinitcpio -P' "$calls" >/dev/null || fail "re-key rebuilds the initramfs" "$(cat "$calls")"
 
 [[ ! -e $prov/luks-key ]] || fail "provisioning luks-key is shredded"
 [[ ! -e $boot_key ]] || fail "Boot-partition luks-key is shredded"
+[[ ! -e $REKEY_STATE ]] || fail "re-key state is removed after success"
 ! grep -q 'rd.luks.key=' "$grub_default" ||
   fail "rd.luks.key= is dropped from GRUB_CMDLINE_LINUX" "$(cat "$grub_default")"
 grep -q 'rd.luks.name=' "$grub_default" || fail "rd.luks.name= is kept"
@@ -207,33 +276,6 @@ grep -Fxq 'luks_uuid=abcd-ef' "$encrypt_state" || fail "encrypt.state keeps luks
 ! grep -Fq "$recovery_key" "$grub_default" || fail "the recovery key is not stored in GRUB config"
 [[ ! -e $prov/recovery-key && ! -e $tmp/boot/omarchy/recovery-key ]] ||
   fail "the recovery key is never written to a keyfile"
-
-: >"$calls"
-printf 'nope\n%s\n' "$RECOVERY_ACK_PHRASE" >"$tmp/gum-input"
-cat >"$stub_bin/gum" <<SH
-#!/bin/bash
-printf 'gum %s\n' "\$*" >>"$calls"
-if [[ \$1 == input ]]; then
-  IFS= read -r line <"$tmp/gum-input" || exit 1
-  tail -n +2 "$tmp/gum-input" >"$tmp/gum-input.new"
-  mv "$tmp/gum-input.new" "$tmp/gum-input"
-  printf '%s\n' "\$line"
-fi
-exit 0
-SH
-chmod +x "$stub_bin/gum"
-show_recovery_key "$recovery_key"
-grep -F "$recovery_key" "$calls" >/dev/null || fail "the recovery key is shown once"
-grep -F "$RECOVERY_ACK_PHRASE" "$calls" >/dev/null ||
-  fail "the owner types the acknowledgement phrase"
-! grep -F 'Show it again' "$calls" >/dev/null || fail "there is no re-show path"
-! grep -F 'gum confirm' "$calls" >/dev/null || fail "acknowledgement is typed, not a confirm"
-(( $(grep -cF "$recovery_key" "$calls") == 1 )) ||
-  fail "the recovery key is shown once" "$(cat "$calls")"
-(( $(grep -c '^gum input' "$calls") == 2 )) ||
-  fail "a wrong phrase is rejected until the owner types the acknowledgement" "$(cat "$calls")"
-! grep -Fq "$recovery_key" "$OMARCHY_PROVISION_OWNER_LOG" ||
-  fail "the recovery key is never written to the provision log after display"
 
 ! grep -Fq 'limine-update' "$calls" || fail "Apple re-key does not call limine-update"
 [[ ! -e $tmp/omarchy/install.conf && ! -e /boot/efi/omarchy/install.conf ]] || true

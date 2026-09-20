@@ -125,6 +125,17 @@ grep -q 'rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4f4d5801-424f-4f54-8000-0000
 grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null || fail "reset adds a throwaway LUKS key"
 
 : >"$calls"
+printf 'GRUB_CMDLINE_LINUX="rd.luks.name=old-uuid=root rd.luks.key=stale-uuid=/wrong-key:UUID=FFFF-FFFF root=/dev/mapper/root quiet"\n' \
+  >"$next/etc/default/grub"
+grub_add_rd_luks_key "$next/etc/default/grub" abcd-ef
+grep -q 'rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4f4d5801-424f-4f54-8000-000000000001' "$next/etc/default/grub" ||
+  fail "reset replaces a stale rd.luks.key= token" "$(cat "$next/etc/default/grub")"
+! grep -q 'stale-uuid' "$next/etc/default/grub" ||
+  fail "reset does not keep a stale rd.luks.key= token" "$(cat "$next/etc/default/grub")"
+grep -q 'rd.luks.name=old-uuid=root' "$next/etc/default/grub" ||
+  fail "reset keeps the rest of GRUB_CMDLINE_LINUX when replacing rd.luks.key="
+
+: >"$calls"
 rebuild_next_boot "$next"
 grep -F 'mkinitcpio -P' "$calls" >/dev/null || fail "reset rebuilds the initramfs" "$(cat "$calls")"
 grep -F 'update-grub' "$calls" >/dev/null || fail "reset regenerates grub.cfg" "$(cat "$calls")"

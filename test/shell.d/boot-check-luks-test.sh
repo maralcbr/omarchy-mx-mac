@@ -96,6 +96,11 @@ case "$1" in
   *) exit 1 ;;
 esac
 SH
+cat >"$stub_bin/lsblk" <<'SH'
+#!/bin/bash
+[[ -n ${TEST_LSBLK:-} && -f $TEST_LSBLK ]] && cat "$TEST_LSBLK"
+exit 0
+SH
 chmod +x "$stub_bin"/*
 
 write_update_m1n1() {
@@ -188,6 +193,7 @@ run_check() {
     TEST_MOUNTS="$mounts" \
     TEST_ESP_DEVICE="$esp_device" \
     TEST_LUKS_SLOT_COUNT="${TEST_LUKS_SLOT_COUNT:-2}" \
+    TEST_LSBLK="${TEST_LSBLK:-}" \
     OMARCHY_BOOT_CHECK_ROOT="$root" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
     bash "$check" linux-aurora >"$test_tmp/out" 2>"$test_tmp/err"
@@ -292,3 +298,34 @@ printf 'format=1\nphase=encrypted\npartition=PART-1\nluks_uuid=abcd-ef\n' >"$roo
 run_check
 expect_pass "rd.luks.key= during the first-boot window"
 pass "boot-check accepts the throwaway keyfile only while first-boot markers remain"
+
+system
+encrypt_root
+printf 'usr/lib/modules/%s/kernel/x.ko\nusr/lib/systemd/systemd-cryptsetup\n' "$kver" >"$test_tmp/initramfs"
+run_check
+expect_fail "systemd-cryptsetup without sd-encrypt" "does not contain sd-encrypt"
+
+system
+encrypt_root
+printf 'usr/lib/modules/%s/kernel/x.ko\nusr/bin/init\n' "$kver" >"$test_tmp/initramfs"
+mkdir -p "$root/etc"
+printf 'HOOKS=(base systemd autodetect modconf kms keyboard keymap block sd-encrypt filesystems fsck)\n' \
+  >"$root/etc/mkinitcpio.conf"
+run_check
+expect_pass "sd-encrypt from mkinitcpio.conf"
+pass "boot-check requires the sd-encrypt hook, not systemd-cryptsetup"
+
+system
+mkdir -p "$root/etc"
+printf '/dev/mapper/root / btrfs defaults 0 0\n' >"$root/etc/fstab"
+run_check
+expect_fail "mapper root without crypttab" "encrypted root has no crypttab"
+
+system
+mkdir -p "$root/etc"
+printf '/dev/nvme0n1p5 / btrfs defaults 0 0\n' >"$root/etc/fstab"
+printf '/dev/nvme0n1p5 btrfs\n/dev/nvme0n1p4 crypto_LUKS\n' >"$test_tmp/lsblk"
+TEST_LSBLK="$test_tmp/lsblk" run_check
+expect_fail "crypto_LUKS parent without crypttab" "encrypted root has no crypttab"
+pass "a mapper or LUKS root without crypttab is a failure"
+
