@@ -48,6 +48,10 @@ sed -i 's/^omarchy-hw-apple-silicon || exit 1$/true # VM-only hardware boundary/
   /root/omarchy-update-asahi-bundle.candidate
 mkdir -p "$work/apple-root/proc/device-tree"
 printf 'apple,j314s\0apple,arm-platform\0' >"$work/apple-root/proc/device-tree/compatible"
+# This guest is a legacy Asahi-kernel image (linux-asahi installed, kept as the
+# VM's kernel). The installer picks linux-aurora unless the image's kernel
+# marker names linux-asahi, as the old payloads' finalizer wrote it.
+install -Dm644 /dev/stdin /usr/share/omarchy/apple-silicon-kernel <<<linux-asahi
 # The fresh installer runs the runtime's own repository updater before its
 # first transaction, whose Apple Silicon check reads this fixture. It resolves
 # the package channel the host resolved and guest/verify expects.
