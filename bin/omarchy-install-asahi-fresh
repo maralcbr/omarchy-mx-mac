@@ -238,7 +238,7 @@ verify_grub_config() {
 }
 
 verify_boot_chain() {
-  omarchy-apple-silicon-boot-check "$kernel_package" ||
+  OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1 omarchy-apple-silicon-boot-check "$kernel_package" ||
     fail "The boot files do not match the installed $kernel_package and its m1n1"
 }
 

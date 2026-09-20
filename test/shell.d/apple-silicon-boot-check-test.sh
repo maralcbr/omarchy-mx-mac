@@ -517,6 +517,18 @@ expect_pass "a matching uname after reboot promotes the journal"
 printf 'format=1\nlane=rc\n' >"$test_tmp/expected-lane"
 cmp -s "$test_tmp/expected-lane" "$root/var/lib/omarchy/apple-silicon-aurora-lane" ||
   fail "post-reboot promotion clears the switch journal" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
+# Before the reboot the running kernel is still the old one: the same boot id
+# as the install is pending, any other boot id is a failure.
+system linux-aurora
+printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
+OMARCHY_BOOT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa TEST_UNAME=6.0.0-old run_check
+expect_pass "the installing boot with the old kernel still running is pending, not a failure"
+grep -Fq 'reboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$root/var/lib/omarchy/apple-silicon-aurora-lane" ||
+  fail "the same-boot check keeps the journal" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
+OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb TEST_UNAME=6.0.0-old run_check
+expect_fail "another boot with the old kernel running" "after reboot, not the installed"
+pass "reboot_pending carries the installing boot id: same boot pending, another boot must run the new kernel"
+
 system linux-aurora
 printf 'format=1\nlane=edge\nswitch=edge\nreboot_pending=1\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
 sed -i 's/^release_tag=.*/release_tag=aurora-edge-5/' "$root/var/lib/omarchy/aurora-target.descriptor"
@@ -527,10 +539,10 @@ printf 'format=1\nlane=edge\nedge_accepted=5:%s\n' "$digest" >"$test_tmp/expecte
 cmp -s "$test_tmp/expected-lane" "$root/var/lib/omarchy/apple-silicon-aurora-lane" ||
   fail "post-reboot promotion records the accepted edge release" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
 system linux-aurora
-printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=1\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
-TEST_UNAME=6.16.0-old-ARCH run_check
+printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=%s\n' "$(printf 'c%.0s' {1..32})" >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
+OMARCHY_BOOT_ID=$(printf 'd%.0s' {1..32}) TEST_UNAME=6.16.0-old-ARCH run_check
 expect_fail "a mismatch after reboot" "running kernel is 6.16.0-old-ARCH after reboot, not the installed linux-aurora $kver"
-printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=1\n' >"$test_tmp/expected-lane"
+printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=%s\n' "$(printf 'c%.0s' {1..32})" >"$test_tmp/expected-lane"
 cmp -s "$test_tmp/expected-lane" "$root/var/lib/omarchy/apple-silicon-aurora-lane" ||
   fail "a mismatch after reboot keeps the journal" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
 system linux-aurora

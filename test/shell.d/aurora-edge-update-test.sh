@@ -881,19 +881,25 @@ chmod 0644 "$staged"
 installed_from aurora-edge-5
 write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\n' "$(digest aurora-edge-5)"
 rm -f "$reboot_blocked"
-TEST_UNAME_MISMATCH=1 run_step --complete
+OMARCHY_BOOT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa TEST_UNAME_MISMATCH=1 run_step --complete
 expect_status 0 "completing before reboot records the install as pending"
 expect_lane "the journal stays open until the new kernel is running" \
-  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=1\n' "$(digest aurora-edge-5)"
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' "$(digest aurora-edge-5)"
 grep -Fq "installed, reboot pending" "$test_tmp/out" ||
   fail "completion before reboot says the install is pending" "$(cat "$test_tmp/out")"
-TEST_UNAME_MISMATCH=1 run_step --complete
+# The same omarchy update runs --complete twice (system-pkgs, then omarchy-update): same boot, still pending.
+OMARCHY_BOOT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa TEST_UNAME_MISMATCH=1 run_step --complete
+expect_status 0 "a second completion in the installing boot is still pending, not a failure"
+grep -Fq "installed, reboot pending" "$test_tmp/out" ||
+  fail "the second completion says the install is pending" "$(cat "$test_tmp/out")"
+[[ ! -e $reboot_blocked ]] || fail "the same-boot completion does not block the reboot"
+OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb TEST_UNAME_MISMATCH=1 run_step --complete
 expect_status 1 "completing after reboot with the old kernel is a failure"
 grep -Fq "did not come up after reboot" "$test_tmp/err" ||
   fail "a post-reboot mismatch is named" "$(cat "$test_tmp/err")"
 expect_lane "a failed post-reboot check keeps the journal" \
-  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=1\n' "$(digest aurora-edge-5)"
-run_step --complete
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' "$(digest aurora-edge-5)"
+OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb run_step --complete
 expect_status 0 "omarchy-update after reboot promotes the running kernel"
 expect_lane "post-reboot completion accepts the release" 'format=1\nlane=edge\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
 grep -Fq "now runs aurora-edge-5 from edge" "$test_tmp/out" ||

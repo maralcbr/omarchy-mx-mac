@@ -203,7 +203,8 @@ read_lane() {
         [[ $key == edge_accepted ]] && lane_accepted=$value || lane_pending=$value
         ;;
       reboot_pending)
-        if [[ $value != 1 ]]; then
+        # The boot id of the update that installed the kernel; 1 is the legacy form.
+        if [[ $value != 1 && ! $value =~ ^[0-9a-f]{32}$ ]]; then
           problem="$lane_file has a malformed reboot_pending"
           return 2
         fi
@@ -539,7 +540,10 @@ case "$command" in
           [[ -z $value || $value =~ ^[1-9][0-9]{0,8}:[0-9a-f]{64}$ ]] || fail "lane-write: malformed $key"
           [[ $key == edge_accepted ]] && lane_accepted=$value || lane_pending=$value
           ;;
-        reboot_pending: | reboot_pending:1) reboot_pending=$value ;;
+        reboot_pending:*)
+          [[ -z $value || $value == 1 || $value =~ ^[0-9a-f]{32}$ ]] || fail "lane-write: malformed $key"
+          reboot_pending=$value
+          ;;
         *) fail "lane-write: unsupported $assignment" ;;
       esac
     done

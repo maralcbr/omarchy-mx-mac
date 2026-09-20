@@ -219,6 +219,13 @@ fi
 
 lane_state=$(omarchy-apple-silicon-channel lane) ||
   fail "this Mac's Aurora lane cannot be read; omarchy-apple-silicon-channel reset-rc returns it to rc"
+current_boot_id() {
+  local id
+  id=${OMARCHY_BOOT_ID:-$(tr -d '-\n' </proc/sys/kernel/random/boot_id 2>/dev/null || true)}
+  [[ $id =~ ^[0-9a-f]{32}$ ]] || id=1
+  printf '%s' "$id"
+}
+
 lane=rc switch="" accepted="" pending="" reboot_pending=""
 while IFS= read -r line; do
   case "$line" in
@@ -533,13 +540,17 @@ if [[ $mode == complete ]]; then
     echo "$message"
     exit 0
   fi
-  if [[ -n $reboot_pending ]]; then
+  # The strict check failed: the installed kernel is not the running one. That
+  # is expected until the Mac reboots; only a boot that is not the installing
+  # one proves the kernel did not come up.
+  current_boot=$(current_boot_id)
+  if [[ -n $reboot_pending && $reboot_pending != 1 && $reboot_pending != "$current_boot" ]]; then
     unverified "the installed kernel did not come up after reboot"
   fi
   boot_status=0
   OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1 omarchy-apple-silicon-boot-check linux-aurora || boot_status=$?
   (( boot_status == 0 )) || unverified "the boot files do not match the installed kernel"
-  omarchy-apple-silicon-channel lane-write reboot_pending=1 || exit 2
+  omarchy-apple-silicon-channel lane-write "reboot_pending=$current_boot" || exit 2
   [[ ! -e $reboot_blocked ]] || sudo rm -f "$reboot_blocked"
   echo "linux-aurora ${package_version[linux-aurora]} from $target_tag is installed, reboot pending."
   exit 0
