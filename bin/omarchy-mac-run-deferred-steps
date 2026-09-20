@@ -1,0 +1,79 @@
+#!/bin/bash
+
+# omarchy:summary=Run hardware setup deferred from a Mac image build
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# First boot calls this once the image is on real hardware. Each remaining
+# line in /var/lib/omarchy/mac-first-boot/deferred-steps is a path relative
+# to $OMARCHY_PATH; a successful step is dropped so a rerun resumes.
+
+set -euo pipefail
+
+omarchy_path=${OMARCHY_PATH:-/usr/share/omarchy}
+deferred_file="${OMARCHY_MAC_DEFERRED_STEPS:-/var/lib/omarchy/mac-first-boot/deferred-steps}"
+log_file="${OMARCHY_MAC_FIRST_BOOT_LOG:-/var/log/omarchy/mac-first-boot.log}"
+
+fail() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+log() {
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$log_file"
+}
+
+(( EUID == 0 )) || fail "Run omarchy-mac-run-deferred-steps as root"
+[[ -n $omarchy_path && $omarchy_path == /* ]] || fail "OMARCHY_PATH is unset"
+export OMARCHY_PATH="$omarchy_path"
+export OMARCHY_INSTALL="${OMARCHY_INSTALL:-$OMARCHY_PATH/install}"
+export PATH="$OMARCHY_PATH/bin:$PATH"
+
+[[ -e $deferred_file ]] || exit 0
+[[ -f $deferred_file && ! -L $deferred_file ]] || fail "$deferred_file is not a regular file"
+
+install -d -m 0755 "$(dirname "$log_file")"
+touch "$log_file"
+chmod 0644 "$log_file" 2>/dev/null || true
+
+mapfile -t steps <"$deferred_file"
+remaining=()
+for step in "${steps[@]}"; do
+  [[ -n $step ]] && remaining+=("$step")
+done
+
+write_remaining() {
+  local tmp
+  tmp=$(mktemp "$(dirname "$deferred_file")/.deferred-steps.XXXXXX")
+  if ((${#remaining[@]})); then
+    printf '%s\n' "${remaining[@]}" >"$tmp"
+  else
+    : >"$tmp"
+  fi
+  chmod 0644 "$tmp"
+  mv "$tmp" "$deferred_file"
+}
+
+run_step() {
+  local relative=$1 script
+
+  [[ $relative != /* && $relative != *..* && $relative == install/* ]] ||
+    fail "Deferred step is not a packaged install path: $relative"
+  script="$OMARCHY_PATH/$relative"
+  [[ -f $script && ! -L $script ]] || fail "Deferred step is missing: $relative"
+  bash -eE -c 'source "$1"' bash "$script"
+}
+
+log "Starting deferred hardware steps ($deferred_file)"
+while ((${#remaining[@]})); do
+  step=${remaining[0]}
+  log "Running $step"
+  if ! run_step "$step"; then
+    log "Failed $step"
+    fail "Deferred step failed: $step"
+  fi
+  remaining=("${remaining[@]:1}")
+  write_remaining
+  log "Completed $step"
+done
+log "Deferred hardware steps finished"
