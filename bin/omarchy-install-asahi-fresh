@@ -269,14 +269,17 @@ done
 
 (( ! deferred_user )) || [[ -z $target_user ]] || fail "--user and --deferred-user cannot be combined"
 (( ! offline )) || (( deferred_user )) || fail "--offline requires --deferred-user"
+[[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]] || (( deferred_user )) || fail "OMARCHY_MAC_IMAGE_BUILD=1 requires --deferred-user"
 (( ! offline )) || export OMARCHY_AURORA_OFFLINE=1 OMARCHY_ASAHI_OFFLINE=1
 (( EUID == 0 )) || fail "Run the fresh installer as root"
 [[ -d $bundle_dir ]] || fail "The verified package directory is unavailable"
 [[ -n ${OMARCHY_ASAHI_PACKAGE_SOURCE:-} ]] || fail "Missing verified package source commit"
 [[ $OMARCHY_ASAHI_PACKAGE_SOURCE =~ ^[0-9a-f]{40}$ ]] || fail "Invalid package source commit"
 [[ $(uname -m) == "aarch64" ]] || fail "Fresh Apple Silicon installation requires aarch64"
-[[ -r /proc/device-tree/compatible ]] || fail "Apple device-tree information is unavailable"
-grep -aq 'apple,' /proc/device-tree/compatible || fail "Apple Silicon device tree not found"
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]]; then
+  [[ -r /proc/device-tree/compatible ]] || fail "Apple device-tree information is unavailable"
+  grep -aq 'apple,' /proc/device-tree/compatible || fail "Apple Silicon device tree not found"
+fi
 
 kernel_marker=/usr/share/omarchy/apple-silicon-kernel
 kernel_package=linux-asahi
@@ -298,8 +301,10 @@ for repository in asahi-alarm core extra alarm aur; do
 done
 # The package repository updater requires it, and it runs before anything is installed.
 pacman -Q jq >/dev/null 2>&1 || fail "Install jq first (pacman -S jq)"
-(( $(swapon --show --noheadings | wc -l) == 0 )) || fail "Disable swap before installing Omarchy"
-[[ $(cat /sys/module/zswap/parameters/enabled 2>/dev/null || echo N) == "N" ]] || fail "Disable zswap before installing Omarchy"
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]]; then
+  (( $(swapon --show --noheadings | wc -l) == 0 )) || fail "Disable swap before installing Omarchy"
+  [[ $(cat /sys/module/zswap/parameters/enabled 2>/dev/null || echo N) == "N" ]] || fail "Disable zswap before installing Omarchy"
+fi
 
 expected_packages=(omarchy-keyring omarchy-settings-dev omarchy-dev omarchy-nvim quickshell-git ttf-jetbrains-mono-nerd-basic)
 archives=()
@@ -524,6 +529,20 @@ EOF
   chown sddm:sddm /var/lib/sddm /var/lib/sddm/state.conf 2>/dev/null || true
 fi
 
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
+  export OMARCHY_MAC_IMAGE_BUILD=1
+  export OMARCHY_MAC_DEFERRED_STEPS=/var/lib/omarchy/mac-first-boot/deferred-steps
+  if [[ -z ${OMARCHY_PROC_ROOT:-} ]]; then
+    export OMARCHY_PROC_ROOT=/var/lib/omarchy/mac-first-boot/image-build-proc
+    install -d -m 0755 "$OMARCHY_PROC_ROOT/device-tree"
+    printf 'apple,omarchy-image\0' >"$OMARCHY_PROC_ROOT/device-tree/compatible"
+  fi
+  OMARCHY_PATH=/usr/share/omarchy
+  OMARCHY_INSTALL=/usr/share/omarchy/install
+  source "$OMARCHY_INSTALL/helpers/mac-image-build.sh"
+  omarchy_mac_record_deferred_hardware_steps || fail "Could not record deferred hardware steps for the image"
+fi
+
 if (( deferred_user )); then
   # Group grants are recorded for the owner omarchy-provision-owner creates.
   OMARCHY_PATH=/usr/share/omarchy \
@@ -558,7 +577,9 @@ ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
 pacman -Q omarchy-dev omarchy-settings-dev "$kernel_package" "$kernel_package-headers" "$m1n1_package" networkmanager iwd >/dev/null
 [[ $(cat /usr/share/omarchy/version) == 4.* ]] || fail "Installed Omarchy version is not 4.x"
-NetworkManager --print-config 2>/dev/null | grep -Fxq 'wifi.backend=iwd' || fail "NetworkManager iwd backend was not configured"
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]]; then
+  NetworkManager --print-config 2>/dev/null | grep -Fxq 'wifi.backend=iwd' || fail "NetworkManager iwd backend was not configured"
+fi
 grep -Eqi '^[[:space:]]*LANG[[:space:]]*=[[:space:]]*"?[^"[:space:]#]*\.utf-?8(@[^"[:space:]#]+)?"?([[:space:]]*(#.*)?)?$' /etc/locale.conf || fail "The system locale is not UTF-8"
 if (( deferred_user )); then
   verify_boot_files
@@ -576,6 +597,9 @@ if [[ $target_user != "alarm" ]] && getent passwd alarm >/dev/null 2>&1; then
 fi
 
 install -d -m 0755 /var/lib/omarchy
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
+  rm -rf /var/lib/omarchy/mac-first-boot/image-build-proc
+fi
 # omarchy:heredoc-expands paths=none -- the release identity values are pattern-validated at startup
 cat >"$state_dir/asahi-quattro-release.tmp" <<EOF
 format=1

@@ -1,5 +1,9 @@
 # Hardware-specific pacman repository extensions that must survive the final
 # pacman.conf restore.
+# Image builds record this leaf and skip it: post-install sources it directly.
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
+  return 0
+fi
 if omarchy-hw-apple-silicon; then
   release_key="${OMARCHY_ASAHI_PACKAGE_KEY_FILE:-$OMARCHY_PATH/default/omarchy-release.gpg}"
   release_fingerprint=5983B1CA32CB778F4D74D24ECFF35022CA5B5959

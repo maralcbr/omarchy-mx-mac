@@ -24,10 +24,12 @@ if [[ -e /etc/systemd/system/omarchy-seamless-login.service ||
     /etc/systemd/system/getty@tty1.service.d/autologin.conf \
     /etc/systemd/system/plymouth-quit.service.d/wait-for-graphical.conf \
     /usr/local/bin/seamless-login
-  systemctl daemon-reload
+  if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]]; then
+    systemctl daemon-reload
+  fi
 fi
 systemctl enable sddm.service
-if ! omarchy-hw-apple-silicon; then
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]] && ! omarchy-hw-apple-silicon; then
   # [Install] also enables the socket that reports app.slice candidacy.
   systemctl enable systemd-oomd.service
 fi

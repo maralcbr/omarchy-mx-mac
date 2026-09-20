@@ -1,3 +1,9 @@
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
+  source "$OMARCHY_INSTALL/helpers/mac-image-build.sh"
+  omarchy_mac_record_deferred_hardware_steps
+  return 0
+fi
+
 run_logged "$OMARCHY_INSTALL/hardware/asus-rog.sh"
 run_logged "$OMARCHY_INSTALL/hardware/framework16.sh"
 run_logged "$OMARCHY_INSTALL/hardware/dell-xps-touchpad-haptics.sh"
