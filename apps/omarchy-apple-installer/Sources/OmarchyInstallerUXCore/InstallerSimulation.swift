@@ -171,8 +171,10 @@
 
     public func execute(
       operation: InstallOperationKind, authorization: MachineOwnerAuthorization,
+      encryptLinuxDisk: Bool,
       journal: @escaping @Sendable (Data) -> Void
     ) async throws -> CompletionDisplay {
+      _ = encryptLinuxDisk
       // The dummy authorization is deliberately never inspected or retained.
       guard hasApprovedPlan else { throw SimulationError.planChanged }
       let attempt = lock.withLock {

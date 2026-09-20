@@ -470,6 +470,7 @@
         let completion = try await environment.execute(
           operation: context.kind,
           authorization: authorization,
+          encryptLinuxDisk: encryptLinuxDisk,
           journal: { [weak self] chunk in
             receivedJournal.append(chunk)
             Task { @MainActor in
@@ -663,6 +664,7 @@
       isExecuting = false
       lastHost = nil
       encryptLinuxDisk = true
+      environment.setEncryptLinuxDisk(true)
       prefetchState = environment.payloadPrefetchRequired ? .idle : .verified
       environment.cancelPayloadPrefetch()
     }

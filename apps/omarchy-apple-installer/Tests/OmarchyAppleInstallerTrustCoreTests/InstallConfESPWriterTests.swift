@@ -4,6 +4,18 @@
   @testable import OmarchyAppleInstallerTrustCore
 
   final class InstallConfESPWriterTests: XCTestCase {
+    func testRecordPolicyWritesAfterInstallAndRecoveryRetry() {
+      XCTAssertTrue(
+        InstallConfRecordPolicy.shouldRecord(
+          operation: .install, nextAction: .enterRecovery))
+      XCTAssertTrue(
+        InstallConfRecordPolicy.shouldRecord(
+          operation: .retryRecoveryAuthorization, nextAction: .enterRecovery))
+      XCTAssertFalse(
+        InstallConfRecordPolicy.shouldRecord(
+          operation: .install, nextAction: .verifyInstalledSystem))
+    }
+
     func testLocatorPicksTheEFIVolumeInsideThePlanExtent() throws {
       let identity = try InstallConfESPLocator.identify(
         storeIdentifier: "disk0",
@@ -63,6 +75,15 @@
       XCTAssertEqual(outcome, .notRecorded)
     }
 
+    func testWriterTreatsUnmountFailureAfterWriteAsUnconfirmed() async throws {
+      let helper = MockInstallConfESPHelper(result: .failure(.unmountFailed))
+      let writer = InstallConfESPWriter(helper: helper)
+      let outcome = await writer.record(
+        try InstallConf(encrypt: false, lane: "rc"),
+        storeIdentifier: "disk0", offsetBytes: 1, lengthBytes: 2)
+      XCTAssertEqual(outcome, .unconfirmed(encrypt: false))
+    }
+
     func testWriterTreatsReadbackMismatchAsDefaultOn() async throws {
       let helper = MockInstallConfESPHelper(result: .failure(.readbackMismatch))
       let writer = InstallConfESPWriter(helper: helper)
@@ -90,8 +111,61 @@
       XCTAssertEqual(disks.mounted, [])
       XCTAssertEqual(disks.mountCalls, 1)
       XCTAssertEqual(disks.unmountCalls, 1)
-      let file = root.appendingPathComponent("esp-handoff/omarchy/install.conf")
-      XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), conf.serialized)
+      XCTAssertEqual(disks.capturedDocuments, [conf.serializedData])
+      XCTAssertEqual(disks.mountPoints.count, 1)
+      XCTAssertTrue(disks.mountPoints[0].lastPathComponent.hasPrefix("esp-handoff-"))
+      XCTAssertFalse(FileManager.default.fileExists(atPath: disks.mountPoints[0].path))
+    }
+
+    func testMountWriterUsesAFreshDirectoryAndLeavesAMountedOneAlone() throws {
+      let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("esp-writer-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let disks = MockESPDisks(
+        partitions: [
+          .init(
+            identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+            name: "EFI - OMARC", offsetBytes: 100, lengthBytes: 50)
+        ],
+        unmountFailuresRemaining: 1
+      )
+      let writer = InstallConfESPMountWriter(disks: disks, workingDirectory: root)
+      XCTAssertThrowsError(
+        try writer.write(
+          try InstallConf(encrypt: false, lane: "rc"),
+          storeIdentifier: "disk0", offsetBytes: 50, lengthBytes: 200)
+      ) { XCTAssertEqual($0 as? InstallConfESPError, .unmountFailed) }
+      XCTAssertEqual(disks.mountPoints.count, 1)
+      let first = disks.mountPoints[0]
+      let sentinel = first.appendingPathComponent("sentinel")
+      try Data("keep".utf8).write(to: sentinel)
+      try writer.write(
+        try InstallConf(encrypt: true, lane: "stable"),
+        storeIdentifier: "disk0", offsetBytes: 50, lengthBytes: 200)
+      XCTAssertEqual(disks.mountPoints.count, 2)
+      XCTAssertNotEqual(disks.mountPoints[0], disks.mountPoints[1])
+      XCTAssertEqual(try Data(contentsOf: sentinel), Data("keep".utf8))
+    }
+
+    func testMountWriterReplacesAnExistingDocumentAtomically() throws {
+      let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("esp-writer-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let previous = try InstallConf(encrypt: true, lane: "stable")
+      let disks = MockESPDisks(
+        partitions: [
+          .init(
+            identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+            name: "EFI - OMARC", offsetBytes: 100, lengthBytes: 50)
+        ],
+        seedDocument: previous.serializedData
+      )
+      let next = try InstallConf(encrypt: false, lane: "rc")
+      try InstallConfESPMountWriter(disks: disks, workingDirectory: root).write(
+        next, storeIdentifier: "disk0", offsetBytes: 50, lengthBytes: 200)
+      XCTAssertEqual(disks.capturedDocuments, [next.serializedData])
     }
 
     func testMountWriterSurfacesMountFailure() {
@@ -164,16 +238,25 @@
   private final class MockESPDisks: InstallConfESPDiskOperating, @unchecked Sendable {
     let partitionsToReturn: [InstallConfESPPartition]
     let mountError: InstallConfESPError?
+    let seedDocument: Data?
+    var unmountFailuresRemaining: Int
     private(set) var mounted: [String] = []
     private(set) var mountCalls = 0
     private(set) var unmountCalls = 0
+    private(set) var mountPoints: [URL] = []
+    private(set) var capturedDocuments: [Data] = []
+    private var lastMountPoint: URL?
 
     init(
       partitions: [InstallConfESPPartition],
-      mountError: InstallConfESPError? = nil
+      mountError: InstallConfESPError? = nil,
+      unmountFailuresRemaining: Int = 0,
+      seedDocument: Data? = nil
     ) {
       partitionsToReturn = partitions
       self.mountError = mountError
+      self.unmountFailuresRemaining = unmountFailuresRemaining
+      self.seedDocument = seedDocument
     }
 
     func partitions(on storeIdentifier: String) throws -> [InstallConfESPPartition] {
@@ -182,14 +265,36 @@
 
     func mount(_ identifier: String, at mountPoint: URL) throws {
       mountCalls += 1
+      mountPoints.append(mountPoint)
+      lastMountPoint = mountPoint
       if let mountError { throw mountError }
       try FileManager.default.createDirectory(
         at: mountPoint, withIntermediateDirectories: true)
+      if let seedDocument {
+        let directory = mountPoint.appendingPathComponent(
+          InstallConf.directoryName, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try seedDocument.write(
+          to: directory.appendingPathComponent(InstallConf.fileName), options: .atomic)
+      }
       mounted.append(identifier)
     }
 
     func unmount(_ identifier: String) throws {
       unmountCalls += 1
+      if let lastMountPoint {
+        let file =
+          lastMountPoint
+          .appendingPathComponent(InstallConf.directoryName, isDirectory: true)
+          .appendingPathComponent(InstallConf.fileName)
+        if let data = try? Data(contentsOf: file) {
+          capturedDocuments.append(data)
+        }
+      }
+      if unmountFailuresRemaining > 0 {
+        unmountFailuresRemaining -= 1
+        throw InstallConfESPError.unmountFailed
+      }
       mounted.removeAll { $0 == identifier }
     }
   }

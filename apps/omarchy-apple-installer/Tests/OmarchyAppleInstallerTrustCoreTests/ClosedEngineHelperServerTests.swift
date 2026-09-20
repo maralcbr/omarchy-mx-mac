@@ -140,6 +140,88 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
+    func testWriteInstallConfRejectsRequestsBeforeACompletedPlan() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let disks = RecordingESPDisks()
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination,
+        executor: RecordingHandoffExecutor(result: fixture.transcript),
+        credentialValidator: AcceptingMachineOwnerCredentialValidator(),
+        removalDisks: UnusedRemovalDisks(),
+        removalAdminValidator: { _ in },
+        espDisks: disks
+      )
+      await assertThrowsErrorAsync(
+        try await server.writeInstallConf(
+          document: try InstallConf(encrypt: true, lane: "stable").serializedData,
+          storeIdentifier: "disk0",
+          offsetBytes: 447_750_000_000,
+          lengthBytes: 107_374_182_400,
+          authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        XCTAssertEqual($0 as? ClosedEngineHelperError, .installConfPlanIncomplete)
+      }
+      XCTAssertEqual(disks.mountCalls, 0)
+    }
+
+    func testWriteInstallConfUsesHelperOwnedPlanAndRejectsMismatchAndReplay() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let disks = RecordingESPDisks(partitions: [
+        .init(
+          identifier: "disk0s5", storeIdentifier: "disk0", type: "EFI",
+          name: "EFI - OMARC", offsetBytes: 447_750_000_000, lengthBytes: 500_000_000)
+      ])
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination,
+        executor: RecordingHandoffExecutor(result: fixture.transcript),
+        credentialValidator: AcceptingMachineOwnerCredentialValidator(),
+        removalDisks: UnusedRemovalDisks(),
+        removalAdminValidator: { _ in },
+        espDisks: disks
+      )
+      _ = try await server.submit(
+        packageDirectory: source,
+        authorization: try machineOwnerAuthorization()
+      )
+      await assertThrowsErrorAsync(
+        try await server.writeInstallConf(
+          document: try InstallConf(encrypt: false, lane: "rc").serializedData,
+          storeIdentifier: "disk1",
+          offsetBytes: 447_750_000_000,
+          lengthBytes: 107_374_182_400,
+          authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        XCTAssertEqual($0 as? ClosedEngineHelperError, .installConfTargetMismatch)
+      }
+      XCTAssertEqual(disks.mountCalls, 0)
+      try await server.writeInstallConf(
+        document: try InstallConf(encrypt: false, lane: "rc").serializedData,
+        storeIdentifier: "disk0",
+        offsetBytes: 447_750_000_000,
+        lengthBytes: 107_374_182_400,
+        authorization: try machineOwnerAuthorization()
+      )
+      XCTAssertEqual(disks.mountCalls, 1)
+      await assertThrowsErrorAsync(
+        try await server.writeInstallConf(
+          document: try InstallConf(encrypt: false, lane: "rc").serializedData,
+          storeIdentifier: "disk0",
+          offsetBytes: 447_750_000_000,
+          lengthBytes: 107_374_182_400,
+          authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        XCTAssertEqual($0 as? ClosedEngineHelperError, .installConfReplay)
+      }
+      XCTAssertEqual(disks.mountCalls, 1)
+    }
+
     private func makeFixture(
       deviceIdentifier: String = "apple,j314s",
       transcriptPlanMismatch: Bool = false,
@@ -368,6 +450,44 @@
     let source: URL
     let destination: URL
     let transcript: Data
+  }
+
+  private struct UnusedRemovalDisks: RemovalDiskOperating {
+    func snapshot() throws -> RemovalSnapshot {
+      RemovalSnapshot(
+        disk: "disk0",
+        devicePath: "/dev/disk0",
+        diskSize: 1,
+        macOSStoreUUID: "store",
+        macOSContainerUUID: "container",
+        partitions: [],
+        containers: []
+      )
+    }
+    func deleteContainer(storeUUID: String) throws {}
+    func erasePartition(uuid: String) throws {}
+    func growContainer(storeUUID: String) throws {}
+  }
+
+  private final class RecordingESPDisks: InstallConfESPDiskOperating, @unchecked Sendable {
+    let partitionsToReturn: [InstallConfESPPartition]
+    private(set) var mountCalls = 0
+
+    init(partitions: [InstallConfESPPartition] = []) {
+      partitionsToReturn = partitions
+    }
+
+    func partitions(on storeIdentifier: String) throws -> [InstallConfESPPartition] {
+      partitionsToReturn.filter { $0.storeIdentifier == storeIdentifier }
+    }
+
+    func mount(_ identifier: String, at mountPoint: URL) throws {
+      mountCalls += 1
+      try FileManager.default.createDirectory(
+        at: mountPoint, withIntermediateDirectories: true)
+    }
+
+    func unmount(_ identifier: String) throws {}
   }
 
   private func assertThrowsErrorAsync<T>(

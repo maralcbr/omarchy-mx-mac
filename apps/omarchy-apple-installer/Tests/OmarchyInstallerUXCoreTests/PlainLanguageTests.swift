@@ -256,11 +256,24 @@
       XCTAssertEqual(
         PlainLanguage.encryptLinuxDiskTitle, "Encrypt this Mac's Linux disk")
       XCTAssertEqual(
+        PlainLanguage.encryptLinuxDiskPassword,
+        "The Linux login password you set at first boot unlocks the disk after setup.")
+      XCTAssertFalse(PlainLanguage.encryptLinuxDiskPassword.lowercased().contains("macos"))
+      XCTAssertEqual(
         PlainLanguage.encryptionChoiceNotRecorded,
         "Encryption choice not recorded: first boot will encrypt")
       XCTAssertTrue(
         PlainLanguage.nextActionMessage(.enterRecovery, installConf: .notRecorded)
           .contains(PlainLanguage.encryptionChoiceNotRecorded))
+      XCTAssertEqual(
+        PlainLanguage.installConfWarning(.unconfirmed(encrypt: false)),
+        PlainLanguage.encryptionOptOutRecorded)
+      XCTAssertFalse(
+        PlainLanguage.nextActionMessage(.enterRecovery, installConf: .unconfirmed(encrypt: false))
+          .contains(PlainLanguage.encryptionChoiceNotRecorded))
+      XCTAssertTrue(
+        PlainLanguage.nextActionMessage(.enterRecovery, installConf: .unconfirmed(encrypt: false))
+          .contains(PlainLanguage.encryptionOptOutRecorded))
     }
 
     func testCopyAuditOmitsAsahiExceptTheInstallerEngine() throws {

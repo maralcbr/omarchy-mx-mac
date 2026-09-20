@@ -134,8 +134,10 @@
     func execute(
       operation: InstallOperationKind,
       authorization: MachineOwnerAuthorization,
+      encryptLinuxDisk: Bool,
       journal: @escaping @Sendable (Data) -> Void
     ) async throws -> CompletionDisplay {
+      _ = encryptLinuxDisk
       if scenario == .credentialReject {
         let first = lock.withLock { () -> Bool in
           credentialAttempts += 1

@@ -14,7 +14,22 @@
 
   public enum InstallConfHandoff: Equatable, Sendable {
     case recorded
+    /// Written and read back, but the ESP unmount could not be confirmed.
+    case unconfirmed(encrypt: Bool)
     case notRecorded
+  }
+
+  public enum InstallConfRecordPolicy {
+    /// Handover is written after a completed engine run that still needs Recovery.
+    public static func shouldRecord(
+      operation: EngineHandoffOperation,
+      nextAction: InstallerNextAction
+    ) -> Bool {
+      switch operation {
+      case .install, .retryRecoveryAuthorization:
+        return nextAction == .enterRecovery
+      }
+    }
   }
 
   /// One GPT row considered when locating the ESP the engine just created.
@@ -135,6 +150,8 @@
           lengthBytes: lengthBytes
         )
         return .recorded
+      } catch let error as InstallConfESPError where error == .unmountFailed {
+        return .unconfirmed(encrypt: conf.encrypt)
       } catch {
         return .notRecorded
       }
@@ -208,16 +225,22 @@
         partitions: try disks.partitions(on: storeIdentifier)
       )
       let mountPoint = workingDirectory.appendingPathComponent(
-        "esp-handoff",
+        "esp-handoff-\(UUID().uuidString.lowercased())",
         isDirectory: true
       )
-      try prepareMountPoint(mountPoint)
+      try fileManager.createDirectory(
+        at: mountPoint,
+        withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700]
+      )
+      var mounted = false
       do {
         try disks.mount(identity.partitionIdentifier, at: mountPoint)
+        mounted = true
       } catch {
+        try? fileManager.removeItem(at: mountPoint)
         throw InstallConfESPError.mountFailed
       }
-      var mounted = true
       defer {
         if mounted {
           try? disks.unmount(identity.partitionIdentifier)
@@ -245,17 +268,7 @@
       } catch {
         throw InstallConfESPError.unmountFailed
       }
-    }
-
-    private func prepareMountPoint(_ mountPoint: URL) throws {
-      if fileManager.fileExists(atPath: mountPoint.path) {
-        try? fileManager.removeItem(at: mountPoint)
-      }
-      try fileManager.createDirectory(
-        at: mountPoint,
-        withIntermediateDirectories: true,
-        attributes: [.posixPermissions: 0o700]
-      )
+      try? fileManager.removeItem(at: mountPoint)
     }
 
     private func writeAtomically(_ conf: InstallConf, on mountPoint: URL) throws {
@@ -285,9 +298,10 @@
         try handle.synchronize()
         try handle.close()
         if fileManager.fileExists(atPath: destination.path) {
-          try fileManager.removeItem(at: destination)
+          _ = try fileManager.replaceItemAt(destination, withItemAt: temporary)
+        } else {
+          try fileManager.moveItem(at: temporary, to: destination)
         }
-        try fileManager.moveItem(at: temporary, to: destination)
       } catch let error as InstallConfESPError {
         throw error
       } catch {

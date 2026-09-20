@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import Network
 import XCTest
 
 @testable import OmarchyAppleInstallerTrustCore
@@ -563,6 +564,45 @@ final class VerifiedArtifactStagerTests: XCTestCase {
     )
   }
 
+  func testRequiredFreeBytesIsTwiceThePayloadSize() {
+    XCTAssertEqual(VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: 100), 200)
+    XCTAssertEqual(
+      VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: UInt64.max), UInt64.max)
+  }
+
+  func testMatchesHashesTheOnDiskFile() throws {
+    let data = Data("pinned installer payload".utf8)
+    let artifact = try descriptor(data: data)
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let file = directory.appendingPathComponent(artifact.fileName)
+    try data.write(to: file)
+    XCTAssertTrue(VerifiedArtifactStager().matches(artifact, at: file))
+    try Data(repeating: 0x61, count: data.count).write(to: file)
+    XCTAssertFalse(VerifiedArtifactStager().matches(artifact, at: file))
+  }
+
+  func testDownloadTaskCancelsWhenTheSwiftTaskIsCancelled() async throws {
+    let server = try SlowHTTPServer()
+    let url = try await server.start()
+    defer { server.stop() }
+    let downloader = ProgressReportingArtifactDownloader()
+    let download = Task {
+      try await downloader.download(
+        from: url, expectedSizeBytes: 50_000_000, onBytes: nil)
+    }
+    try await Task.sleep(for: .milliseconds(250))
+    download.cancel()
+    do {
+      _ = try await download.value
+      XCTFail("cancelled download must not succeed")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected CancellationError, got \(error)")
+    }
+  }
+
   private func descriptor(
     source: String = "https://example.com/installer.tar.gz",
     fileName: String = "installer.tar.gz",
@@ -733,5 +773,64 @@ private func assertThrows<T>(
     XCTFail("Expected expression to throw")
   } catch {
     handler(error)
+  }
+}
+
+private final class SlowHTTPServer: @unchecked Sendable {
+  private let listener: NWListener
+  private let lock = NSLock()
+  private var connections: [NWConnection] = []
+  private var startContinuation: CheckedContinuation<URL, any Error>?
+
+  init() throws {
+    listener = try NWListener(using: .tcp, on: .any)
+  }
+
+  func start() async throws -> URL {
+    try await withCheckedThrowingContinuation { continuation in
+      lock.withLock { startContinuation = continuation }
+      listener.stateUpdateHandler = { [weak self] state in
+        guard let self else { return }
+        switch state {
+        case .ready:
+          guard let port = self.listener.port else { return }
+          self.resumeStart(
+            .success(URL(string: "http://127.0.0.1:\(port.rawValue)/payload.bin")!))
+        case .failed(let error):
+          self.resumeStart(.failure(error))
+        default:
+          break
+        }
+      }
+      listener.newConnectionHandler = { [weak self] connection in
+        guard let self else { return }
+        self.lock.withLock { self.connections.append(connection) }
+        connection.start(queue: .global())
+        let header = Data("HTTP/1.1 200 OK\r\nContent-Length: 50000000\r\n\r\n".utf8)
+        connection.send(content: header, completion: .contentProcessed { _ in })
+      }
+      listener.start(queue: .global())
+    }
+  }
+
+  func stop() {
+    let pending = lock.withLock { () -> [NWConnection] in
+      let current = connections
+      connections.removeAll()
+      return current
+    }
+    for connection in pending {
+      connection.cancel()
+    }
+    listener.cancel()
+  }
+
+  private func resumeStart(_ result: Result<URL, any Error>) {
+    let pending = lock.withLock { () -> CheckedContinuation<URL, any Error>? in
+      let value = startContinuation
+      startContinuation = nil
+      return value
+    }
+    pending?.resume(with: result)
   }
 }

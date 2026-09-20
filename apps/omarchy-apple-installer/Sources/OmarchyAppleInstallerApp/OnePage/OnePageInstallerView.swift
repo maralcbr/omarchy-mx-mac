@@ -458,6 +458,12 @@ struct OnePageInstallerView: View {
       Text(handoff.headline)
         .font(.system(size: 17, weight: .semibold))
         .padding(.bottom, 4)
+      if let warning = handoff.warning {
+        Text(warning)
+          .font(OmarchyTheme.body)
+          .foregroundStyle(OmarchyTheme.caution)
+          .fixedSize(horizontal: false, vertical: true)
+      }
       ForEach(handoff.steps) { step in
         RecoveryStepRow(step: step)
       }

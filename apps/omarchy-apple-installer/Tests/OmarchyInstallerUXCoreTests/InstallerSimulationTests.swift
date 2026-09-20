@@ -146,6 +146,7 @@
         operation: .retryRecoveryAuthorization,
         authorization: MachineOwnerAuthorization(
           username: "simulation", password: Data("dummy".utf8)),
+        encryptLinuxDisk: true,
         journal: { _ in XCTFail("Recovery retry must not simulate another disk write") })
       XCTAssertEqual(result.nextAction, .enterRecovery)
     }

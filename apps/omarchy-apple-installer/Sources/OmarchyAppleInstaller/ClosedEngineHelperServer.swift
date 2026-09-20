@@ -24,6 +24,9 @@
     case transcriptDeviceMismatch
     case transcriptIncomplete
     case transcriptPlanMismatch
+    case installConfPlanIncomplete
+    case installConfTargetMismatch
+    case installConfReplay
   }
 
   public actor ClosedEngineHelperServer {
@@ -37,6 +40,8 @@
     private let removalAdminValidator: @Sendable (MachineOwnerAuthorization) throws -> Void
     private let espDisks: any InstallConfESPDiskOperating
     private var isExecuting = false
+    private var completedInstallPlan: CompletedEngineInstallPlan?
+    private var installConfConsumed = false
     private var removalPlan:
       (ticket: OmarchyRemovalTicket, plan: OmarchyRemovalPlan, expires: Date)?
 
@@ -257,6 +262,17 @@
       guard transcript.completion != nil else {
         throw ClosedEngineHelperError.transcriptIncomplete
       }
+      if let plan = transcript.plan {
+        let completed = CompletedEngineInstallPlan(
+          storeIdentifier: plan.storeIdentifier,
+          offsetBytes: plan.offsetBytes,
+          lengthBytes: plan.lengthBytes
+        )
+        if completedInstallPlan != completed {
+          installConfConsumed = false
+        }
+        completedInstallPlan = completed
+      }
       return result
     }
 
@@ -273,23 +289,45 @@
       } catch {
         throw ClosedEngineHelperError.invalidMachineOwnerCredentials
       }
+      guard let completed = completedInstallPlan else {
+        throw ClosedEngineHelperError.installConfPlanIncomplete
+      }
+      guard !installConfConsumed else {
+        throw ClosedEngineHelperError.installConfReplay
+      }
+      guard completed.storeIdentifier == storeIdentifier,
+        completed.offsetBytes == offsetBytes,
+        completed.lengthBytes == lengthBytes
+      else {
+        throw ClosedEngineHelperError.installConfTargetMismatch
+      }
       isExecuting = true
       defer { isExecuting = false }
       let conf = try InstallConf.parse(document)
       let disks = espDisks
       let workingDirectory = self.workingDirectory
+      let store = completed.storeIdentifier
+      let offset = completed.offsetBytes
+      let length = completed.lengthBytes
       try await Task.detached {
         try InstallConfESPMountWriter(
           disks: disks,
           workingDirectory: workingDirectory
         ).write(
           conf,
-          storeIdentifier: storeIdentifier,
-          offsetBytes: offsetBytes,
-          lengthBytes: lengthBytes
+          storeIdentifier: store,
+          offsetBytes: offset,
+          lengthBytes: length
         )
       }.value
+      installConfConsumed = true
     }
+  }
+
+  private struct CompletedEngineInstallPlan: Equatable, Sendable {
+    let storeIdentifier: String
+    let offsetBytes: UInt64
+    let lengthBytes: UInt64
   }
 
   private struct RemovalJournal: Codable {

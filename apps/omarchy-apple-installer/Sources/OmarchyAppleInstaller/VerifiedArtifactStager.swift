@@ -233,6 +233,13 @@ public enum ArtifactStageError: Error, Equatable, Sendable {
 /// therefore needs about twice the payload size on disk until the parts are
 /// deleted, and interrupted transfers resume at part granularity.
 public struct VerifiedArtifactStager: Sendable {
+  /// Disk room required while a payload is assembled from parts (payload plus
+  /// the pending concatenation) before the parts are deleted.
+  public static func requiredFreeBytes(forPayloadSize size: UInt64) -> UInt64 {
+    let (doubled, overflow) = size.multipliedReportingOverflow(by: 2)
+    return overflow ? UInt64.max : doubled
+  }
+
   private static let chunkBytes = 1_048_576
 
   private let downloader: any ArtifactDownloading
@@ -253,6 +260,10 @@ public struct VerifiedArtifactStager: Sendable {
     self.downloader = downloader
     self.promoter = promoter
     self.bundledEngineDirectory = bundledEngineDirectory
+  }
+
+  public func matches(_ artifact: PinnedInstallerArtifact, at fileURL: URL) -> Bool {
+    (try? verify(artifact, at: fileURL)) != nil
   }
 
   public func stage(
@@ -807,6 +818,12 @@ final class ProgressReportingArtifactDownloader: NSObject, ArtifactDownloading,
 {
   private static let reportIntervalSeconds: TimeInterval = 0.25
   private static let reportByteInterval: UInt64 = 16 * 1_048_576
+  private let configuration: URLSessionConfiguration
+
+  init(configuration: URLSessionConfiguration = .ephemeral) {
+    self.configuration = configuration
+    super.init()
+  }
 
   private struct Transfer {
     let continuation: CheckedContinuation<URL, any Error>
@@ -833,25 +850,30 @@ final class ProgressReportingArtifactDownloader: NSObject, ArtifactDownloading,
     expectedSizeBytes: UInt64,
     onBytes: ArtifactByteProgressHandler?
   ) async throws -> URL {
+    try Task.checkCancellation()
     let session = URLSession(
-      configuration: .ephemeral,
+      configuration: configuration,
       delegate: self,
       delegateQueue: nil
     )
-    defer { session.invalidateAndCancel() }
+    defer { session.finishTasksAndInvalidate() }
 
     let task = session.downloadTask(with: sourceURL)
     let key = ObjectIdentifier(task)
 
-    return try await withCheckedThrowingContinuation { continuation in
-      lock.lock()
-      transfers[key] = Transfer(
-        continuation: continuation,
-        expectedSizeBytes: expectedSizeBytes,
-        onBytes: onBytes
-      )
-      lock.unlock()
-      task.resume()
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        lock.lock()
+        transfers[key] = Transfer(
+          continuation: continuation,
+          expectedSizeBytes: expectedSizeBytes,
+          onBytes: onBytes
+        )
+        lock.unlock()
+        task.resume()
+      }
+    } onCancel: {
+      task.cancel()
     }
   }
 
@@ -950,7 +972,11 @@ final class ProgressReportingArtifactDownloader: NSObject, ArtifactDownloading,
     if let recordedFailure {
       finish(key, with: .failure(recordedFailure))
     } else if let error {
-      finish(key, with: .failure(error))
+      let cancelled = (error as? URLError)?.code == .cancelled || Task.isCancelled
+      finish(
+        key,
+        with: .failure(cancelled ? CancellationError() : error)
+      )
     } else {
       finish(key, with: .failure(URLError(.badServerResponse)))
     }

@@ -670,6 +670,87 @@
       }
       XCTAssertEqual(environment.prepareCount, 1)
     }
+
+    func testReinspectResetsDisplayedAndStoredEncryptionChoice() async {
+      let environment = MockInstallerEnvironment()
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setEncryptLinuxDisk(false)
+      XCTAssertFalse(session.encryptLinuxDisk)
+      XCTAssertFalse(environment.storedEncryptLinuxDisk)
+
+      await session.inspect()
+
+      XCTAssertTrue(session.encryptLinuxDisk)
+      XCTAssertTrue(environment.storedEncryptLinuxDisk)
+    }
+
+    func testInstallReadsEncryptionChoiceFromTheSession() async throws {
+      let environment = MockInstallerEnvironment()
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setEncryptLinuxDisk(false)
+      session.setAcknowledged(true)
+      session.approve()
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      XCTAssertEqual(environment.lastEncryptLinuxDisk, false)
+    }
+
+    func testAwaitingRecoveryRendersTheHandoffWarning() async throws {
+      let environment = MockInstallerEnvironment()
+      var completion = MockInstallerEnvironment.recoveryCompletion
+      completion = CompletionDisplay(
+        nextAction: completion.nextAction,
+        headline: completion.headline,
+        subheadline: PlainLanguage.nextActionMessage(
+          .enterRecovery, installConf: .notRecorded),
+        verified: completion.verified,
+        handoff: HandoffDisplay(
+          headline: completion.handoff!.headline,
+          steps: completion.handoff!.steps,
+          warning: PlainLanguage.encryptionChoiceNotRecorded
+        )
+      )
+      environment.executeResults = [.success(completion)]
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setAcknowledged(true)
+      session.approve()
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      guard case .awaitingRecovery(let handoff) = session.phase else {
+        return XCTFail("Expected awaitingRecovery, got \(session.phase)")
+      }
+      XCTAssertEqual(handoff.warning, PlainLanguage.encryptionChoiceNotRecorded)
+    }
+
+    func testRecoveryRetrySubmitStillUsesTheSessionEncryptionChoice() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.executeResults = [
+        .failure(EngineXPCSubmissionError.recoveryAuthorizationFailed),
+        .success(MockInstallerEnvironment.recoveryCompletion),
+      ]
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      session.setEncryptLinuxDisk(false)
+      session.setAcknowledged(true)
+      session.approve()
+      session.presentInstallCredentials()
+      await session.submit(try authorization())
+      session.presentRecoveryRetryCredentials()
+      await session.submit(try authorization())
+      XCTAssertEqual(environment.lastOperation, .retryRecoveryAuthorization)
+      XCTAssertEqual(environment.lastEncryptLinuxDisk, false)
+    }
   }
 
   actor OperationGate {
@@ -714,6 +795,8 @@
     private(set) var executeCount = 0
     private(set) var prepareCount = 0
     private(set) var lastOperation: InstallOperationKind?
+    private(set) var lastEncryptLinuxDisk: Bool?
+    private(set) var storedEncryptLinuxDisk = true
     private var approved = false
 
     var hasApprovedPlan: Bool { approved }
@@ -772,12 +855,18 @@
       return shutdownAccepted
     }
 
+    func setEncryptLinuxDisk(_ encrypt: Bool) {
+      storedEncryptLinuxDisk = encrypt
+    }
+
     func execute(
       operation: InstallOperationKind,
       authorization: MachineOwnerAuthorization,
+      encryptLinuxDisk: Bool,
       journal: @escaping @Sendable (Data) -> Void
     ) async throws -> CompletionDisplay {
       executeCount += 1
+      lastEncryptLinuxDisk = encryptLinuxDisk
       savedJournal = journal
       await executeGate?.wait()
       lastOperation = operation

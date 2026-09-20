@@ -1,4 +1,5 @@
 #if os(macOS)
+  import CryptoKit
   import XCTest
 
   @testable import OmarchyAppleInstallerTrustCore
@@ -115,6 +116,173 @@
       }
       let state = await controller.currentState()
       XCTAssertEqual(state, .cancelled)
+    }
+
+    func testOrchestratorReusesThePredecessorAndUsesUniqueWorkDirectories() async throws {
+      let data = Data("payload-bytes".utf8)
+      let artifact = try pinnedPayload(data)
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "prefetch-orch-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let canonical = root.appendingPathComponent(artifact.fileName)
+      let payload = StagedInstallerArtifact(
+        artifact: artifact, fileURL: canonical, reusedExistingFile: false)
+      let stagedDirectories = RecordingBox<URL>()
+      let required = RecordingBox<UInt64>()
+      let states = RecordingBox<PayloadPrefetchState>()
+      let orchestrator = PayloadPrefetchOrchestrator(
+        makeNetwork: {
+          MockNetworkPath(
+            InstallerNetworkPathSnapshot(
+              isSatisfied: true, isExpensive: false, isConstrained: false))
+        },
+        makeKeepAwake: { MockKeepAwake() },
+        makeFreeSpace: { _ in MockFreeSpace(bytes: 8_000_000_000) },
+        matchesPinned: { _, _ in false },
+        requiredFreeBytes: { size in
+          let value = VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: size)
+          required.append(value)
+          return value
+        },
+        stage: { artifact, directory, progress in
+          stagedDirectories.append(directory)
+          try await Task.sleep(for: .milliseconds(80))
+          progress?(
+            ArtifactStagingProgress(
+              role: artifact.role, fileName: artifact.fileName, phase: .downloading,
+              bytesCompleted: UInt64(data.count), totalBytes: UInt64(data.count)))
+          let file = directory.appendingPathComponent(artifact.fileName)
+          try data.write(to: file)
+          progress?(
+            ArtifactStagingProgress(
+              role: artifact.role, fileName: artifact.fileName, phase: .verified,
+              bytesCompleted: UInt64(data.count), totalBytes: UInt64(data.count)))
+          return StagedInstallerArtifact(
+            artifact: artifact, fileURL: file, reusedExistingFile: false)
+        }
+      )
+      orchestrator.begin(payload: payload)
+      orchestrator.begin(payload: payload)
+      try await orchestrator.waitUntilVerified { states.append($0) }
+      XCTAssertEqual(stagedDirectories.values.count, 1)
+      XCTAssertTrue(stagedDirectories.values[0].lastPathComponent.hasPrefix("prefetch-"))
+      XCTAssertNotEqual(stagedDirectories.values[0], root)
+      XCTAssertEqual(
+        required.values,
+        [VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: UInt64(data.count))]
+      )
+      XCTAssertTrue(states.values.contains { if case .downloading = $0 { true } else { false } })
+      XCTAssertEqual(try Data(contentsOf: canonical), data)
+    }
+
+    func testOrchestratorHashesBeforePublishingVerified() async throws {
+      let data = Data("cached-payload".utf8)
+      let artifact = try pinnedPayload(data)
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "prefetch-hash-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let canonical = root.appendingPathComponent(artifact.fileName)
+      try data.write(to: canonical)
+      let staged = RecordingBox<Int>()
+      let hashed = RecordingBox<Int>()
+      let states = RecordingBox<PayloadPrefetchState>()
+      let orchestrator = PayloadPrefetchOrchestrator(
+        makeNetwork: {
+          MockNetworkPath(
+            InstallerNetworkPathSnapshot(
+              isSatisfied: true, isExpensive: false, isConstrained: false))
+        },
+        makeKeepAwake: { MockKeepAwake() },
+        makeFreeSpace: { _ in MockFreeSpace(bytes: 8_000_000_000) },
+        matchesPinned: { candidate, url in
+          hashed.append(1)
+          return VerifiedArtifactStager().matches(candidate, at: url)
+        },
+        requiredFreeBytes: { VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: $0) },
+        stage: { _, _, _ in
+          staged.append(1)
+          throw PayloadPrefetchError.failed("must not download a hashed cache")
+        }
+      )
+      orchestrator.begin(
+        payload: StagedInstallerArtifact(
+          artifact: artifact, fileURL: canonical, reusedExistingFile: false))
+      try await orchestrator.waitUntilVerified { states.append($0) }
+      XCTAssertEqual(hashed.values.count, 1)
+      XCTAssertEqual(staged.values.count, 0)
+      XCTAssertTrue(states.values.contains(.verifying))
+      XCTAssertEqual(orchestrator.currentState(), .verified)
+    }
+
+    func testOrchestratorCancelsThePredecessorOnANewArtifact() async throws {
+      let first = try pinnedPayload(Data("first-payload".utf8), fileName: "first.bin")
+      let second = try pinnedPayload(Data("second-payload".utf8), fileName: "second.bin")
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "prefetch-cancel-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let stagedNames = RecordingBox<String>()
+      let orchestrator = PayloadPrefetchOrchestrator(
+        makeNetwork: {
+          MockNetworkPath(
+            InstallerNetworkPathSnapshot(
+              isSatisfied: true, isExpensive: false, isConstrained: false))
+        },
+        makeKeepAwake: { MockKeepAwake() },
+        makeFreeSpace: { _ in MockFreeSpace(bytes: 8_000_000_000) },
+        matchesPinned: { _, _ in false },
+        requiredFreeBytes: { VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: $0) },
+        stage: { artifact, directory, _ in
+          stagedNames.append(artifact.fileName)
+          if artifact.fileName == "first.bin" {
+            try await Task.sleep(for: .seconds(2))
+            try Task.checkCancellation()
+          }
+          let file = directory.appendingPathComponent(artifact.fileName)
+          try Data(artifact.fileName.utf8).write(to: file)
+          return StagedInstallerArtifact(
+            artifact: artifact, fileURL: file, reusedExistingFile: false)
+        }
+      )
+      orchestrator.begin(
+        payload: StagedInstallerArtifact(
+          artifact: first, fileURL: root.appendingPathComponent(first.fileName),
+          reusedExistingFile: false))
+      try await Task.sleep(for: .milliseconds(40))
+      orchestrator.begin(
+        payload: StagedInstallerArtifact(
+          artifact: second, fileURL: root.appendingPathComponent(second.fileName),
+          reusedExistingFile: false))
+      try await orchestrator.waitUntilVerified { _ in }
+      XCTAssertEqual(orchestrator.currentState(), .verified)
+      XCTAssertEqual(
+        try Data(contentsOf: root.appendingPathComponent("second.bin")), Data("second.bin".utf8))
+    }
+
+    private func pinnedPayload(_ data: Data, fileName: String = "os.bin") throws
+      -> PinnedInstallerArtifact
+    {
+      try PinnedInstallerArtifact(
+        role: "payload",
+        sourceURL: URL(string: "https://example.com/\(fileName)")!,
+        fileName: fileName,
+        expectedDigest: "sha256:"
+          + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
+        expectedSizeBytes: UInt64(data.count)
+      )
+    }
+  }
+
+  private final class RecordingBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Value] = []
+    func append(_ value: Value) {
+      lock.withLock { storage.append(value) }
+    }
+    var values: [Value] {
+      lock.withLock { storage }
     }
   }
 

@@ -43,11 +43,15 @@
     public static let downloadingPackagesTitle = "Downloading installation files"
     public static let encryptLinuxDiskTitle = "Encrypt this Mac's Linux disk"
     public static let encryptLinuxDiskPassword =
-      "Your macOS login password unlocks the disk after setup."
+      "The Linux login password you set at first boot unlocks the disk after setup."
     public static let encryptLinuxDiskRecovery =
       "A recovery key is shown once at first boot. Write it down."
     public static let encryptionChoiceNotRecorded =
       "Encryption choice not recorded: first boot will encrypt"
+    public static let encryptionOptOutRecorded =
+      "Disk encryption was turned off. That choice was recorded."
+    public static let encryptionChoiceUnconfirmed =
+      "Encryption was recorded, but the installer could not confirm the disk was unmounted."
     public static let prefetchWaitingForNetwork = "Waiting for Wi-Fi or Ethernet…"
     public static let prefetchPaused = "Download paused"
     public static let prefetchVerifying = "Verifying installation files…"
@@ -235,6 +239,17 @@
       ),
     ]
 
+    public static func installConfWarning(_ installConf: InstallConfHandoff) -> String? {
+      switch installConf {
+      case .recorded:
+        nil
+      case .notRecorded:
+        encryptionChoiceNotRecorded
+      case .unconfirmed(let encrypt):
+        encrypt ? encryptionChoiceUnconfirmed : encryptionOptOutRecorded
+      }
+    }
+
     public static func nextActionMessage(
       _ action: InstallerNextAction,
       installConf: InstallConfHandoff = .recorded
@@ -253,8 +268,8 @@
       case .manualRecovery:
         base = "Installation needs manual recovery before it can continue."
       }
-      if installConf == .notRecorded {
-        return base + " " + encryptionChoiceNotRecorded
+      if let warning = installConfWarning(installConf) {
+        return base + " " + warning
       }
       return base
     }

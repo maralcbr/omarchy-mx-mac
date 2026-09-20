@@ -259,10 +259,12 @@
   public struct HandoffDisplay: Equatable, Sendable {
     public let headline: String
     public let steps: [RecoveryStep]
+    public let warning: String?
 
-    public init(headline: String, steps: [RecoveryStep]) {
+    public init(headline: String, steps: [RecoveryStep], warning: String? = nil) {
       self.headline = headline
       self.steps = steps
+      self.warning = warning
     }
   }
 
@@ -402,6 +404,7 @@
     func execute(
       operation: InstallOperationKind,
       authorization: MachineOwnerAuthorization,
+      encryptLinuxDisk: Bool,
       journal: @escaping @Sendable (Data) -> Void
     ) async throws -> CompletionDisplay
 

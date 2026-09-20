@@ -385,4 +385,267 @@
       assertionID = IOPMAssertionID(0)
     }
   }
+
+  /// One live prefetch at a time: reuse the in-flight controller when the
+  /// artifact is unchanged, otherwise cancel it before starting a unique work
+  /// directory so staging filenames cannot collide.
+  public final class PayloadPrefetchOrchestrator: @unchecked Sendable {
+    public typealias StageHandler =
+      @Sendable (
+        PinnedInstallerArtifact, URL, ArtifactStagingProgressHandler?
+      ) async throws -> StagedInstallerArtifact
+
+    private let lock = NSLock()
+    private let makeNetwork: @Sendable () -> any InstallerNetworkPathObserving
+    private let makeKeepAwake: @Sendable () -> any InstallerKeepAwakeHolding
+    private let makeFreeSpace: @Sendable (URL) -> any InstallerFreeSpaceChecking
+    private let matchesPinned: @Sendable (PinnedInstallerArtifact, URL) -> Bool
+    private let requiredFreeBytes: @Sendable (UInt64) -> UInt64
+    private let stage: StageHandler
+
+    private var generation = UUID()
+    private var controller: PayloadPrefetchController?
+    private var runningDigest: String?
+    private var latest: PayloadPrefetchState = .idle
+    private var observers: [UUID: @Sendable (PayloadPrefetchState) -> Void] = [:]
+    private var waiters: [CheckedContinuation<Void, any Error>] = []
+
+    public convenience init() {
+      self.init(
+        makeNetwork: { NWInstallerNetworkPathObserver() },
+        makeKeepAwake: { IOPMInstallerKeepAwake() },
+        makeFreeSpace: { StagingVolumeFreeSpace(directory: $0) },
+        matchesPinned: { VerifiedArtifactStager().matches($0, at: $1) },
+        requiredFreeBytes: { VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: $0) },
+        stage: { artifact, directory, progress in
+          try await InstallerAssetPreparer().stagePayload(
+            artifact, in: directory, progress: progress)
+        }
+      )
+    }
+
+    public init(
+      makeNetwork: @escaping @Sendable () -> any InstallerNetworkPathObserving,
+      makeKeepAwake: @escaping @Sendable () -> any InstallerKeepAwakeHolding,
+      makeFreeSpace: @escaping @Sendable (URL) -> any InstallerFreeSpaceChecking,
+      matchesPinned: @escaping @Sendable (PinnedInstallerArtifact, URL) -> Bool,
+      requiredFreeBytes: @escaping @Sendable (UInt64) -> UInt64,
+      stage: @escaping StageHandler
+    ) {
+      self.makeNetwork = makeNetwork
+      self.makeKeepAwake = makeKeepAwake
+      self.makeFreeSpace = makeFreeSpace
+      self.matchesPinned = matchesPinned
+      self.requiredFreeBytes = requiredFreeBytes
+      self.stage = stage
+    }
+
+    public func currentState() -> PayloadPrefetchState {
+      lock.withLock { latest }
+    }
+
+    public func begin(payload: StagedInstallerArtifact) {
+      let artifact = payload.artifact
+      let canonical = payload.fileURL
+      let parent = canonical.deletingLastPathComponent()
+
+      let reuse = lock.withLock { () -> Bool in
+        if runningDigest == artifact.expectedDigest {
+          switch latest {
+          case .failed, .cancelled:
+            return false
+          default:
+            return true
+          }
+        }
+        return false
+      }
+      if reuse {
+        return
+      }
+
+      let predecessor: PayloadPrefetchController?
+      let generation: UUID
+      lock.lock()
+      predecessor = controller
+      controller = nil
+      runningDigest = artifact.expectedDigest
+      generation = UUID()
+      self.generation = generation
+      latest = .idle
+      lock.unlock()
+
+      Task {
+        if let predecessor {
+          await predecessor.cancel()
+        }
+        guard self.lock.withLock({ self.generation == generation }) else {
+          return
+        }
+
+        self.publish(.verifying)
+        if self.matchesPinned(artifact, canonical) {
+          self.publish(.verified)
+          return
+        }
+
+        let work = parent.appendingPathComponent(
+          "prefetch-\(generation.uuidString.lowercased())",
+          isDirectory: true
+        )
+        do {
+          try FileManager.default.createDirectory(
+            at: work,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+          )
+        } catch {
+          self.publish(.failed(String(describing: error)))
+          return
+        }
+
+        let controller = PayloadPrefetchController(
+          network: self.makeNetwork(),
+          freeSpace: self.makeFreeSpace(work),
+          keepAwake: self.makeKeepAwake(),
+          onState: { [weak self] state in
+            guard let self, self.lock.withLock({ self.generation == generation }) else {
+              return
+            }
+            self.publish(state)
+          }
+        )
+        self.lock.withLock {
+          guard self.generation == generation else { return }
+          self.controller = controller
+        }
+
+        let required = self.requiredFreeBytes(artifact.expectedSizeBytes)
+        await controller.start(requiredBytes: required) {
+          let staged = try await self.stage(artifact, work) { event in
+            Task {
+              await controller.reportDownload(
+                completed: event.bytesCompleted,
+                total: event.totalBytes
+              )
+              if event.phase == .verified || event.phase == .assembling {
+                await controller.reportVerifying()
+              }
+            }
+          }
+          try self.promote(staged.fileURL, to: canonical)
+          try? FileManager.default.removeItem(at: work)
+        }
+      }
+    }
+
+    public func waitUntilVerified(
+      progress: @escaping @Sendable (PayloadPrefetchState) -> Void
+    ) async throws {
+      let token = UUID()
+      let current: PayloadPrefetchState = lock.withLock {
+        observers[token] = progress
+        return latest
+      }
+      defer { lock.withLock { observers[token] = nil } }
+      progress(current)
+      switch current {
+      case .verified:
+        return
+      case .failed(let message):
+        throw PayloadPrefetchError.failed(message)
+      case .cancelled:
+        throw PayloadPrefetchError.cancelled
+      default:
+        break
+      }
+      try await withCheckedThrowingContinuation { continuation in
+        lock.lock()
+        switch latest {
+        case .verified:
+          lock.unlock()
+          continuation.resume()
+        case .failed(let message):
+          lock.unlock()
+          continuation.resume(throwing: PayloadPrefetchError.failed(message))
+        case .cancelled:
+          lock.unlock()
+          continuation.resume(throwing: PayloadPrefetchError.cancelled)
+        default:
+          waiters.append(continuation)
+          lock.unlock()
+        }
+      }
+    }
+
+    public func cancel() {
+      lock.lock()
+      latest = .idle
+      runningDigest = nil
+      let existing = controller
+      controller = nil
+      generation = UUID()
+      let pending = waiters
+      waiters.removeAll()
+      let observers = Array(self.observers.values)
+      lock.unlock()
+      for waiter in pending {
+        waiter.resume(throwing: PayloadPrefetchError.cancelled)
+      }
+      if let existing {
+        Task { await existing.cancel() }
+      }
+      for observer in observers {
+        observer(.idle)
+      }
+    }
+
+    private func publish(_ state: PayloadPrefetchState) {
+      let observers: [@Sendable (PayloadPrefetchState) -> Void]
+      let pending: [CheckedContinuation<Void, any Error>]
+      lock.lock()
+      latest = state
+      observers = Array(self.observers.values)
+      switch state {
+      case .verified:
+        pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for waiter in pending {
+          waiter.resume()
+        }
+      case .failed(let message):
+        pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for waiter in pending {
+          waiter.resume(throwing: PayloadPrefetchError.failed(message))
+        }
+      case .cancelled:
+        pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for waiter in pending {
+          waiter.resume(throwing: PayloadPrefetchError.cancelled)
+        }
+      default:
+        pending = []
+        lock.unlock()
+      }
+      _ = pending
+      for observer in observers {
+        observer(state)
+      }
+    }
+
+    private func promote(_ staged: URL, to canonical: URL) throws {
+      let fileManager = FileManager.default
+      guard staged != canonical else { return }
+      if fileManager.fileExists(atPath: canonical.path) {
+        _ = try fileManager.replaceItemAt(canonical, withItemAt: staged)
+      } else {
+        try fileManager.moveItem(at: staged, to: canonical)
+      }
+    }
+  }
 #endif
