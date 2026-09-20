@@ -39,12 +39,29 @@ case "$*" in
   -Qq) cat "$TEST_FILES/installed" ;;
   "-Qlq "*) [[ -f $TEST_FILES/$2 ]] && cat "$TEST_FILES/$2" ;;
   "-Qkk "*)
-    if [[ ${TEST_QKK_FAIL:-} == "$2" ]]; then
-      printf 'warning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/vmlinuz (Size mismatch)\n%s: 2 total files, 1 altered files\n' "$2" "$2"
-      exit 1
-    fi
+    # pacman prints warnings on stderr and the summary on stdout.
+    [[ ${LC_ALL:-} == C ]] || { echo "pacman -Qkk without LC_ALL=C" >&2; exit 3; }
+    case ${TEST_QKK_FAIL:-} in
+      "$2")
+        printf 'warning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/vmlinuz (Size mismatch)\n' "$2" >&2
+        printf '%s: 2 total files, 1 altered files\n' "$2"
+        exit 1
+        ;;
+      "$2:modules-size")
+        printf 'warning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/modules.dep (Size mismatch)\n' "$2" >&2
+        printf '%s: 2 total files, 1 altered files\n' "$2"
+        exit 1
+        ;;
+      "$2:missing")
+        printf 'warning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/modules.dep (No such file or directory)\n' "$2" >&2
+        printf '%s: 2 total files, 1 altered files\n' "$2"
+        exit 1
+        ;;
+      "$2:silent") exit 1 ;;
+    esac
     if [[ ${TEST_QKK_DEPMOD:-} == "$2" ]]; then
-      printf 'warning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/modules.dep (Modification time mismatch)\nwarning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/modules.alias.bin (Modification time mismatch)\n%s: 2353 total files, 2 altered files\n' "$2" "$2" "$2"
+      printf 'warning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/modules.dep (Modification time mismatch)\nwarning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/modules.alias.bin (Modification time mismatch)\n' "$2" "$2" >&2
+      printf '%s: 2353 total files, 2 altered files\n' "$2"
       exit 1
     fi
     printf '%s: 2 total files, 0 altered files\n' "$2"
@@ -518,6 +535,13 @@ unset TEST_QKK_FAIL
 TEST_QKK_DEPMOD=linux-aurora run_check
 expect_pass "depmod-rewritten modules.* files with only their modification time changed"
 unset TEST_QKK_DEPMOD
+TEST_QKK_FAIL=linux-aurora:modules-size run_check
+expect_fail "a modules.* file of another size" "linux-aurora files do not match the package mtree"
+TEST_QKK_FAIL=linux-aurora:missing run_check
+expect_fail "a missing modules.* file" "linux-aurora files do not match the package mtree"
+TEST_QKK_FAIL=linux-aurora:silent run_check
+expect_fail "a pacman -Qkk that fails without a word" "pacman -Qkk linux-aurora failed"
+unset TEST_QKK_FAIL
 system linux-aurora
 rm "$root/var/lib/omarchy/aurora-target.descriptor"
 run_check

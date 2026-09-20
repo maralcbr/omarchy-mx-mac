@@ -90,9 +90,16 @@ done
 # modules.* and the depmod hook rewrites them on every install, so their
 # modification times never match. Anything else altered or missing fails.
 for package in "$kernel" "$bootloader"; do
-  altered=$(pacman -Qkk "$package" 2>&1 | grep -Ev ' altered files$' |
+  set +e
+  mtree_output=$(LC_ALL=C pacman -Qkk "$package" 2>&1)
+  mtree_status=$?
+  set -e
+  altered=$(grep -Ev ' altered files$' <<<"$mtree_output" |
     grep -Ev '^warning: [^:]+: /usr/lib/modules/[^/]+/modules\.[A-Za-z.]+ \(Modification time mismatch\)$' || true)
   [[ -z $altered ]] || fail "installed $package files do not match the package mtree: $(head -n 1 <<<"$altered")"
+  # pacman exits 1 for the depmod lines alone; any other failure is one.
+  (( mtree_status == 0 )) || grep -Fq '(Modification time mismatch)' <<<"$mtree_output" ||
+    fail "pacman -Qkk $package failed"
 done
 
 pacman -Qlq "$kernel" >"$workdir/kernel-files" 2>/dev/null || fail "cannot list the files of $kernel"
