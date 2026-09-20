@@ -10,7 +10,8 @@
 # groups system setup recorded, finalizes it offline from the stashed Node
 # tarball, re-keys LUKS from the throwaway install passphrase to the user's
 # password, and hands off to SDDM. On Apple Silicon it also adds a one-time
-# recovery keyslot, shreds the ESP auto-unlock key, and drops rd.luks.key= so
+# recovery keyslot, shreds the Boot-partition auto-unlock key, drops
+# rd.luks.key=, rebuilds the initramfs, and marks encrypt.state finished so
 # later boots prompt.
 
 set -euo pipefail
@@ -18,8 +19,10 @@ set -euo pipefail
 PROVISIONING_DIR="${OMARCHY_PROVISIONING_DIR:-/var/lib/omarchy/provisioning}"
 OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 LOG_FILE="${OMARCHY_PROVISION_OWNER_LOG:-/var/log/omarchy-provision-owner.log}"
-ESP_LUKS_KEY="${OMARCHY_ESP_LUKS_KEY:-/boot/efi/omarchy/luks-key}"
+BOOT_LUKS_KEY="${OMARCHY_BOOT_LUKS_KEY:-/boot/omarchy/luks-key}"
+ENCRYPT_STATE="${OMARCHY_ENCRYPT_STATE:-/boot/omarchy/encrypt.state}"
 GRUB_DEFAULT="${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}"
+RECOVERY_ACK_PHRASE="I wrote it down"
 
 export PATH="$OMARCHY_PATH/bin:$PATH"
 
@@ -862,32 +865,67 @@ grub_drop_rd_luks_key() {
   rm -f "$tmp"
 }
 
-# Show the recovery passphrase once, full-screen, until the owner confirms they
-# have written it down. The value is never written to disk.
+# Show the recovery passphrase once, full-screen, until the owner types the
+# acknowledgement phrase. No re-show path. The value is never written to disk
+# and the screen is cleared afterwards so it does not linger.
 show_recovery_key() {
-  local key="$1"
+  local key="$1" typed=""
   [[ -n $key ]] || return 0
+  clear_logo
+  echo
+  say "This is your disk recovery key. Write it down and keep it somewhere safe."
+  say "It will not be shown again, and it is not stored on this machine."
+  echo
+  gum style --bold --foreground 3 --padding "1 0 1 $PADDING_LEFT" "$key"
+  echo
+  say "Type '$RECOVERY_ACK_PHRASE' to continue."
   while true; do
-    clear_logo
-    echo
-    say "This is your disk recovery key. Write it down and keep it somewhere safe."
-    say "It will not be shown again, and it is not stored on this machine."
-    echo
-    gum style --bold --foreground 3 --padding "1 0 1 $PADDING_LEFT" "$key"
-    echo
-    if gum confirm --affirmative "I have written it down" --negative "Show it again" \
-      "Have you written this recovery key down?"; then
-      break
-    fi
+    typed=$(gum input --placeholder "$RECOVERY_ACK_PHRASE" --prompt "> ") || true
+    [[ $typed == "$RECOVERY_ACK_PHRASE" ]] && break
+    say --foreground 1 "Type exactly: $RECOVERY_ACK_PHRASE"
   done
+  clear_logo
 }
 
 shred_luks_keyfiles() {
   local file
-  for file in "$PROVISIONING_DIR/luks-key" "$ESP_LUKS_KEY"; do
+  for file in "$PROVISIONING_DIR/luks-key" "$BOOT_LUKS_KEY"; do
     [[ -e $file ]] || continue
     shred -u "$file" 2>/dev/null || rm -f "$file"
   done
+}
+
+# Transaction state lives on the ext4 Boot partition (v3 item 1b). Preserve
+# partition= and luks_uuid= from T4a; only the phase moves to finished.
+mark_encrypt_finished() {
+  local device=$1
+  local format=1 partition="" luks_uuid="" line key value tmp
+
+  if [[ -f $ENCRYPT_STATE ]]; then
+    while IFS= read -r line || [[ -n $line ]]; do
+      [[ $line == *=* ]] || continue
+      key=${line%%=*}
+      value=${line#*=}
+      case $key in
+        format) format=$value ;;
+        partition) partition=$value ;;
+        luks_uuid) luks_uuid=$value ;;
+      esac
+    done <"$ENCRYPT_STATE"
+  fi
+  [[ $format == 1 ]] || format=1
+  [[ -n $luks_uuid ]] || luks_uuid=$(cryptsetup luksUUID "$device" 2>/dev/null || true)
+  if [[ -z $partition ]]; then
+    partition=$(lsblk -no PARTUUID "$device" 2>/dev/null || true)
+    partition=${partition%%$'\n'*}
+  fi
+
+  install -d -m 755 "$(dirname "$ENCRYPT_STATE")"
+  tmp=$(mktemp "${ENCRYPT_STATE}.XXXXXX")
+  printf 'format=%s\nphase=finished\npartition=%s\nluks_uuid=%s\n' \
+    "$format" "$partition" "$luks_uuid" >"$tmp"
+  chmod 644 "$tmp"
+  mv -f "$tmp" "$ENCRYPT_STATE"
 }
 
 # Identify the slot unlocked by $1 (passphrase) on $2 (device).
@@ -921,7 +959,8 @@ luks_kill_other_slots() {
 }
 
 # Apple Silicon: GRUB + sd-encrypt. Drop rd.luks.key= via update-grub (the same
-# path the fresh installer uses), add a recovery keyslot, shred both keyfiles.
+# path the fresh installer uses), rebuild the initramfs, add a recovery keyslot,
+# shred both keyfiles, and mark /boot/omarchy/encrypt.state phase=finished.
 rekey_luks_apple() {
   local device="$1" recovery_slot new_slot backup
 
@@ -940,8 +979,10 @@ rekey_luks_apple() {
     return 1
   }
   cp -a "$GRUB_DEFAULT" "$backup"
-  if ! grub_drop_rd_luks_key "$GRUB_DEFAULT" || ! update-grub >>"$LOG_FILE" 2>&1; then
-    log_step "update-grub failed during re-key; restoring rd.luks.key= for retry"
+  if ! grub_drop_rd_luks_key "$GRUB_DEFAULT" ||
+    ! update-grub >>"$LOG_FILE" 2>&1 ||
+    ! mkinitcpio -P </dev/null >>"$LOG_FILE" 2>&1; then
+    log_step "update-grub or mkinitcpio failed during re-key; restoring rd.luks.key= for retry"
     mv -f "$backup" "$GRUB_DEFAULT"
     update-grub >>"$LOG_FILE" 2>&1 || true
     return 1
@@ -957,6 +998,7 @@ rekey_luks_apple() {
   fi
   luks_kill_other_slots "$device" "$password" "$new_slot" "$recovery_slot" || return 1
   shred_luks_keyfiles
+  mark_encrypt_finished "$device"
 }
 
 # Intel/Limine: rebuild the UKI without the embedded auto-unlock keyfile, then
