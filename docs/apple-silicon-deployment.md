@@ -331,6 +331,16 @@ configuration to stay byte-identical across retries, every attempt reruns
 carries its modules and that `grub.cfg` boots both. It ends without a reboot
 instruction.
 
+`omarchy-install-asahi-fresh --offline` is the matching first-boot path for an
+image that already carries the package closure. It does not call
+`omarchy-update-asahi-repository --bootstrap`; it checks that `[omarchy]` already
+names the `asahi-packages-stable-<sha>` Server in `OMARCHY_ASAHI_KEEP_SERVER`,
+runs the Aurora updater with `OMARCHY_AURORA_OFFLINE=1`, and installs with
+`pacman -Su` (never `-Sy`/`-Syu`) after `pacman -Sup` and `pacman -Up --print`
+confirm every named archive is in `/var/cache/pacman/pkg` with the database
+sha256. `LocalFileSigLevel` must be `Required`. `--offline` works with or
+without `--deferred-user`. A cache or signature-policy mismatch exits 4.
+
 **Never withdraw the bootstrap package release.**
 `asahi-packages-784daa3efaecfa81b5b4da888b524e6ec4574d24` is what
 `install/hardware/pacman.sh` still writes on paths with no `[omarchy]` section

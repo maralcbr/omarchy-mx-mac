@@ -882,3 +882,37 @@ reset_run
 TEST_SCRIPT="$ROOT/bin/omarchy-apple-silicon-channel" run_status locked bash "$updater"
 expect_repinned "an updater that inherited the channel lock from locked"
 pass "re-entry needs a descriptor that holds the channel lock on the record's directory, and the update lock"
+
+# Offline mode: the section is already on the pin and a trusted staged descriptor
+# matches that digest, so nothing is downloaded. Curl is stubbed to fail.
+printf 'linux-aurora\n' >"$marker"
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$channel_record"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+install -m 0644 "$assets/$new_tag/AURORA" "$staged_descriptor"
+reset_run
+OMARCHY_AURORA_OFFLINE=1 TEST_CURL_OFFLINE=1 run_status
+(( status == 0 )) || fail "offline mode on the pin with a staged descriptor succeeds" "status $status: $(cat "$test_tmp/err")"
+[[ ! -s $curl_log ]] || fail "offline mode on the pin downloads nothing" "$(cat "$curl_log")"
+expect_untouched "offline mode on the pin with a staged descriptor"
+pass "OMARCHY_AURORA_OFFLINE=1 accepts the staged pin descriptor and does not download"
+
+rm -f "$staged_descriptor"
+reset_run
+OMARCHY_AURORA_OFFLINE=1 TEST_CURL_OFFLINE=1 run_status
+(( status == 2 )) || fail "offline mode without a staged descriptor fails closed" "status $status: $(cat "$test_tmp/err")"
+grep -Fq "offline mode requires a trusted staged descriptor matching $new_tag" "$test_tmp/err" ||
+  fail "offline mode names the missing staged descriptor" "$(cat "$test_tmp/err")"
+[[ ! -s $curl_log ]] || fail "offline mode without a staged descriptor does not curl" "$(cat "$curl_log")"
+expect_untouched "offline mode without a staged descriptor"
+pass "OMARCHY_AURORA_OFFLINE=1 refuses a download when the staged descriptor is missing"
+
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+install -m 0644 "$assets/$new_tag/AURORA" "$staged_descriptor"
+reset_run
+OMARCHY_AURORA_OFFLINE=1 TEST_CURL_OFFLINE=1 run_status
+(( status == 2 )) || fail "offline mode off the pin fails closed" "status $status: $(cat "$test_tmp/err")"
+grep -Fq "offline mode requires [omarchy-aurora] on $new_tag" "$test_tmp/err" ||
+  fail "offline mode names the pin it requires" "$(cat "$test_tmp/err")"
+[[ ! -s $curl_log ]] || fail "offline mode off the pin does not curl" "$(cat "$curl_log")"
+expect_untouched "offline mode off the pin"
+pass "OMARCHY_AURORA_OFFLINE=1 refuses to move [omarchy-aurora] and does not download"

@@ -361,3 +361,12 @@ alarm_conf
 OMARCHY_ASAHI_KEEP_SERVER="$candidate_server" run_leaf 0
 [[ $(omarchy_server) == "$bootstrap_server" ]] || fail "OMARCHY_ASAHI_KEEP_SERVER never invents a section's Server"
 pass "every path without the fresh installer's kept Server behaves as before"
+
+alarm_conf "$(printf '[omarchy]\nSigLevel = Never\nServer = %s' "$candidate_server")"
+seed_cache
+: >"$calls"
+OMARCHY_ASAHI_KEEP_SERVER=$candidate_server OMARCHY_ASAHI_OFFLINE=1 run_leaf 0
+[[ $(omarchy_server) == "$candidate_server" ]] || fail "offline system setup still keeps the installer's Server"
+grep -Fxq 'SigLevel = Required DatabaseOptional' "$pacman_conf" || fail "offline system setup still repairs SigLevel"
+! grep -Fq 'pacman:-Sy' "$calls" || fail "offline system setup does not refresh repositories" "$(cat "$calls")"
+pass "OMARCHY_ASAHI_OFFLINE=1 repairs [omarchy] without pacman -Sy"

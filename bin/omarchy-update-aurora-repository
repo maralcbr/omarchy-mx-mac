@@ -61,6 +61,10 @@ fail() {
   exit 2
 }
 
+refuse_offline_download() {
+  [[ ${OMARCHY_AURORA_OFFLINE:-} != 1 ]] || fail "offline mode refuses to download $1"
+}
+
 mode=update
 case "${1:-}" in
   "") ;;
@@ -421,6 +425,7 @@ read_edge_pointer() {
 listed_edge_sequence() {
   local page highest="" found
   for (( page = 1; page <= listing_page_limit; page++ )); do
+    refuse_offline_download "$releases_api_url&page=$page"
     curl --fail --location --silent --proto '=https' --tlsv1.2 --max-time 30 \
       "$releases_api_url&page=$page" --output "$workdir/releases.json" || return 1
     jq -e 'type == "array"' "$workdir/releases.json" >/dev/null 2>&1 || return 1
@@ -447,6 +452,7 @@ listed_edge_sequence() {
 # pointer can hold a Mac back, never move it below the release it accepted.
 discover_edge() {
   local pointer_status=0 pointer_sequence="" listed="" listing=1
+  refuse_offline_download "$edge_pointer_url"
   curl --fail --location --silent --proto '=https' --tlsv1.2 --max-time 20 --max-filesize 256 \
     "$edge_pointer_url" --output "$workdir/pointer" || pointer_status=$?
   if (( pointer_status == 0 || pointer_status == 63 )); then
@@ -493,9 +499,12 @@ plan_defer() {
 gpg_ready=0
 prepare_gpg() {
   (( ! gpg_ready )) || return 0
-  for command in curl gpg sha256sum; do
+  for command in gpg sha256sum; do
     omarchy-cmd-present "$command" || fail "$command is required"
   done
+  if [[ ${OMARCHY_AURORA_OFFLINE:-} != 1 ]]; then
+    omarchy-cmd-present curl || fail "curl is required"
+  fi
   gnupg_dir="$workdir/gnupg"
   mkdir -m 0700 "$gnupg_dir"
   [[ -r $trusted_key_file ]] || fail "trusted Omarchy ARM repository key is not installed"
@@ -528,12 +537,20 @@ verify_signature() {
 # under that digest is reused; an edge one is fetched again each time.
 obtain_descriptor() {
   local server="https://github.com/$repo/releases/download/$target_tag" digest
+  if [[ ${OMARCHY_AURORA_OFFLINE:-} == 1 ]]; then
+    trusted_staged "$target_digest" || fail "offline mode requires a trusted staged descriptor matching $target_tag"
+    cp "$staged_descriptor" "$descriptor"
+    read_descriptor "$descriptor" || fail "the staged descriptor for $target_tag is malformed"
+    return 0
+  fi
   if [[ ! $target_tag =~ $edge_tag_pattern ]] && trusted_staged "$target_digest"; then
     cp "$staged_descriptor" "$descriptor"
     read_descriptor "$descriptor" || fail "the staged descriptor for $target_tag is malformed"
     return 0
   fi
   prepare_gpg
+  refuse_offline_download "$server/AURORA"
+  refuse_offline_download "$server/AURORA.sig"
   if ! curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$server/AURORA" --output "$descriptor" ||
     ! curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 "$server/AURORA.sig" --output "$descriptor.sig"; then
     if trusted_staged "$target_digest"; then
@@ -555,7 +572,27 @@ obtain_descriptor() {
 }
 
 defer="" edge_sequence=""
-if [[ $lane == rc ]]; then
+if [[ ${OMARCHY_AURORA_OFFLINE:-} == 1 ]]; then
+  if [[ $lane == edge ]]; then
+    if [[ -n $pending ]]; then
+      target_tag=aurora-edge-$pending_sequence
+      target_digest=$pending_digest
+    elif [[ -n $accepted ]]; then
+      target_tag=aurora-edge-$accepted_sequence
+      target_digest=$accepted_digest
+    else
+      fail "offline mode requires a journaled edge target"
+    fi
+  else
+    target_tag=$tag
+    target_digest=$pinned_sha256
+  fi
+  [[ $current_tag == "$target_tag" ]] ||
+    fail "offline mode requires [omarchy-aurora] on $target_tag (on ${current[*]:-no server})"
+  trusted_staged "$target_digest" ||
+    fail "offline mode requires a trusted staged descriptor matching $target_tag"
+  obtain_descriptor || exit 2
+elif [[ $lane == rc ]]; then
   # Only the pin itself or a release it names as replaced may move, and an edge
   # release only once a switch to rc was asked for. Anything else may be newer,
   # and a hand-pinned candidate is somebody's decision.

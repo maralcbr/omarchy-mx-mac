@@ -623,3 +623,25 @@ TEST_INSTALLED="linux-aurora m1n1-aurora" run_step --complete
 expect_status 0 "completing an edge switch without the headers"
 expect_lane "the switch without the headers completes" 'format=1\nlane=edge\nedge_accepted=8:%s\n' "$(digest aurora-edge-8)"
 pass "a Mac without linux-aurora-headers switches without gaining them"
+
+# Offline edge: only a journaled target with a matching staged descriptor, never a listing.
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$record"
+conf_on "$downloads/aurora-edge-5"
+write_lane 'format=1\nlane=edge\nedge_pending=5:%s\n' "$(digest aurora-edge-5)"
+cp "$assets/aurora-edge-5/AURORA" "$staged"
+chmod 0644 "$staged"
+installed_from aurora-edge-5
+OMARCHY_AURORA_OFFLINE=1 TEST_CURL_OFFLINE=1 run_step
+expect_status 0 "offline edge on its journaled pending release"
+[[ ! -s $curl_log ]] || fail "offline edge on a journaled target downloads nothing" "$(cat "$curl_log")"
+[[ $(section_tag) == aurora-edge-5 ]] || fail "offline edge leaves the journaled section"
+pass "OMARCHY_AURORA_OFFLINE=1 accepts a journaled edge target from the staged descriptor"
+
+write_lane 'format=1\nlane=edge\nswitch=edge\n'
+rm -f "$staged"
+OMARCHY_AURORA_OFFLINE=1 TEST_CURL_OFFLINE=1 run_step
+expect_status 2 "offline edge without a journaled target"
+grep -Fq "offline mode requires a journaled edge target" "$test_tmp/err" ||
+  fail "offline edge names the missing journal" "$(cat "$test_tmp/err")"
+[[ ! -s $curl_log ]] || fail "offline edge without a journal does not curl" "$(cat "$curl_log")"
+pass "OMARCHY_AURORA_OFFLINE=1 refuses edge discovery and does not download"

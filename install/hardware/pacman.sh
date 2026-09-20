@@ -111,7 +111,7 @@ if omarchy-hw-apple-silicon; then
       db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2 }' "$pacman_conf")
       rm -f "${db_path:-/var/lib/pacman}/sync/omarchy.db" "${db_path:-/var/lib/pacman}/sync/omarchy.db.sig"
     fi
-    pacman -Sy --noconfirm
+    [[ ${OMARCHY_ASAHI_OFFLINE:-} == 1 ]] || pacman -Sy --noconfirm
   fi
 fi
 
