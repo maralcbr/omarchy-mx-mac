@@ -118,8 +118,10 @@ pass "physical matrix completion is derived from every named capability"
 
 [[ $(jq -r '.release_lifecycle.stage' "$contract") == "development" ]] ||
   fail "current Apple release lifecycle remains in development"
-grep -Fq '### 1. Install Asahi Arch Minimal' "$ROOT/README.md" ||
-  fail "development README must retain the currently supported installation path"
-grep -Fq 'Only at this gate may the' "$ROOT/docs/apple-silicon-release-lifecycle.md" ||
-  fail "release lifecycle must name the gated README cutover"
-pass "current README stays truthful until the physical preview gate"
+grep -Fq 'Omarchy MX Mac Installer' "$ROOT/README.md" ||
+  fail "README must name the macOS installer app as the installation path"
+! grep -Eq 'Install Asahi Arch Minimal|installer-bootstrap\.sh' "$ROOT/README.md" ||
+  fail "README must not document the manual Asahi Arch Minimal route"
+grep -Fq 'only supported installation path' "$ROOT/docs/apple-silicon-release-lifecycle.md" ||
+  fail "release lifecycle must name the macOS installer as the only supported installation path"
+pass "README documents the macOS installer as the only installation path"

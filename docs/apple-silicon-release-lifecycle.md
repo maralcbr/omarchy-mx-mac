@@ -30,8 +30,10 @@ The commands for every step below, both lanes, are in
 4. Record generic AArch64 VM results as generic VM evidence. They may validate
    GRUB, the live root, package resolution, interruption, and reboot behavior,
    but never satisfy Apple boot or physical disk-safety gates.
-5. Do not upload, merge, publish, enable a model, or replace README installation
-   instructions during private candidate assembly.
+5. Do not upload, merge, publish, or enable a model during private candidate
+   assembly. The top-level README names the macOS Omarchy installer app as the
+   only supported installation path; the manual Asahi Arch Minimal route is not
+   documented anywhere and must not come back.
 
 ## 2. Admit one physical preview model
 
@@ -79,11 +81,11 @@ these are true:
 5. the public object set has been fetched back and every hash/signature checked.
 
 Publish to the beta channel first (`publish-channels os-promote --to beta`),
-and promote to stable only after the evidence above is complete. Only at this gate may the
-top-level README replace the current Asahi Arch Minimal instructions with the
-macOS Omarchy installer → Asahi bridge → verified Apple media flow. The README
-must name the exact allowlisted models and continue stating that Asahi supplies
-the Apple platform foundation.
+and promote to stable only after the evidence above is complete. The top-level
+README already documents the macOS Omarchy installer → Asahi bridge → verified
+Apple media flow as the only supported installation path; at this gate it must
+name the exact allowlisted models and continue stating that Asahi supplies the
+Apple platform foundation.
 
 ## 4. Promote to the standard signed channel
 
