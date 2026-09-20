@@ -3,8 +3,8 @@
 
 asahi-desktop-meta
 asahi-fwextract
-linux-asahi
-linux-asahi-headers
+linux-aurora
+linux-aurora-headers
 mesa
 mesa-demos
 mesa-utils
