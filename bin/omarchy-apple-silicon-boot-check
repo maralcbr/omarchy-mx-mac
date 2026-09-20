@@ -223,8 +223,20 @@ if (( has_crypttab_root )); then
     fail "/boot/grub/grub.cfg does not set rd.luks.name= for the encrypted root"
   sudo grep -Eq "rd\\.luks\\.name=${crypttab_uuid}=" "$grub_cfg" ||
     fail "/boot/grub/grub.cfg rd.luks.name= UUID does not match crypttab"
-  sudo grep -Fq "root=/dev/mapper/root" "$grub_cfg" ||
-    fail "/boot/grub/grub.cfg does not set root=/dev/mapper/root for the encrypted root"
+  # update-grub emits root=UUID=<filesystem inside the mapper> unless
+  # GRUB_DISABLE_LINUX_UUID is set; both name the opened root.
+  root_arg=$(sudo grep -Eo 'root=[^[:space:]]+' "$grub_cfg" | head -n 1 || true)
+  case $root_arg in
+    root=/dev/mapper/root) ;;
+    root=UUID=*)
+      mapper_uuid=$(sudo blkid -o value -s UUID /dev/mapper/root 2>/dev/null || true)
+      [[ -n $mapper_uuid && ${root_arg#root=UUID=} == "$mapper_uuid" ]] ||
+        fail "/boot/grub/grub.cfg root=UUID= does not name the filesystem on /dev/mapper/root"
+      ;;
+    *)
+      fail "/boot/grub/grub.cfg does not set root=/dev/mapper/root (or root=UUID= of its filesystem) for the encrypted root"
+      ;;
+  esac
   sd_encrypt_in_initramfs ||
     fail "/boot/initramfs-$kernel.img does not contain sd-encrypt"
 

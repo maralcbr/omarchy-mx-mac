@@ -111,6 +111,11 @@ case "$*" in
   *) exit 1 ;;
 esac
 SH
+cat >"$stub_bin/blkid" <<'SH'
+#!/bin/bash
+[[ "$*" == *"/dev/mapper/root"* && -n ${TEST_MAPPER_UUID:-} ]] || exit 2
+echo "$TEST_MAPPER_UUID"
+SH
 cat >"$stub_bin/lsblk" <<'SH'
 #!/bin/bash
 [[ -n ${TEST_LSBLK:-} && -f $TEST_LSBLK ]] && cat "$TEST_LSBLK"
@@ -221,6 +226,7 @@ run_check() {
     TEST_LUKS_SLOTS="${TEST_LUKS_SLOTS:-}" \
     TEST_INITRAMFS_ANALYZE="${TEST_INITRAMFS_ANALYZE:-$test_tmp/initramfs.analyze}" \
     TEST_LSBLK="${TEST_LSBLK:-}" \
+    TEST_MAPPER_UUID="${TEST_MAPPER_UUID:-}" \
     OMARCHY_BOOT_CHECK_ROOT="$root" \
     OMARCHY_BOOT_CHECK_UNAME="$kver" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
@@ -279,6 +285,18 @@ encrypt_root
 printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root\ninitrd /initramfs-linux-aurora.img\n' >"$root/boot/grub/grub.cfg"
 run_check
 expect_fail "an encrypted root without mapper root" "does not set root=/dev/mapper/root"
+
+system
+encrypt_root
+printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root root=UUID=1111-2222\ninitrd /initramfs-linux-aurora.img\n' >"$root/boot/grub/grub.cfg"
+TEST_MAPPER_UUID=1111-2222 run_check
+expect_pass "an encrypted root named by the UUID of the filesystem inside the mapper (what update-grub emits)"
+
+system
+encrypt_root
+printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root root=UUID=1111-2222\ninitrd /initramfs-linux-aurora.img\n' >"$root/boot/grub/grub.cfg"
+TEST_MAPPER_UUID=3333-4444 run_check
+expect_fail "an encrypted root whose root=UUID= names another filesystem" "does not name the filesystem on /dev/mapper/root"
 
 system
 encrypt_root
