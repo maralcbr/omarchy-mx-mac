@@ -14,7 +14,7 @@ Omarchy 4 (Quattro) is the maintained release.
 | What you have | What to do |
 | --- | --- |
 | A Mac with no Omarchy on it | Download the app below and install. It defaults to **Stable**. Run `omarchy update` afterwards. |
-| A Mac you want on the Aurora kernel | Same app, choose **RC** in *Release Channel*. Offered on the 14-inch M1 Pro and 16-inch M2 Max only. |
+| A Mac you want on the Aurora kernel | Same app, choose **RC** in *Release Channel*. |
 | An existing Omarchy 4 install | Run `omarchy update`. |
 | An existing Omarchy 3 install | Run `omarchy update`. It moves you to Omarchy 4. |
 
@@ -26,7 +26,9 @@ Omarchy 4 (Quattro) is the maintained release.
 > for each model.
 >
 > RC installs the Aurora kernel (`aurora-silicon/linux`), pinned to a commit
-> qualified on real hardware, and is offered only on models qualified that way.
+> qualified on real hardware. That qualification was done on the 14-inch M1 Pro
+> and the 16-inch M2 Max; other models are untested rather than excluded, so try
+> RC on yours and report what you find.
 >
 > A Mac keeps the kernel it was installed with: an Asahi Mac stays on Stable and
 > an Aurora Mac stays on RC. Pick the channel at install time.
@@ -120,9 +122,9 @@ hardware integration, and updates for Apple Silicon:
 - Asahi-aware updates that track `linux-asahi` changes and offer a reboot when
   a new kernel is installed.
 
-Hardware support still depends on Asahi Linux. Omarchy Mac has been tested on
-M1, M2, and M3 systems; external displays, speakers, cameras, suspend, and
-power management can vary by model.
+Hardware support still depends on Asahi Linux. Omarchy Mac runs on M1 and M2
+systems, and on M3 systems with GPU limitations. External displays, speakers,
+cameras, suspend, and power management can vary by model.
 
 ## Mac Screenshot Shortcuts
 
