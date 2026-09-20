@@ -38,8 +38,8 @@ Omarchy 4 (Quattro) is the maintained release.
 
 Two things carry versions here, and they do not move together:
 
-- **Packages** — what `omarchy update` gives you. Currently `4.0.4-mac.1`, and it
-  advances with every release.
+- **Packages** — the current stable version is `4.0.4-mac.1`. This is what
+  `omarchy update` gives you, and it advances with every release.
 - **Fresh-install images** — what the macOS app writes to disk. Currently
   `4.0.3-mac.1` (Stable, Asahi kernel) and `4.0.3-mac.2` (RC, Aurora kernel).
   Each image is rebuilt and re-qualified only when it needs to be, so images
