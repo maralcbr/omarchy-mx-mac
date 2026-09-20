@@ -28,16 +28,16 @@
 
 set -euo pipefail
 
-PROVISIONING_DIR=/var/lib/omarchy/provisioning
+PROVISIONING_DIR="${OMARCHY_PROVISIONING_DIR:-/var/lib/omarchy/provisioning}"
 OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 TOP_MNT=/run/omarchy-system-factory-reset/top
 NEXT_NAME=@omarchy-reset-next
-LOG_FILE=/var/log/omarchy-system-factory-reset.log
+LOG_FILE="${OMARCHY_FACTORY_RESET_LOG:-/var/log/omarchy-system-factory-reset.log}"
 
 # Self-elevate so the menu entry (and a bare shell invocation) need no sudo
 # prefix. The caller's gum theme vars are forwarded as `env` arguments rather
 # than via `sudo -E`, so styling survives even under an env_reset sudoers.
-if (( EUID != 0 )); then
+if [[ ${OMARCHY_FACTORY_RESET_SOURCE:-} != 1 ]] && (( EUID != 0 )); then
   mapfile -t gum_env < <(env | grep '^GUM_' || true)
   exec sudo env "${gum_env[@]}" "$0" "$@"
 fi
@@ -62,12 +62,21 @@ root_is_btrfs_at() {
   [[ $(findmnt -no FSTYPE /) == btrfs ]] && findmnt -no OPTIONS / | grep -q "subvol=/@\(,\|$\)"
 }
 
+apple_silicon() {
+  command -v omarchy-hw-apple-silicon >/dev/null 2>&1 && omarchy-hw-apple-silicon
+}
+
+ESP_LUKS_KEY="${OMARCHY_ESP_LUKS_KEY:-/boot/efi/omarchy/luks-key}"
+GRUB_DEFAULT="${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}"
+
 # Resolve the crypto_LUKS partition backing the root, or return non-zero if
 # the root is not on LUKS. Prefers the cmdline cryptdevice= spec (archinstall
 # writes PARTUUID=, the pre-mounted path UUID=), and falls back to walking the
 # device tree for roots reached via rd.luks/crypttab with a plain /dev/mapper
 # root and no cryptdevice=.
 luks_device() {
+  [[ -z ${OMARCHY_LUKS_DEVICE:-} ]] || { echo "$OMARCHY_LUKS_DEVICE"; return 0; }
+
   local spec
   spec=$(grep -o 'cryptdevice=[^ :]*' /proc/cmdline | head -1 | cut -d= -f2-)
   case $spec in
@@ -107,7 +116,7 @@ cleanup() {
   fi
   rmdir "$TOP_MNT" 2>/dev/null || true
 }
-trap cleanup EXIT
+[[ ${OMARCHY_FACTORY_RESET_SOURCE:-} == 1 ]] || trap cleanup EXIT
 
 confirm_reset() {
   echo
@@ -125,6 +134,47 @@ confirm_reset() {
   local typed
   typed=$(gum input --placeholder "Type 'reset' to continue" --prompt "> ") || exit 1
   [[ $typed == "reset" ]] || fail "Reset not confirmed."
+}
+
+# Insert rd.luks.key= into GRUB_CMDLINE_LINUX so the reset boot auto-unlocks
+# from the ESP keyfile (the same token T4a writes for first boot).
+grub_add_rd_luks_key() {
+  local file=$1 uuid=$2
+  local token="rd.luks.key=${uuid}=/omarchy/luks-key:UUID=4F4D-5801"
+  [[ -f $file ]] || return 1
+  grep -q 'rd.luks.key=' "$file" && return 0
+  if grep -q '^GRUB_CMDLINE_LINUX=' "$file"; then
+    sed -i -E "s|^(GRUB_CMDLINE_LINUX=\"[^\"]*)\"|\\1 ${token}\"|" "$file"
+  else
+    printf 'GRUB_CMDLINE_LINUX="%s"\n' "$token" >>"$file"
+  fi
+}
+
+# Stage the ESP keyfile and GRUB auto-unlock cmdline for Apple Silicon
+# (GRUB + sd-encrypt). The ESP is shared across subvolumes; the key lives
+# there because the throwaway must unlock before the new root exists.
+stage_luks_rekey_apple() {
+  local next="$1" device="$2" passphrase="$3" uuid crypttab_src grub_src grub_dst
+
+  uuid=$(cryptsetup luksUUID "$device") || fail "could not read the LUKS UUID of $device"
+
+  install -d -m 755 "$(dirname "$ESP_LUKS_KEY")"
+  printf '%s' "$passphrase" >"$ESP_LUKS_KEY"
+  chmod 600 "$ESP_LUKS_KEY"
+
+  crypttab_src=/etc/crypttab
+  [[ -f $crypttab_src ]] && install -Dm644 "$crypttab_src" "$next/etc/crypttab"
+
+  grub_src=$GRUB_DEFAULT
+  grub_dst="$next/etc/default/grub"
+  if [[ -f $grub_src ]]; then
+    install -Dm644 "$grub_src" "$grub_dst"
+  elif [[ -f $grub_dst ]]; then
+    :
+  else
+    fail "no /etc/default/grub to stage the LUKS cmdline"
+  fi
+  grub_add_rd_luks_key "$grub_dst" "$uuid"
 }
 
 # Re-key to a throwaway passphrase whose keyfile auto-unlocks boot during the
@@ -152,6 +202,11 @@ stage_luks_rekey() {
   install -d -m 755 "$next$PROVISIONING_DIR"
   printf '%s' "$passphrase" >"$next$PROVISIONING_DIR/luks-key"
   chmod 600 "$next$PROVISIONING_DIR/luks-key"
+
+  if apple_silicon; then
+    stage_luks_rekey_apple "$next" "$device" "$passphrase"
+    return
+  fi
 
   install -d -m 755 "$next/etc/omarchy"
   printf '%s' "$passphrase" >"$next/etc/omarchy/provisioning.key"
@@ -229,11 +284,47 @@ verify_limine_hashes() {
   done < <(grep -o 'boot():/EFI/Linux/[^#]*#[0-9a-f]*' "$root$esp/limine.conf")
 }
 
+# Rebuild initramfs, GRUB, and m1n1 from inside the next root so the deployed
+# kernel matches the factory snapshot. Bind the live /boot (vmlinuz, grub.cfg,
+# ESP) so writes land on the partitions that actually boot, not empty
+# mountpoints inside the snapshot.
+rebuild_next_boot_apple() {
+  local next="$1" dir
+
+  for dir in proc sys dev run boot; do
+    mkdir -p "$next/$dir"
+    if [[ -d /$dir ]]; then
+      mount --rbind "/$dir" "$next/$dir"
+      mount --make-rslave "$next/$dir"
+    fi
+  done
+
+  log "Rebuilding initramfs, GRUB and m1n1 from the factory system (this can take a minute)"
+  if ! chroot "$next" mkinitcpio -P </dev/null >>"$LOG_FILE" 2>&1; then
+    fail "mkinitcpio failed in the factory root (see $LOG_FILE)"
+  fi
+  if ! chroot "$next" update-grub >>"$LOG_FILE" 2>&1; then
+    fail "update-grub failed in the factory root (see $LOG_FILE)"
+  fi
+  if ! chroot "$next" update-m1n1 >>"$LOG_FILE" 2>&1; then
+    fail "update-m1n1 failed in the factory root (see $LOG_FILE)"
+  fi
+
+  for dir in boot run dev sys proc; do
+    umount -R "$next/$dir" 2>/dev/null || true
+  done
+}
+
 # Rebuild the UKI from inside the next root so the deployed kernel/initramfs
 # match the factory root's modules (the seller may have updated kernels since
 # install) and embed the auto-unlock keyfile on encrypted machines.
 rebuild_next_boot() {
   local next="$1"
+
+  if apple_silicon; then
+    rebuild_next_boot_apple "$next"
+    return
+  fi
 
   local esp_source esp_mount
   esp_mount=$(awk '$3 == "vfat" && $2 ~ /^\/(boot|efi)/ { print $2; exit }' "$next/etc/fstab")
@@ -437,5 +528,10 @@ main() {
     gum style --foreground 3 "Do not keep using this machine — changes made now will be lost."
   fi
 }
+
+# Tests source this file to exercise LUKS staging without confirming a reset.
+if [[ ${OMARCHY_FACTORY_RESET_SOURCE:-} == 1 ]]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 main "$@"
