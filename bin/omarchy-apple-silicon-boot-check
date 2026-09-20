@@ -86,9 +86,13 @@ for package in linux-aurora m1n1-aurora linux-asahi m1n1; do
   [[ $package == "$kernel" || $package == "$bootloader" ]] || ! is_installed "$package" ||
     fail "$kernel boots with $bootloader, but $package is installed too"
 done
+# The mtree check, minus the depmod outputs: the kernel package ships
+# modules.* and the depmod hook rewrites them on every install, so their
+# modification times never match. Anything else altered or missing fails.
 for package in "$kernel" "$bootloader"; do
-  pacman -Qkk "$package" >/dev/null 2>&1 ||
-    fail "installed $package files do not match the package mtree"
+  altered=$(pacman -Qkk "$package" 2>&1 | grep -Ev ' altered files$' |
+    grep -Ev '^warning: [^:]+: /usr/lib/modules/[^/]+/modules\.[A-Za-z.]+ \(Modification time mismatch\)$' || true)
+  [[ -z $altered ]] || fail "installed $package files do not match the package mtree: $(head -n 1 <<<"$altered")"
 done
 
 pacman -Qlq "$kernel" >"$workdir/kernel-files" 2>/dev/null || fail "cannot list the files of $kernel"

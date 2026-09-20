@@ -39,7 +39,15 @@ case "$*" in
   -Qq) cat "$TEST_FILES/installed" ;;
   "-Qlq "*) [[ -f $TEST_FILES/$2 ]] && cat "$TEST_FILES/$2" ;;
   "-Qkk "*)
-    [[ ${TEST_QKK_FAIL:-} != "$2" ]] || exit 1
+    if [[ ${TEST_QKK_FAIL:-} == "$2" ]]; then
+      printf 'warning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/vmlinuz (Size mismatch)\n%s: 2 total files, 1 altered files\n' "$2" "$2"
+      exit 1
+    fi
+    if [[ ${TEST_QKK_DEPMOD:-} == "$2" ]]; then
+      printf 'warning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/modules.dep (Modification time mismatch)\nwarning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/modules.alias.bin (Modification time mismatch)\n%s: 2353 total files, 2 altered files\n' "$2" "$2" "$2"
+      exit 1
+    fi
+    printf '%s: 2 total files, 0 altered files\n' "$2"
     ;;
   "-Q "*)
     [[ -f $TEST_FILES/version-$2 ]] || exit 1
@@ -251,6 +259,7 @@ run_check() {
     TEST_PARTUUID=$partuuid \
     TEST_ESP_DEVICE="$esp_device" \
     TEST_QKK_FAIL="${TEST_QKK_FAIL:-}" \
+    TEST_QKK_DEPMOD="${TEST_QKK_DEPMOD:-}" \
     OMARCHY_BOOT_CHECK_ROOT="$root" \
     OMARCHY_BOOT_CHECK_UNAME="${TEST_UNAME:-$kver}" \
     OMARCHY_APPLE_SILICON_CHANNEL_ROOT="$root" \
@@ -505,6 +514,10 @@ system linux-aurora
 TEST_QKK_FAIL=m1n1-aurora run_check
 expect_fail "altered m1n1-aurora files" "m1n1-aurora files do not match the package mtree"
 unset TEST_QKK_FAIL
+# depmod rewrites the modules.* files the kernel package ships on every install.
+TEST_QKK_DEPMOD=linux-aurora run_check
+expect_pass "depmod-rewritten modules.* files with only their modification time changed"
+unset TEST_QKK_DEPMOD
 system linux-aurora
 rm "$root/var/lib/omarchy/aurora-target.descriptor"
 run_check
