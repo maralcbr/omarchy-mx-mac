@@ -66,7 +66,8 @@ apple_silicon() {
   command -v omarchy-hw-apple-silicon >/dev/null 2>&1 && omarchy-hw-apple-silicon
 }
 
-ESP_LUKS_KEY="${OMARCHY_ESP_LUKS_KEY:-/boot/efi/omarchy/luks-key}"
+BOOT_LUKS_KEY="${OMARCHY_BOOT_LUKS_KEY:-/boot/omarchy/luks-key}"
+BOOT_FS_UUID="${OMARCHY_BOOT_FS_UUID:-4f4d5801-424f-4f54-8000-000000000001}"
 GRUB_DEFAULT="${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}"
 
 # Resolve the crypto_LUKS partition backing the root, or return non-zero if
@@ -137,10 +138,10 @@ confirm_reset() {
 }
 
 # Insert rd.luks.key= into GRUB_CMDLINE_LINUX so the reset boot auto-unlocks
-# from the ESP keyfile (the same token T4a writes for first boot).
+# from the Boot-partition keyfile (the same token T4a writes for first boot).
 grub_add_rd_luks_key() {
   local file=$1 uuid=$2
-  local token="rd.luks.key=${uuid}=/omarchy/luks-key:UUID=4F4D-5801"
+  local token="rd.luks.key=${uuid}=/omarchy/luks-key:UUID=$BOOT_FS_UUID"
   [[ -f $file ]] || return 1
   grep -q 'rd.luks.key=' "$file" && return 0
   if grep -q '^GRUB_CMDLINE_LINUX=' "$file"; then
@@ -150,17 +151,17 @@ grub_add_rd_luks_key() {
   fi
 }
 
-# Stage the ESP keyfile and GRUB auto-unlock cmdline for Apple Silicon
-# (GRUB + sd-encrypt). The ESP is shared across subvolumes; the key lives
-# there because the throwaway must unlock before the new root exists.
+# Stage the Boot-partition keyfile and GRUB auto-unlock cmdline for Apple
+# Silicon (GRUB + sd-encrypt). The ext4 Boot partition is shared across
+# subvolumes; the throwaway must unlock before the new root exists.
 stage_luks_rekey_apple() {
   local next="$1" device="$2" passphrase="$3" uuid crypttab_src grub_src grub_dst
 
   uuid=$(cryptsetup luksUUID "$device") || fail "could not read the LUKS UUID of $device"
 
-  install -d -m 755 "$(dirname "$ESP_LUKS_KEY")"
-  printf '%s' "$passphrase" >"$ESP_LUKS_KEY"
-  chmod 600 "$ESP_LUKS_KEY"
+  install -d -m 755 "$(dirname "$BOOT_LUKS_KEY")"
+  printf '%s' "$passphrase" >"$BOOT_LUKS_KEY"
+  chmod 600 "$BOOT_LUKS_KEY"
 
   crypttab_src=/etc/crypttab
   [[ -f $crypttab_src ]] && install -Dm644 "$crypttab_src" "$next/etc/crypttab"
@@ -406,8 +407,30 @@ sanitize_factory_baseline() {
   rm -rf "$factory"/var/lib/NetworkManager/* "$factory/var/lib/tailscale" "$factory/var/lib/iwd"
   rm -f "$factory/var/lib/sddm/state.conf" "$factory/etc/sddm.conf.d/autologin.conf"
   : >"$factory/etc/machine-id"
+  scrub_factory_boot_state "$factory"
 
   btrfs property set -ts "$factory" ro true
+}
+
+# @factory must not carry first-boot markers, the ESP install.conf, or the
+# Boot-partition encrypt.state (v3 item 2e). The reset re-arms markers on the
+# cloned next root, not on the sealed baseline.
+scrub_factory_boot_state() {
+  local root=$1
+  rm -f \
+    "$root/var/lib/omarchy/mac-first-boot/pending" \
+    "$root/var/lib/omarchy/mac-first-boot/install.conf" \
+    "$root/var/lib/omarchy/provisioning/pending" \
+    "$root/var/lib/omarchy/provisioning/wipe-pending" \
+    "$root/boot/efi/omarchy/install.conf" \
+    "$root/boot/omarchy/encrypt.state"
+}
+
+arm_reset_markers() {
+  local next=$1
+  install -d -m 755 "$next$PROVISIONING_DIR" "$next/var/lib/omarchy/mac-first-boot"
+  touch "$next$PROVISIONING_DIR/pending" "$next$PROVISIONING_DIR/wipe-pending" \
+    "$next/var/lib/omarchy/mac-first-boot/pending"
 }
 
 stage_full_reset() {
@@ -454,8 +477,8 @@ stage_full_reset() {
     fi
   fi
 
-  install -d -m 755 "$next$PROVISIONING_DIR"
-  touch "$next$PROVISIONING_DIR/pending" "$next$PROVISIONING_DIR/wipe-pending"
+  scrub_factory_boot_state "$next"
+  arm_reset_markers "$next"
 
   install_provisioning_units "$next" "$unit_src"
 
