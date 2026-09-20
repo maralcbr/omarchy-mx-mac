@@ -75,13 +75,12 @@ done
 pass "new Apple installs select the complete universal platform transaction"
 
 jq '.release_lifecycle.stage = "preview" |
-    .release_lifecycle.public_release_authorized = true |
-    .release_lifecycle.preview.readme_install_path = "macos-bridge-to-verified-apple-media"' \
+    .release_lifecycle.public_release_authorized = true' \
   "$contract" >"$test_tmp/preview-without-evidence.json"
 if OMARCHY_PATH="$ROOT" "$verifier" "$test_tmp/preview-without-evidence.json" >/dev/null 2>&1; then
   fail "Apple platform contract permits preview before physical evidence"
 fi
-pass "README cutover and preview publication remain gated on physical evidence"
+pass "preview publication remains gated on physical evidence"
 
 jq '.release_lifecycle.removal.mode = "delete-release-and-assets"' \
   "$contract" >"$test_tmp/destructive-removal.json"
@@ -122,6 +121,8 @@ grep -Fq 'Omarchy MX Mac Installer' "$ROOT/README.md" ||
   fail "README must name the macOS installer app as the installation path"
 ! grep -Eq 'Install Asahi Arch Minimal|installer-bootstrap\.sh' "$ROOT/README.md" ||
   fail "README must not document the manual Asahi Arch Minimal route"
+[[ $(jq -r '.release_lifecycle.preview.readme_install_path' "$contract") == "macos-installer-app-only" ]] ||
+  fail "Apple platform contract must name the macOS installer app as the README install path"
 grep -Fq 'only supported installation path' "$ROOT/docs/apple-silicon-release-lifecycle.md" ||
   fail "release lifecycle must name the macOS installer as the only supported installation path"
 pass "README documents the macOS installer as the only installation path"

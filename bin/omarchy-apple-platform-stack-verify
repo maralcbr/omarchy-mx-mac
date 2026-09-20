@@ -103,11 +103,7 @@ jq -e --argjson required_ids "$required_ids" '
     channel: "signed-apple-preview",
     enablement: "exact-device-tree-catalog-only",
     gate: "platform-ready-and-every-allowlisted-model-passes-physical-matrix",
-    readme_install_path: (if .release_lifecycle.stage == "development" then
-      "retain-current-asahi-minimal-until-preview-gate"
-    else
-      "macos-bridge-to-verified-apple-media"
-    end)
+    readme_install_path: "macos-installer-app-only"
   } and
   .release_lifecycle.promotion == {
     target: "standard-signed-omarchy-channel",
