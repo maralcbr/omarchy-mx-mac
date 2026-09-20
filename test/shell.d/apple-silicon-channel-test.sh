@@ -135,6 +135,7 @@ write_record() {
 
 rc_record='format=1\nchannel=rc\nkernel=linux-aurora\n'
 stable_record='format=1\nchannel=stable\nkernel=linux-asahi\n'
+stable_aurora_record='format=1\nchannel=stable\nkernel=linux-aurora\n'
 
 expect_record() {
   local description=$1
@@ -321,8 +322,10 @@ reset
 write_record 'format=2\nchannel=rc\nkernel=linux-aurora\n'
 invalid "an unsupported format" "$record has unsupported format 2"
 reset
-write_record 'format=1\nchannel=stable\nkernel=linux-aurora\n'
-invalid "stable paired with linux-aurora" "$record pairs channel stable with kernel linux-aurora"
+write_record "$stable_aurora_record"
+run ensure
+(( status == 0 )) || fail "stable paired with linux-aurora is kept" "status $status: $(cat "$test_tmp/err")"
+expect_record "stable:linux-aurora is an Aurora record" "$stable_aurora_record"
 reset
 write_record 'format=1\nchannel=edge\nkernel=linux-aurora\n'
 invalid "an edge channel" "$record pairs channel edge with kernel linux-aurora"
@@ -419,6 +422,12 @@ TEST_INSTALLED="$asahi_installed" run status
 expect_output "status of a stable record" 0 'channel=stable\nkernel=linux-asahi\n'
 TEST_INSTALLED="$asahi_installed" run current
 expect_output "current of a stable record" 0 'stable\n'
+reset
+write_record "$stable_aurora_record"
+run status
+expect_output "status of a stable Aurora record" 0 'channel=stable\nkernel=linux-aurora\n'
+run current
+expect_output "current of a stable Aurora record without a lane file" 0 'rc\n'
 pass "status prints the record and current prints its channel"
 
 reset
@@ -739,6 +748,11 @@ run lane
 expect_output "lane prints every field" 0 'lane=rc\nswitch=rc\nedge_accepted=%s\nedge_pending=%s\n' "$accepted" "$pending"
 run current
 expect_output "current of an rc lane" 0 'rc\n'
+write_lane 'format=1\nlane=stable\n'
+run current
+expect_output "current of an rc record whose lane is stable" 0 'stable\n'
+run lane
+expect_output "lane of a stable Aurora Mac" 0 'lane=stable\n'
 reset
 write_record "$stable_record"
 write_lane 'format=1\nlane=edge\n'
@@ -746,7 +760,14 @@ TEST_INSTALLED="$asahi_installed" run current
 expect_output "a stable record ignores a lane file" 0 'stable\n'
 TEST_INSTALLED="$asahi_installed" run lane
 expect_output "the lane of a stable Mac is rc" 0 'lane=rc\n'
-pass "current reports edge only for an rc record whose lane file says so, and status keeps the record's shape"
+reset
+write_record "$stable_aurora_record"
+write_lane 'format=1\nlane=stable\n'
+run current
+expect_output "current of a stable Aurora record whose lane is stable" 0 'stable\n'
+run lane
+expect_output "lane of a stable:linux-aurora Mac" 0 'lane=stable\n'
+pass "current reports edge only for an Aurora record whose lane file says so, and status keeps the record's shape"
 
 lane_invalid() {
   local description=$1 message=$2
@@ -762,10 +783,10 @@ write_lane 'format=2\nlane=edge\n'
 lane_invalid "format 2" "$lane_file has unsupported format 2"
 write_lane 'format=1\nlane=edge\nsequence=4\n'
 lane_invalid "an unknown key" "$lane_file has unknown key sequence"
-write_lane 'format=1\nlane=stable\n'
-lane_invalid "a stable lane" "$lane_file has lane stable, which is neither rc nor edge"
+write_lane 'format=1\nlane=dev\n'
+lane_invalid "a dev lane" "$lane_file has lane dev, which is not stable, rc or edge"
 write_lane 'format=1\nlane=edge\nswitch=dev\n'
-lane_invalid "a dev switch" "$lane_file has switch dev, which is neither rc nor edge"
+lane_invalid "a dev switch" "$lane_file has switch dev, which is not stable, rc or edge"
 write_lane 'format=1\nlane=edge\nlane=rc\n'
 lane_invalid "a repeated key" "$lane_file repeats lane"
 write_lane 'format=1\n'
@@ -776,6 +797,11 @@ for value in "04:$(printf 'a%.0s' {1..64})" "4:$(printf 'a%.0s' {1..63})" "4:$(p
   write_lane 'format=1\nlane=edge\nedge_accepted=%s\n' "$value"
   lane_invalid "edge_accepted=$value" "$lane_file has a malformed edge_accepted"
 done
+write_lane 'format=1\nlane=edge\nreboot_pending=2\n'
+lane_invalid "a malformed reboot_pending" "$lane_file has a malformed reboot_pending"
+write_lane 'format=1\nlane=edge\nreboot_pending=1\n'
+run lane
+expect_output "lane with reboot_pending" 0 'lane=edge\nreboot_pending=1\n'
 write_lane 'format=1\r\nlane=edge\r\n'
 lane_invalid "CRLF" "$lane_file line 1 is not key=value"
 write_lane 'format=1\nlane=edge\n'
@@ -800,7 +826,13 @@ expect_lane "lane-write adds a field and keeps the others" 'format=1\nlane=edge\
 grep -Eq "^sudo:mv -f $state_dir/\.apple-silicon-aurora-lane\.[A-Za-z0-9]{6} $lane_file\$" "$calls" || fail "the lane file is renamed into place" "$(cat "$calls")"
 run locked bash "$helper" lane-write "edge_accepted=$pending" edge_pending= switch=
 expect_lane "lane-write clears fields given empty" 'format=1\nlane=edge\nedge_accepted=%s\n' "$pending"
-for bad in lane= lane=stable switch=dev edge_pending=07:x hold=x nonsense; do
+run locked bash "$helper" lane-write lane=stable
+expect_lane "lane-write accepts stable" 'format=1\nlane=stable\nedge_accepted=%s\n' "$pending"
+run locked bash "$helper" lane-write reboot_pending=1
+expect_lane "lane-write records a pending reboot" 'format=1\nlane=stable\nedge_accepted=%s\nreboot_pending=1\n' "$pending"
+run locked bash "$helper" lane-write reboot_pending=
+expect_lane "lane-write clears reboot_pending" 'format=1\nlane=stable\nedge_accepted=%s\n' "$pending"
+for bad in lane= lane=dev switch=dev edge_pending=07:x reboot_pending=yes hold=x nonsense; do
   cp "$lane_file" "$test_tmp/lane-before"
   run locked bash "$helper" lane-write "$bad"
   (( status == 2 )) || fail "lane-write refuses $bad" "status $status"
@@ -841,7 +873,7 @@ grep -Fq "the update lock is not held" "$test_tmp/err" || fail "switch explains 
 write_record "${rc_record}hold=%s\n" "qualifying by hand"
 switch_refused "a held Mac" "this Mac's channel is held (qualifying by hand)" edge
 write_record "$stable_record"
-TEST_INSTALLED="$asahi_installed" switch_refused "a stable Mac" "this Mac runs linux-asahi on stable" edge
+TEST_INSTALLED="$asahi_installed" switch_refused "a stable Asahi Mac" "this Mac runs linux-asahi on stable" edge
 write_record 'format=1\nchannel=rc\nkernel=linux-aurora\nkernel=linux-aurora\n'
 switch_refused "an invalid record" "$record repeats kernel" rc
 write_record "$rc_record"
@@ -867,7 +899,7 @@ write_lane 'format=1\nlane=edge\nsurprise=1\n'
 switch_refused "a malformed lane file" "has unknown key surprise; omarchy-apple-silicon-channel reset-rc" rc
 rm -f "$lane_file" "$test_tmp/lane-before"
 [[ ! -e $lane_file ]] || fail "refusals write no lane file"
-pass "switch needs the update lock and refuses holds, stable, invalid records, pacman holds as pacman reads them, a missing hook and a malformed lane without writing"
+pass "switch needs the update lock and refuses holds, legacy Asahi, invalid records, pacman holds as pacman reads them, a missing hook and a malformed lane without writing"
 
 lane_reset
 printf '[options]\nIgnoreGroup = m1n1-*\n' >"$pacman_conf"
@@ -899,7 +931,37 @@ grep -Fq "already follows rc" "$test_tmp/out" && [[ ! -e $lane_file ]] || fail "
 printf '[omarchy-aurora]\nServer = https://github.com/maralcbr/omarchy-pkgs/releases/download/aurora-edge-7\n' >>"$pacman_conf"
 run_under_update_lock switch rc
 expect_lane "rc on a section left on edge is a switch back" 'format=1\nlane=rc\nswitch=rc\n'
+lane_reset
+run_under_update_lock switch stable
+(( status == 0 )) || fail "an rc Mac switches to stable" "status $status: $(cat "$test_tmp/err")"
+expect_lane "switch stable writes the requested lane" 'format=1\nlane=stable\nswitch=stable\n'
+run current
+expect_output "current right after switching to stable" 0 'stable\n'
+run_under_update_lock switch edge
+expect_lane "stable then edge" 'format=1\nlane=edge\nswitch=edge\n'
+run_under_update_lock switch rc
+expect_lane "edge then rc" 'format=1\nlane=rc\nswitch=rc\n'
+write_lane 'format=1\nlane=stable\n'
+run_under_update_lock switch stable
+grep -Fq "already follows stable" "$test_tmp/out" && cmp -s "$test_tmp/lane-before" "$lane_file" ||
+  fail "a Mac settled on stable stays as it is" "$(cat "$test_tmp/out")"
+printf '[omarchy-aurora]\nServer = https://github.com/maralcbr/omarchy-pkgs/releases/download/aurora-edge-7\n' >>"$pacman_conf"
+run_under_update_lock switch stable
+expect_lane "stable on a section left on edge is a switch back" 'format=1\nlane=stable\nswitch=stable\n'
 pass "switch records lane and switch, the last request wins, repeats are no-ops, and rc still returns a section left on edge"
+pass "switch walks rc to stable to edge to rc, and stable still returns a section left on edge"
+
+lane_reset
+write_record "$stable_aurora_record"
+run_under_update_lock switch edge
+(( status == 0 )) || fail "a stable Aurora Mac switches to edge" "status $status: $(cat "$test_tmp/err")"
+expect_lane "stable:linux-aurora can switch to edge" 'format=1\nlane=edge\nswitch=edge\n'
+cmp -s "$test_tmp/record-before" "$record" || fail "switching a stable Aurora Mac leaves the record"
+run current
+expect_output "current of stable:linux-aurora after switching to edge" 0 'edge\n'
+run_under_update_lock switch stable
+expect_lane "stable Aurora Mac switching back to stable" 'format=1\nlane=stable\nswitch=stable\n'
+pass "stable:linux-aurora has an Aurora lane and can switch like rc"
 
 # A hold that commits while switch waits for the lock is read under it.
 lane_reset
@@ -939,7 +1001,8 @@ run reset-rc
 write_record "$stable_record"
 rm -f "$lane_file"
 TEST_INSTALLED="$asahi_installed" run reset-rc
-(( status == 2 )) && [[ ! -e $lane_file ]] || fail "reset-rc refuses a stable Mac" "status $status"
+(( status == 2 )) && grep -Fq "follows stable on linux-asahi, which has no Aurora lane" "$test_tmp/err" ||
+  fail "reset-rc refuses a legacy Asahi Mac" "status $status: $(cat "$test_tmp/err")"
 pass "reset-rc writes lane=rc switch=rc, keeps edge history, repairs malformed content and refuses what is not a file"
 
 # held reports what pacman holds, the way the updater warns about it.

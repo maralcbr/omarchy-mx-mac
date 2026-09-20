@@ -62,6 +62,10 @@ SH
 cat >"$stub_bin/omarchy-apple-silicon-boot-check" <<'SH'
 #!/bin/bash
 echo "boot-check $*" >>"$TEST_CALLS"
+if [[ ${TEST_UNAME_MISMATCH:-0} == 1 && ${OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT:-0} != 1 ]]; then
+  echo "Apple Silicon boot check: running kernel is 6.16.0-old-ARCH, not the installed linux-aurora" >&2
+  exit 1
+fi
 [[ ${TEST_BOOT_STATUS:-0} == 0 ]] || echo "Aurora boot check: m1n1/boot.bin on the system ESP is stale" >&2
 exit "${TEST_BOOT_STATUS:-0}"
 SH
@@ -189,6 +193,8 @@ write_release() {
   local tag=$1 extra=${2:-} kernel channel=aurora sequence=""
   if [[ $tag == aurora-edge-* ]]; then
     channel=aurora-edge sequence=${tag#aurora-edge-} kernel=6.18.0.aurora1.$sequence-1
+  elif [[ $tag == aurora-stable-packages-* ]]; then
+    channel=aurora-stable kernel=6.16.0.aurora1-1
   else
     kernel=6.17.0.aurora1-1
   fi
@@ -509,6 +515,30 @@ defer_expected() {
   expect_no_targets "$description"
   grep -Fq "Aurora edge: " "$test_tmp/err" || fail "$description says why" "$(cat "$test_tmp/err")"
 }
+
+snapshot_repo() {
+  cp "$pacman_conf" "$test_tmp/conf-before"
+  if [[ -e $staged ]]; then
+    cp "$staged" "$test_tmp/staged-before"
+  else
+    rm -f "$test_tmp/staged-before"
+  fi
+}
+
+# Discovery failed from a pin: keep that release, rewrite nothing, stage nothing else.
+defer_unmoved() {
+  local description=$1 section=$2
+  expect_status 3 "$description"
+  [[ $(section_tag) == "$section" ]] || fail "$description leaves the section" "$(section_tag)"
+  cmp -s "$test_tmp/conf-before" "$pacman_conf" || fail "$description does not rewrite pacman.conf" "$(diff "$test_tmp/conf-before" "$pacman_conf" || true)"
+  if [[ -e $test_tmp/staged-before ]]; then
+    cmp -s "$test_tmp/staged-before" "$staged" || fail "$description does not stage another descriptor"
+  else
+    [[ ! -e $staged ]] || fail "$description stages no descriptor"
+  fi
+  expect_no_targets "$description"
+  grep -Fq "Aurora edge: " "$test_tmp/err" || fail "$description says why" "$(cat "$test_tmp/err")"
+}
 rm -f "$assets/pointer"
 pages=()
 for page in $(seq 10); do
@@ -539,12 +569,14 @@ conf_on "$downloads/$pin_tag"
 installed_from "$pin_tag"
 write_lane 'format=1\nlane=edge\nswitch=edge\n'
 rm -f "$assets/pointer"
+snapshot_repo
 run_step
-defer_expected "first contact with neither pointer nor listing" "$pin_tag"
+defer_unmoved "first contact with neither pointer nor listing" "$pin_tag"
 expect_lane "a deferred switch stays open" 'format=1\nlane=edge\nswitch=edge\n'
 write_listing ""
+snapshot_repo
 run_step
-defer_expected "first contact with no edge release published" "$pin_tag"
+defer_unmoved "first contact with no edge release published" "$pin_tag"
 grep -Fq "no edge release is published yet" "$test_tmp/err" || fail "an empty edge lane is named" "$(cat "$test_tmp/err")"
 printf '[\n' >"$assets/api/page-1.json"
 write_pointer 7
@@ -552,7 +584,62 @@ run_step
 expect_status 0 "first contact with the listing down and a pointer"
 [[ $(section_tag) == aurora-edge-7 ]] || fail "first contact follows the pointer when the listing is down" "$(section_tag)"
 grep -Fq "follows the edge pointer to aurora-edge-7" "$test_tmp/err" || fail "following the pointer alone is logged" "$(cat "$test_tmp/err")"
-pass "first contact defers on the rc pin without a listing or a pointer, and otherwise logs following the pointer alone"
+pass "first contact keeps the current pin without a listing or a pointer, and otherwise logs following the pointer alone"
+
+# Failed edge discovery from a stable repository must not fall back to the rc pin.
+stable_discovery_tag=aurora-stable-packages-77cb8f2477cb8f2477cb8f2477cb8f2477cb8f24
+write_release "$stable_discovery_tag"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' \
+  "$stable_discovery_tag" "$(digest "$stable_discovery_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+conf_on "$downloads/$stable_discovery_tag"
+cp "$assets/$stable_discovery_tag/AURORA" "$staged"
+chmod 0644 "$staged"
+installed_from "$stable_discovery_tag"
+write_lane 'format=1\nlane=edge\nswitch=edge\n'
+rm -f "$assets/pointer"
+printf '{"message": "API rate limit exceeded"}\n' >"$assets/api/page-1.json"
+snapshot_repo
+run_step
+defer_unmoved "edge discovery failed from a stable repository" "$stable_discovery_tag"
+[[ $(section_tag) != "$pin_tag" ]] || fail "failed edge discovery from stable does not fall back to the rc pin"
+grep -Fq "stays on $stable_discovery_tag" "$test_tmp/err" ||
+  fail "failed edge discovery from stable names the current release" "$(cat "$test_tmp/err")"
+pass "failed edge discovery from stable keeps the authenticated current release and rewrites nothing"
+
+conf_on "$downloads/$pin_tag"
+cp "$assets/$pin_tag/AURORA" "$staged"
+chmod 0644 "$staged"
+installed_from "$pin_tag"
+write_lane 'format=1\nlane=edge\nswitch=edge\n'
+rm -f "$assets/pointer"
+printf '{"message": "API rate limit exceeded"}\n' >"$assets/api/page-1.json"
+snapshot_repo
+run_step
+defer_unmoved "edge discovery failed from an rc repository" "$pin_tag"
+pass "failed edge discovery from rc keeps the authenticated current release and rewrites nothing"
+
+# An accepted edge release already in place: discovery failure must not restage.
+conf_on "$downloads/aurora-edge-7"
+cp "$assets/aurora-edge-7/AURORA" "$staged"
+chmod 0644 "$staged"
+installed_from aurora-edge-7
+write_lane 'format=1\nlane=edge\nedge_accepted=7:%s\n' "$(digest aurora-edge-7)"
+rm -f "$assets/pointer"
+printf '{"message": "API rate limit exceeded"}\n' >"$assets/api/page-1.json"
+snapshot_repo
+run_step
+defer_unmoved "edge discovery failed with an accepted edge release in place" aurora-edge-7
+! grep -q mktemp "$channel_calls" || fail "accepted-edge discovery failure stages nothing" "$(cat "$channel_calls")"
+pass "failed edge discovery with an accepted release in place rewrites nothing"
+
+# Restore the first-contact edge section the way-back cases start from.
+write_pointer 7
+write_listing "aurora-edge-7"
+conf_on "$downloads/aurora-edge-7"
+cp "$assets/aurora-edge-7/AURORA" "$staged"
+chmod 0644 "$staged"
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=7:%s\n' "$(digest aurora-edge-7)"
 
 # edge -> rc: only a switch moves an edge section back, completed the same way.
 installed_from aurora-edge-7
@@ -706,3 +793,127 @@ grep -q 'retire-saved-modules linux-aurora' "$calls" || fail "a custom DTBS stil
 grep -q 'boot-check linux-aurora' "$calls" || fail "a custom DTBS still checks boot" "$(cat "$calls")"
 expect_lane "a custom DTBS still completes the switch" 'format=1\nlane=edge\nedge_accepted=8:%s\n' "$(digest aurora-edge-8)"
 pass "a custom DTBS skips the leftover-headers diagnostic and completes as usual"
+
+# Stable lane: its own pin, the same switch / verify / downgrade rules as rc.
+stable_tag=aurora-stable-packages-77cb8f2477cb8f2477cb8f2477cb8f2477cb8f24
+write_release "$stable_tag"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' "$stable_tag" "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$record"
+installed_from "$pin_tag"
+conf_on "$downloads/$pin_tag"
+write_lane 'format=1\nlane=stable\nswitch=stable\n'
+run_step
+expect_status 0 "a switch from rc to stable"
+[[ $(section_tag) == "$stable_tag" ]] || fail "a switch to stable moves the section to the stable pin" "$(section_tag)"
+cmp -s "$assets/$stable_tag/AURORA" "$staged" || fail "the stable pin's descriptor is staged"
+expect_targets "the switch to stable, which may install older packages"
+run_step --complete
+expect_status 1 "completing stable while the rc kernel is still installed"
+installed_from "$stable_tag"
+run_step --complete
+expect_status 0 "completing the switch to stable"
+expect_lane "stable closes the switch and keeps edge history empty" 'format=1\nlane=stable\n'
+grep -Fq "back on stable ($stable_tag)" "$test_tmp/out" || fail "the stable switch says so" "$(cat "$test_tmp/out")"
+grep -qx 'boot-check linux-aurora' "$calls" || fail "stable completion checks the boot chain" "$(cat "$calls")"
+pass "rc to stable pins the stable release, names the older packages and completes once they boot"
+
+write_lane 'format=1\nlane=edge\nswitch=edge\n'
+write_pointer 5
+write_listing "aurora-edge-5"
+run_step
+expect_status 0 "stable then edge"
+[[ $(section_tag) == aurora-edge-5 ]] || fail "stable to edge follows the listing" "$(section_tag)"
+installed_from aurora-edge-5
+run_step --complete
+expect_lane "edge from stable completes" 'format=1\nlane=edge\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
+write_lane 'format=1\nlane=rc\nswitch=rc\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
+run_step
+expect_status 0 "edge then rc"
+[[ $(section_tag) == "$pin_tag" ]] || fail "edge to rc returns to the qualified pin" "$(section_tag)"
+installed_from "$pin_tag"
+run_step --complete
+expect_lane "rc from edge after stable keeps what edge accepted" 'format=1\nlane=rc\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
+pass "switch walks rc to stable to edge to rc and completes each move"
+
+conf_on "$downloads/$stable_tag"
+cp "$assets/$stable_tag/AURORA" "$staged"
+installed_from "$stable_tag"
+write_lane 'format=1\nlane=stable\nswitch=stable\n'
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\nhold=qualifying by hand\n' >"$record"
+run_step
+expect_status 0 "a held stable Mac"
+[[ ! -s $curl_log && $(section_tag) == "$stable_tag" ]] || fail "a held stable Mac discovers and moves nothing"
+expect_no_targets "a held stable Mac"
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$record"
+pass "a hold stops a stable Mac without moving [omarchy-aurora]"
+
+write_lane 'format=1\nlane=stable\nswitch=stable\n'
+printf 'tag=not-a-release\ndescriptor_sha256=%s\npredecessors=\n' "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+run_step
+expect_status 2 "a malformed stable pin"
+grep -Fq "the stable Aurora release pin is malformed" "$test_tmp/err" ||
+  fail "a malformed stable pin is named" "$(cat "$test_tmp/err")"
+[[ $(section_tag) == "$stable_tag" && ! -s $calls ]] || fail "a malformed stable pin changes nothing"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' "$stable_tag" "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+write_release "$stable_tag"
+sed -i 's/^channel=aurora-stable$/channel=aurora/' "$assets/$stable_tag/AURORA"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' "$stable_tag" "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+rm -f "$staged"
+run_step
+expect_status 2 "a stable descriptor with channel=aurora"
+grep -Fq "does not describe that Aurora release" "$test_tmp/err" || fail "a stable channel cross-check is named" "$(cat "$test_tmp/err")"
+write_release "$stable_tag"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' "$stable_tag" "$(digest "$stable_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+rm -f "$staged"
+run_step
+expect_status 0 "a well-formed stable pin after the malformed one"
+pass "a malformed stable pin or a descriptor that is not aurora-stable is refused without edits"
+
+# Running-kernel binding: install is not accepted until the new kernel is running.
+conf_on "$downloads/aurora-edge-5"
+cp "$assets/aurora-edge-5/AURORA" "$staged"
+chmod 0644 "$staged"
+installed_from aurora-edge-5
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\n' "$(digest aurora-edge-5)"
+rm -f "$reboot_blocked"
+printf '/usr/lib/modules/7.1.12-2.5-1-ARCH/vmlinuz\n' >"$test_tmp/journal-kernel-files"
+OMARCHY_BOOT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa TEST_KERNEL_FILES="$test_tmp/journal-kernel-files" TEST_UNAME_MISMATCH=1 run_step --complete
+expect_status 0 "completing before reboot records the install as pending"
+expect_lane "the journal names the installing boot and the installed kernel" \
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:7.1.12-2.5-1-ARCH\n' "$(digest aurora-edge-5)"
+# Another boot that runs the journaled kernel proves it came up; a newer install is pending again.
+printf '/usr/lib/modules/7.1.12-2.6-1-ARCH/vmlinuz\n' >"$test_tmp/journal-kernel-files"
+OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb OMARCHY_BOOT_CHECK_UNAME=7.1.12-2.5-1-ARCH TEST_KERNEL_FILES="$test_tmp/journal-kernel-files" TEST_UNAME_MISMATCH=1 run_step --complete
+expect_status 0 "a newer kernel installed after a good reboot is pending, not a failure"
+expect_lane "the journal moves to the new boot and kernel" \
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:7.1.12-2.6-1-ARCH\n' "$(digest aurora-edge-5)"
+printf '/usr/lib/modules/7.1.12-2.5-1-ARCH/vmlinuz\n' >"$test_tmp/journal-kernel-files"
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' "$(digest aurora-edge-5)"
+OMARCHY_BOOT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa TEST_UNAME_MISMATCH=1 run_step --complete
+expect_lane "the journal stays open until the new kernel is running" \
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' "$(digest aurora-edge-5)"
+grep -Fq "installed, reboot pending" "$test_tmp/out" ||
+  fail "completion before reboot says the install is pending" "$(cat "$test_tmp/out")"
+# The same omarchy update runs --complete twice (system-pkgs, then omarchy-update): same boot, still pending.
+OMARCHY_BOOT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa TEST_UNAME_MISMATCH=1 run_step --complete
+expect_status 0 "a second completion in the installing boot is still pending, not a failure"
+grep -Fq "installed, reboot pending" "$test_tmp/out" ||
+  fail "the second completion says the install is pending" "$(cat "$test_tmp/out")"
+[[ ! -e $reboot_blocked ]] || fail "the same-boot completion does not block the reboot"
+OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb TEST_UNAME_MISMATCH=1 run_step --complete
+expect_status 1 "completing after reboot with the old kernel is a failure"
+grep -Fq "did not come up after reboot" "$test_tmp/err" ||
+  fail "a post-reboot mismatch is named" "$(cat "$test_tmp/err")"
+expect_lane "a failed post-reboot check keeps the journal" \
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' "$(digest aurora-edge-5)"
+OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb run_step --complete
+expect_status 0 "omarchy-update after reboot promotes the running kernel"
+expect_lane "post-reboot completion accepts the release" 'format=1\nlane=edge\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
+grep -Fq "now runs aurora-edge-5 from edge" "$test_tmp/out" ||
+  fail "post-reboot completion says the Mac now runs the release" "$(cat "$test_tmp/out")"
+pass "completion records reboot pending, then omarchy-update promotes after reboot"

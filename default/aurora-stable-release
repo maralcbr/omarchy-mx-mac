@@ -1,0 +1,10 @@
+# Placeholder until an aurora-stable build exists. This is today's qualified rc
+# tag and AURORA descriptor digest; a real stable pin uses
+# aurora-stable-packages-<commit>. Lane switches select that repository; they
+# do not compare pacman versions across lanes. See INTERFACES §2.
+tag=aurora-packages-3caea4693df7c472d57809b5c6b05b07579c1f7a
+descriptor_sha256=ad4fc6018dc2d366705d9205090d9598a4cd517cfd5c0c83a79436c4e6616898
+# To promote a real aurora-stable-packages-<commit> release: append the current tag
+# to predecessors, then set tag and descriptor_sha256 together (recompute the
+# digest from the downloaded AURORA), exactly as for the rc pin.
+predecessors=

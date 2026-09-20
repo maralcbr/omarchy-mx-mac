@@ -72,10 +72,7 @@ pass "pacman refresh rejects Apple Silicon before mutation"
 run_guarded "$ROOT/bin/omarchy-channel-set" dev
 grep -Fx "Error: The dev channel is not available on Apple Silicon; this Mac follows rc." "$test_tmp/error" >/dev/null ||
   fail "channel setup explains that dev is not available and names the channel this Mac follows" "$(cat "$test_tmp/error")"
-run_guarded "$ROOT/bin/omarchy-channel-set" stable
-grep -Fx "Error: Moving to stable would change this Mac's kernel family, which is not available; this Mac follows rc." "$test_tmp/error" >/dev/null ||
-  fail "channel setup explains that stable would change the kernel family" "$(cat "$test_tmp/error")"
-pass "channel setup rejects dev and stable on Apple Silicon before checkout or package mutation"
+pass "channel setup rejects dev on Apple Silicon before checkout or package mutation"
 
 run_guarded "$ROOT/bin/omarchy-setup-direct-boot"
 grep -F "Direct boot is not supported on Apple Silicon" "$test_tmp/error" >/dev/null ||

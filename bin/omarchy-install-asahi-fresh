@@ -90,8 +90,9 @@ runtime_command() {
 # Arch Linux ARM, the first transaction finds no Omarchy-built package and
 # takes Hyprland from Arch Linux ARM. The verified runtime's own repository
 # updater configures it, with the same checks it applies on installed Macs.
-# An rc Mac also takes its kernel and m1n1 from [omarchy-aurora], which only
-# the runtime's Aurora updater pins, directly ahead of [omarchy].
+# A linux-aurora install also takes its kernel and m1n1 from [omarchy-aurora],
+# which the runtime's Aurora updater pins (or, in an image build, verifies and
+# stages without moving the builder's pin), directly ahead of [omarchy].
 configure_package_repository() {
   local pacman_conf="$1" settings_archive="$2" omarchy_archive="$3"
   local archive updater defaults repositories server channel_record channel_status=0
@@ -128,18 +129,18 @@ EOF
     3) channel_record="" ;;
     *) fail "This Mac's Apple Silicon channel record cannot be trusted; no packages were installed" ;;
   esac
-  if grep -Fxq channel=rc <<<"$channel_record"; then
+  if [[ $kernel_package == linux-aurora ]]; then
     if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
       echo "Keeping the image's pinned Aurora kernel repository"
     else
       echo "Pinning the Aurora kernel repository"
-      if (( offline )); then
-        runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
-          aurora_offline_fail "Could not pin the Aurora kernel repository; no packages were installed"
-      else
-        runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
-          fail "Could not pin the Aurora kernel repository; no packages were installed"
-      fi
+    fi
+    if (( offline )); then
+      runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
+        aurora_offline_fail "Could not pin the Aurora kernel repository; no packages were installed"
+    else
+      runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
+        fail "Could not pin the Aurora kernel repository; no packages were installed"
     fi
   fi
   rm -rf "$package_runtime_root"
@@ -237,7 +238,7 @@ verify_grub_config() {
 }
 
 verify_boot_chain() {
-  omarchy-apple-silicon-boot-check "$kernel_package" ||
+  OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1 omarchy-apple-silicon-boot-check "$kernel_package" ||
     fail "The boot files do not match the installed $kernel_package and its m1n1"
 }
 

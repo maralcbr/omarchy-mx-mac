@@ -10,9 +10,11 @@ require_command truncate
 updater="$ROOT/bin/omarchy-update-aurora-repository"
 system_packages="$ROOT/bin/omarchy-update-system-pkgs"
 shipped_pin="$ROOT/default/aurora-qualified-release"
+shipped_stable_pin="$ROOT/default/aurora-stable-release"
 subkey_fingerprint=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 repo=maralcbr/omarchy-pkgs
 release_ere='aurora-packages-[0-9a-f]{40}'
+stable_ere='aurora-(packages|stable-packages)-[0-9a-f]{40}'
 
 grep -Fq '# omarchy:hidden=true' "$updater" || fail "Aurora repository updater is hidden from command listings"
 grep -Fq '# omarchy:requires-sudo=true' "$updater" || fail "Aurora repository updater declares its sudo requirement"
@@ -26,6 +28,15 @@ grep -Exq "predecessors=($release_ere( $release_ere)*)?" "$shipped_pin" || fail 
 (( $(grep -c '^tag=' "$shipped_pin") == 1 && $(grep -c '^descriptor_sha256=' "$shipped_pin") == 1 )) ||
   fail "the runtime pins exactly one Aurora release"
 pass "the qualified Aurora release is pinned in the runtime"
+
+grep -Exq "tag=$stable_ere" "$shipped_stable_pin" || fail "the runtime pins a stable aurora-packages or aurora-stable-packages release"
+grep -Exq 'descriptor_sha256=[0-9a-f]{64}' "$shipped_stable_pin" || fail "the runtime pins that stable release's descriptor digest"
+grep -Exq "predecessors=($stable_ere( $stable_ere)*)?" "$shipped_stable_pin" || fail "the runtime lists the releases the stable pin replaces"
+(( $(grep -c '^tag=' "$shipped_stable_pin") == 1 && $(grep -c '^descriptor_sha256=' "$shipped_stable_pin") == 1 )) ||
+  fail "the runtime pins exactly one stable Aurora release"
+grep -Fq 'Placeholder until an aurora-stable build exists' "$shipped_stable_pin" ||
+  fail "the stable pin is commented as a placeholder until a stable build exists"
+pass "the stable Aurora release is pinned in the runtime"
 
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
@@ -701,7 +712,16 @@ TEST_INSTALLED="linux-asahi linux-asahi-headers m1n1" run_status
 [[ ! -s $test_tmp/out && ! -s $test_tmp/err && ! -s $curl_log && ! -s $lock_log ]] ||
   fail "a stable Mac is silent, offline and takes no update lock" "$(cat "$test_tmp/err" "$lock_log")"
 expect_untouched "a stable Mac with an [omarchy-aurora] on a predecessor"
-pass "a Mac recorded as stable leaves even a predecessor [omarchy-aurora] alone"
+pass "a Mac recorded as stable on linux-asahi leaves even a predecessor [omarchy-aurora] alone"
+
+printf 'linux-aurora\n' >"$marker"
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
+printf 'format=1\nchannel=stable\nkernel=linux-aurora\n' >"$channel_record"
+reset_run
+run_status
+expect_repinned "a stable:linux-aurora record still pins [omarchy-aurora]"
+pass "a Mac recorded as stable on linux-aurora is managed like rc"
 
 expect_held() {
   local description=$1 reason=$2
@@ -916,3 +936,23 @@ grep -Fq "offline mode requires [omarchy-aurora] on $new_tag" "$test_tmp/err" ||
 [[ ! -s $curl_log ]] || fail "offline mode off the pin does not curl" "$(cat "$curl_log")"
 expect_untouched "offline mode off the pin"
 pass "OMARCHY_AURORA_OFFLINE=1 refuses to move [omarchy-aurora] and does not download"
+
+# Image builds keep the builder's [omarchy-aurora] even when that release is
+# neither the runtime pin nor a predecessor, and still stage its descriptor.
+write_release "$candidate_tag"
+printf 'linux-aurora\n' >"$marker"
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$channel_record"
+{ options_conf; aurora_conf "$candidate_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+reset_run
+rm -f "$staged_descriptor"
+OMARCHY_MAC_IMAGE_BUILD=1 run_status
+(( status == 0 )) || fail "image mode on a builder pin succeeds" "status $status: $(cat "$test_tmp/err")"
+grep -Fq "image mode keeps the builder's [omarchy-aurora] on $candidate_tag" "$test_tmp/err" ||
+  fail "image mode names the builder's pin" "$(cat "$test_tmp/err")"
+grep -Fxq "$candidate_server/AURORA" "$curl_log" && grep -Fxq "$candidate_server/AURORA.sig" "$curl_log" ||
+  fail "image mode verifies the builder pin's signed descriptor" "$(cat "$curl_log")"
+expect_untouched "image mode on a lane release that is not the runtime pin"
+cmp -s "$assets/$candidate_tag/AURORA" "$staged_descriptor" ||
+  fail "image mode stages the builder pin's descriptor" "$(cat "$staged_descriptor" 2>&1)"
+[[ $(stat -c '%a' "$staged_descriptor") == 644 ]] || fail "the image-mode staged descriptor is 0644"
+pass "image mode stages the builder's [omarchy-aurora] descriptor without moving the section"

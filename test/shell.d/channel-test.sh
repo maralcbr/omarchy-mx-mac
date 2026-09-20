@@ -213,24 +213,22 @@ pass "current channel on Apple Silicon comes from the channel record, not the in
   fail "a dev checkout on Apple Silicon is still dev"
 pass "a dev checkout on Apple Silicon is still reported as dev"
 
-# On a Mac, rc and edge are Aurora lanes: the switch is recorded under the
+# On a Mac, stable, rc and edge are Aurora lanes: the switch is recorded under the
 # update lock, which is released before the update that applies it takes it again.
-for lane in edge rc; do
+for lane in edge rc stable; do
   OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=rc run_channel "$lane"
   [[ $(cat "$log_file") == "switch"$'\t'"$lane"$'\tupdate-lock=yes\nupdate\t-y\tOMARCHY_PATH=/usr/share/omarchy' ]] ||
     fail "$lane on Apple Silicon records the switch under the update lock, then updates" "$(cat "$log_file")"
 done
-pass "rc and edge on Apple Silicon record the switch under the update lock and then run the update"
+pass "stable, rc and edge on Apple Silicon record the switch under the update lock and then run the update"
 
 if OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_SWITCH_STATUS=2 run_channel edge 2>/dev/null; then
   fail "a refused switch fails omarchy-channel-set"
 fi
 [[ $(cat "$log_file") == "switch"$'\t'"edge"$'\tupdate-lock=yes' ]] || fail "a refused switch runs no update" "$(cat "$log_file")"
-for refused in stable dev; do
-  if OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=edge run_channel "$refused" 2>"$test_tmp/refused.err"; then
-    fail "$refused is refused on Apple Silicon"
-  fi
-  [[ ! -s $log_file ]] || fail "$refused on Apple Silicon changes nothing" "$(cat "$log_file")"
-  grep -Fq "this Mac follows edge" "$test_tmp/refused.err" || fail "$refused on Apple Silicon names the channel this Mac follows" "$(cat "$test_tmp/refused.err")"
-done
-pass "a refused switch, stable and dev change nothing on Apple Silicon"
+if OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=edge run_channel dev 2>"$test_tmp/refused.err"; then
+  fail "dev is refused on Apple Silicon"
+fi
+[[ ! -s $log_file ]] || fail "dev on Apple Silicon changes nothing" "$(cat "$log_file")"
+grep -Fq "this Mac follows edge" "$test_tmp/refused.err" || fail "dev on Apple Silicon names the channel this Mac follows" "$(cat "$test_tmp/refused.err")"
+pass "a refused switch and dev change nothing on Apple Silicon"

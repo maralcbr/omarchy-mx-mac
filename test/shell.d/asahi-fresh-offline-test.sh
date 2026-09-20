@@ -226,7 +226,7 @@ runtime="$test_tmp/runtime"
 mkdir -p "$runtime/usr/bin" "$runtime/usr/share/omarchy/default" "$runtime/usr/share/omarchy/install"
 : >"$runtime/usr/share/omarchy/default/omarchy-release.gpg"
 : >"$runtime/usr/share/omarchy/default/omarchy-arm-repository.asc"
-printf '%s\n' hyprland linux-asahi linux-asahi-headers m1n1 omarchy-dev >"$runtime/usr/share/omarchy/install/omarchy-base-asahi.packages"
+printf '%s\n' hyprland linux-aurora linux-aurora-headers m1n1-aurora omarchy-dev >"$runtime/usr/share/omarchy/install/omarchy-base-asahi.packages"
 
 cat >"$runtime/usr/bin/omarchy-update-asahi-repository" <<'EOF'
 #!/bin/bash
@@ -274,7 +274,7 @@ builder_grub=$'# written by the image builder\nlinux /vmlinuz-KERNEL\ninitrd /in
 pin_omarchy=0
 
 reset_sandbox() {
-  local kernel=${1:-linux-asahi} version=${2:-6.99.0-asahi} m1n1=${3:-m1n1}
+  local kernel=${1:-linux-aurora} version=${2:-6.99.0-aurora} m1n1=${3:-m1n1-aurora}
   [[ $kernel != linux-aurora || -n ${3:-} ]] || m1n1=m1n1-aurora
 
   rm -rf "$sandbox"
@@ -423,7 +423,7 @@ status=0
 run_installer online --deferred-user || status=$?
 expect_success "$status" "a non-offline deferred install still completes" online
 called '^bootstrap --yes --bootstrap ' || fail "non-offline still bootstraps the package repository" "$(cat "$calls")"
-grep -Fq 'pacman -Syu ignore=linux-asahi,linux-asahi-headers,m1n1' "$calls" ||
+grep -Fq 'pacman -Syu ignore=linux-aurora,linux-aurora-headers,m1n1-aurora' "$calls" ||
   fail "non-offline still refreshes with -Syu" "$(cat "$calls")"
 ! called '^pacman -Su ignore=' || fail "non-offline never uses -Su"
 pass "non-offline deferred installs still bootstrap and run pacman -Syu"
@@ -435,17 +435,17 @@ run_installer offline OMARCHY_ASAHI_KEEP_SERVER="$keep_server" --offline --defer
 expect_success "$status" "an offline deferred install completes" offline
 ! called '^bootstrap ' || fail "offline skips the repository bootstrap" "$(cat "$calls")"
 no_refresh "offline emits no database refresh"
-grep -Fq -- "-Sup --print-format %l %h --needed --noconfirm --ignore linux-asahi,linux-asahi-headers,m1n1" "$calls" ||
+grep -Fq -- "-Sup --print-format %l %h --needed --noconfirm --ignore linux-aurora,linux-aurora-headers,m1n1-aurora" "$calls" ||
   fail "offline prints the repository transaction with -Sup" "$(cat "$calls")"
 grep -Eq -- '--dbpath [^ ]+ -Su --dbonly' "$calls" ||
   fail "offline applies transaction 1 to a disposable database copy" "$(cat "$calls")"
 grep -Eq -- '--dbpath [^ ]+ -Up --print --print-format %l %h --needed --noconfirm' "$calls" ||
   fail "offline prints the six archives against the simulated database" "$(cat "$calls")"
-grep -Fxq 'pacman -Su ignore=linux-asahi,linux-asahi-headers,m1n1 repositories=omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
+grep -Fxq 'pacman -Su ignore=linux-aurora,linux-aurora-headers,m1n1-aurora repositories=omarchy-aurora,omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
   fail "offline installs with -Su against the pinned [omarchy] section" "$(cat "$calls")"
 called '^pacman -U$' || fail "offline still installs the six archives"
 called '^omarchy-apply-system --defer-provisioning --first-install$' || fail "offline still runs deferred system setup"
-grep -Fxq 'omarchy-apple-silicon-boot-check linux-asahi' "$calls" ||
+grep -Fxq 'omarchy-apple-silicon-boot-check linux-aurora' "$calls" ||
   fail "offline still checks the boot chain" "$(cat "$calls")"
 grep -Fq extra-provider "$sandbox/printed-upgrade-independent" ||
   fail "independent txn 2 names a provider that is not cached"

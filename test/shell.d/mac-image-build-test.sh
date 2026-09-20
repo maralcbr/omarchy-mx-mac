@@ -516,6 +516,12 @@ cat >"$runtime/usr/bin/omarchy-apple-silicon-channel" <<'EOF'
 printf 'channel=rc\nkernel=linux-aurora\n'
 exit 0
 EOF
+cat >"$runtime/usr/bin/omarchy-update-aurora-repository" <<'EOF'
+#!/bin/bash
+echo "aurora $* sudo=$(command -v sudo) path=$OMARCHY_PATH image=${OMARCHY_MAC_IMAGE_BUILD-}" >>"$FRESH_TEST_LOG"
+# Image mode must not rewrite the builder's [omarchy-aurora] pin.
+exit 0
+EOF
 cat >"$runtime/usr/bin/uname" <<'EOF'
 #!/bin/bash
 printf '%s\n' aarch64
@@ -739,6 +745,8 @@ grep -Fq "asahi-packages-stable-$pinned_commit" "$sandbox/etc/pacman.conf" ||
   fail "image mode does not advance [omarchy] to the fixture channel" "$(cat "$sandbox/etc/pacman.conf")"
 grep -Eq 'image mode keeps the builder|Keeping the image' "$test_tmp/image.out" ||
   fail "image mode reports that it kept the builder's repository pins" "$(cat "$test_tmp/image.out")"
+grep -Eq '^aurora .*image=1' "$calls" ||
+  fail "image mode still runs the Aurora updater to stage the builder pin's descriptor" "$(cat "$calls")"
 ! grep -Fq 'https://example.test/asahi-packages-channel' "$calls" ||
   fail "image mode does not download an advanced package channel" "$(cat "$calls")"
 grep -Fq 'pacman -Syu ignore=linux-aurora,linux-aurora-headers,m1n1-aurora' "$calls" ||

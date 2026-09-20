@@ -178,7 +178,7 @@ runtime="$test_tmp/runtime"
 mkdir -p "$runtime/usr/bin" "$runtime/usr/share/omarchy/default" "$runtime/usr/share/omarchy/install"
 : >"$runtime/usr/share/omarchy/default/omarchy-release.gpg"
 : >"$runtime/usr/share/omarchy/default/omarchy-arm-repository.asc"
-printf '%s\n' hyprland linux-asahi linux-asahi-headers m1n1 omarchy-dev >"$runtime/usr/share/omarchy/install/omarchy-base-asahi.packages"
+printf '%s\n' hyprland linux-aurora linux-aurora-headers m1n1-aurora omarchy-dev >"$runtime/usr/share/omarchy/install/omarchy-base-asahi.packages"
 
 cat >"$runtime/usr/bin/omarchy-update-asahi-repository" <<'EOF'
 #!/bin/bash
@@ -231,7 +231,7 @@ done
 builder_grub=$'# written by the image builder\nlinux /vmlinuz-KERNEL\ninitrd /initramfs-KERNEL.img'
 
 reset_sandbox() {
-  local kernel=${1:-linux-asahi} version=${2:-6.99.0-asahi} m1n1=${3:-m1n1}
+  local kernel=${1:-linux-aurora} version=${2:-6.99.0-aurora} m1n1=${3:-m1n1-aurora}
   [[ $kernel != linux-aurora || -n ${3:-} ]] || m1n1=m1n1-aurora
 
   rm -rf "$sandbox"
@@ -339,8 +339,8 @@ expect_success "$status" "a deferred install completes without a terminal or a u
 [[ ! -e $sandbox/etc/sudoers.d/10-omarchy-wheel && ! -e $sandbox/var/lib/sddm/state.conf ]] ||
   fail "a deferred install leaves the owner's sudo grant and greeter state to provisioning"
 called '^omarchy-apply-system --defer-provisioning --first-install$' || fail "root system setup runs for a deferred owner" "$(cat "$calls")"
-grep -Fxq 'omarchy-apple-silicon-boot-check linux-asahi' "$calls" ||
-  fail "a deferred install checks the linux-asahi boot chain, m1n1 stage 2 included" "$(cat "$calls")"
+grep -Fxq 'omarchy-apple-silicon-boot-check linux-aurora' "$calls" ||
+  fail "a deferred install checks the linux-aurora boot chain, m1n1 stage 2 included" "$(cat "$calls")"
 ! called '^omarchy-apply-system --install-user' || fail "root system setup never names a user"
 bootstrap_line=$(call_line '^bootstrap ')
 transaction_line=$(call_line '^pacman -Syu')
@@ -354,8 +354,9 @@ m1n1_line=$(call_line '^update-m1n1')
 [[ $(cat "$sandbox/boot/grub/grub.cfg") != "${builder_grub//KERNEL/$kernel_name}" ]] || fail "the builder's GRUB configuration is replaced"
 called '^gpasswd -d alarm wheel$' && called '^usermod -L alarm$' || fail "a deferred install still retires the stock administrator"
 [[ ! -e $state_dir && -f $sandbox/var/lib/omarchy/asahi-quattro-release ]] || fail "a deferred install completes its checkpoint and records the release"
-grep -Fxq 'pacman -Syu ignore=linux-asahi,linux-asahi-headers,m1n1 repositories=omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
-  fail "the first transaction holds the Asahi boot packages" "$(cat "$calls")"
+grep -Fxq 'pacman -Syu ignore=linux-aurora,linux-aurora-headers,m1n1-aurora repositories=omarchy-aurora,omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
+  fail "the first transaction holds the Aurora boot packages" "$(cat "$calls")"
+called '^aurora ' || fail "a recordless Aurora install stages the descriptor"
 grep -Fq 'Fresh Omarchy 4 installation complete' "$test_tmp/deferred.out" || fail "a deferred install reports completion"
 ! grep -Fq 'Reboot' "$test_tmp/deferred.out" || fail "a deferred install gives no reboot instruction"
 pass "a deferred install sets up the system without an account, a terminal or a reboot instruction"
@@ -404,7 +405,7 @@ pass "a failed boot regeneration fails the attempt and keeps it resumable"
 reset_sandbox
 status=0
 run_installer boot-chain-fails FRESH_TEST_FAIL=omarchy-apple-silicon-boot-check --deferred-user || status=$?
-expect_failure "$status" boot-chain-fails "The boot files do not match the installed linux-asahi and its m1n1" "a boot chain that does not match fails the install"
+expect_failure "$status" boot-chain-fails "The boot files do not match the installed linux-aurora and its m1n1" "a boot chain that does not match fails the install"
 [[ -d $state_dir && ! -e $state_dir/completing ]] || fail "a boot chain mismatch keeps the checkpoint"
 pass "a deferred install fails and stays resumable when m1n1 stage 2 does not match"
 
@@ -413,19 +414,19 @@ pass "a deferred install fails and stays resumable when m1n1 stage 2 does not ma
 reset_sandbox
 status=0
 run_installer broken-grub FRESH_TEST_GRUB=broken --deferred-user || status=$?
-expect_failure "$status" broken-grub "The GRUB configuration does not boot linux-asahi" "a regenerated GRUB that misses the kernel fails"
+expect_failure "$status" broken-grub "The GRUB configuration does not boot linux-aurora" "a regenerated GRUB that misses the kernel fails"
 [[ -d $state_dir && ! -e $sandbox/var/lib/omarchy/asahi-quattro-release ]] || fail "a failed boot check records no release"
 
 reset_sandbox
 status=0
 run_installer stale-initramfs FRESH_TEST_INITRAMFS=stale --deferred-user || status=$?
-expect_failure "$status" stale-initramfs "initramfs does not carry the modules of 6.99.0-asahi" "an initramfs for another kernel fails"
+expect_failure "$status" stale-initramfs "initramfs does not carry the modules of 6.99.0-aurora" "an initramfs for another kernel fails"
 
 reset_sandbox
-echo "a kernel the package does not own" >"$sandbox/boot/vmlinuz-linux-asahi"
+echo "a kernel the package does not own" >"$sandbox/boot/vmlinuz-linux-aurora"
 status=0
 run_installer foreign-kernel --deferred-user || status=$?
-expect_failure "$status" foreign-kernel "/boot/vmlinuz-linux-asahi is not the installed linux-asahi kernel" "a boot kernel the package does not own fails"
+expect_failure "$status" foreign-kernel "/boot/vmlinuz-linux-aurora is not the installed linux-aurora kernel" "a boot kernel the package does not own fails"
 pass "a deferred install checks the kernel, initramfs and GRUB it regenerated against the installed kernel"
 
 # --- Aurora repository ------------------------------------------------------
@@ -464,12 +465,20 @@ pass "each kernel requires, holds and verifies its own m1n1 package"
 for channel in stable ""; do
   reset_sandbox
   status=0
-  run_installer "not-rc-$channel" FRESH_TEST_CHANNEL="$channel" --deferred-user || status=$?
-  expect_success "$status" "a Mac without an rc record installs" "not-rc-$channel"
+  run_installer "aurora-kernel-$channel" FRESH_TEST_CHANNEL="$channel" --deferred-user || status=$?
+  expect_success "$status" "a Mac with linux-aurora installs" "aurora-kernel-$channel"
   called '^channel status$' || fail "the channel record is read"
-  ! called '^aurora ' || fail "the Aurora updater runs only for an rc record (record: ${channel:-none})"
+  called '^aurora ' || fail "an Aurora kernel stages the descriptor (record: ${channel:-none})"
 done
-pass "a stable or unrecorded Mac never runs the Aurora updater"
+pass "a stable or unrecorded Aurora Mac still runs the Aurora updater"
+
+reset_sandbox linux-asahi 6.99.0-asahi m1n1
+status=0
+run_installer asahi-kernel FRESH_TEST_CHANNEL=stable --deferred-user || status=$?
+expect_success "$status" "a linux-asahi Mac installs" asahi-kernel
+called '^channel status$' || fail "the channel record is read"
+! called '^aurora ' || fail "a linux-asahi Mac never runs the Aurora updater"
+pass "a linux-asahi Mac never runs the Aurora updater"
 
 reset_sandbox linux-aurora 6.99.0-aurora
 status=0

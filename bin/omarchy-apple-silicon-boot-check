@@ -8,20 +8,30 @@
 # Proves what boots matches what is installed, for the kernel and bootloader
 # pairs Omarchy ships: linux-aurora with m1n1-aurora, linux-asahi with m1n1.
 # Without an argument the installed pair decides, and anything ambiguous fails.
-# It looks at the kernel mkinitcpio copied to /boot, the initramfs it built,
-# GRUB's entry, and m1n1 stage 2 on the system ESP. That image is rebuilt the
-# way update-m1n1 builds it -- m1n1, the device trees, gzipped U-Boot, the
+# It looks at the running kernel (uname -r against the installed package's
+# kernel release), the kernel mkinitcpio copied to /boot (sha256 against the
+# installed file), the initramfs it built, GRUB's entry, and m1n1 stage 2 on
+# the system ESP. For linux-aurora it also binds that identity to the staged
+# AURORA descriptor (name and exact version from pacman -Q) and the lane file,
+# checks the installed files against each package's mtree, and reports which
+# release the running kernel came from. After a reboot, when uname matches the
+# installed kernel, it promotes an open switch journal to accepted. A mismatch
+# after reboot is a failure. The m1n1 image is rebuilt
+# the way update-m1n1 builds it -- m1n1, the device trees, gzipped U-Boot, the
 # m1n1.conf options -- and compared byte for byte, reading the ESP only through
 # a read-only mount. update-m1n1 itself is never run: its configuration can
 # point TARGET at the real image, and it rewrites /run/m1n1.conf. Its defaults
 # come from the installed script, applied the way := applies them, and
 # /etc/default/update-m1n1 contributes only the settings update-m1n1 reads.
-# Run it once the boot hooks of a transaction have finished; it keeps no state.
+# Run it once the boot hooks of a transaction have finished.
 
 set -euo pipefail
 
 root=${OMARCHY_BOOT_CHECK_ROOT:-}
 declare -A bootloaders=([linux-aurora]=m1n1-aurora [linux-asahi]=m1n1)
+if [[ -n $root && -z ${OMARCHY_APPLE_SILICON_CHANNEL_ROOT:-} ]]; then
+  export OMARCHY_APPLE_SILICON_CHANNEL_ROOT=$root
+fi
 
 fail() {
   echo "Apple Silicon boot check: $*" >&2
@@ -76,6 +86,10 @@ for package in linux-aurora m1n1-aurora linux-asahi m1n1; do
   [[ $package == "$kernel" || $package == "$bootloader" ]] || ! is_installed "$package" ||
     fail "$kernel boots with $bootloader, but $package is installed too"
 done
+for package in "$kernel" "$bootloader"; do
+  pacman -Qkk "$package" >/dev/null 2>&1 ||
+    fail "installed $package files do not match the package mtree"
+done
 
 pacman -Qlq "$kernel" >"$workdir/kernel-files" 2>/dev/null || fail "cannot list the files of $kernel"
 pacman -Qlq "$bootloader" >"$workdir/bootloader-files" 2>/dev/null || fail "cannot list the files of $bootloader"
@@ -86,6 +100,74 @@ kver=${kver%/vmlinuz}
 
 sudo cmp -s "$(path "/boot/vmlinuz-$kernel")" "$(path "${images[0]}")" ||
   fail "/boot/vmlinuz-$kernel is not the $kver kernel $kernel installed"
+boot_sha=$(sudo sha256sum "$(path "/boot/vmlinuz-$kernel")" | cut -d' ' -f1)
+image_sha=$(sudo sha256sum "$(path "${images[0]}")" | cut -d' ' -f1)
+[[ $boot_sha == "$image_sha" ]] ||
+  fail "/boot/vmlinuz-$kernel is not the $kver kernel $kernel installed"
+
+running_kver=${OMARCHY_BOOT_CHECK_UNAME:-$(uname -r)}
+pending_reboot=0
+release_tag="" aurora_lane=rc aurora_switch="" aurora_edge_pending="" aurora_reboot_pending=""
+if [[ $kernel == linux-aurora ]]; then
+  descriptor=$(path /var/lib/omarchy/aurora-target.descriptor)
+  lane_path=$(path /var/lib/omarchy/apple-silicon-aurora-lane)
+  [[ -f $descriptor && ! -L $descriptor ]] ||
+    fail "the staged Aurora descriptor $descriptor is missing; run omarchy update to stage the release"
+  aurora_name="" aurora_version="" aurora_archive_sha="" tags=0
+  while IFS= read -r line || [[ -n $line ]]; do
+    case "$line" in
+      release_tag=*)
+        release_tag=${line#release_tag=}
+        (( tags += 1 ))
+        ;;
+      package=*)
+        IFS='|' read -r _ pkg_name pkg_version _ _ pkg_sha _ <<<"${line#package=}"
+        if [[ $pkg_name == linux-aurora ]]; then
+          aurora_name=$pkg_name aurora_version=$pkg_version aurora_archive_sha=$pkg_sha
+        fi
+        ;;
+    esac
+  done <"$descriptor"
+  (( tags == 1 )) && [[ -n $release_tag && $aurora_name == linux-aurora && -n $aurora_version && $aurora_archive_sha =~ ^[0-9a-f]{64}$ ]] ||
+    fail "$descriptor does not name linux-aurora with a version and archive sha256"
+  installed=$(pacman -Q linux-aurora 2>/dev/null) || fail "linux-aurora is not installed"
+  installed_version=${installed#linux-aurora }
+  [[ $installed_version == "$aurora_version" ]] ||
+    fail "linux-aurora $installed_version is installed, but $release_tag has $aurora_version"
+  if [[ -e $lane_path || -L $lane_path ]]; then
+    [[ -f $lane_path && ! -L $lane_path ]] || fail "$lane_path is not a regular file"
+    while IFS= read -r line || [[ -n $line ]]; do
+      case "$line" in
+        lane=*) aurora_lane=${line#lane=} ;;
+        switch=*) aurora_switch=${line#switch=} ;;
+        edge_pending=*) aurora_edge_pending=${line#edge_pending=} ;;
+        reboot_pending=*) aurora_reboot_pending=${line#reboot_pending=} ;;
+      esac
+    done <"$lane_path"
+    [[ $aurora_lane == stable || $aurora_lane == rc || $aurora_lane == edge ]] ||
+      fail "$lane_path names lane $aurora_lane, not stable, rc or edge"
+  fi
+fi
+
+current_boot_id=${OMARCHY_BOOT_ID:-$(tr -d '-\n' </proc/sys/kernel/random/boot_id 2>/dev/null || true)}
+[[ $current_boot_id =~ ^[0-9a-f]{32}$ ]] || current_boot_id=unknown
+journal_boot=${aurora_reboot_pending%%:*}
+journal_kver=""
+[[ $aurora_reboot_pending != *:* ]] || journal_kver=${aurora_reboot_pending#*:}
+if [[ $running_kver != "$kver" ]]; then
+  if [[ ${OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT:-0} == 1 ]]; then
+    pending_reboot=1
+  elif [[ -n $aurora_reboot_pending && $journal_boot != 1 && $journal_boot != unknown && $current_boot_id != unknown &&
+          $journal_boot != "$current_boot_id" && ( -z $journal_kver || $journal_kver != "$running_kver" ) ]]; then
+    fail "running kernel is $running_kver after reboot, not the installed $kernel $kver"
+  elif [[ -n $aurora_reboot_pending ]]; then
+    # Same boot as the install, or the journaled kernel did boot and a newer
+    # one is installed since: the reboot is still to come.
+    pending_reboot=1
+  else
+    fail "running kernel is $running_kver, not the installed $kernel $kver"
+  fi
+fi
 
 sudo lsinitcpio -l "$(path "/boot/initramfs-$kernel.img")" >"$workdir/initramfs" 2>/dev/null ||
   fail "/boot/initramfs-$kernel.img cannot be listed"
@@ -400,7 +482,42 @@ else
 fi
 
 sudo test -f "$mountpoint/m1n1/boot.bin" || fail "the system ESP ($esp) has no m1n1/boot.bin"
+report_running_release() {
+  local origin="the installed $kernel"
+  [[ -z $release_tag ]] || origin="$release_tag"
+  if (( pending_reboot )); then
+    echo "Apple Silicon boot check: running kernel is $running_kver; $kernel $kver is installed from $origin, reboot pending${release_tag:+ (lane=$aurora_lane)}"
+  elif [[ $kernel == linux-aurora ]]; then
+    echo "Apple Silicon boot check: running $kernel $kver from $origin (lane=$aurora_lane)"
+  else
+    echo "Apple Silicon boot check: running $kernel $kver from $origin"
+  fi
+}
+promote_open_journal() {
+  local assignments digest
+  (( pending_reboot )) && return 0
+  [[ $kernel == linux-aurora ]] || return 0
+  [[ -n $aurora_switch || -n $aurora_edge_pending || -n $aurora_reboot_pending ]] || return 0
+  assignments=(switch= edge_pending= reboot_pending=)
+  if [[ $aurora_lane == edge ]]; then
+    [[ $release_tag =~ ^aurora-edge-([1-9][0-9]{0,8})$ ]] ||
+      fail "the staged descriptor's release $release_tag cannot be recorded as accepted"
+    digest=$(sha256sum "$descriptor" | cut -d' ' -f1)
+    assignments+=("edge_accepted=${BASH_REMATCH[1]}:$digest")
+  fi
+  if [[ ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} == 1 ]]; then
+    omarchy-apple-silicon-channel lane-write "${assignments[@]}" ||
+      fail "the switch journal could not be recorded as accepted"
+  else
+    omarchy-apple-silicon-channel locked omarchy-apple-silicon-channel lane-write "${assignments[@]}" ||
+      fail "the switch journal could not be recorded as accepted"
+  fi
+}
 for image in "${expected[@]}"; do
-  ! sudo cmp -s "$image" "$mountpoint/m1n1/boot.bin" || exit 0
+  ! sudo cmp -s "$image" "$mountpoint/m1n1/boot.bin" || {
+    promote_open_journal
+    report_running_release
+    exit 0
+  }
 done
 fail "m1n1/boot.bin on the system ESP ($esp) is not m1n1, $kernel $kver's device trees, U-Boot and $CONFIG as installed; run sudo update-m1n1, then omarchy update"

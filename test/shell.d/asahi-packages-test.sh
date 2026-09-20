@@ -7,9 +7,15 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 base_manifest="$ROOT/install/omarchy-base-asahi.packages"
 other_manifest="$ROOT/install/omarchy-other-asahi.packages"
 
-for package in linux-asahi linux-asahi-headers asahi-desktop-meta asahi-fwextract mesa vulkan-asahi ddcutil qrencode libvips rtkit zbar; do
+for package in linux-aurora linux-aurora-headers m1n1-aurora asahi-desktop-meta asahi-fwextract mesa vulkan-asahi ddcutil qrencode libvips rtkit zbar; do
   grep -Fx "$package" "$base_manifest" "$other_manifest" >/dev/null || fail "Asahi manifests include $package"
 done
+if grep -Fxq linux-asahi "$base_manifest" "$other_manifest"; then
+  fail "Asahi manifests no longer install linux-asahi"
+fi
+if grep -Fxq linux-asahi-headers "$base_manifest" "$other_manifest"; then
+  fail "Asahi manifests no longer install linux-asahi-headers"
+fi
 pass "Asahi manifests include Apple Silicon platform requirements"
 
 forbidden='^(linux|linux-headers|linux-ptl|linux-ptl-headers|linux-omarchy|linux-omarchy-headers|limine|limine-mkinitcpio-hook|limine-snapper-sync|snapper|broadcom-wl(-dkms)?|egl-wayland|intel-.*|libva-intel-driver|libva-nvidia-driver|libvpl|vpl-gpu-rt|sof-firmware|thermald|nvidia-.*|lib32-.*|macbook12-spi-driver-dkms|apple-bcm-firmware|apple-t2-audio-config|linux-t2|linux-t2-headers|t2fanrd|tiny-dfr|tuxedo-drivers-nocompatcheck-dkms|yt6801-dkms|kvantum-qt5|qt5-wayland|rust)$'

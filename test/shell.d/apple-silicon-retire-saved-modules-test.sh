@@ -90,6 +90,11 @@ fi
 case "$1" in
   -Qq) cat "$TEST_FILES/installed" ;;
   -Qlq) [[ -f $TEST_FILES/$2 ]] && sed "s|^|$prefix|" "$TEST_FILES/$2" ;;
+  -Qkk) ;;
+  -Q)
+    [[ -f $TEST_FILES/version-$2 ]] || exit 1
+    echo "$2 $(cat "$TEST_FILES/version-$2")"
+    ;;
   -Qqo)
     [[ -n $prefix || $2 != "$TEST_ROOT"/* ]] || { echo "pacman: a fixture path without --root" >&2; exit 2; }
     [[ $2 == "$prefix"/* ]] || exit 2
@@ -199,6 +204,15 @@ SH
     printf "/usr/lib/modules/$rc/dtbs/%s\n" "${names[@]}"
   } >"$files/linux-aurora"
   printf '/usr/lib/asahi-boot/\n/usr/lib/asahi-boot/m1n1.bin\n' >"$files/m1n1-aurora"
+  mkdir -p "$root/var/lib/omarchy"
+  archive_sha=$(printf '%064d' 1)
+  {
+    printf 'format=1\nchannel=aurora\nrelease_tag=aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c\n'
+    printf 'package=1|linux-aurora|7.1.12.aurora2-6|aarch64|linux-aurora.pkg.tar.zst|%s|linux-aurora.pkg.tar.zst.sig|%064d\n' \
+      "$archive_sha" 2
+  } >"$root/var/lib/omarchy/aurora-target.descriptor"
+  printf 'format=1\nlane=rc\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
+  printf '7.1.12.aurora2-6\n' >"$files/version-linux-aurora"
   TEST_CALLS=/dev/null TEST_ROOT="$root" "$stub_bin/update-m1n1"
 }
 
@@ -228,7 +242,7 @@ run_retire_without_rebuild() {
 
 run_check() {
   set +e
-  in_env env TEST_CALLS=/dev/null bash "$check" linux-aurora >"$test_tmp/check.out" 2>"$test_tmp/check.err"
+  in_env env TEST_CALLS=/dev/null OMARCHY_BOOT_CHECK_UNAME="$rc" bash "$check" linux-aurora >"$test_tmp/check.out" 2>"$test_tmp/check.err"
   check_status=$?
   set -e
 }

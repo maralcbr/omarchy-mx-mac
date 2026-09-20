@@ -117,7 +117,7 @@ if (( dtbs_default )); then
   }
 fi
 
-omarchy-apple-silicon-boot-check linux-aurora || {
+OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1 omarchy-apple-silicon-boot-check linux-aurora || {
   echo "Apple Silicon boot check failed after replacing linux-asahi-headers; the migration will retry." >&2
   exit 1
 }

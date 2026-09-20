@@ -1,25 +1,27 @@
 #!/bin/bash
 
 # omarchy:summary=Keep this Mac's Apple Silicon channel record
-# omarchy:args=ensure|status|current|hold <reason>|release|switch <rc|edge>|reset-rc|locked <command> [args...]|verify-locked
+# omarchy:args=ensure|status|current|hold <reason>|release|switch <stable|rc|edge>|reset-rc|locked <command> [args...]|verify-locked
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
-# The record says which channel this Mac follows: stable on linux-asahi, rc on
-# linux-aurora. A Mac without one is given one on update, but only when the
-# installed kernel and the image's kernel marker agree. channel=rc is policy, not
-# proof that the qualified kernel is installed. A hold stops [omarchy-aurora]
-# moving; packages still upgrade against the repository it has. locked runs a
-# command holding the channel lock, which is on the record's directory, and
-# verify-locked checks the inherited descriptor and makes sure it holds that lock.
+# The record says which channel this Mac follows: stable on linux-asahi (legacy
+# Asahi), rc or stable on linux-aurora. A Mac without one is given one on update,
+# but only when the installed kernel and the image's kernel marker agree.
+# channel=rc is policy, not proof that the qualified kernel is installed. A hold
+# stops [omarchy-aurora] moving; packages still upgrade against the repository it
+# has. locked runs a command holding the channel lock, which is on the record's
+# directory, and verify-locked checks the inherited descriptor and makes sure it
+# holds that lock.
 #
-# An rc Mac also follows an Aurora lane, rc or edge, kept apart in
-# apple-silicon-aurora-lane so the record itself never changes shape: runtimes
-# that only know format 1 keep reading it. switch records a requested lane,
-# which omarchy update applies and clears once it has proven the kernel boots;
-# reset-rc does the same for rc whatever the lane file holds. lane, lane-write
-# and stage-descriptor are the updater's, under the lock it already holds, and
-# held names the Aurora packages pacman's configuration holds back.
+# An Aurora Mac (kernel=linux-aurora) also follows a lane, stable, rc or edge,
+# kept apart in apple-silicon-aurora-lane so the record itself never changes
+# shape: runtimes that only know format 1 keep reading it. switch records a
+# requested lane, which omarchy update applies and clears once it has proven
+# the kernel boots; reset-rc does the same for rc whatever the lane file holds.
+# lane, lane-write and stage-descriptor are the updater's, under the lock it
+# already holds, and held names the Aurora packages pacman's configuration
+# holds back.
 #
 # Exit 2: the record, its storage, the lock or the evidence cannot be trusted.
 # Exit 3: there is no record, and for ensure none could be inferred.
@@ -38,7 +40,7 @@ lock_timeout=${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT:-60}
 testing=${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-0}
 
 usage() {
-  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release|switch <rc|edge>|reset-rc|locked <command> [args...]|verify-locked>"
+  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release|switch <stable|rc|edge>|reset-rc|locked <command> [args...]|verify-locked>"
 }
 
 fail() {
@@ -136,7 +138,7 @@ read_record() {
     fi
   done
   case "$record_channel:$record_kernel" in
-    stable:linux-asahi | rc:linux-aurora) ;;
+    stable:linux-asahi | stable:linux-aurora | rc:linux-aurora) ;;
     *)
       problem="$record pairs channel $record_channel with kernel $record_kernel"
       return 2
@@ -148,13 +150,13 @@ read_record() {
   fi
 }
 
-lane=rc lane_switch="" lane_accepted="" lane_pending=""
+lane=rc lane_switch="" lane_accepted="" lane_pending="" reboot_pending=""
 
 # 0 with lane* set, an absent file being lane=rc; 2 with problem set.
 read_lane() {
   local line key value bad_line
   local -A seen=()
-  lane=rc lane_switch="" lane_accepted="" lane_pending=""
+  lane=rc lane_switch="" lane_accepted="" lane_pending="" reboot_pending=""
 
   [[ -e $lane_file || -L $lane_file ]] || return 0
   if [[ -L $lane_file || ! -f $lane_file ]]; then
@@ -187,8 +189,8 @@ read_lane() {
         fi
         ;;
       lane | switch)
-        if [[ $value != rc && $value != edge ]]; then
-          problem="$lane_file has $key $value, which is neither rc nor edge"
+        if [[ $value != stable && $value != rc && $value != edge ]]; then
+          problem="$lane_file has $key $value, which is not stable, rc or edge"
           return 2
         fi
         [[ $key == lane ]] && lane=$value || lane_switch=$value
@@ -199,6 +201,15 @@ read_lane() {
           return 2
         fi
         [[ $key == edge_accepted ]] && lane_accepted=$value || lane_pending=$value
+        ;;
+      reboot_pending)
+        # <boot id>:<kernel release> of the update that installed the kernel
+        # (a bare boot id or the legacy 1 are still read).
+        if [[ $value != 1 && ! $value =~ ^([0-9a-f]{32}|unknown)(:[^[:space:]]+)?$ ]]; then
+          problem="$lane_file has a malformed reboot_pending"
+          return 2
+        fi
+        reboot_pending=$value
         ;;
       *)
         problem="$lane_file has unknown key $key"
@@ -220,6 +231,13 @@ print_lane() {
   [[ -z $lane_switch ]] || printf 'switch=%s\n' "$lane_switch"
   [[ -z $lane_accepted ]] || printf 'edge_accepted=%s\n' "$lane_accepted"
   [[ -z $lane_pending ]] || printf 'edge_pending=%s\n' "$lane_pending"
+  [[ -z $reboot_pending ]] || printf 'reboot_pending=%s\n' "$reboot_pending"
+}
+
+# Aurora operations follow the kernel family, not the desktop-channel field:
+# stable:linux-aurora is an Aurora Mac, stable:linux-asahi is a legacy Asahi Mac.
+aurora_kernel() {
+  [[ $record_kernel == linux-aurora ]]
 }
 
 # The Aurora packages pacman holds back, as pacman itself reads its
@@ -376,7 +394,12 @@ write_state() {
   safe_state_dir || fail "$problem"
   staging=$(sudo mktemp -p "$state_dir" ".${path##*/}.XXXXXX") || fail "could not stage $path"
   sudo tee "$staging" >/dev/null || fail "could not write $path"
-  sudo chown root:root "$staging" && sudo chmod 0644 "$staging" || fail "could not write $path"
+  # Tests run the real writer as an unprivileged user with a sudo stub: ownership
+  # is root's job only when root is doing the writing.
+  if (( EUID == 0 )) || [[ -z ${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-} ]]; then
+    sudo chown root:root "$staging" || fail "could not write $path"
+  fi
+  sudo chmod 0644 "$staging" || fail "could not write $path"
   sudo mv -f "$staging" "$path" || fail "could not write $path"
   staging=""
 }
@@ -410,7 +433,7 @@ case "$command" in
   locked) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
   verify-locked) (( $# == 1 )) || { usage >&2; exit 2; } ;;
   lane | reset-rc | held) (( $# == 1 )) || { usage >&2; exit 2; } ;;
-  switch) (( $# == 2 )) && [[ $2 == rc || $2 == edge ]] || { usage >&2; exit 2; } ;;
+  switch) (( $# == 2 )) && [[ $2 == stable || $2 == rc || $2 == edge ]] || { usage >&2; exit 2; } ;;
   lane-write) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
   stage-descriptor) (( $# == 2 )) || { usage >&2; exit 2; } ;;
   -h | --help) usage; exit 0 ;;
@@ -449,7 +472,7 @@ case "$command" in
     ;;
   current)
     checked_record || result=$?
-    if (( result == 0 )) && [[ $record_channel == rc ]]; then
+    if (( result == 0 )) && aurora_kernel; then
       if read_lane; then
         echo "$lane"
       else
@@ -496,8 +519,8 @@ case "$command" in
     checked_record || result=$?
     (( result != 2 )) || fail "$problem"
     (( result == 0 )) || exit 3
-    # The lane is an rc Mac's; any other record ignores the file.
-    if [[ $record_channel == rc ]]; then
+    # The lane is an Aurora Mac's; a legacy Asahi record ignores the file.
+    if aurora_kernel; then
       read_lane || fail "$problem"
     fi
     print_lane
@@ -510,18 +533,22 @@ case "$command" in
     verify_locked
     read_record || result=$?
     (( result == 0 )) || fail "${problem:-$record does not exist yet}"
-    [[ $record_channel == rc ]] || fail "only an rc Mac has an Aurora lane"
+    aurora_kernel || fail "only an Aurora Mac has an Aurora lane"
     read_lane || fail "$problem"
     for assignment in "$@"; do
       key=${assignment%%=*}
       value=${assignment#*=}
       [[ $assignment == *=* ]] || fail "lane-write takes key=value, not '$assignment'"
       case "$key:$value" in
-        lane:rc | lane:edge) lane=$value ;;
-        switch: | switch:rc | switch:edge) lane_switch=$value ;;
+        lane:stable | lane:rc | lane:edge) lane=$value ;;
+        switch: | switch:stable | switch:rc | switch:edge) lane_switch=$value ;;
         edge_accepted:* | edge_pending:*)
           [[ -z $value || $value =~ ^[1-9][0-9]{0,8}:[0-9a-f]{64}$ ]] || fail "lane-write: malformed $key"
           [[ $key == edge_accepted ]] && lane_accepted=$value || lane_pending=$value
+          ;;
+        reboot_pending:*)
+          [[ -z $value || $value == 1 || $value =~ ^([0-9a-f]{32}|unknown)(:[^[:space:]]+)?$ ]] || fail "lane-write: malformed $key"
+          reboot_pending=$value
           ;;
         *) fail "lane-write: unsupported $assignment" ;;
       esac
@@ -547,8 +574,8 @@ case "$command" in
     checked_record || result=$?
     (( result != 3 )) || fail "$record does not exist yet; omarchy update records it"
     (( result == 0 )) || fail "$problem"
-    [[ $record_channel == rc ]] ||
-      fail "this Mac runs $record_kernel on $record_channel; rc and edge are the Aurora kernel's, and moving between kernel families is not available"
+    aurora_kernel ||
+      fail "this Mac runs $record_kernel on $record_channel; stable, rc and edge are the Aurora kernel's, and moving between kernel families is not available"
     [[ -z $record_hold ]] ||
       fail "this Mac's channel is held ($record_hold); omarchy-apple-silicon-channel release lifts the hold"
     held=$(held_aurora_packages) || fail "pacman cannot read /etc/pacman.conf, so a hold on the Aurora packages cannot be ruled out"
@@ -559,11 +586,11 @@ case "$command" in
     fi
     read_lane || fail "$problem; omarchy-apple-silicon-channel reset-rc starts it again from rc"
     if [[ $lane_switch == "$target" ]] ||
-      { [[ $lane == "$target" && -z $lane_switch ]] && ! { [[ $target == rc ]] && aurora_section_on_edge; }; }; then
+      { [[ $lane == "$target" && -z $lane_switch ]] && ! { [[ $target != edge ]] && aurora_section_on_edge; }; }; then
       echo "This Mac already follows $target."
       exit 0
     fi
-    lane=$target lane_switch=$target
+    lane=$target lane_switch=$target reboot_pending=""
     write_lane
     echo "This Mac now follows $target. omarchy update moves the Aurora kernel and checks that it boots before calling the switch done."
     ;;
@@ -573,13 +600,13 @@ case "$command" in
     read_record || result=$?
     (( result != 3 )) || fail "$record does not exist yet; omarchy update records it"
     (( result == 0 )) || fail "$problem"
-    [[ $record_channel == rc ]] || fail "this Mac follows $record_channel, which has no Aurora lane"
+    aurora_kernel || fail "this Mac follows $record_channel on $record_kernel, which has no Aurora lane"
     if ! read_lane; then
       [[ -f $lane_file && ! -L $lane_file ]] || fail "$problem; remove it by hand"
       echo "Apple Silicon channel: $problem; starting it again from rc, without its edge history." >&2
-      lane_accepted="" lane_pending=""
+      lane_accepted="" lane_pending="" reboot_pending=""
     fi
-    lane=rc lane_switch=rc
+    lane=rc lane_switch=rc reboot_pending=""
     write_lane
     echo "This Mac returns to rc on the next omarchy update."
     [[ -z $record_hold ]] || echo "Its channel is held ($record_hold), so nothing moves until omarchy-apple-silicon-channel release."
