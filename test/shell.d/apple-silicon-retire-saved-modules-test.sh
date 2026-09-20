@@ -307,6 +307,25 @@ expect_left_alone "a newer unowned directory that is not the running kernel's"
 pass "a newer modules directory a package owns, or one that is not the running kernel's, is left for the check to refuse"
 
 downgraded
+mkdir -p "$modules/7.1.13-3-2-ARCH/build"
+printf '/usr/lib/modules/7.1.13-3-2-ARCH/\n' >"$files/linux-asahi-headers"
+printf 'linux-asahi-headers\n' >>"$files/installed"
+run_retire
+(( status == 0 )) || fail "saved modules plus leftover headers exit 0" "status $status: $(cat "$test_tmp/err")"
+[[ ! -s $calls && ! -s $test_tmp/out && -d $modules/$edge && -d $modules/7.1.13-3-2-ARCH && ! -e $modules/.old ]] ||
+  fail "saved modules plus leftover headers move nothing" "$(cat "$calls" "$test_tmp/out")"
+rm -rf "$modules/7.1.13-3-2-ARCH"
+rm -f "$files/linux-asahi-headers"
+grep -Fxv linux-asahi-headers "$files/installed" >"$files/installed.tmp"
+mv "$files/installed.tmp" "$files/installed"
+run_retire
+(( status == 0 )) || fail "removing leftover headers lets the saved copy be retired" "status $status: $(cat "$test_tmp/err")"
+[[ ! -e $modules/$edge && -d $modules/$rc && -d $modules/.old/$edge ]] ||
+  fail "once the headers tree is gone the saved copy moves to .old"
+expect_check_passes "after leftover headers are gone"
+pass "saved modules plus leftover headers stay put; removing the headers lets the next update retire them"
+
+downgraded
 sed -i '/^kernel-modules-hook$/d' "$files/installed"
 run_retire
 expect_left_alone "no kernel-modules-hook"

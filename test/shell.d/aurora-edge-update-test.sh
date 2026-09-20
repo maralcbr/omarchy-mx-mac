@@ -664,10 +664,12 @@ pass "OMARCHY_AURORA_OFFLINE=1 refuses edge discovery and does not download"
 
 # A leftover Asahi headers tree sorts above linux-aurora and has no dtbs, so
 # ALARM's update-m1n1 would rebuild stage 2 empty. Name it; do not delete it.
+# The diagnostic only applies when DTBS still comes from that default.
 write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=8:%s\n' "$(digest aurora-edge-8)"
 conf_on "$downloads/aurora-edge-8"
 installed_from aurora-edge-8
-mkdir -p "$root/usr/lib/modules/7.1.13-3-2-ARCH/build" "$root/usr/lib/modules/7.1.12-2.5-1-ARCH/dtbs"
+mkdir -p "$root/usr/bin" "$root/usr/lib/modules/7.1.13-3-2-ARCH/build" "$root/usr/lib/modules/7.1.12-2.5-1-ARCH/dtbs"
+printf ': ${DTBS:=$(/bin/ls -d /lib/modules/*-ARCH | sort -rV | head -1)/dtbs/*.dtb}\n' >"$root/usr/bin/update-m1n1"
 : >"$root/usr/lib/modules/7.1.12-2.5-1-ARCH/dtbs/t8103-j274.dtb"
 printf '/usr/lib/modules/7.1.12-2.5-1-ARCH/vmlinuz\n' >"$test_tmp/kernel-files"
 printf '/usr/lib/modules/7.1.13-3-2-ARCH linux-asahi-headers\n' >"$test_tmp/owners"
@@ -687,3 +689,18 @@ expect_status 1 "completing with an unowned newer modules directory"
 grep -Fq 'owned by no package; move it aside, then sudo update-m1n1' "$test_tmp/err" ||
   fail "an unowned leftover modules directory names that repair" "$(cat "$test_tmp/err")"
 pass "completion names a newer *-ARCH directory with no device trees and the repair"
+
+# A user-set DTBS is not ALARM's default, so the leftover tree is not this hazard.
+mkdir -p "$root/etc/default"
+printf 'DTBS="/usr/lib/modules/7.1.12-2.5-1-ARCH/dtbs/*.dtb"\n' >"$root/etc/default/update-m1n1"
+printf '/usr/lib/modules/7.1.13-3-2-ARCH linux-asahi-headers\n' >"$test_tmp/owners"
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=8:%s\n' "$(digest aurora-edge-8)"
+TEST_KERNEL_FILES="$test_tmp/kernel-files" TEST_OWNERS="$test_tmp/owners" \
+  TEST_INSTALLED="linux-aurora linux-asahi-headers m1n1-aurora" run_step --complete
+expect_status 0 "completing with leftover Asahi headers and a custom DTBS"
+! grep -Fq 'sorts above linux-aurora' "$test_tmp/err" ||
+  fail "a custom DTBS does not run the leftover-headers diagnostic" "$(cat "$test_tmp/err")"
+grep -q 'retire-saved-modules linux-aurora' "$calls" || fail "a custom DTBS still retires saved modules" "$(cat "$calls")"
+grep -q 'boot-check linux-aurora' "$calls" || fail "a custom DTBS still checks boot" "$(cat "$calls")"
+expect_lane "a custom DTBS still completes the switch" 'format=1\nlane=edge\nedge_accepted=8:%s\n' "$(digest aurora-edge-8)"
+pass "a custom DTBS skips the leftover-headers diagnostic and completes as usual"

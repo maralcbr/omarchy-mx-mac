@@ -56,6 +56,23 @@ move_packages() {
   done
 }
 
+# True when update-m1n1 takes its device trees from ALARM's *-ARCH default, as
+# omarchy-apple-silicon-retire-saved-modules decides it. A user-set DTBS is not
+# this hazard: completion still trusts the boot check.
+dtbs_from_alarm_default() {
+  local script config configured
+  script=$(root_path /usr/bin/update-m1n1)
+  [[ -r $script ]] && grep -Eq '^[[:space:]]*:[[:space:]]+\$\{DTBS:=.*/modules/\*-ARCH' "$script" || return 1
+  config=$(root_path /etc/default/update-m1n1)
+  [[ -e $config ]] || return 0
+  configured=$(env -i PATH=/usr/bin:/bin bash --noprofile --norc -c '
+    unset DTBS M1N1_UPDATE_DISABLED
+    . "$1" >/dev/null 2>&1 || exit 1
+    printf "%s" "${DTBS-}${M1N1_UPDATE_DISABLED-}"
+  ' _ "$config") || return 1
+  [[ -z $configured ]]
+}
+
 # ALARM's update-m1n1 takes the newest *-ARCH directory. A leftover headers
 # tree above linux-aurora with no dtbs makes that rebuild empty; name the owner.
 stale_aurora_module_trees() {
@@ -429,7 +446,7 @@ if [[ $mode == complete ]]; then
   # A downgrade leaves the running kernel's modules where update-m1n1 looks first.
   omarchy-apple-silicon-retire-saved-modules linux-aurora ||
     unverified "the running kernel's saved modules could not be moved aside for m1n1"
-  if stale_reason=$(stale_aurora_module_trees); then
+  if dtbs_from_alarm_default && stale_reason=$(stale_aurora_module_trees); then
     unverified "$stale_reason"
   fi
   omarchy-apple-silicon-boot-check linux-aurora || unverified "the boot files do not match the installed kernel"

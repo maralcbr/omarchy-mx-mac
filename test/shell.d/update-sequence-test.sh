@@ -25,6 +25,7 @@ steps=(
   omarchy-update-keyring
   omarchy-update-system-pkgs
   omarchy-migrate
+  omarchy-update-aurora-repository
   omarchy-hook
   omarchy-update-aur-pkgs
   omarchy-update-mise
@@ -115,7 +116,7 @@ pass "-y is what marks an update unattended, not the update itself"
 if FAILING_STEP=omarchy-update-system-pkgs run_update -y; then
   fail "an update whose packages did not upgrade passes for a whole one"
 fi
-for step in omarchy-migrate omarchy-hook omarchy-update-aur-pkgs omarchy-update-restart; do
+for step in omarchy-migrate omarchy-update-aurora-repository omarchy-hook omarchy-update-aur-pkgs omarchy-update-restart; do
   if grep -q "^$step " "$test_tmp/steps"; then
     fail "a blocked package upgrade still runs $step"
   fi
@@ -142,7 +143,7 @@ set -e
 if grep -q 'Something went wrong' "$test_tmp/err" "$test_tmp/out"; then
   fail "a repository mid-transition is reported as something to correct"
 fi
-if grep -q '^omarchy-migrate ' "$test_tmp/steps"; then
+if grep -q '^omarchy-migrate \|^omarchy-update-aurora-repository ' "$test_tmp/steps"; then
   fail "a repository mid-transition still migrates"
 fi
 pass "a repository mid-transition stops the update without the failure banner"
@@ -158,7 +159,9 @@ pass "every other blocked upgrade still shows the failure banner"
 # without stopping the update. Their status is taken so the ERR trap cannot print the
 # failure banner over an update that carries on; only a bundle that really failed shows it.
 apple_expected_steps() {
-  expected_steps | sed '/^omarchy-update-dev$/a omarchy-update-asahi-bundle\nomarchy-update-asahi-repository'
+  expected_steps | sed \
+    -e '/^omarchy-update-dev$/a omarchy-update-asahi-bundle\nomarchy-update-asahi-repository' \
+    -e '/^omarchy-migrate$/a omarchy-update-aurora-repository'
 }
 
 for deferred in omarchy-update-asahi-bundle omarchy-update-asahi-repository; do
@@ -205,3 +208,36 @@ grep -Fq 'The update is not finished: the move to aurora-edge-7 is not verified'
 diff <(expected_steps) <(steps_run) >"$test_tmp/order" ||
   fail "an unverified kernel switch still runs every step" "$(cat "$test_tmp/order")"
 pass "an unverified kernel switch runs the whole update and then fails it"
+
+# Leftover Asahi headers can fail completion during the package upgrade; the
+# update still migrates, then proves the switch again so the same run finishes.
+APPLE_SILICON=1 run_update -y || fail "an Apple Silicon update where everything works reports a failure"
+diff <(apple_expected_steps) <(steps_run) >"$test_tmp/order" ||
+  fail "an Apple Silicon update does not re-complete Aurora after migrations" "$(cat "$test_tmp/order")"
+pass "an Apple Silicon update re-runs Aurora completion after migrations"
+
+cat >"$stub_bin/omarchy-update-system-pkgs" <<'STUB'
+#!/bin/bash
+printf '%s unattended=%s\n' "${0##*/}" "${OMARCHY_UPDATE_UNATTENDED:-}" >>"$STEP_LOG"
+printf 'the move to aurora-edge-8 is not verified: leftover linux-asahi-headers\n' >"$OMARCHY_REBOOT_BLOCKED"
+[[ ${FAILING_STEP:-} != "${0##*/}" ]] || exit "${FAILING_STATUS:-42}"
+STUB
+cat >"$stub_bin/omarchy-update-aurora-repository" <<'STUB'
+#!/bin/bash
+printf '%s unattended=%s\n' "${0##*/}" "${OMARCHY_UPDATE_UNATTENDED:-}" >>"$STEP_LOG"
+[[ ${1:-} == --complete ]] || exit 2
+[[ ${FAILING_STEP:-} != "${0##*/}" ]] || exit "${FAILING_STATUS:-42}"
+rm -f "$OMARCHY_REBOOT_BLOCKED"
+STUB
+chmod +x "$stub_bin/omarchy-update-system-pkgs" "$stub_bin/omarchy-update-aurora-repository"
+
+printf 'stale\n' >"$test_tmp/heal-block"
+set +e
+APPLE_SILICON=1 OMARCHY_REBOOT_BLOCKED="$test_tmp/heal-block" run_update -y
+update_status=$?
+set -e
+(( update_status == 0 )) || fail "the same update does not finish after migrating leftover headers" "status $update_status: $(cat "$test_tmp/err")"
+[[ ! -e $test_tmp/heal-block ]] || fail "post-migrate completion does not lift the reboot block"
+diff <(apple_expected_steps) <(steps_run) >"$test_tmp/order" ||
+  fail "the leftover-headers heal still runs every Apple Silicon step" "$(cat "$test_tmp/order")"
+pass "the same update heals leftover Asahi headers: migrate, then complete"

@@ -82,6 +82,18 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   if (( packages_status == 3 )); then trap - ERR; fi
   (( packages_status == 0 )) || (exit "$packages_status")
   omarchy-migrate
+  # Completion before migrations can fail on leftover linux-asahi-headers; that
+  # failure is swallowed so this migrate can swap them. Prove the switch again
+  # now so the same update can finish.
+  reboot_blocked=${OMARCHY_REBOOT_BLOCKED:-/run/omarchy-reboot-blocked}
+  if omarchy-hw-apple-silicon; then
+    aurora_complete_status=0
+    omarchy-update-aurora-repository --complete || aurora_complete_status=$?
+    if (( aurora_complete_status != 0 )); then
+      [[ -e $reboot_blocked ]] ||
+        sudo tee "$reboot_blocked" >/dev/null <<<"the Aurora kernel switch could not be verified" || true
+    fi
+  fi
   omarchy-hook post-update
   if omarchy-hw-apple-silicon && [[ -f /var/lib/omarchy/asahi-quattro-release.pending ]]; then
     sudo mv /var/lib/omarchy/asahi-quattro-release.pending /var/lib/omarchy/asahi-quattro-release
@@ -101,7 +113,6 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
 
   omarchy-update-restart
   # An unverified kernel switch is not a finished update.
-  reboot_blocked=${OMARCHY_REBOOT_BLOCKED:-/run/omarchy-reboot-blocked}
   if [[ -e $reboot_blocked ]]; then
     echo -e "\e[31mThe update is not finished: $(head -n 1 "$reboot_blocked").\e[0m" >&2
     exit 1
