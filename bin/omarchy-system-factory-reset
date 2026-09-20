@@ -69,6 +69,7 @@ apple_silicon() {
 BOOT_LUKS_KEY="${OMARCHY_BOOT_LUKS_KEY:-/boot/omarchy/luks-key}"
 BOOT_FS_UUID="${OMARCHY_BOOT_FS_UUID:-4f4d5801-424f-4f54-8000-000000000001}"
 GRUB_DEFAULT="${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}"
+CRYPTTAB="${OMARCHY_CRYPTTAB:-/etc/crypttab}"
 
 # Resolve the crypto_LUKS partition backing the root, or return non-zero if
 # the root is not on LUKS. Prefers the cmdline cryptdevice= spec (archinstall
@@ -173,7 +174,7 @@ stage_luks_rekey_apple() {
 
   uuid=$(cryptsetup luksUUID "$device") || fail "could not read the LUKS UUID of $device"
 
-  crypttab_src=/etc/crypttab
+  crypttab_src=$CRYPTTAB
   [[ -f $crypttab_src ]] && install -Dm644 "$crypttab_src" "$next/etc/crypttab"
 
   grub_src=$GRUB_DEFAULT

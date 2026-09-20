@@ -19,8 +19,7 @@ mkdir -p "$stub_bin" "$next/var/lib/omarchy/provisioning" "$tmp/boot/omarchy" "$
 
 printf 'GRUB_CMDLINE_LINUX="rd.luks.name=abcd-ef=root root=/dev/mapper/root quiet"\n' >"$grub_live"
 printf 'root UUID=abcd-ef none luks\n' >"$tmp/live/crypttab"
-# The live crypttab is copied from /etc/crypttab; tests point GRUB_DEFAULT at
-# the live copy and install a fake /etc via a stub `install`.
+# Tests point GRUB_DEFAULT and CRYPTTAB at these live copies.
 
 cat >"$stub_bin/omarchy-hw-apple-silicon" <<'SH'
 #!/bin/bash
@@ -124,6 +123,7 @@ export OMARCHY_FACTORY_RESET_SOURCE=1
 export OMARCHY_FACTORY_RESET_LOG="$tmp/reset.log"
 export OMARCHY_BOOT_LUKS_KEY="$boot_key"
 export OMARCHY_GRUB_DEFAULT="$grub_live"
+export OMARCHY_CRYPTTAB="$tmp/live/crypttab"
 export OMARCHY_LUKS_DEVICE="$device"
 : >"$OMARCHY_FACTORY_RESET_LOG"
 mkdir -p "$tmp/omarchy/bin"
@@ -225,7 +225,18 @@ sanitize_factory_baseline "$factory"
 [[ ! -e $factory/var/lib/omarchy/provisioning/pending ]] || fail "@factory does not keep provisioning/pending"
 [[ ! -e $factory/var/lib/omarchy/provisioning/wipe-pending ]] || fail "@factory does not keep wipe-pending"
 [[ ! -e $factory/boot/efi/omarchy/install.conf ]] || fail "@factory does not keep the ESP install.conf"
-[[ ! -e $factory/boot/omarchy/encrypt.state ]] || fail "@factory does not keep encrypt.state"
+# /boot inside a subvolume is an empty mountpoint on a real system: the live
+# Boot partition's encrypt.state is rewritten by reopen_encrypt_state after
+# activation, never by the subvolume scrub.
+[[ -f $factory/boot/omarchy/encrypt.state ]] || fail "the subvolume scrub leaves boot/omarchy alone"
+live_state="$tmp/boot/omarchy/encrypt.state"
+printf 'format=1\nphase=finished\npartition=p\nluks_uuid=u\nowner_slot=1\nrecovery_slot=2\n' >"$live_state"
+OMARCHY_ENCRYPT_STATE="$live_state" reopen_encrypt_state
+[[ $(cat "$live_state") == $'format=1\nphase=configured\npartition=p\nluks_uuid=u' ]] ||
+  fail "reopen_encrypt_state returns the live Boot state to phase=configured without the slots"
+rm -f "$live_state"
+OMARCHY_ENCRYPT_STATE="$live_state" reopen_encrypt_state || fail "reopen_encrypt_state is a no-op without a state file"
+[[ ! -e $live_state ]] || fail "reopen_encrypt_state does not invent a state file"
 
 cloned="$tmp/cloned"
 mkdir -p "$cloned/var/lib/omarchy/mac-first-boot" "$cloned/boot/omarchy" "$cloned/boot/efi/omarchy"
@@ -240,5 +251,5 @@ arm_reset_markers "$cloned"
 [[ -f $cloned/var/lib/omarchy/provisioning/wipe-pending ]] || fail "reset re-arms wipe-pending"
 [[ ! -e $cloned/var/lib/omarchy/mac-first-boot/install.conf ]] || fail "reset next root does not keep install.conf"
 [[ ! -e $cloned/boot/efi/omarchy/install.conf ]] || fail "reset next root does not keep the ESP install.conf"
-[[ ! -e $cloned/boot/omarchy/encrypt.state ]] || fail "reset next root does not keep encrypt.state"
+[[ -f $cloned/boot/omarchy/encrypt.state ]] || fail "the next-root scrub leaves boot/omarchy alone"
 pass "LUKS factory reset commits the Boot key after rebuilds, re-arms both markers, and keeps @factory clean"
