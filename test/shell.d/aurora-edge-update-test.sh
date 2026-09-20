@@ -165,6 +165,20 @@ if [[ $1 == "-Q" && $# == 2 ]]; then
   echo "$2 $version"
   exit 0
 fi
+if [[ $1 == "-Qlq" ]]; then
+  [[ -n ${TEST_KERNEL_FILES:-} && -f $TEST_KERNEL_FILES ]] && cat "$TEST_KERNEL_FILES"
+  exit 0
+fi
+if [[ $1 == "-Qqo" ]]; then
+  if [[ -n ${TEST_OWNERS:-} && -f $TEST_OWNERS ]]; then
+    owner=$(awk -v p="$2" '$1 == p { print $2; found=1 } END { exit !found }' "$TEST_OWNERS") && {
+      echo "$owner"
+      exit 0
+    }
+  fi
+  echo "error: No package owns $2" >&2
+  exit 1
+fi
 printf 'pacman:%s\n' "$*" >>"$TEST_CALLS"
 SH
 chmod +x "$stub_bin"/*
@@ -257,6 +271,8 @@ run_step() {
     TEST_CALLS="$calls" \
     TEST_CHANNEL_CALLS="$channel_calls" \
     TEST_VERSIONS="$versions" \
+    TEST_KERNEL_FILES="${TEST_KERNEL_FILES:-}" \
+    TEST_OWNERS="${TEST_OWNERS:-}" \
     TEST_INSTALLED="${TEST_INSTALLED:-linux-aurora linux-aurora-headers m1n1-aurora}" \
     OMARCHY_APPLE_SILICON_CHANNEL_ROOT="$root" \
     OMARCHY_APPLE_SILICON_CHANNEL_TESTING=1 \
@@ -645,3 +661,29 @@ grep -Fq "offline mode requires a journaled edge target" "$test_tmp/err" ||
   fail "offline edge names the missing journal" "$(cat "$test_tmp/err")"
 [[ ! -s $curl_log ]] || fail "offline edge without a journal does not curl" "$(cat "$curl_log")"
 pass "OMARCHY_AURORA_OFFLINE=1 refuses edge discovery and does not download"
+
+# A leftover Asahi headers tree sorts above linux-aurora and has no dtbs, so
+# ALARM's update-m1n1 would rebuild stage 2 empty. Name it; do not delete it.
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=8:%s\n' "$(digest aurora-edge-8)"
+conf_on "$downloads/aurora-edge-8"
+installed_from aurora-edge-8
+mkdir -p "$root/usr/lib/modules/7.1.13-3-2-ARCH/build" "$root/usr/lib/modules/7.1.12-2.5-1-ARCH/dtbs"
+: >"$root/usr/lib/modules/7.1.12-2.5-1-ARCH/dtbs/t8103-j274.dtb"
+printf '/usr/lib/modules/7.1.12-2.5-1-ARCH/vmlinuz\n' >"$test_tmp/kernel-files"
+printf '/usr/lib/modules/7.1.13-3-2-ARCH linux-asahi-headers\n' >"$test_tmp/owners"
+TEST_KERNEL_FILES="$test_tmp/kernel-files" TEST_OWNERS="$test_tmp/owners" \
+  TEST_INSTALLED="linux-aurora linux-asahi-headers m1n1-aurora" run_step --complete
+expect_status 1 "completing with leftover Asahi headers modules"
+grep -Fq '/usr/lib/modules/7.1.13-3-2-ARCH sorts above linux-aurora 7.1.12-2.5-1-ARCH and has no device trees' "$test_tmp/err" ||
+  fail "the leftover headers directory is named" "$(cat "$test_tmp/err")"
+grep -Fq 'owned by linux-asahi-headers; sudo pacman -Rdd linux-asahi-headers, sudo pacman -S --needed omarchy-aurora/linux-aurora-headers, sudo update-m1n1' "$test_tmp/err" ||
+  fail "the leftover headers repair is named" "$(cat "$test_tmp/err")"
+! grep -q boot-check "$calls" || fail "the diagnostic runs before the boot check" "$(cat "$calls")"
+[[ -d $root/usr/lib/modules/7.1.13-3-2-ARCH ]] || fail "a package-owned modules directory is not deleted"
+rm -f "$test_tmp/owners"
+TEST_KERNEL_FILES="$test_tmp/kernel-files" TEST_OWNERS="$test_tmp/owners" \
+  TEST_INSTALLED="linux-aurora linux-asahi-headers m1n1-aurora" run_step --complete
+expect_status 1 "completing with an unowned newer modules directory"
+grep -Fq 'owned by no package; move it aside, then sudo update-m1n1' "$test_tmp/err" ||
+  fail "an unowned leftover modules directory names that repair" "$(cat "$test_tmp/err")"
+pass "completion names a newer *-ARCH directory with no device trees and the repair"

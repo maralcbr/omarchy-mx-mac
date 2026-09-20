@@ -101,6 +101,10 @@ grep -Fq $'skipped\tx86_64 linux-omarchy kernel and Limine boot order' "$state_d
 grep -Fq $'skipped\tlinux-omarchy and linux-t2 header repair' "$state_dir/1789444024.sh.skipped" || fail "header migration records its Apple Silicon reason"
 pass "Asahi skips the reviewed 4.0.4 kernel migrations"
 
+[[ -f $state_dir/1789879296.sh && ! -e $state_dir/1789879296.sh.skipped ]] ||
+  fail "Aurora leftover headers migration runs on Apple Silicon"
+pass "Asahi runs the Aurora leftover linux-asahi-headers repair"
+
 cat >"$test_root/migrations/9999999999.sh" <<'SH'
 printf '%s\n' unknown >>"$TEST_CALLS"
 SH

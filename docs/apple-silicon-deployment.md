@@ -845,6 +845,13 @@ reset-rc` records the same request, then run `omarchy update`.
   modules until the reboot. Any other newer directory still fails the check.
   If `update-m1n1` failed after the move, run `sudo update-m1n1`, then
   `omarchy update`.
+- Leftover `linux-asahi-headers` after an Asahi-to-Aurora move owns a newer
+  `-ARCH` directory with no `dtbs/`, so ALARM's `update-m1n1` rebuilds stage 2
+  with no device trees. Completion names that directory and the repair (the
+  owning package, or that it is unowned) and does not delete a package-owned
+  tree. `omarchy-migrate` swaps it for `linux-aurora-headers` from
+  `[omarchy-aurora]` on rc Macs, rebuilds m1n1 when DTBS is still the default,
+  and rechecks boot; a failed check stays pending. Stable Macs are untouched.
 - `this Mac's Aurora lane cannot be read`: `omarchy-apple-silicon-channel
   reset-rc` rewrites the lane file as rc (its edge history is lost).
 - A runtime downgraded by hand ignores the lane file and leaves an

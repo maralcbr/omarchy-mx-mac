@@ -56,6 +56,54 @@ move_packages() {
   done
 }
 
+# ALARM's update-m1n1 takes the newest *-ARCH directory. A leftover headers
+# tree above linux-aurora with no dtbs makes that rebuild empty; name the owner.
+stale_aurora_module_trees() {
+  local file kver="" name match dtb owner_text owner repair
+  local modules
+  local -a hazards=()
+
+  modules=$(root_path /usr/lib/modules)
+  while IFS= read -r file; do
+    [[ $file =~ ^/usr/lib/modules/([^/]+)/vmlinuz$ ]] || continue
+    [[ -z $kver ]] || return 1
+    kver=${BASH_REMATCH[1]}
+  done < <(pacman -Qlq linux-aurora 2>/dev/null || true)
+  [[ -n $kver ]] || return 1
+
+  for match in "$modules"/*-ARCH; do
+    [[ -e $match || -L $match ]] || continue
+    name=${match##*/}
+    [[ $name != "$kver" ]] || continue
+    [[ $(printf '%s\n%s\n' "$name" "$kver" | sort -rV | head -1) == "$name" ]] || continue
+    repair=""
+    for dtb in "$match"/dtbs/*.dtb; do
+      [[ -f $dtb ]] || continue
+      repair=has
+      break
+    done
+    [[ $repair != has ]] || continue
+    owner=""
+    owner_text=$(LC_ALL=C pacman -Qqo "/usr/lib/modules/$name" 2>&1) && owner=$owner_text || {
+      [[ $owner_text == *"No package owns"* ]] || owner="unknown"
+    }
+    if [[ $owner == linux-asahi-headers ]]; then
+      repair="owned by linux-asahi-headers; sudo pacman -Rdd linux-asahi-headers, sudo pacman -S --needed omarchy-aurora/linux-aurora-headers, sudo update-m1n1"
+    elif [[ -n $owner && $owner != unknown ]]; then
+      repair="owned by $owner; remove that package's files from /usr/lib/modules/$name, then sudo update-m1n1"
+    elif [[ $owner == unknown ]]; then
+      repair="ownership unknown; inspect /usr/lib/modules/$name, then sudo update-m1n1"
+    else
+      repair="owned by no package; move it aside, then sudo update-m1n1"
+    fi
+    hazards+=("/usr/lib/modules/$name sorts above linux-aurora $kver and has no device trees ($repair)")
+  done
+  (( ${#hazards[@]} )) || return 1
+  local message=""
+  printf -v message '%s; ' "${hazards[@]}"
+  printf '%s' "${message%; }"
+}
+
 fail() {
   echo "Aurora kernel repository update: $*" >&2
   exit 2
@@ -381,6 +429,9 @@ if [[ $mode == complete ]]; then
   # A downgrade leaves the running kernel's modules where update-m1n1 looks first.
   omarchy-apple-silicon-retire-saved-modules linux-aurora ||
     unverified "the running kernel's saved modules could not be moved aside for m1n1"
+  if stale_reason=$(stale_aurora_module_trees); then
+    unverified "$stale_reason"
+  fi
   omarchy-apple-silicon-boot-check linux-aurora || unverified "the boot files do not match the installed kernel"
 
   if [[ $lane == rc ]]; then
