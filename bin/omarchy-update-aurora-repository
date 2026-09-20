@@ -36,6 +36,10 @@
 # that as pending, and after reboot (when uname matches) the move counts as done.
 # Exit 3: edge could not be followed this time, so the section stays on the
 # authenticated current release; nothing is rewritten onto another lane's pin.
+#
+# Image builds (OMARCHY_MAC_IMAGE_BUILD=1) keep the [omarchy-aurora] Server the
+# builder already pinned. The signed AURORA for that release is verified and
+# staged; the section is never moved or advanced to the runtime pin.
 
 set -euo pipefail
 
@@ -363,7 +367,7 @@ section_end() {
 
 # What the section names now: none, the pin, a predecessor, an edge release, or
 # something else, which is somebody's decision and is never moved.
-section_kind=none start="" end="" current=() kept=()
+section_kind=none start="" end="" current=() kept=() recognised=0
 if (( ${#aurora[@]} )); then
   start=${aurora[0]}
   end=$(section_end "$start")
@@ -710,6 +714,27 @@ obtain_descriptor() {
   read_descriptor "$descriptor" || fail "AURORA in $target_tag does not describe that Aurora release"
   target_digest=$digest
 }
+
+# Image builds pin [omarchy-aurora] to the builder's selected lane release.
+# Do not follow the runtime pin, edge, or a switch; only verify that section's
+# signed AURORA descriptor and stage it, the way image mode keeps [omarchy] on
+# the builder's asahi-packages-stable tag.
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
+  [[ $section_kind != none ]] || fail "image mode requires a pinned [omarchy-aurora] repository"
+  if (( ! recognised || ${#current[@]} != 1 )) ||
+    { [[ ! ${current[0]} =~ $release_tag_pattern ]] &&
+      [[ ! ${current[0]} =~ $stable_tag_pattern ]] &&
+      [[ ! ${current[0]} =~ $edge_tag_pattern ]]; }; then
+    fail "image mode requires [omarchy-aurora] to name an Aurora lane release"
+  fi
+  target_tag=${current[0]}
+  target_digest=""
+  obtain_descriptor || fail "image mode could not verify the AURORA descriptor for $target_tag"
+  if ! cmp -s "$descriptor" "$staged_descriptor"; then
+    omarchy-apple-silicon-channel stage-descriptor "$descriptor" || exit 2
+  fi
+  leave 0 "image mode keeps the builder's [omarchy-aurora] on $target_tag"
+fi
 
 defer="" edge_sequence=""
 if [[ ${OMARCHY_AURORA_OFFLINE:-} == 1 ]]; then

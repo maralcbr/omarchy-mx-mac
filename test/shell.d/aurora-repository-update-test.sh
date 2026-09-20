@@ -936,3 +936,23 @@ grep -Fq "offline mode requires [omarchy-aurora] on $new_tag" "$test_tmp/err" ||
 [[ ! -s $curl_log ]] || fail "offline mode off the pin does not curl" "$(cat "$curl_log")"
 expect_untouched "offline mode off the pin"
 pass "OMARCHY_AURORA_OFFLINE=1 refuses to move [omarchy-aurora] and does not download"
+
+# Image builds keep the builder's [omarchy-aurora] even when that release is
+# neither the runtime pin nor a predecessor, and still stage its descriptor.
+write_release "$candidate_tag"
+printf 'linux-aurora\n' >"$marker"
+printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$channel_record"
+{ options_conf; aurora_conf "$candidate_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+reset_run
+rm -f "$staged_descriptor"
+OMARCHY_MAC_IMAGE_BUILD=1 run_status
+(( status == 0 )) || fail "image mode on a builder pin succeeds" "status $status: $(cat "$test_tmp/err")"
+grep -Fq "image mode keeps the builder's [omarchy-aurora] on $candidate_tag" "$test_tmp/err" ||
+  fail "image mode names the builder's pin" "$(cat "$test_tmp/err")"
+grep -Fxq "$candidate_server/AURORA" "$curl_log" && grep -Fxq "$candidate_server/AURORA.sig" "$curl_log" ||
+  fail "image mode verifies the builder pin's signed descriptor" "$(cat "$curl_log")"
+expect_untouched "image mode on a lane release that is not the runtime pin"
+cmp -s "$assets/$candidate_tag/AURORA" "$staged_descriptor" ||
+  fail "image mode stages the builder pin's descriptor" "$(cat "$staged_descriptor" 2>&1)"
+[[ $(stat -c '%a' "$staged_descriptor") == 644 ]] || fail "the image-mode staged descriptor is 0644"
+pass "image mode stages the builder's [omarchy-aurora] descriptor without moving the section"
