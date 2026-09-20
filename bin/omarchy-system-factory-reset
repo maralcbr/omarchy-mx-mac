@@ -492,6 +492,9 @@ scrub_factory_boot_state() {
 reopen_encrypt_state() {
   local state=${OMARCHY_ENCRYPT_STATE:-/boot/omarchy/encrypt.state} tmp
   [[ -f $state ]] || return 0
+  # An owner who declined encryption at install time keeps that choice
+  # through every reset; only a LUKS root is reopened for the next owner.
+  ! grep -Fxq 'phase=declined' "$state" || return 0
   tmp=$state.tmp.$$
   sed -e 's/^phase=.*/phase=configured/' -e '/^owner_slot=/d' -e '/^recovery_slot=/d' "$state" >"$tmp" ||
     fail "could not rewrite $state"

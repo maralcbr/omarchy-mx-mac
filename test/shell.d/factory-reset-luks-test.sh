@@ -234,6 +234,10 @@ printf 'format=1\nphase=finished\npartition=p\nluks_uuid=u\nowner_slot=1\nrecove
 OMARCHY_ENCRYPT_STATE="$live_state" reopen_encrypt_state
 [[ $(cat "$live_state") == $'format=1\nphase=configured\npartition=p\nluks_uuid=u' ]] ||
   fail "reopen_encrypt_state returns the live Boot state to phase=configured without the slots"
+printf 'format=1\nphase=declined\npartition=unknown\nluks_uuid=\n' >"$live_state"
+OMARCHY_ENCRYPT_STATE="$live_state" reopen_encrypt_state
+[[ $(cat "$live_state") == $'format=1\nphase=declined\npartition=unknown\nluks_uuid=' ]] ||
+  fail "reopen_encrypt_state keeps a declined encryption declined across a reset"
 rm -f "$live_state"
 OMARCHY_ENCRYPT_STATE="$live_state" reopen_encrypt_state || fail "reopen_encrypt_state is a no-op without a state file"
 [[ ! -e $live_state ]] || fail "reopen_encrypt_state does not invent a state file"
