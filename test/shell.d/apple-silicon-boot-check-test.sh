@@ -527,6 +527,13 @@ grep -Fq 'reboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "$root/var/lib/omarch
   fail "the same-boot check keeps the journal" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
 OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb TEST_UNAME=6.0.0-old run_check
 expect_fail "another boot with the old kernel running" "after reboot, not the installed"
+# A journal naming the kernel: another boot that runs that kernel is pending (a newer one got installed).
+system linux-aurora
+printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:6.0.0-old\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
+OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb TEST_UNAME=6.0.0-old run_check
+expect_pass "another boot running the journaled kernel is pending, not a failure"
+OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb TEST_UNAME=5.0.0-older run_check
+expect_fail "another boot running neither kernel" "after reboot, not the installed"
 pass "reboot_pending carries the installing boot id: same boot pending, another boot must run the new kernel"
 
 system linux-aurora

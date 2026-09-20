@@ -881,8 +881,20 @@ chmod 0644 "$staged"
 installed_from aurora-edge-5
 write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\n' "$(digest aurora-edge-5)"
 rm -f "$reboot_blocked"
-OMARCHY_BOOT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa TEST_UNAME_MISMATCH=1 run_step --complete
+printf '/usr/lib/modules/7.1.12-2.5-1-ARCH/vmlinuz\n' >"$test_tmp/journal-kernel-files"
+OMARCHY_BOOT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa TEST_KERNEL_FILES="$test_tmp/journal-kernel-files" TEST_UNAME_MISMATCH=1 run_step --complete
 expect_status 0 "completing before reboot records the install as pending"
+expect_lane "the journal names the installing boot and the installed kernel" \
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:7.1.12-2.5-1-ARCH\n' "$(digest aurora-edge-5)"
+# Another boot that runs the journaled kernel proves it came up; a newer install is pending again.
+printf '/usr/lib/modules/7.1.12-2.6-1-ARCH/vmlinuz\n' >"$test_tmp/journal-kernel-files"
+OMARCHY_BOOT_ID=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb OMARCHY_BOOT_CHECK_UNAME=7.1.12-2.5-1-ARCH TEST_KERNEL_FILES="$test_tmp/journal-kernel-files" TEST_UNAME_MISMATCH=1 run_step --complete
+expect_status 0 "a newer kernel installed after a good reboot is pending, not a failure"
+expect_lane "the journal moves to the new boot and kernel" \
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:7.1.12-2.6-1-ARCH\n' "$(digest aurora-edge-5)"
+printf '/usr/lib/modules/7.1.12-2.5-1-ARCH/vmlinuz\n' >"$test_tmp/journal-kernel-files"
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' "$(digest aurora-edge-5)"
+OMARCHY_BOOT_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa TEST_UNAME_MISMATCH=1 run_step --complete
 expect_lane "the journal stays open until the new kernel is running" \
   'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' "$(digest aurora-edge-5)"
 grep -Fq "installed, reboot pending" "$test_tmp/out" ||
