@@ -81,6 +81,21 @@ case "$*" in
   *) exit 1 ;;
 esac
 SH
+cat >"$stub_bin/cryptsetup" <<'SH'
+#!/bin/bash
+case "$1" in
+  luksDump)
+    slots=${TEST_LUKS_SLOT_COUNT:-2}
+    i=0
+    while (( i < slots )); do
+      printf '  %s: luks2\n' "$i"
+      (( ++i ))
+    done
+    exit 0
+    ;;
+  *) exit 1 ;;
+esac
+SH
 chmod +x "$stub_bin"/*
 
 write_update_m1n1() {
@@ -172,6 +187,7 @@ run_check() {
     TEST_INITRAMFS_LIST="$test_tmp/initramfs" \
     TEST_MOUNTS="$mounts" \
     TEST_ESP_DEVICE="$esp_device" \
+    TEST_LUKS_SLOT_COUNT="${TEST_LUKS_SLOT_COUNT:-2}" \
     OMARCHY_BOOT_CHECK_ROOT="$root" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
     bash "$check" linux-aurora >"$test_tmp/out" 2>"$test_tmp/err"
@@ -190,12 +206,16 @@ expect_fail() {
 }
 
 encrypt_root() {
-  mkdir -p "$root/etc" "$root/var/lib/omarchy/provisioning"
+  mkdir -p "$root/etc" "$root/var/lib/omarchy/provisioning" "$root/boot/omarchy" \
+    "$root/dev/disk/by-uuid"
   printf 'root UUID=abcd-ef none luks\n' >"$root/etc/crypttab"
   printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root root=/dev/mapper/root\ninitrd /initramfs-linux-aurora.img\n' \
     >"$root/boot/grub/grub.cfg"
   printf 'usr/lib/modules/%s/kernel/x.ko\nusr/lib/systemd/systemd-cryptsetup\nusr/lib/initcpio/install/sd-encrypt\n' "$kver" \
     >"$test_tmp/initramfs"
+  printf 'format=1\nphase=finished\npartition=PART-1\nluks_uuid=abcd-ef\n' >"$root/boot/omarchy/encrypt.state"
+  : >"$root/dev/disk/by-uuid/abcd-ef"
+  TEST_LUKS_SLOT_COUNT=2
 }
 
 # Unencrypted roots keep the existing expectations; missing install.conf is fine.
@@ -231,17 +251,44 @@ expect_fail "an encrypted root without sd-encrypt" "does not contain sd-encrypt"
 
 system
 encrypt_root
-printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4F4D-5801 root=/dev/mapper/root\ninitrd /initramfs-linux-aurora.img\n' \
+printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4f4d5801-424f-4f54-8000-000000000001 root=/dev/mapper/root\ninitrd /initramfs-linux-aurora.img\n' \
   >"$root/boot/grub/grub.cfg"
 run_check
 expect_fail "rd.luks.key= after provisioning" "still has rd.luks.key= after provisioning"
 
 system
 encrypt_root
-printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4F4D-5801 root=/dev/mapper/root\ninitrd /initramfs-linux-aurora.img\n' \
-  >"$root/boot/grub/grub.cfg"
-mkdir -p "$root/boot/efi/omarchy"
-printf 'throwaway' >"$root/boot/efi/omarchy/luks-key"
+printf 'throwaway' >"$root/boot/omarchy/luks-key"
 run_check
-expect_pass "rd.luks.key= during the provisioning auto-unlock window"
-pass "boot-check accepts rd.luks.key= only while a staged luks-key remains"
+expect_fail "luks-key after provisioning" "luks-key still exists after provisioning"
+
+system
+encrypt_root
+TEST_LUKS_SLOT_COUNT=3
+run_check
+expect_fail "throwaway keyslot after provisioning" "throwaway LUKS keyslot still present after provisioning"
+
+system
+encrypt_root
+rm -f "$root/boot/omarchy/encrypt.state"
+run_check
+expect_fail "missing encrypt.state after provisioning" "encrypt.state is missing after provisioning"
+
+system
+encrypt_root
+printf 'format=1\nphase=encrypted\npartition=PART-1\nluks_uuid=abcd-ef\n' >"$root/boot/omarchy/encrypt.state"
+run_check
+expect_fail "encrypt.state not finished after provisioning" "encrypt.state is not phase=finished after provisioning"
+
+system
+encrypt_root
+printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4f4d5801-424f-4f54-8000-000000000001 root=/dev/mapper/root\ninitrd /initramfs-linux-aurora.img\n' \
+  >"$root/boot/grub/grub.cfg"
+mkdir -p "$root/var/lib/omarchy/mac-first-boot"
+touch "$root/var/lib/omarchy/mac-first-boot/pending"
+printf 'throwaway' >"$root/boot/omarchy/luks-key"
+TEST_LUKS_SLOT_COUNT=3
+printf 'format=1\nphase=encrypted\npartition=PART-1\nluks_uuid=abcd-ef\n' >"$root/boot/omarchy/encrypt.state"
+run_check
+expect_pass "rd.luks.key= during the first-boot window"
+pass "boot-check accepts the throwaway keyfile only while first-boot markers remain"

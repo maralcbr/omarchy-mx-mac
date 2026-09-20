@@ -107,9 +107,35 @@ if [[ -f $crypttab ]] && sudo grep -Eq '^[[:space:]]*root[[:space:]]' "$crypttab
     fail "/boot/grub/grub.cfg does not set root=/dev/mapper/root for the encrypted root"
   grep -Eq 'sd-encrypt|systemd-cryptsetup' "$workdir/initramfs" ||
     fail "/boot/initramfs-$kernel.img does not contain sd-encrypt"
-  if [[ ! -f $(path /var/lib/omarchy/provisioning/luks-key) && ! -f $(path /boot/efi/omarchy/luks-key) ]]; then
+
+  # First-boot window: throwaway keyfile and rd.luks.key= are allowed until
+  # owner provisioning finishes (v3 item 1e). After that both must be gone,
+  # the throwaway keyslot retired, and encrypt.state phase=finished.
+  if [[ ! -f $(path /var/lib/omarchy/provisioning/luks-key) && ! -f $(path /var/lib/omarchy/mac-first-boot/pending) ]]; then
     sudo grep -q 'rd.luks.key=' "$grub_cfg" &&
       fail "/boot/grub/grub.cfg still has rd.luks.key= after provisioning"
+    [[ ! -e $(path /boot/omarchy/luks-key) ]] ||
+      fail "/boot/omarchy/luks-key still exists after provisioning"
+
+    spec=$(sudo awk '/^[[:space:]]*root[[:space:]]/ { print $2; exit }' "$crypttab")
+    case $spec in
+      UUID=*) luks_dev=$(path "/dev/disk/by-uuid/${spec#UUID=}") ;;
+      PARTUUID=*) luks_dev=$(path "/dev/disk/by-partuuid/${spec#PARTUUID=}") ;;
+      /dev/*) luks_dev=$(path "$spec") ;;
+      *) fail "cannot locate the LUKS device from crypttab after provisioning" ;;
+    esac
+    luks_dump=$(sudo cryptsetup luksDump "$luks_dev" 2>/dev/null) ||
+      fail "cannot read LUKS keyslots on $luks_dev after provisioning"
+    luks_slots=$(awk '/^[[:space:]]+[0-9]+:[[:space:]]+luks2/ { n++ } END { print n+0 }' <<<"$luks_dump")
+    (( luks_slots == 2 )) ||
+      fail "throwaway LUKS keyslot still present after provisioning ($luks_slots keyslots, expected 2)"
+
+    encrypt_state=$(path /boot/omarchy/encrypt.state)
+    [[ -f $encrypt_state ]] || fail "/boot/omarchy/encrypt.state is missing after provisioning"
+    grep -Fxq 'format=1' "$encrypt_state" ||
+      fail "/boot/omarchy/encrypt.state is not format=1"
+    grep -Fxq 'phase=finished' "$encrypt_state" ||
+      fail "/boot/omarchy/encrypt.state is not phase=finished after provisioning"
   fi
 fi
 
