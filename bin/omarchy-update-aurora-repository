@@ -7,8 +7,9 @@
 
 # Macs installed from the RC (Aurora) channel run linux-aurora and m1n1-aurora,
 # which live only in [omarchy-aurora]: one immutable aurora-packages-<commit>
-# release. The ISO pins that release once, and some Aurora payloads left the
-# section out altogether, so nothing ever moved these Macs to a newer kernel.
+# or aurora-stable-packages-<commit> release. The ISO pins that release once, and
+# some Aurora payloads left the section out altogether, so nothing ever moved
+# these Macs to a newer kernel.
 #
 # The runtime pins the release holding the kernel last qualified on real
 # hardware, the digest of its signed AURORA descriptor, and the releases it
@@ -22,9 +23,12 @@
 # An rc Mac whose Aurora lane is edge follows the newest aurora-edge-<N> release
 # instead, never one below the release it last accepted. The release it picks is
 # journaled as pending before the section moves, so an interrupted update comes
-# back to the same one. An edge section goes back to the pin only once a switch
-# to rc is asked for. Whichever release the section ends on, its verified
-# descriptor is staged for the pacman hook that checks the synced database.
+# back to the same one. An edge section goes back to a pin only once a switch
+# to rc or stable is asked for. The stable lane uses default/aurora-stable-release
+# the same way rc uses the qualified pin; pacman versions sort stable < rc < edge,
+# and a switch down is the explicit downgrade. Whichever release the section ends
+# on, its verified descriptor is staged for the pacman hook that checks the synced
+# database.
 #
 # While a switch or an edge move is open, the three packages are written to
 # $OMARCHY_AURORA_TARGETS so the upgrade installs that release's versions, older
@@ -38,6 +42,7 @@ repo=maralcbr/omarchy-pkgs
 trusted_key=C81AC3E2A99556F9B21D5FEA3DD49BC9F8360BDC
 trusted_subkey=CAB18E175BFB9ACCE185234474DE0C737AC186E4
 release_tag_pattern='^aurora-packages-[0-9a-f]{40}$'
+stable_tag_pattern='^aurora-stable-packages-[0-9a-f]{40}$'
 edge_tag_pattern='^aurora-edge-([1-9][0-9]{0,8})$'
 edge_pointer_url=https://downloads.aicodelabs.com.au/pointers/aurora-edge-channel
 releases_api_url="https://api.github.com/repos/$repo/releases?per_page=100"
@@ -158,8 +163,16 @@ if [[ ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} != 1 ]]; then
     3) exit 0 ;;
     *) exit 2 ;;
   esac
-  # ensure took and released the channel lock; a stable Mac stops before the update lock.
-  [[ $(omarchy-apple-silicon-channel current) != stable ]] || exit 0
+  # ensure took and released the channel lock; an Asahi Mac (record channel=stable
+  # on linux-asahi) stops before the update lock. An Aurora Mac on the stable
+  # *lane* still has record channel=rc and continues.
+  record_channel=""
+  if asahi_status=$(omarchy-apple-silicon-channel status 2>/dev/null); then
+    while IFS= read -r line; do
+      [[ $line == channel=* ]] && record_channel=${line#channel=}
+    done <<<"$asahi_status"
+    [[ $record_channel != stable ]] || exit 0
+  fi
 
   # omarchy update already holds the update lock; run on its own, take it here.
   if ! omarchy-update-lock held; then
@@ -210,39 +223,81 @@ accepted_sequence=${accepted%%:*} accepted_digest=${accepted#*:}
 pending_sequence=${pending%%:*} pending_digest=${pending#*:}
 
 pin_file="$OMARCHY_PATH/default/aurora-qualified-release"
+stable_pin_file="$OMARCHY_PATH/default/aurora-stable-release"
 trusted_key_file="$OMARCHY_PATH/default/omarchy-arm-repository.asc"
 staged_descriptor="$(root_path /var/lib/omarchy)/aurora-target.descriptor"
 reboot_blocked=${OMARCHY_REBOOT_BLOCKED:-/run/omarchy-reboot-blocked}
 
-malformed_pin() {
-  fail "the qualified Aurora release pin is malformed"
+# 0 with pin_tag, pin_digest and pin_predecessors set from $1. $2 is rc or stable:
+# stable accepts aurora-packages-* (the placeholder) and aurora-stable-packages-*.
+parse_pin_file() {
+  local file=$1 allowed=$2 line predecessor
+  pin_tag="" pin_digest="" pin_predecessors=()
+  local seen=0
+
+  [[ -r $file ]] || return 1
+  while IFS= read -r line; do
+    case "$line" in
+      tag=*)
+        [[ -z $pin_tag ]] || return 1
+        pin_tag=${line#tag=}
+        ;;
+      descriptor_sha256=*)
+        [[ -z $pin_digest ]] || return 1
+        pin_digest=${line#descriptor_sha256=}
+        ;;
+      predecessors=*)
+        (( ! seen )) || return 1
+        seen=1
+        read -ra pin_predecessors <<<"${line#predecessors=}"
+        ;;
+      ""|"#"*) ;;
+      *) return 1 ;;
+    esac
+  done <"$file"
+  [[ -n $pin_tag && $pin_digest =~ ^[0-9a-f]{64}$ ]] && (( seen )) || return 1
+  if [[ $allowed == stable ]]; then
+    [[ $pin_tag =~ $release_tag_pattern || $pin_tag =~ $stable_tag_pattern ]] || return 1
+  else
+    [[ $pin_tag =~ $release_tag_pattern ]] || return 1
+  fi
+  for predecessor in "${pin_predecessors[@]}"; do
+    if [[ $allowed == stable ]]; then
+      [[ $predecessor =~ $release_tag_pattern || $predecessor =~ $stable_tag_pattern ]] || return 1
+    else
+      [[ $predecessor =~ $release_tag_pattern ]] || return 1
+    fi
+    [[ $predecessor != "$pin_tag" ]] || return 1
+  done
 }
 
-[[ -r $pin_file ]] || fail "the qualified Aurora release pin is not installed"
-tag="" pinned_sha256="" predecessors=() predecessors_seen=0
-while IFS= read -r line; do
-  case "$line" in
-    tag=*)
-      [[ -z $tag ]] || malformed_pin
-      tag=${line#tag=}
-      ;;
-    descriptor_sha256=*)
-      [[ -z $pinned_sha256 ]] || malformed_pin
-      pinned_sha256=${line#descriptor_sha256=}
-      ;;
-    predecessors=*)
-      (( ! predecessors_seen )) || malformed_pin
-      predecessors_seen=1
-      read -ra predecessors <<<"${line#predecessors=}"
-      ;;
-    ""|"#"*) ;;
-    *) malformed_pin ;;
-  esac
-done <"$pin_file"
-[[ $tag =~ $release_tag_pattern && $pinned_sha256 =~ ^[0-9a-f]{64}$ ]] && (( predecessors_seen )) || malformed_pin
-for predecessor in "${predecessors[@]}"; do
-  [[ $predecessor =~ $release_tag_pattern && $predecessor != "$tag" ]] || malformed_pin
-done
+tag="" pinned_sha256="" predecessors=()
+other_tag="" other_predecessors=()
+parse_pin_file "$pin_file" rc || fail "the qualified Aurora release pin is malformed"
+rc_pin_tag=$pin_tag rc_pin_digest=$pin_digest
+rc_pin_predecessors=("${pin_predecessors[@]}")
+stable_pin_tag="" stable_pin_digest="" stable_pin_predecessors=()
+if [[ -r $stable_pin_file ]]; then
+  if parse_pin_file "$stable_pin_file" stable; then
+    stable_pin_tag=$pin_tag stable_pin_digest=$pin_digest
+    stable_pin_predecessors=("${pin_predecessors[@]}")
+  elif [[ $lane == stable ]]; then
+    fail "the stable Aurora release pin is malformed"
+  fi
+elif [[ $lane == stable ]]; then
+  fail "the stable Aurora release pin is not installed"
+fi
+if [[ $lane == stable ]]; then
+  tag=$stable_pin_tag pinned_sha256=$stable_pin_digest
+  predecessors=("${stable_pin_predecessors[@]}")
+  other_tag=$rc_pin_tag
+  other_predecessors=("${rc_pin_predecessors[@]}")
+else
+  tag=$rc_pin_tag pinned_sha256=$rc_pin_digest
+  predecessors=("${rc_pin_predecessors[@]}")
+  other_tag=$stable_pin_tag
+  other_predecessors=("${stable_pin_predecessors[@]}")
+fi
 
 pacman_conf=$(root_path /etc/pacman.conf)
 [[ -r $pacman_conf ]] || fail "pacman configuration is missing"
@@ -306,7 +361,7 @@ section_kind=none start="" end="" current=() kept=()
 if (( ${#aurora[@]} )); then
   start=${aurora[0]}
   end=$(section_end "$start")
-  release_url="^https://github\.com/$repo/releases/download/(aurora-packages-[0-9a-f]{40}|aurora-edge-[1-9][0-9]{0,8})/?[[:space:]]*$"
+  release_url="^https://github\.com/$repo/releases/download/(aurora-packages-[0-9a-f]{40}|aurora-stable-packages-[0-9a-f]{40}|aurora-edge-[1-9][0-9]{0,8})/?[[:space:]]*$"
   recognised=1
   for (( i = start + 1; i < end; i++ )); do
     if [[ ${lines[i]} =~ $setting ]]; then
@@ -339,6 +394,9 @@ if (( ${#aurora[@]} )); then
     section_kind=pin
   elif [[ " ${predecessors[*]} " == *" ${current[0]} "* ]]; then
     section_kind=predecessor
+  elif [[ -n $other_tag && ${current[0]} == "$other_tag" ]] ||
+    { (( ${#other_predecessors[@]} )) && [[ " ${other_predecessors[*]} " == *" ${current[0]} "* ]]; }; then
+    section_kind=other_lane
   elif [[ ${current[0]} =~ $edge_tag_pattern ]]; then
     section_kind=edge
   else
@@ -401,6 +459,8 @@ read_descriptor() {
   [[ ${fields[format]} == 1 && ${fields[release_tag]} == "$target_tag" && ${fields[signing_fingerprint]} == "$trusted_subkey" ]] || return 1
   if [[ $target_tag =~ $edge_tag_pattern ]]; then
     [[ ${fields[channel]} == aurora-edge && ${counts[sequence]:-0} == 1 && ${fields[sequence]} == "${BASH_REMATCH[1]}" ]] || return 1
+  elif [[ $target_tag =~ $stable_tag_pattern ]]; then
+    [[ ${fields[channel]} == aurora-stable && -z ${counts[sequence]:-} ]] || return 1
   else
     [[ ${fields[channel]} == aurora && -z ${counts[sequence]:-} ]] || return 1
   fi
@@ -420,7 +480,7 @@ if [[ $mode == complete ]]; then
 
   # Only an open switch, or an edge release journaled as pending, has anything
   # to prove, and a switch that names no release it can prove is never done.
-  if [[ $lane == rc && $switch == rc ]]; then
+  if [[ ( $lane == rc || $lane == stable ) && $switch == "$lane" ]]; then
     target_tag=$tag target_digest=$pinned_sha256
   elif [[ $lane == edge && -n $pending ]]; then
     target_tag=aurora-edge-$pending_sequence target_digest=$pending_digest
@@ -451,9 +511,9 @@ if [[ $mode == complete ]]; then
   fi
   omarchy-apple-silicon-boot-check linux-aurora || unverified "the boot files do not match the installed kernel"
 
-  if [[ $lane == rc ]]; then
+  if [[ $lane == rc || $lane == stable ]]; then
     omarchy-apple-silicon-channel lane-write switch= edge_pending= || exit 2
-    message="This Mac is back on rc ($target_tag), and its boot files match."
+    message="This Mac is back on $lane ($target_tag), and its boot files match."
   else
     omarchy-apple-silicon-channel lane-write "edge_accepted=${target_tag#aurora-edge-}:$target_digest" edge_pending= switch= || exit 2
     message="This Mac now runs $target_tag from edge, and its boot files match."
@@ -660,12 +720,15 @@ if [[ ${OMARCHY_AURORA_OFFLINE:-} == 1 ]]; then
   trusted_staged "$target_digest" ||
     fail "offline mode requires a trusted staged descriptor matching $target_tag"
   obtain_descriptor || exit 2
-elif [[ $lane == rc ]]; then
+elif [[ $lane == rc || $lane == stable ]]; then
   # Only the pin itself or a release it names as replaced may move, and an edge
-  # release only once a switch to rc was asked for. Anything else may be newer,
-  # and a hand-pinned candidate is somebody's decision.
-  if [[ $section_kind == other || ($section_kind == edge && $switch != rc) ]]; then
-    leave 0 "Leaving [omarchy-aurora] on ${current[*]:-no server}: it is neither the runtime's qualified release $tag nor a release that one replaces."
+  # or other-lane release only once a switch to this pin was asked for. Anything
+  # else may be newer, and a hand-pinned candidate is somebody's decision.
+  if [[ $section_kind == other || ( $section_kind == edge && $switch != "$lane" ) ||
+    ( $section_kind == other_lane && $switch != "$lane" ) ]]; then
+    pin_name="qualified release $tag"
+    [[ $lane != stable ]] || pin_name="stable release $tag"
+    leave 0 "Leaving [omarchy-aurora] on ${current[*]:-no server}: it is neither the runtime's $pin_name nor a release that one replaces."
   fi
   target_tag=$tag target_digest=$pinned_sha256
   obtain_descriptor || exit 2
@@ -784,7 +847,7 @@ fi
 
 # An open move installs exactly the staged release's packages, older or not.
 if [[ -n ${OMARCHY_AURORA_TARGETS:-} ]] &&
-  [[ ($lane == rc && $switch == rc) || ($lane == edge && ($switch == edge || -n $pending)) ]]; then
+  [[ ( ( $lane == rc || $lane == stable ) && $switch == "$lane" ) || ($lane == edge && ($switch == edge || -n $pending)) ]]; then
   moved=$(move_packages) || fail "the installed packages cannot be listed"
   printf 'omarchy-aurora/%s\n' $moved >"$OMARCHY_AURORA_TARGETS"
 fi
