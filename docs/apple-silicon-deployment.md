@@ -608,7 +608,7 @@ product produces the same bytes it did before this lane existed.
 
 | Artifact | Where | Made by |
 | --- | --- | --- |
-| kernel `aurora-packages-<pkgs commit>` | GitHub release, immutable, prerelease | `release-aurora-package.yml` |
+| kernel `aurora-packages-<pkgs commit>` | GitHub release, immutable, prerelease | `release-aurora-rc.yml` |
 | payload `omarchy-<date>-aarch64-apple-silicon-aurora-os-package.zip` | this Mac | `omarchy-iso-make --product omarchy-mx-mac-aurora` |
 | channel `channels/rc-aurora` | R2 | `publish-channels os-promote --to rc-aurora` |
 
@@ -617,7 +617,7 @@ product produces the same bytes it did before this lane existed.
    see [kernel builds](#kernel-builds-run-only-on-new-inputs).
 
    ```bash
-   gh workflow run release-aurora-package.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro -f publish=true
+   gh workflow run release-aurora-rc.yml -R maralcbr/omarchy-pkgs --ref asahi-quattro -f publish=true
    ```
 
 2. Pin both halves in `omarchy-iso` — they are compared at build time and the
