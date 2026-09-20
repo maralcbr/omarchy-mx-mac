@@ -1,10 +1,11 @@
 echo "Replace leftover linux-asahi-headers on Aurora with linux-aurora-headers"
 
-# linux-aurora provides linux-asahi; list exact names with pacman -Qq. The channel
-# record is the Aurora/stable split; leftover Asahi headers are rc-only. Non-Apple
-# machines settle. A missing Apple record follows installed packages so a login
-# path still repairs Aurora; an unfinished marker stays pending. A failed read on
-# Apple Silicon stays pending. Replacement headers must be the installed
+# linux-aurora provides linux-asahi; list exact names from one successful
+# pacman -Qq inventory before classifying. The channel record is the
+# Aurora/stable split; leftover Asahi headers are rc-only. Non-Apple machines
+# settle. A missing Apple record follows that inventory so a login path still
+# repairs Aurora; an unfinished marker stays pending. A failed read on Apple
+# Silicon stays pending. Replacement headers must be the installed
 # linux-aurora's version from [omarchy-aurora]; a hold or a missing match would
 # recreate the hazard.
 
@@ -14,10 +15,15 @@ pending="${OMARCHY_AURORA_ASAHI_HEADERS_PENDING:-/var/lib/omarchy/migrations/178
 script="${OMARCHY_UPDATE_M1N1_SCRIPT:-/usr/bin/update-m1n1}"
 config="${OMARCHY_UPDATE_M1N1_CONFIG:-/etc/default/update-m1n1}"
 
+installed=$(pacman -Qq) || {
+  echo "Replace leftover linux-asahi-headers: cannot list installed packages." >&2
+  exit 1
+}
+
 status=0
 record=$(omarchy-apple-silicon-channel status) || status=$?
 if (( status == 3 )); then
-  if ! pacman -Qq linux-aurora >/dev/null 2>&1 || ! pacman -Qq linux-asahi-headers >/dev/null 2>&1; then
+  if ! grep -qx linux-aurora <<<"$installed" || ! grep -qx linux-asahi-headers <<<"$installed"; then
     if [[ -f $pending ]]; then
       echo "Replace leftover linux-asahi-headers: the Apple Silicon channel record is missing; leftover linux-asahi-headers repair will retry." >&2
       exit 1
@@ -37,11 +43,6 @@ else
   done <<<"$record"
   [[ $channel == rc && $kernel == linux-aurora ]] || exit 0
 fi
-
-installed=$(pacman -Qq) || {
-  echo "Replace leftover linux-asahi-headers: cannot list installed packages." >&2
-  exit 1
-}
 
 asahi_headers=0
 if grep -Fxq linux-asahi-headers <<<"$installed"; then

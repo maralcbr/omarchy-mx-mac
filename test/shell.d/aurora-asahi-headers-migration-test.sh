@@ -29,7 +29,7 @@ export OMARCHY_UPDATE_M1N1_CONFIG="$config"
 export TEST_CHANNEL_STATUS="$status_file" TEST_CHANNEL_EXIT=0
 export TEST_BOOT_STATUS=0 TEST_INSTALL_FAIL=0 TEST_REMOVE_FAIL=0 TEST_M1N1_FAIL=0
 export TEST_KERNEL_VERSION="$kernel_version" TEST_HEADERS_AVAILABLE="$kernel_version"
-export TEST_HELD="" TEST_HELD_EXIT=0 TEST_SI_FAIL=0 TEST_SI_LOCALIZED=0
+export TEST_HELD="" TEST_HELD_EXIT=0 TEST_SI_FAIL=0 TEST_SI_LOCALIZED=0 TEST_PACMAN_QQ_FAIL=0
 export APPLE_SILICON=1
 
 cat >"$tmp/bin/omarchy-hw-apple-silicon" <<'SH'
@@ -54,6 +54,7 @@ cat >"$tmp/bin/pacman" <<'SH'
 #!/bin/bash
 case "$1" in
   -Qq)
+    [[ ${TEST_PACMAN_QQ_FAIL:-0} == 0 ]] || exit 1
     if (($# >= 2)); then
       shift
       for pkg in "$@"; do
@@ -152,11 +153,12 @@ run_fail() {
 reset_flags() {
   TEST_BOOT_STATUS=0 TEST_INSTALL_FAIL=0 TEST_REMOVE_FAIL=0 TEST_M1N1_FAIL=0
   TEST_CHANNEL_EXIT=0 TEST_HELD="" TEST_HELD_EXIT=0 TEST_SI_FAIL=0 TEST_SI_LOCALIZED=0
+  TEST_PACMAN_QQ_FAIL=0
   TEST_KERNEL_VERSION=$kernel_version TEST_HEADERS_AVAILABLE=$kernel_version
   APPLE_SILICON=1
   export TEST_BOOT_STATUS TEST_INSTALL_FAIL TEST_REMOVE_FAIL TEST_M1N1_FAIL
   export TEST_CHANNEL_EXIT TEST_HELD TEST_HELD_EXIT TEST_SI_FAIL TEST_SI_LOCALIZED
-  export TEST_KERNEL_VERSION TEST_HEADERS_AVAILABLE APPLE_SILICON
+  export TEST_PACMAN_QQ_FAIL TEST_KERNEL_VERSION TEST_HEADERS_AVAILABLE APPLE_SILICON
 }
 
 reset_packages() {
@@ -256,6 +258,20 @@ run
 [[ ! -e $pending ]] || fail "a retry after a failed check clears the pending marker"
 grep -qx 'boot-check linux-aurora' "$calls" || fail "the retry rechecks boot"
 pass "a successful retry after a failed first attempt settles the migration"
+
+reset_packages linux-aurora linux-asahi-headers m1n1-aurora
+TEST_CHANNEL_EXIT=3
+export TEST_CHANNEL_EXIT
+TEST_PACMAN_QQ_FAIL=1
+export TEST_PACMAN_QQ_FAIL
+cp "$installed" "$tmp/before"
+run_fail "a failed package inventory"
+grep -Fq 'cannot list installed packages' "$tmp/err" ||
+  fail "a failed package inventory says why it stays pending" "$(<"$tmp/err")"
+cmp -s "$installed" "$tmp/before" || fail "a failed package inventory does not touch packages"
+[[ ! -e $pending ]] || fail "a failed package inventory does not record a pending swap"
+[[ ! -s $calls ]] || fail "a failed package inventory does not mutate" "$(<"$calls")"
+pass "a failed package inventory leaves the leftover headers migration pending"
 
 reset_packages linux-aurora linux-asahi-headers m1n1-aurora
 TEST_CHANNEL_EXIT=2
