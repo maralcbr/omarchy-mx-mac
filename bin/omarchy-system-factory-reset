@@ -197,12 +197,12 @@ stage_luks_rekey_apple_commit() {
   [[ $- == *x* ]] && xtrace_on=1
   set +x
   local before after
-  before=$(cryptsetup luksDump "$device" | awk '/^ +[0-9]+: luks2/ { sub(":", "", $1); print $1 }' | sort -n)
+  before=$(cryptsetup luksDump "$device" | awk '/^ +[0-9]+: luks2/ { sub(":", "", $1); print $1 }' | sort)
   if ! { cryptsetup luksAddKey --key-file <(printf '%s' "$RESET_LUKS_AUTH") "$device" <(printf '%s' "$passphrase") ; } 2>/dev/null; then
     if (( xtrace_on )); then set -x; fi
     fail "could not add the throwaway LUKS keyslot"
   fi
-  after=$(cryptsetup luksDump "$device" | awk '/^ +[0-9]+: luks2/ { sub(":", "", $1); print $1 }' | sort -n)
+  after=$(cryptsetup luksDump "$device" | awk '/^ +[0-9]+: luks2/ { sub(":", "", $1); print $1 }' | sort)
   # cryptsetup fills the lowest free slot: the new one is the difference.
   slot=$(comm -13 <(printf '%s\n' $before) <(printf '%s\n' $after) | head -1)
   if (( xtrace_on )); then set -x; fi
@@ -472,9 +472,10 @@ sanitize_factory_baseline() {
   btrfs property set -ts "$factory" ro true
 }
 
-# @factory must not carry first-boot markers, the ESP install.conf, or the
-# Boot-partition encrypt.state (v3 item 2e). The reset re-arms markers on the
-# cloned next root, not on the sealed baseline.
+# @factory must not carry first-boot markers or the ESP install.conf (v3 item
+# 2e); the Boot partition's encrypt.state lives outside the subvolume and is
+# reopened by reopen_encrypt_state after activation. The reset re-arms markers
+# on the cloned next root, not on the sealed baseline.
 scrub_factory_boot_state() {
   local root=$1
   rm -f \
@@ -482,8 +483,7 @@ scrub_factory_boot_state() {
     "$root/var/lib/omarchy/mac-first-boot/install.conf" \
     "$root/var/lib/omarchy/provisioning/pending" \
     "$root/var/lib/omarchy/provisioning/wipe-pending" \
-    "$root/boot/efi/omarchy/install.conf" \
-    "$root/boot/omarchy/encrypt.state"
+    "$root/boot/efi/omarchy/install.conf"
 }
 
 # The live Boot partition holds encrypt.state (not the subvolume): a finished
@@ -563,16 +563,21 @@ stage_full_reset() {
 
   if encrypted_install && apple_silicon; then
     stage_luks_rekey_apple_commit "$RESET_LUKS_DEVICE" "$RESET_THROWAY"
-    reopen_encrypt_state
   fi
 
   log "Activating the factory system"
   local old="@omarchy-old-$(date +%s)"
   mv "$top/@" "$top/$old"
+  # Point of no return: from here the reset unlock must survive.
+  reset_committed=1
   mv "$next" "$top/@"
   swap_done=1
-  reset_committed=1
   sync
+  # The live Boot partition's state opens the re-key for the next owner only
+  # once the factory system is the one that boots.
+  if encrypted_install && apple_silicon; then
+    reopen_encrypt_state
+  fi
 }
 
 # A reset is a clone of @factory, so a machine without one has nothing to
