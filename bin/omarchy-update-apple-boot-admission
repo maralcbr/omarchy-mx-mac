@@ -20,7 +20,8 @@ declare -A laid_down=(
 )
 
 shopt -s nullglob
-installed=("$dbpath"/omarchy-apple-boot-[0-9]*)
+# omarchy-mac-boot replaces omarchy-apple-boot and owns the boot files since.
+installed=("$dbpath"/omarchy-apple-boot-[0-9]* "$dbpath"/omarchy-mac-boot-[0-9]*)
 if ((${#installed[@]})); then
   echo owned
   exit 0

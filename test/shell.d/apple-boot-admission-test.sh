@@ -54,6 +54,10 @@ image_root "$root"
 mkdir -p "$root/var/lib/pacman/local/omarchy-apple-boot-20260917-1"
 expect "a Mac that already has the package reports it owned" "$root" owned
 
+root="$test_tmp/owned-mac-boot"
+mkdir -p "$root/var/lib/pacman/local/omarchy-mac-boot-20260921-4"
+expect "a Mac moved to omarchy-mac-boot, which replaces the package, reports owned" "$root" owned
+
 root="$test_tmp/empty"
 mkdir -p "$root/var/lib/pacman/local"
 expect "a Mac the image never wrote boot files to is left alone" "$root" "skip: no image-written boot files"
