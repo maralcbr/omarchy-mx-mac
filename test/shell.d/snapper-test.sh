@@ -120,38 +120,19 @@ grep -F 'cp -a install "$pkgdir/usr/share/omarchy/"' "$omarchy_pkgbuild" >/dev/n
 grep -F 'cp -a migrations "$pkgdir/usr/share/omarchy/"' "$omarchy_pkgbuild" >/dev/null || fail "omarchy package bundles migrations"
 pass "omarchy-pkgs packages Snapper template, setup, and migration coverage"
 
-# Same per-machine checkout problem as omarchy-pkgs; OMARCHY_ISO_PATH points at it.
-find_omarchy_iso_root() {
-  local candidate
-  for candidate in \
-    ${OMARCHY_ISO_PATH:+"$OMARCHY_ISO_PATH"} \
-    "$ROOT/../omarchy-iso" \
-    "$ROOT/../omarchy/omarchy-iso" \
-    "$ROOT/../../omarchy-iso" \
-    "$ROOT/../omacom/omarchy-iso" \
-    "$ROOT/../../omacom/omarchy-iso" \
-    "$HOME/Work/omacom/omarchy-iso"; do
-    if [[ -d $candidate ]]; then
-      cd "$candidate" && pwd
-      return 0
-    fi
-  done
-  return 1
-}
+# Frozen excerpts from maralcbr/omarchy-iso@268bac16d351a21d867e37565738f458b11cb06c
+# (quattro). See headers in test/fixtures/omarchy-iso-orchestrator/.
+iso_root="$ROOT/test/fixtures/omarchy-iso-orchestrator"
+configurator="$iso_root/configurator"
+phases="$iso_root/phases_impl.py"
+manifest="$iso_root/fresh-4-semantic.json"
 
-iso_root=$(find_omarchy_iso_root) || fail "omarchy-iso checkout is available for installer coverage"
-configurator="$iso_root/configs/airootfs/root/configurator"
-phases="$iso_root/configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py"
-manifest="$iso_root/manifests/fresh-4-semantic.json"
+[[ -f $configurator && -f $phases && -f $manifest ]] || fail "omarchy-iso orchestrator fixtures are available for installer coverage"
 
 ! grep -F 'snapshot_config' "$configurator" >/dev/null || fail "ISO does not ask archinstall to create Snapper timeline config"
 
-# The phases/manifest assertions cover the newer ISO orchestrator structure.
-# Skip them when the checkout predates that layout.
-if [[ -f $phases && -f $manifest ]]; then
-  ! grep -F '_configure_snapper_root' "$phases" >/dev/null || fail "ISO does not duplicate Omarchy Snapper setup"
-  grep -F 'run_system_finalizer' "$phases" >/dev/null || fail "ISO runs packaged system setup"
-  grep -F '/etc/systemd/system/timers.target.wants/snapper-cleanup.timer' "$manifest" >/dev/null || fail "fresh ISO manifest has snapper-cleanup timer enabled"
-  ! grep -F '/etc/systemd/system/timers.target.wants/snapper-timeline.timer' "$manifest" >/dev/null || fail "fresh ISO manifest does not enable snapper timeline timer"
-fi
+! grep -F '_configure_snapper_root' "$phases" >/dev/null || fail "ISO does not duplicate Omarchy Snapper setup"
+grep -F 'run_system_finalizer' "$phases" >/dev/null || fail "ISO runs packaged system setup"
+grep -F '/etc/systemd/system/timers.target.wants/snapper-cleanup.timer' "$manifest" >/dev/null || fail "fresh ISO manifest has snapper-cleanup timer enabled"
+! grep -F '/etc/systemd/system/timers.target.wants/snapper-timeline.timer' "$manifest" >/dev/null || fail "fresh ISO manifest does not enable snapper timeline timer"
 pass "omarchy-iso delegates Snapper setup to packaged system setup"

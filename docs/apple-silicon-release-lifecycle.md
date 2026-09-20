@@ -15,6 +15,25 @@ the Asahi kernel.
 The commands for every step below, both lanes, are in
 [`apple-silicon-deployment.md`](apple-silicon-deployment.md).
 
+## Payload source
+
+Installed Macs follow signed channels and do not read these two files. They
+still name `omarchy-iso` as the fresh-install payload source. Leave them
+unchanged until the `omarchy-mac-image` GitHub release in `omarchy-pkgs` lands;
+then retarget exactly these strings:
+
+`apps/omarchy-apple-installer/scripts/cutover-wizard`
+
+- `PAYLOAD_SOURCE="$REPO_DIR/../omarchy-iso/release/$PAYLOAD"` — replace
+  `../omarchy-iso/release/` with the `omarchy-mac-image` release artifact
+  directory from `omarchy-pkgs`.
+
+`install/apple-silicon-platform-stack.json`
+
+- `components` entry `id` `removable-media-grub`, field `owner`: `"omarchy-iso"`
+- that same entry, field `update_authority`: `"signed-iso-release"`
+- that same entry, field `delivery`: `"apple-iso"`
+
 ## 1. Assemble a private candidate
 
 1. Build only the explicit `aarch64/apple-silicon` target through the
