@@ -150,13 +150,19 @@ if [[ $kernel == linux-aurora ]]; then
 fi
 
 current_boot_id=${OMARCHY_BOOT_ID:-$(tr -d '-\n' </proc/sys/kernel/random/boot_id 2>/dev/null || true)}
+[[ $current_boot_id =~ ^[0-9a-f]{32}$ ]] || current_boot_id=unknown
+journal_boot=${aurora_reboot_pending%%:*}
+journal_kver=""
+[[ $aurora_reboot_pending != *:* ]] || journal_kver=${aurora_reboot_pending#*:}
 if [[ $running_kver != "$kver" ]]; then
   if [[ ${OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT:-0} == 1 ]]; then
     pending_reboot=1
-  elif [[ -n $aurora_reboot_pending && $aurora_reboot_pending != 1 && $aurora_reboot_pending != "$current_boot_id" ]]; then
+  elif [[ -n $aurora_reboot_pending && $journal_boot != 1 && $journal_boot != unknown && $current_boot_id != unknown &&
+          $journal_boot != "$current_boot_id" && ( -z $journal_kver || $journal_kver != "$running_kver" ) ]]; then
     fail "running kernel is $running_kver after reboot, not the installed $kernel $kver"
   elif [[ -n $aurora_reboot_pending ]]; then
-    # Same boot as the update that installed the kernel: the reboot is still to come.
+    # Same boot as the install, or the journaled kernel did boot and a newer
+    # one is installed since: the reboot is still to come.
     pending_reboot=1
   else
     fail "running kernel is $running_kver, not the installed $kernel $kver"
