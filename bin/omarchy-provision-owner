@@ -871,8 +871,10 @@ grub_drop_rd_luks_key() {
 # never placed in a process argument list (ps), and the screen is cleared
 # afterwards (including tty scrollback) so it does not linger.
 show_recovery_key() {
-  local key="$1" typed=""
+  local key=$1 typed=""
   [[ -n $key ]] || return 0
+  # Never from the background worker: its stdout is the persistent log.
+  [[ -z ${OMARCHY_PROVISION_WORKER:-} ]] || fail "the recovery key can only be shown on the setup terminal"
   clear_logo
   echo
   say "This is your disk recovery key. Write it down and keep it somewhere safe."
@@ -930,7 +932,7 @@ write_encrypt_state() {
   fi
   owner_slot=${owner_slot:-$(rekey_state_get owner_slot || true)}
   recovery_slot=${recovery_slot:-$(rekey_state_get recovery_slot || true)}
-  [[ "$format" == "1" ]] || format=1
+  [[ $format == 1 ]] || format=1
   if [[ -n $device ]]; then
     [[ -n $luks_uuid ]] || luks_uuid=$(cryptsetup luksUUID "$device" 2>/dev/null || true)
     if [[ -z $partition ]]; then
@@ -1008,7 +1010,7 @@ rekey_state_put() {
 luks_ensure_slot() {
   local passphrase=$1 device=$2 name=$3 current recorded xtrace_on=0
   recorded=$(rekey_state_get "$name" || true)
-  if [[ -n "$recorded" ]]; then
+  if [[ -n $recorded ]]; then
     if luks_slot_present "$device" "$recorded"; then
       printf '%s' "$recorded"
       return 0
@@ -1039,7 +1041,7 @@ luks_ensure_slot() {
   if (( xtrace_on )); then set -x; fi
   [[ -n $current ]] || return 1
   rekey_state_put "$name" "$current"
-  if [[ "$name" == "recovery_slot" ]]; then
+  if [[ $name == recovery_slot ]]; then
     rekey_state_put recovery_shown 1
   fi
   printf '%s' "$current"
@@ -1102,7 +1104,7 @@ rekey_luks_apple() {
   local device="$1" recovery_slot new_slot phase
   phase=$(encrypt_state_get phase || true)
 
-  if [[ "$phase" != "rekeyed" && "$phase" != "finished" ]]; then
+  if [[ $phase != rekeyed && $phase != finished ]]; then
     new_slot=$(luks_ensure_slot "$password" "$device" owner_slot) || {
       log_step "could not add or reuse the owner's LUKS slot; will retry"
       say --foreground 1 "Could not add the owner's disk password; will retry."
@@ -1152,7 +1154,7 @@ rekey_luks_apple() {
     phase=rekeyed
   fi
 
-  [[ "$phase" == "finished" ]] && return 0
+  [[ $phase == finished ]] && return 0
 
   new_slot=$(rekey_state_get owner_slot || true)
   [[ -n $new_slot ]] || new_slot=$(encrypt_state_get owner_slot || true)
@@ -1432,7 +1434,7 @@ run_setup() {
     fi
   fi
 
-  run_provisioning >>"$LOG_FILE" 2>&1 &
+  OMARCHY_PROVISION_WORKER=1 run_provisioning >>"$LOG_FILE" 2>&1 &
   local worker=$!
 
   set_now
