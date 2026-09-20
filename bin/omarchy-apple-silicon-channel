@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Keep this Mac's Apple Silicon channel record
-# omarchy:args=ensure|status|current|hold <reason>|release|switch <rc|edge>|reset-rc|locked <command> [args...]|verify-locked
+# omarchy:args=ensure|status|current|hold <reason>|release|switch <stable|rc|edge>|reset-rc|locked <command> [args...]|verify-locked|
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
@@ -13,7 +13,7 @@
 # command holding the channel lock, which is on the record's directory, and
 # verify-locked checks the inherited descriptor and makes sure it holds that lock.
 #
-# An rc Mac also follows an Aurora lane, rc or edge, kept apart in
+# An rc Mac also follows an Aurora lane, stable, rc or edge, kept apart in
 # apple-silicon-aurora-lane so the record itself never changes shape: runtimes
 # that only know format 1 keep reading it. switch records a requested lane,
 # which omarchy update applies and clears once it has proven the kernel boots;
@@ -38,7 +38,7 @@ lock_timeout=${OMARCHY_APPLE_SILICON_CHANNEL_LOCK_TIMEOUT:-60}
 testing=${OMARCHY_APPLE_SILICON_CHANNEL_TESTING:-0}
 
 usage() {
-  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release|switch <rc|edge>|reset-rc|locked <command> [args...]|verify-locked>"
+  echo "Usage: omarchy-apple-silicon-channel <ensure|status|current|hold <reason>|release|switch <stable|rc|edge>|reset-rc|locked <command> [args...]|verify-locked>"
 }
 
 fail() {
@@ -187,8 +187,8 @@ read_lane() {
         fi
         ;;
       lane | switch)
-        if [[ $value != rc && $value != edge ]]; then
-          problem="$lane_file has $key $value, which is neither rc nor edge"
+        if [[ $value != stable && $value != rc && $value != edge ]]; then
+          problem="$lane_file has $key $value, which is not stable, rc or edge"
           return 2
         fi
         [[ $key == lane ]] && lane=$value || lane_switch=$value
@@ -410,7 +410,7 @@ case "$command" in
   locked) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
   verify-locked) (( $# == 1 )) || { usage >&2; exit 2; } ;;
   lane | reset-rc | held) (( $# == 1 )) || { usage >&2; exit 2; } ;;
-  switch) (( $# == 2 )) && [[ $2 == rc || $2 == edge ]] || { usage >&2; exit 2; } ;;
+  switch) (( $# == 2 )) && [[ $2 == stable || $2 == rc || $2 == edge ]] || { usage >&2; exit 2; } ;;
   lane-write) (( $# >= 2 )) || { usage >&2; exit 2; } ;;
   stage-descriptor) (( $# == 2 )) || { usage >&2; exit 2; } ;;
   -h | --help) usage; exit 0 ;;
@@ -517,8 +517,8 @@ case "$command" in
       value=${assignment#*=}
       [[ $assignment == *=* ]] || fail "lane-write takes key=value, not '$assignment'"
       case "$key:$value" in
-        lane:rc | lane:edge) lane=$value ;;
-        switch: | switch:rc | switch:edge) lane_switch=$value ;;
+        lane:stable | lane:rc | lane:edge) lane=$value ;;
+        switch: | switch:stable | switch:rc | switch:edge) lane_switch=$value ;;
         edge_accepted:* | edge_pending:*)
           [[ -z $value || $value =~ ^[1-9][0-9]{0,8}:[0-9a-f]{64}$ ]] || fail "lane-write: malformed $key"
           [[ $key == edge_accepted ]] && lane_accepted=$value || lane_pending=$value
@@ -548,7 +548,7 @@ case "$command" in
     (( result != 3 )) || fail "$record does not exist yet; omarchy update records it"
     (( result == 0 )) || fail "$problem"
     [[ $record_channel == rc ]] ||
-      fail "this Mac runs $record_kernel on $record_channel; rc and edge are the Aurora kernel's, and moving between kernel families is not available"
+      fail "this Mac runs $record_kernel on $record_channel; stable, rc and edge are the Aurora kernel's, and moving between kernel families is not available"
     [[ -z $record_hold ]] ||
       fail "this Mac's channel is held ($record_hold); omarchy-apple-silicon-channel release lifts the hold"
     held=$(held_aurora_packages) || fail "pacman cannot read /etc/pacman.conf, so a hold on the Aurora packages cannot be ruled out"
@@ -559,7 +559,7 @@ case "$command" in
     fi
     read_lane || fail "$problem; omarchy-apple-silicon-channel reset-rc starts it again from rc"
     if [[ $lane_switch == "$target" ]] ||
-      { [[ $lane == "$target" && -z $lane_switch ]] && ! { [[ $target == rc ]] && aurora_section_on_edge; }; }; then
+      { [[ $lane == "$target" && -z $lane_switch ]] && ! { [[ $target != edge ]] && aurora_section_on_edge; }; }; then
       echo "This Mac already follows $target."
       exit 0
     fi

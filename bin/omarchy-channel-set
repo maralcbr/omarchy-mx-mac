@@ -41,13 +41,13 @@ link_dev_checkout() {
 
 (( $# > 0 )) || { usage; exit 1; }
 
-# A Mac's channel is its kernel's: rc and edge are both linux-aurora, the one
-# pinned and the other following each edge release. The switch is recorded
-# under the update lock, then the update moves the kernel and proves it boots.
+# A Mac's channel is its kernel lane: stable, rc and edge are all linux-aurora,
+# pinned separately; the desktop package channel is unchanged. The switch is
+# recorded under the update lock, then the update moves the kernel and proves
+# it boots.
 if omarchy-hw-apple-silicon; then
   case "$1" in
-    rc | edge) ;;
-    stable) fail "Moving to stable would change this Mac's kernel family, which is not available; this Mac follows $(omarchy-apple-silicon-channel current)." ;;
+    stable | rc | edge) ;;
     *) fail "The $1 channel is not available on Apple Silicon; this Mac follows $(omarchy-apple-silicon-channel current)." ;;
   esac
   if omarchy-update-lock held; then
