@@ -12,8 +12,8 @@ check="$ROOT/bin/omarchy-apple-silicon-boot-check"
 grep -Fq '# omarchy:hidden=true' "$check" || fail "the boot check is hidden from command listings"
 ! grep -Eq '^[[:space:]]*(sudo[[:space:]]+)?(update-m1n1|/usr/bin/update-m1n1|"?\$script"?)([[:space:];]|$)' "$check" ||
   fail "the boot check never runs update-m1n1"
-! grep -Eq 'reboot-blocked|lane-write' "$check" || fail "the boot check keeps no reboot state and never writes the lane"
-pass "the boot check is hidden, never runs update-m1n1 and keeps no reboot state"
+! grep -Eq 'reboot-blocked' "$check" || fail "the boot check does not write the reboot-block marker"
+pass "the boot check is hidden, never runs update-m1n1 and does not write the reboot-block marker"
 
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
@@ -38,6 +38,9 @@ cat >"$stub_bin/pacman" <<'SH'
 case "$*" in
   -Qq) cat "$TEST_FILES/installed" ;;
   "-Qlq "*) [[ -f $TEST_FILES/$2 ]] && cat "$TEST_FILES/$2" ;;
+  "-Qkk "*)
+    [[ ${TEST_QKK_FAIL:-} != "$2" ]] || exit 1
+    ;;
   "-Q "*)
     [[ -f $TEST_FILES/version-$2 ]] || exit 1
     echo "$2 $(cat "$TEST_FILES/version-$2")"
@@ -217,14 +220,14 @@ system() {
   archive_sha=$(printf '%064d' 1)
   if [[ $kernel == linux-aurora ]]; then
     pkgver=6.17.0.aurora1-1
-    mkdir -p "$root/var/lib/omarchy" "$root/var/lib/pacman/local/linux-aurora-$pkgver"
+    mkdir -p "$root/var/lib/omarchy"
     {
       printf 'format=1\nchannel=aurora\nrelease_tag=aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c\n'
       printf 'package=1|linux-aurora|%s|aarch64|linux-aurora.pkg.tar.zst|%s|linux-aurora.pkg.tar.zst.sig|%064d\n' \
         "$pkgver" "$archive_sha" 2
     } >"$root/var/lib/omarchy/aurora-target.descriptor"
     printf 'format=1\nlane=rc\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
-    printf '%%SHA256SUM%%\n%s\n' "$archive_sha" >"$root/var/lib/pacman/local/linux-aurora-$pkgver/desc"
+    printf 'format=1\nchannel=rc\nkernel=linux-aurora\n' >"$root/var/lib/omarchy/apple-silicon-channel"
   fi
   printf '%s\n' "$pkgver" >"$test_tmp/files/version-$kernel"
 }
@@ -239,8 +242,11 @@ run_check() {
     TEST_MOUNTS="$mounts" \
     TEST_PARTUUID=$partuuid \
     TEST_ESP_DEVICE="$esp_device" \
+    TEST_QKK_FAIL="${TEST_QKK_FAIL:-}" \
     OMARCHY_BOOT_CHECK_ROOT="$root" \
     OMARCHY_BOOT_CHECK_UNAME="${TEST_UNAME:-$kver}" \
+    OMARCHY_APPLE_SILICON_CHANNEL_ROOT="$root" \
+    OMARCHY_APPLE_SILICON_CHANNEL_TESTING=1 \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
     bash "$check" "$@" >"$test_tmp/out" 2>"$test_tmp/err"
   status=$?
@@ -484,9 +490,13 @@ printf '6.18.0.aurora1-1\n' >"$test_tmp/files/version-linux-aurora"
 run_check
 expect_fail "an installed version the descriptor does not name" "linux-aurora 6.18.0.aurora1-1 is installed, but aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c has 6.17.0.aurora1-1"
 system linux-aurora
-printf '%%SHA256SUM%%\n%s\n' "$(printf '%064d' 9)" >"$root/var/lib/pacman/local/linux-aurora-6.17.0.aurora1-1/desc"
-run_check
-expect_fail "an installed archive the descriptor does not name" "installed linux-aurora 6.17.0.aurora1-1 is not the archive aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c names"
+TEST_QKK_FAIL=linux-aurora run_check
+expect_fail "altered linux-aurora files" "linux-aurora files do not match the package mtree"
+unset TEST_QKK_FAIL
+system linux-aurora
+TEST_QKK_FAIL=m1n1-aurora run_check
+expect_fail "altered m1n1-aurora files" "m1n1-aurora files do not match the package mtree"
+unset TEST_QKK_FAIL
 system linux-aurora
 rm "$root/var/lib/omarchy/aurora-target.descriptor"
 run_check
@@ -499,16 +509,39 @@ grep -Fq "from aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c (lane=ed
   fail "the reported release includes the lane file" "$(cat "$test_tmp/out")"
 pass "running-kernel identity binds uname, the installed package and the staged descriptor"
 
-# OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT lets --complete pass before reboot.
+# After reboot, a matching uname promotes the journal; a mismatch is a failure.
 system linux-aurora
+printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=1\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
 run_check
-expect_pass "identity still passes when uname matches"
+expect_pass "a matching uname after reboot promotes the journal"
+printf 'format=1\nlane=rc\n' >"$test_tmp/expected-lane"
+cmp -s "$test_tmp/expected-lane" "$root/var/lib/omarchy/apple-silicon-aurora-lane" ||
+  fail "post-reboot promotion clears the switch journal" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
+system linux-aurora
+printf 'format=1\nlane=edge\nswitch=edge\nreboot_pending=1\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
+sed -i 's/^release_tag=.*/release_tag=aurora-edge-5/' "$root/var/lib/omarchy/aurora-target.descriptor"
+digest=$(sha256sum "$root/var/lib/omarchy/aurora-target.descriptor" | cut -d' ' -f1)
+run_check
+expect_pass "a matching uname after reboot accepts an edge journal"
+printf 'format=1\nlane=edge\nedge_accepted=5:%s\n' "$digest" >"$test_tmp/expected-lane"
+cmp -s "$test_tmp/expected-lane" "$root/var/lib/omarchy/apple-silicon-aurora-lane" ||
+  fail "post-reboot promotion records the accepted edge release" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
+system linux-aurora
+printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=1\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
+TEST_UNAME=6.16.0-old-ARCH run_check
+expect_fail "a mismatch after reboot" "running kernel is 6.16.0-old-ARCH after reboot, not the installed linux-aurora $kver"
+printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=1\n' >"$test_tmp/expected-lane"
+cmp -s "$test_tmp/expected-lane" "$root/var/lib/omarchy/apple-silicon-aurora-lane" ||
+  fail "a mismatch after reboot keeps the journal" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
+system linux-aurora
+printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=1\n' >"$root/var/lib/omarchy/apple-silicon-aurora-lane"
 export OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1
 TEST_UNAME=6.16.0-old-ARCH run_check
 expect_pass "a pending reboot is allowed when the completion path asks"
-grep -Fq "running kernel is 6.16.0-old-ARCH" "$test_tmp/out" ||
-  fail "a pending reboot still names the running kernel" "$(cat "$test_tmp/out")"
-grep -Fq "linux-aurora $kver is installed from aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c (lane=rc)" "$test_tmp/out" ||
-  fail "a pending reboot names the staged release" "$(cat "$test_tmp/out")"
+grep -Fq "reboot pending" "$test_tmp/out" ||
+  fail "a pending reboot is named" "$(cat "$test_tmp/out")"
+printf 'format=1\nlane=rc\nswitch=rc\nreboot_pending=1\n' >"$test_tmp/expected-lane"
+cmp -s "$test_tmp/expected-lane" "$root/var/lib/omarchy/apple-silicon-aurora-lane" ||
+  fail "a pending reboot does not clear the switch journal" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
 unset OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT
-pass "the completion path can bind the installed release while the previous kernel is still running"
+pass "after reboot a matching uname promotes the journal and a mismatch fails"

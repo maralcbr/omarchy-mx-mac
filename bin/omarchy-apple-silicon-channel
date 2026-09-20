@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Keep this Mac's Apple Silicon channel record
-# omarchy:args=ensure|status|current|hold <reason>|release|switch <stable|rc|edge>|reset-rc|locked <command> [args...]|verify-locked|
+# omarchy:args=ensure|status|current|hold <reason>|release|switch <stable|rc|edge>|reset-rc|locked <command> [args...]|verify-locked
 # omarchy:hidden=true
 # omarchy:requires-sudo=true
 
@@ -150,13 +150,13 @@ read_record() {
   fi
 }
 
-lane=rc lane_switch="" lane_accepted="" lane_pending=""
+lane=rc lane_switch="" lane_accepted="" lane_pending="" reboot_pending=""
 
 # 0 with lane* set, an absent file being lane=rc; 2 with problem set.
 read_lane() {
   local line key value bad_line
   local -A seen=()
-  lane=rc lane_switch="" lane_accepted="" lane_pending=""
+  lane=rc lane_switch="" lane_accepted="" lane_pending="" reboot_pending=""
 
   [[ -e $lane_file || -L $lane_file ]] || return 0
   if [[ -L $lane_file || ! -f $lane_file ]]; then
@@ -202,6 +202,13 @@ read_lane() {
         fi
         [[ $key == edge_accepted ]] && lane_accepted=$value || lane_pending=$value
         ;;
+      reboot_pending)
+        if [[ $value != 1 ]]; then
+          problem="$lane_file has a malformed reboot_pending"
+          return 2
+        fi
+        reboot_pending=$value
+        ;;
       *)
         problem="$lane_file has unknown key $key"
         return 2
@@ -222,6 +229,7 @@ print_lane() {
   [[ -z $lane_switch ]] || printf 'switch=%s\n' "$lane_switch"
   [[ -z $lane_accepted ]] || printf 'edge_accepted=%s\n' "$lane_accepted"
   [[ -z $lane_pending ]] || printf 'edge_pending=%s\n' "$lane_pending"
+  [[ -z $reboot_pending ]] || printf 'reboot_pending=%s\n' "$reboot_pending"
 }
 
 # Aurora operations follow the kernel family, not the desktop-channel field:
@@ -531,6 +539,7 @@ case "$command" in
           [[ -z $value || $value =~ ^[1-9][0-9]{0,8}:[0-9a-f]{64}$ ]] || fail "lane-write: malformed $key"
           [[ $key == edge_accepted ]] && lane_accepted=$value || lane_pending=$value
           ;;
+        reboot_pending: | reboot_pending:1) reboot_pending=$value ;;
         *) fail "lane-write: unsupported $assignment" ;;
       esac
     done
@@ -571,7 +580,7 @@ case "$command" in
       echo "This Mac already follows $target."
       exit 0
     fi
-    lane=$target lane_switch=$target
+    lane=$target lane_switch=$target reboot_pending=""
     write_lane
     echo "This Mac now follows $target. omarchy update moves the Aurora kernel and checks that it boots before calling the switch done."
     ;;
@@ -585,9 +594,9 @@ case "$command" in
     if ! read_lane; then
       [[ -f $lane_file && ! -L $lane_file ]] || fail "$problem; remove it by hand"
       echo "Apple Silicon channel: $problem; starting it again from rc, without its edge history." >&2
-      lane_accepted="" lane_pending=""
+      lane_accepted="" lane_pending="" reboot_pending=""
     fi
-    lane=rc lane_switch=rc
+    lane=rc lane_switch=rc reboot_pending=""
     write_lane
     echo "This Mac returns to rc on the next omarchy update."
     [[ -z $record_hold ]] || echo "Its channel is held ($record_hold), so nothing moves until omarchy-apple-silicon-channel release."

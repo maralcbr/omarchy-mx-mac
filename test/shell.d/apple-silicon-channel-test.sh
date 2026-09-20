@@ -797,6 +797,11 @@ for value in "04:$(printf 'a%.0s' {1..64})" "4:$(printf 'a%.0s' {1..63})" "4:$(p
   write_lane 'format=1\nlane=edge\nedge_accepted=%s\n' "$value"
   lane_invalid "edge_accepted=$value" "$lane_file has a malformed edge_accepted"
 done
+write_lane 'format=1\nlane=edge\nreboot_pending=2\n'
+lane_invalid "a malformed reboot_pending" "$lane_file has a malformed reboot_pending"
+write_lane 'format=1\nlane=edge\nreboot_pending=1\n'
+run lane
+expect_output "lane with reboot_pending" 0 'lane=edge\nreboot_pending=1\n'
 write_lane 'format=1\r\nlane=edge\r\n'
 lane_invalid "CRLF" "$lane_file line 1 is not key=value"
 write_lane 'format=1\nlane=edge\n'
@@ -823,7 +828,11 @@ run locked bash "$helper" lane-write "edge_accepted=$pending" edge_pending= swit
 expect_lane "lane-write clears fields given empty" 'format=1\nlane=edge\nedge_accepted=%s\n' "$pending"
 run locked bash "$helper" lane-write lane=stable
 expect_lane "lane-write accepts stable" 'format=1\nlane=stable\nedge_accepted=%s\n' "$pending"
-for bad in lane= lane=dev switch=dev edge_pending=07:x hold=x nonsense; do
+run locked bash "$helper" lane-write reboot_pending=1
+expect_lane "lane-write records a pending reboot" 'format=1\nlane=stable\nedge_accepted=%s\nreboot_pending=1\n' "$pending"
+run locked bash "$helper" lane-write reboot_pending=
+expect_lane "lane-write clears reboot_pending" 'format=1\nlane=stable\nedge_accepted=%s\n' "$pending"
+for bad in lane= lane=dev switch=dev edge_pending=07:x reboot_pending=yes hold=x nonsense; do
   cp "$lane_file" "$test_tmp/lane-before"
   run locked bash "$helper" lane-write "$bad"
   (( status == 2 )) || fail "lane-write refuses $bad" "status $status"

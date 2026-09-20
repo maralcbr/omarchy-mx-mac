@@ -12,20 +12,26 @@
 # kernel release), the kernel mkinitcpio copied to /boot (sha256 against the
 # installed file), the initramfs it built, GRUB's entry, and m1n1 stage 2 on
 # the system ESP. For linux-aurora it also binds that identity to the staged
-# AURORA descriptor (name, version, archive sha256) and the lane file, and
-# reports which release the running kernel came from. The m1n1 image is rebuilt
+# AURORA descriptor (name and exact version from pacman -Q) and the lane file,
+# checks the installed files against each package's mtree, and reports which
+# release the running kernel came from. After a reboot, when uname matches the
+# installed kernel, it promotes an open switch journal to accepted. A mismatch
+# after reboot is a failure. The m1n1 image is rebuilt
 # the way update-m1n1 builds it -- m1n1, the device trees, gzipped U-Boot, the
 # m1n1.conf options -- and compared byte for byte, reading the ESP only through
 # a read-only mount. update-m1n1 itself is never run: its configuration can
 # point TARGET at the real image, and it rewrites /run/m1n1.conf. Its defaults
 # come from the installed script, applied the way := applies them, and
 # /etc/default/update-m1n1 contributes only the settings update-m1n1 reads.
-# Run it once the boot hooks of a transaction have finished; it keeps no state.
+# Run it once the boot hooks of a transaction have finished.
 
 set -euo pipefail
 
 root=${OMARCHY_BOOT_CHECK_ROOT:-}
 declare -A bootloaders=([linux-aurora]=m1n1-aurora [linux-asahi]=m1n1)
+if [[ -n $root && -z ${OMARCHY_APPLE_SILICON_CHANNEL_ROOT:-} ]]; then
+  export OMARCHY_APPLE_SILICON_CHANNEL_ROOT=$root
+fi
 
 fail() {
   echo "Apple Silicon boot check: $*" >&2
@@ -80,6 +86,10 @@ for package in linux-aurora m1n1-aurora linux-asahi m1n1; do
   [[ $package == "$kernel" || $package == "$bootloader" ]] || ! is_installed "$package" ||
     fail "$kernel boots with $bootloader, but $package is installed too"
 done
+for package in "$kernel" "$bootloader"; do
+  pacman -Qkk "$package" >/dev/null 2>&1 ||
+    fail "installed $package files do not match the package mtree"
+done
 
 pacman -Qlq "$kernel" >"$workdir/kernel-files" 2>/dev/null || fail "cannot list the files of $kernel"
 pacman -Qlq "$bootloader" >"$workdir/bootloader-files" 2>/dev/null || fail "cannot list the files of $bootloader"
@@ -97,15 +107,7 @@ image_sha=$(sudo sha256sum "$(path "${images[0]}")" | cut -d' ' -f1)
 
 running_kver=${OMARCHY_BOOT_CHECK_UNAME:-$(uname -r)}
 pending_reboot=0
-if [[ $running_kver != "$kver" ]]; then
-  if [[ ${OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT:-0} == 1 ]]; then
-    pending_reboot=1
-  else
-    fail "running kernel is $running_kver, not the installed $kernel $kver"
-  fi
-fi
-
-release_tag="" aurora_lane=rc
+release_tag="" aurora_lane=rc aurora_switch="" aurora_edge_pending="" aurora_reboot_pending=""
 if [[ $kernel == linux-aurora ]]; then
   descriptor=$(path /var/lib/omarchy/aurora-target.descriptor)
   lane_path=$(path /var/lib/omarchy/apple-silicon-aurora-lane)
@@ -132,19 +134,28 @@ if [[ $kernel == linux-aurora ]]; then
   installed_version=${installed#linux-aurora }
   [[ $installed_version == "$aurora_version" ]] ||
     fail "linux-aurora $installed_version is installed, but $release_tag has $aurora_version"
-  local_desc=$(path "/var/lib/pacman/local/linux-aurora-$installed_version/desc")
-  [[ -f $local_desc ]] || fail "the local package database has no desc for linux-aurora $installed_version"
-  local_sha=$(awk '$0 == "%SHA256SUM%" { getline; print; exit }' "$local_desc")
-  [[ $local_sha == "$aurora_archive_sha" ]] ||
-    fail "installed linux-aurora $installed_version is not the archive $release_tag names"
   if [[ -e $lane_path || -L $lane_path ]]; then
     [[ -f $lane_path && ! -L $lane_path ]] || fail "$lane_path is not a regular file"
     while IFS= read -r line || [[ -n $line ]]; do
-      [[ $line == lane=* ]] || continue
-      aurora_lane=${line#lane=}
+      case "$line" in
+        lane=*) aurora_lane=${line#lane=} ;;
+        switch=*) aurora_switch=${line#switch=} ;;
+        edge_pending=*) aurora_edge_pending=${line#edge_pending=} ;;
+        reboot_pending=*) aurora_reboot_pending=${line#reboot_pending=} ;;
+      esac
     done <"$lane_path"
     [[ $aurora_lane == stable || $aurora_lane == rc || $aurora_lane == edge ]] ||
       fail "$lane_path names lane $aurora_lane, not stable, rc or edge"
+  fi
+fi
+
+if [[ $running_kver != "$kver" ]]; then
+  if [[ ${OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT:-0} == 1 ]]; then
+    pending_reboot=1
+  elif [[ $aurora_reboot_pending == 1 ]]; then
+    fail "running kernel is $running_kver after reboot, not the installed $kernel $kver"
+  else
+    fail "running kernel is $running_kver, not the installed $kernel $kver"
   fi
 fi
 
@@ -373,15 +384,36 @@ report_running_release() {
   local origin="the installed $kernel"
   [[ -z $release_tag ]] || origin="$release_tag"
   if (( pending_reboot )); then
-    echo "Apple Silicon boot check: running kernel is $running_kver; $kernel $kver is installed from $origin${kernel:+}${release_tag:+ (lane=$aurora_lane)}"
+    echo "Apple Silicon boot check: running kernel is $running_kver; $kernel $kver is installed from $origin, reboot pending${release_tag:+ (lane=$aurora_lane)}"
   elif [[ $kernel == linux-aurora ]]; then
     echo "Apple Silicon boot check: running $kernel $kver from $origin (lane=$aurora_lane)"
   else
     echo "Apple Silicon boot check: running $kernel $kver from $origin"
   fi
 }
+promote_open_journal() {
+  local assignments digest
+  (( pending_reboot )) && return 0
+  [[ $kernel == linux-aurora ]] || return 0
+  [[ -n $aurora_switch || -n $aurora_edge_pending || $aurora_reboot_pending == 1 ]] || return 0
+  assignments=(switch= edge_pending= reboot_pending=)
+  if [[ $aurora_lane == edge ]]; then
+    [[ $release_tag =~ ^aurora-edge-([1-9][0-9]{0,8})$ ]] ||
+      fail "the staged descriptor's release $release_tag cannot be recorded as accepted"
+    digest=$(sha256sum "$descriptor" | cut -d' ' -f1)
+    assignments+=("edge_accepted=${BASH_REMATCH[1]}:$digest")
+  fi
+  if [[ ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} == 1 ]]; then
+    omarchy-apple-silicon-channel lane-write "${assignments[@]}" ||
+      fail "the switch journal could not be recorded as accepted"
+  else
+    omarchy-apple-silicon-channel locked omarchy-apple-silicon-channel lane-write "${assignments[@]}" ||
+      fail "the switch journal could not be recorded as accepted"
+  fi
+}
 for image in "${expected[@]}"; do
   ! sudo cmp -s "$image" "$mountpoint/m1n1/boot.bin" || {
+    promote_open_journal
     report_running_release
     exit 0
   }

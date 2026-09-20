@@ -62,6 +62,10 @@ SH
 cat >"$stub_bin/omarchy-apple-silicon-boot-check" <<'SH'
 #!/bin/bash
 echo "boot-check $*" >>"$TEST_CALLS"
+if [[ ${TEST_UNAME_MISMATCH:-0} == 1 && ${OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT:-0} != 1 ]]; then
+  echo "Apple Silicon boot check: running kernel is 6.16.0-old-ARCH, not the installed linux-aurora" >&2
+  exit 1
+fi
 [[ ${TEST_BOOT_STATUS:-0} == 0 ]] || echo "Aurora boot check: m1n1/boot.bin on the system ESP is stale" >&2
 exit "${TEST_BOOT_STATUS:-0}"
 SH
@@ -615,6 +619,20 @@ run_step
 defer_unmoved "edge discovery failed from an rc repository" "$pin_tag"
 pass "failed edge discovery from rc keeps the authenticated current release and rewrites nothing"
 
+# An accepted edge release already in place: discovery failure must not restage.
+conf_on "$downloads/aurora-edge-7"
+cp "$assets/aurora-edge-7/AURORA" "$staged"
+chmod 0644 "$staged"
+installed_from aurora-edge-7
+write_lane 'format=1\nlane=edge\nedge_accepted=7:%s\n' "$(digest aurora-edge-7)"
+rm -f "$assets/pointer"
+printf '{"message": "API rate limit exceeded"}\n' >"$assets/api/page-1.json"
+snapshot_repo
+run_step
+defer_unmoved "edge discovery failed with an accepted edge release in place" aurora-edge-7
+! grep -q mktemp "$channel_calls" || fail "accepted-edge discovery failure stages nothing" "$(cat "$channel_calls")"
+pass "failed edge discovery with an accepted release in place rewrites nothing"
+
 # Restore the first-contact edge section the way-back cases start from.
 write_pointer 7
 write_listing "aurora-edge-7"
@@ -855,3 +873,29 @@ rm -f "$staged"
 run_step
 expect_status 0 "a well-formed stable pin after the malformed one"
 pass "a malformed stable pin or a descriptor that is not aurora-stable is refused without edits"
+
+# Running-kernel binding: install is not accepted until the new kernel is running.
+conf_on "$downloads/aurora-edge-5"
+cp "$assets/aurora-edge-5/AURORA" "$staged"
+chmod 0644 "$staged"
+installed_from aurora-edge-5
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\n' "$(digest aurora-edge-5)"
+rm -f "$reboot_blocked"
+TEST_UNAME_MISMATCH=1 run_step --complete
+expect_status 0 "completing before reboot records the install as pending"
+expect_lane "the journal stays open until the new kernel is running" \
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=1\n' "$(digest aurora-edge-5)"
+grep -Fq "installed, reboot pending" "$test_tmp/out" ||
+  fail "completion before reboot says the install is pending" "$(cat "$test_tmp/out")"
+TEST_UNAME_MISMATCH=1 run_step --complete
+expect_status 1 "completing after reboot with the old kernel is a failure"
+grep -Fq "did not come up after reboot" "$test_tmp/err" ||
+  fail "a post-reboot mismatch is named" "$(cat "$test_tmp/err")"
+expect_lane "a failed post-reboot check keeps the journal" \
+  'format=1\nlane=edge\nswitch=edge\nedge_pending=5:%s\nreboot_pending=1\n' "$(digest aurora-edge-5)"
+run_step --complete
+expect_status 0 "omarchy-update after reboot promotes the running kernel"
+expect_lane "post-reboot completion accepts the release" 'format=1\nlane=edge\nedge_accepted=5:%s\n' "$(digest aurora-edge-5)"
+grep -Fq "now runs aurora-edge-5 from edge" "$test_tmp/out" ||
+  fail "post-reboot completion says the Mac now runs the release" "$(cat "$test_tmp/out")"
+pass "completion records reboot pending, then omarchy-update promotes after reboot"

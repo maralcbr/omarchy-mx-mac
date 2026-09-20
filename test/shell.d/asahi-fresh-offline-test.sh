@@ -441,7 +441,7 @@ grep -Eq -- '--dbpath [^ ]+ -Su --dbonly' "$calls" ||
   fail "offline applies transaction 1 to a disposable database copy" "$(cat "$calls")"
 grep -Eq -- '--dbpath [^ ]+ -Up --print --print-format %l %h --needed --noconfirm' "$calls" ||
   fail "offline prints the six archives against the simulated database" "$(cat "$calls")"
-grep -Fxq 'pacman -Su ignore=linux-aurora,linux-aurora-headers,m1n1-aurora repositories=omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
+grep -Fxq 'pacman -Su ignore=linux-aurora,linux-aurora-headers,m1n1-aurora repositories=omarchy-aurora,omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
   fail "offline installs with -Su against the pinned [omarchy] section" "$(cat "$calls")"
 called '^pacman -U$' || fail "offline still installs the six archives"
 called '^omarchy-apply-system --defer-provisioning --first-install$' || fail "offline still runs deferred system setup"

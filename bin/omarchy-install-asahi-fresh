@@ -128,7 +128,7 @@ EOF
     3) channel_record="" ;;
     *) fail "This Mac's Apple Silicon channel record cannot be trusted; no packages were installed" ;;
   esac
-  if grep -Fxq channel=rc <<<"$channel_record"; then
+  if [[ $kernel_package == linux-aurora ]]; then
     if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
       echo "Keeping the image's pinned Aurora kernel repository"
     else

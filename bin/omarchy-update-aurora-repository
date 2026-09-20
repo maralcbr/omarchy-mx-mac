@@ -25,17 +25,17 @@
 # journaled as pending before the section moves, so an interrupted update comes
 # back to the same one. An edge section goes back to a pin only once a switch
 # to rc or stable is asked for. The stable lane uses default/aurora-stable-release
-# the same way rc uses the qualified pin; pacman versions sort stable < rc < edge,
-# and a switch down is the explicit downgrade. Whichever release the section ends
-# on, its verified descriptor is staged for the pacman hook that checks the synced
-# database.
+# the same way rc uses the qualified pin. Lane switches are authenticated
+# repository selections with an explicit targeted downgrade. Whichever release
+# the section ends on, its verified descriptor is staged for the pacman hook that
+# checks the synced database.
 #
 # While a switch or an edge move is open, the three packages are written to
 # $OMARCHY_AURORA_TARGETS so the upgrade installs that release's versions, older
-# or not. --complete then proves they are installed and boot before the move
-# counts as done. Exit 3: edge could not be followed this time, so the section
-# stays on the authenticated current release; nothing is rewritten onto another
-# lane's pin.
+# or not. --complete then proves they are installed; before reboot it records
+# that as pending, and after reboot (when uname matches) the move counts as done.
+# Exit 3: edge could not be followed this time, so the section stays on the
+# authenticated current release; nothing is rewritten onto another lane's pin.
 
 set -euo pipefail
 
@@ -215,13 +215,14 @@ fi
 
 lane_state=$(omarchy-apple-silicon-channel lane) ||
   fail "this Mac's Aurora lane cannot be read; omarchy-apple-silicon-channel reset-rc returns it to rc"
-lane=rc switch="" accepted="" pending=""
+lane=rc switch="" accepted="" pending="" reboot_pending=""
 while IFS= read -r line; do
   case "$line" in
     lane=*) lane=${line#lane=} ;;
     switch=*) switch=${line#switch=} ;;
     edge_accepted=*) accepted=${line#edge_accepted=} ;;
     edge_pending=*) pending=${line#edge_pending=} ;;
+    reboot_pending=*) reboot_pending=${line#reboot_pending=} ;;
   esac
 done <<<"$lane_state"
 accepted_sequence=${accepted%%:*} accepted_digest=${accepted#*:}
@@ -514,18 +515,29 @@ if [[ $mode == complete ]]; then
   if dtbs_from_alarm_default && stale_reason=$(stale_aurora_module_trees); then
     unverified "$stale_reason"
   fi
-  OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1 omarchy-apple-silicon-boot-check linux-aurora ||
-    unverified "the boot files do not match the installed kernel"
-
-  if [[ $lane == rc || $lane == stable ]]; then
-    omarchy-apple-silicon-channel lane-write switch= edge_pending= || exit 2
-    message="This Mac is back on $lane ($target_tag), running linux-aurora ${package_version[linux-aurora]}, and its boot files match."
-  else
-    omarchy-apple-silicon-channel lane-write "edge_accepted=${target_tag#aurora-edge-}:$target_digest" edge_pending= switch= || exit 2
-    message="This Mac now runs $target_tag from edge, linux-aurora ${package_version[linux-aurora]}, and its boot files match."
+  boot_status=0
+  omarchy-apple-silicon-boot-check linux-aurora || boot_status=$?
+  if (( boot_status == 0 )); then
+    if [[ $lane == rc || $lane == stable ]]; then
+      omarchy-apple-silicon-channel lane-write switch= edge_pending= reboot_pending= || exit 2
+      message="This Mac is back on $lane ($target_tag), running linux-aurora ${package_version[linux-aurora]}, and its boot files match."
+    else
+      omarchy-apple-silicon-channel lane-write "edge_accepted=${target_tag#aurora-edge-}:$target_digest" edge_pending= switch= reboot_pending= || exit 2
+      message="This Mac now runs $target_tag from edge, linux-aurora ${package_version[linux-aurora]}, and its boot files match."
+    fi
+    [[ ! -e $reboot_blocked ]] || sudo rm -f "$reboot_blocked"
+    echo "$message"
+    exit 0
   fi
+  if [[ -n $reboot_pending ]]; then
+    unverified "the installed kernel did not come up after reboot"
+  fi
+  boot_status=0
+  OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1 omarchy-apple-silicon-boot-check linux-aurora || boot_status=$?
+  (( boot_status == 0 )) || unverified "the boot files do not match the installed kernel"
+  omarchy-apple-silicon-channel lane-write reboot_pending=1 || exit 2
   [[ ! -e $reboot_blocked ]] || sudo rm -f "$reboot_blocked"
-  echo "$message"
+  echo "linux-aurora ${package_version[linux-aurora]} from $target_tag is installed, reboot pending."
   exit 0
 fi
 
@@ -619,16 +631,9 @@ discover_edge() {
 # Without edge this time, keep the authenticated current release. Never fall
 # back to another lane's pin: a stable section must not become the rc pin, and
 # an rc section must not be rewritten onto stable. Exit before anything is
-# staged or rewritten. An accepted edge release already in place can stay
-# proven without moving.
+# staged or rewritten.
 plan_defer() {
-  defer=$1
-  if [[ $section_kind == edge && -n $accepted && $current_tag == "aurora-edge-$accepted_sequence" ]]; then
-    target_tag=$current_tag target_digest=$accepted_digest
-    echo -e "\e[33mAurora edge: $defer; [omarchy-aurora] stays on $target_tag for this update.\e[0m" >&2
-    return
-  fi
-  leave 3 "Aurora edge: $defer; [omarchy-aurora] stays on ${current_tag:-${current[*]:-no server}} for this update."
+  leave 3 "Aurora edge: $1; [omarchy-aurora] stays on ${current_tag:-${current[*]:-no server}} for this update."
 }
 
 gpg_ready=0
@@ -753,13 +758,11 @@ else
   fi
   if [[ -n $defer ]]; then
     plan_defer "$defer"
-  else
-    target_tag=aurora-edge-$edge_sequence
   fi
+  target_tag=aurora-edge-$edge_sequence
   if ! obtain_descriptor; then
-    [[ -z $defer && $target_tag =~ $edge_tag_pattern ]] || exit 2
+    [[ $target_tag =~ $edge_tag_pattern ]] || exit 2
     plan_defer "$target_tag could not be downloaded"
-    obtain_descriptor || exit 2
   fi
 fi
 

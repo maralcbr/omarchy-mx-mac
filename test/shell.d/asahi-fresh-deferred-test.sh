@@ -354,8 +354,9 @@ m1n1_line=$(call_line '^update-m1n1')
 [[ $(cat "$sandbox/boot/grub/grub.cfg") != "${builder_grub//KERNEL/$kernel_name}" ]] || fail "the builder's GRUB configuration is replaced"
 called '^gpasswd -d alarm wheel$' && called '^usermod -L alarm$' || fail "a deferred install still retires the stock administrator"
 [[ ! -e $state_dir && -f $sandbox/var/lib/omarchy/asahi-quattro-release ]] || fail "a deferred install completes its checkpoint and records the release"
-grep -Fxq 'pacman -Syu ignore=linux-aurora,linux-aurora-headers,m1n1-aurora repositories=omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
+grep -Fxq 'pacman -Syu ignore=linux-aurora,linux-aurora-headers,m1n1-aurora repositories=omarchy-aurora,omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
   fail "the first transaction holds the Aurora boot packages" "$(cat "$calls")"
+called '^aurora ' || fail "a recordless Aurora install stages the descriptor"
 grep -Fq 'Fresh Omarchy 4 installation complete' "$test_tmp/deferred.out" || fail "a deferred install reports completion"
 ! grep -Fq 'Reboot' "$test_tmp/deferred.out" || fail "a deferred install gives no reboot instruction"
 pass "a deferred install sets up the system without an account, a terminal or a reboot instruction"
@@ -464,12 +465,20 @@ pass "each kernel requires, holds and verifies its own m1n1 package"
 for channel in stable ""; do
   reset_sandbox
   status=0
-  run_installer "not-rc-$channel" FRESH_TEST_CHANNEL="$channel" --deferred-user || status=$?
-  expect_success "$status" "a Mac without an rc record installs" "not-rc-$channel"
+  run_installer "aurora-kernel-$channel" FRESH_TEST_CHANNEL="$channel" --deferred-user || status=$?
+  expect_success "$status" "a Mac with linux-aurora installs" "aurora-kernel-$channel"
   called '^channel status$' || fail "the channel record is read"
-  ! called '^aurora ' || fail "the Aurora updater runs only for an rc record (record: ${channel:-none})"
+  called '^aurora ' || fail "an Aurora kernel stages the descriptor (record: ${channel:-none})"
 done
-pass "a stable or unrecorded Mac never runs the Aurora updater"
+pass "a stable or unrecorded Aurora Mac still runs the Aurora updater"
+
+reset_sandbox linux-asahi 6.99.0-asahi m1n1
+status=0
+run_installer asahi-kernel FRESH_TEST_CHANNEL=stable --deferred-user || status=$?
+expect_success "$status" "a linux-asahi Mac installs" asahi-kernel
+called '^channel status$' || fail "the channel record is read"
+! called '^aurora ' || fail "a linux-asahi Mac never runs the Aurora updater"
+pass "a linux-asahi Mac never runs the Aurora updater"
 
 reset_sandbox linux-aurora 6.99.0-aurora
 status=0
