@@ -8,6 +8,8 @@ installer="$ROOT/bin/omarchy-install-asahi-fresh"
 runner="$ROOT/bin/omarchy-mac-run-deferred-steps"
 helper="$ROOT/install/helpers/mac-image-build.sh"
 hardware_all="$ROOT/install/hardware/all.sh"
+hw_detect="$ROOT/bin/omarchy-hw-apple-silicon"
+post_pacman="$ROOT/install/post-install/pacman.sh"
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
 
@@ -18,8 +20,15 @@ expected_steps() {
 bash -n "$installer"
 bash -n "$runner"
 bash -n "$helper"
+bash -n "$hw_detect"
 grep -Fq '# omarchy:hidden=true' "$runner" || fail "the deferred-steps runner is hidden from command listings"
 grep -Fq '# omarchy:requires-sudo=true' "$runner" || fail "the deferred-steps runner requires root"
+grep -Fq 'OMARCHY_MAC_TARGET=generic-apple-silicon' "$helper" ||
+  fail "the helper documents the generic Apple Silicon image-build target"
+grep -Fq 'omarchy_mac_export_image_identity' "$installer" ||
+  fail "the installer exports the generic image-build identity"
+! grep -Fq 'image-build-proc' "$installer" || fail "the installer does not invent a fake /proc tree"
+! grep -Fq 'apple,omarchy-image' "$installer" || fail "the installer does not fake an Apple device-tree"
 pass "image-build commands are syntactically valid and hidden"
 
 # --- hardware/all.sh records every hardware leaf and runs none of them --------
@@ -37,6 +46,7 @@ OMARCHY_MAC_IMAGE_BUILD=1 \
   OMARCHY_INSTALL="$ROOT/install" \
   OMARCHY_MAC_DEFERRED_STEPS="$sandbox/deferred-steps" \
   source "$hardware_all"
+unset OMARCHY_MAC_TARGET OMARCHY_MAC_IMAGE_BUILD OMARCHY_MAC_DEFERRED_STEPS
 [[ ! -s $test_tmp/run-logged ]] || fail "image-build hardware setup invoked run_logged" "$(cat "$test_tmp/run-logged")"
 [[ -f $sandbox/deferred-steps ]] || fail "image-build hardware setup wrote deferred-steps"
 [[ $(stat -c '%a' "$sandbox/deferred-steps") == 644 ]] ||
@@ -49,29 +59,74 @@ while IFS= read -r apple; do
 done < <(printf '%s\n' "$ROOT"/install/hardware/apple/*.sh)
 pass "hardware/all.sh defers every hardware step during an image build"
 
+# --- omarchy-hw-apple-silicon honors the generic image-build target -----------
+
+hw_bin="$test_tmp/hw-bin"
+hw_proc="$test_tmp/hw-proc"
+mkdir -p "$hw_bin" "$hw_proc/device-tree"
+cat >"$hw_bin/uname" <<'EOF'
+#!/bin/bash
+printf '%s\n' "${OMARCHY_TEST_ARCH:-aarch64}"
+EOF
+chmod +x "$hw_bin/uname"
+printf 'linux,dummy-virt\0' >"$hw_proc/device-tree/compatible"
+
+if OMARCHY_TEST_ARCH=aarch64 OMARCHY_PROC_ROOT="$hw_proc" PATH="$hw_bin:$PATH" \
+  "$hw_detect"; then
+  fail "without a target, a non-Apple device-tree is not Apple Silicon"
+fi
+pass "without a target, hardware detection probes the device-tree"
+
+OMARCHY_TEST_ARCH=aarch64 OMARCHY_MAC_TARGET=generic-apple-silicon \
+  OMARCHY_PROC_ROOT="$hw_proc" PATH="$hw_bin:$PATH" "$hw_detect" ||
+  fail "generic-apple-silicon is Apple Silicon without probing /proc/device-tree"
+pass "generic-apple-silicon reports Apple Silicon without a device-tree probe"
+
+printf 'apple,j314s\0apple,arm-platform\0' >"$hw_proc/device-tree/compatible"
+if OMARCHY_TEST_ARCH=aarch64 OMARCHY_MAC_TARGET=something-else \
+  OMARCHY_PROC_ROOT="$hw_proc" PATH="$hw_bin:$PATH" "$hw_detect"; then
+  fail "an unknown OMARCHY_MAC_TARGET is not Apple Silicon"
+fi
+if OMARCHY_TEST_ARCH=x86_64 OMARCHY_MAC_TARGET=generic-apple-silicon \
+  OMARCHY_PROC_ROOT="$hw_proc" PATH="$hw_bin:$PATH" "$hw_detect"; then
+  fail "generic-apple-silicon still requires aarch64"
+fi
+pass "an unknown target and a non-aarch64 host are not Apple Silicon"
+
 # --- omarchy-mac-run-deferred-steps runs each line once and clears the list ---
 
 omarchy="$test_tmp/omarchy"
 first_boot="$test_tmp/var/lib/omarchy/mac-first-boot"
 log_dir="$test_tmp/var/log/omarchy"
-mkdir -p "$omarchy/install/hardware/apple" "$first_boot" "$log_dir" "$test_tmp/bin"
+mkdir -p "$omarchy/install/hardware/apple" "$omarchy/install/helpers" "$first_boot" "$log_dir" "$test_tmp/bin"
+cp "$ROOT/install/helpers/logging.sh" "$omarchy/install/helpers/logging.sh"
+cp "$helper" "$omarchy/install/helpers/mac-image-build.sh"
 cat >"$omarchy/install/hardware/apple/fix-asahi-hid-race.sh" <<'EOF'
-printf 'hid\n' >>"$MAC_IMAGE_BUILD_RAN"
+printf 'hid target=%s image=%s\n' "${OMARCHY_MAC_TARGET-unset}" "${OMARCHY_MAC_IMAGE_BUILD-unset}" >>"$MAC_IMAGE_BUILD_RAN"
+EOF
+cat >"$omarchy/install/hardware/apple/fix-asahi-btrfs-race.sh" <<'EOF'
+printf 'btrfs\n' >>"$MAC_IMAGE_BUILD_RAN"
 EOF
 cat >"$omarchy/install/hardware/apple/fix-speaker-pop.sh" <<'EOF'
 printf 'speaker\n' >>"$MAC_IMAGE_BUILD_RAN"
 EOF
 printf '%s\n' \
   install/hardware/apple/fix-asahi-hid-race.sh \
+  install/hardware/apple/fix-asahi-btrfs-race.sh \
   install/hardware/apple/fix-speaker-pop.sh >"$first_boot/deferred-steps"
 chmod 0644 "$first_boot/deferred-steps"
 : >"$test_tmp/ran"
+: >"$test_tmp/mkinitcpio.log"
 
 cat >"$test_tmp/bin/true-root" <<'EOF'
 #!/bin/bash
 exec "$@"
 EOF
-chmod +x "$test_tmp/bin/true-root"
+cat >"$test_tmp/bin/mkinitcpio" <<'EOF'
+#!/bin/bash
+printf 'mkinitcpio %s\n' "$*" >>"$MAC_IMAGE_BUILD_MKINITCPIO"
+EOF
+chmod +x "$test_tmp/bin/true-root" "$test_tmp/bin/mkinitcpio"
 
 # Drop the root boundary the same way the fresh-installer suite does.
 runnable_runner="$test_tmp/omarchy-mac-run-deferred-steps"
@@ -79,22 +134,36 @@ sed -e 's@^(( EUID == 0 )) || fail .*@true # test-only root boundary@' "$runner"
 chmod +x "$runnable_runner"
 
 MAC_IMAGE_BUILD_RAN="$test_tmp/ran" \
+  MAC_IMAGE_BUILD_MKINITCPIO="$test_tmp/mkinitcpio.log" \
   OMARCHY_PATH="$omarchy" \
   OMARCHY_MAC_DEFERRED_STEPS="$first_boot/deferred-steps" \
   OMARCHY_MAC_FIRST_BOOT_LOG="$log_dir/mac-first-boot.log" \
+  OMARCHY_MAC_IMAGE_BUILD=1 \
+  OMARCHY_MAC_TARGET=generic-apple-silicon \
+  PATH="$test_tmp/bin:$PATH" \
   bash "$runnable_runner"
-[[ $(cat "$test_tmp/ran") == $'hid\nspeaker' ]] || fail "deferred steps ran in order" "$(cat "$test_tmp/ran")"
+[[ $(cat "$test_tmp/ran") == $'hid target=unset image=unset\nbtrfs\nspeaker' ]] ||
+  fail "deferred steps ran in order with the installer's live-machine environment" "$(cat "$test_tmp/ran")"
 [[ ! -s $first_boot/deferred-steps ]] || fail "successful deferred steps are removed from the list" "$(cat "$first_boot/deferred-steps")"
 [[ -f $first_boot/deferred-steps ]] || fail "the deferred-steps file remains after it is cleared"
 grep -Fq 'Completed install/hardware/apple/fix-asahi-hid-race.sh' "$log_dir/mac-first-boot.log" ||
   fail "first-boot log records completed steps" "$(cat "$log_dir/mac-first-boot.log")"
+[[ $(cat "$test_tmp/mkinitcpio.log") == $'mkinitcpio -P' ]] ||
+  fail "HID and btrfs leaves rebuild the initramfs once" "$(cat "$test_tmp/mkinitcpio.log")"
+[[ ! -e $first_boot/rebuild-initramfs ]] || fail "a successful initramfs rebuild clears the marker"
+grep -Fq 'Rebuilt the initramfs' "$log_dir/mac-first-boot.log" ||
+  fail "first-boot log records the initramfs rebuild" "$(cat "$log_dir/mac-first-boot.log")"
 : >"$test_tmp/ran"
+: >"$test_tmp/mkinitcpio.log"
 MAC_IMAGE_BUILD_RAN="$test_tmp/ran" \
+  MAC_IMAGE_BUILD_MKINITCPIO="$test_tmp/mkinitcpio.log" \
   OMARCHY_PATH="$omarchy" \
   OMARCHY_MAC_DEFERRED_STEPS="$first_boot/deferred-steps" \
   OMARCHY_MAC_FIRST_BOOT_LOG="$log_dir/mac-first-boot.log" \
+  PATH="$test_tmp/bin:$PATH" \
   bash "$runnable_runner"
 [[ ! -s $test_tmp/ran ]] || fail "a second run does not repeat cleared steps" "$(cat "$test_tmp/ran")"
+[[ ! -s $test_tmp/mkinitcpio.log ]] || fail "a second run does not rebuild the initramfs again" "$(cat "$test_tmp/mkinitcpio.log")"
 pass "omarchy-mac-run-deferred-steps runs remaining steps once and clears them"
 
 printf '%s\n' install/hardware/apple/fix-asahi-hid-race.sh install/hardware/apple/broken.sh >"$first_boot/deferred-steps"
@@ -102,19 +171,76 @@ cat >"$omarchy/install/hardware/apple/broken.sh" <<'EOF'
 false
 EOF
 : >"$test_tmp/ran"
+: >"$test_tmp/mkinitcpio.log"
 status=0
 MAC_IMAGE_BUILD_RAN="$test_tmp/ran" \
+  MAC_IMAGE_BUILD_MKINITCPIO="$test_tmp/mkinitcpio.log" \
   OMARCHY_PATH="$omarchy" \
   OMARCHY_MAC_DEFERRED_STEPS="$first_boot/deferred-steps" \
   OMARCHY_MAC_FIRST_BOOT_LOG="$log_dir/mac-first-boot.log" \
+  PATH="$test_tmp/bin:$PATH" \
   bash "$runnable_runner" >"$test_tmp/broken.out" 2>"$test_tmp/broken.err" || status=$?
 (( status != 0 )) || fail "a failing deferred step fails the runner"
 grep -Fq 'Deferred step failed: install/hardware/apple/broken.sh' "$test_tmp/broken.err" ||
   fail "a failing deferred step is reported" "$(cat "$test_tmp/broken.err")"
-[[ $(cat "$test_tmp/ran") == hid ]] || fail "steps before a failure still ran" "$(cat "$test_tmp/ran")"
+[[ $(cat "$test_tmp/ran") == $'hid target=unset image=unset' ]] ||
+  fail "steps before a failure still ran" "$(cat "$test_tmp/ran")"
 [[ $(cat "$first_boot/deferred-steps") == $'install/hardware/apple/broken.sh' ]] ||
   fail "a failed step and nothing after it stay on the list" "$(cat "$first_boot/deferred-steps")"
+[[ -f $first_boot/rebuild-initramfs ]] || fail "a HID leaf that succeeded before a failure still marks an initramfs rebuild"
+[[ ! -s $test_tmp/mkinitcpio.log ]] || fail "a failed run does not rebuild the initramfs" "$(cat "$test_tmp/mkinitcpio.log")"
 pass "a failed deferred step is kept so a rerun resumes"
+
+# --- post-install/pacman.sh keeps the image's pinned repositories -------------
+
+pacman_root="$test_tmp/pacman-root"
+pacman_omarchy="$test_tmp/pacman-omarchy"
+mkdir -p "$pacman_root/etc/pacman.d" "$pacman_omarchy/default/pacman" \
+  "$pacman_omarchy/install/hardware" "$test_tmp/pacman-bin"
+cat >"$pacman_root/etc/pacman.conf" <<'CONF'
+[options]
+Architecture = aarch64
+
+[omarchy-aurora]
+SigLevel = Required DatabaseOptional
+Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/aurora-packages-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+[omarchy]
+SigLevel = Required DatabaseOptional
+Server = https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-stable-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+[asahi-alarm]
+Server = https://example.test/asahi-alarm
+CONF
+cp "$pacman_root/etc/pacman.conf" "$test_tmp/pacman.conf.orig"
+printf 'X86_PACMAN_CONF\n' >"$pacman_omarchy/default/pacman/pacman-stable.conf"
+printf 'X86_MIRRORLIST\n' >"$pacman_omarchy/default/pacman/mirrorlist-stable"
+cp "$ROOT/install/hardware/pacman.sh" "$pacman_omarchy/install/hardware/pacman.sh"
+sed "s#/etc/#$pacman_root/etc/#g" "$post_pacman" >"$test_tmp/post-install-pacman.sh"
+cat >"$test_tmp/pacman-bin/pacman-key" <<'EOF'
+#!/bin/bash
+echo "pacman-key $*" >>"$MAC_IMAGE_BUILD_PACMAN"
+exit 1
+EOF
+cat >"$test_tmp/pacman-bin/lspci" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+chmod +x "$test_tmp/pacman-bin"/*
+: >"$test_tmp/pacman.calls"
+
+OMARCHY_MAC_IMAGE_BUILD=1 \
+  OMARCHY_MAC_TARGET=generic-apple-silicon \
+  OMARCHY_PATH="$pacman_omarchy" \
+  OMARCHY_INSTALL="$pacman_omarchy/install" \
+  MAC_IMAGE_BUILD_PACMAN="$test_tmp/pacman.calls" \
+  PATH="$test_tmp/pacman-bin:$PATH" \
+  bash -eE -c 'source "$1"' bash "$test_tmp/post-install-pacman.sh"
+diff -u "$test_tmp/pacman.conf.orig" "$pacman_root/etc/pacman.conf" ||
+  fail "image-mode pacman.sh keeps the pinned [omarchy] and [omarchy-aurora] sections"
+[[ ! -s $test_tmp/pacman.calls ]] ||
+  fail "image-mode pacman.sh does not re-sign or rewrite the package repositories" "$(cat "$test_tmp/pacman.calls")"
+pass "post-install/pacman.sh keeps the image's pinned pacman sections"
 
 # --- Fake chroot: the fresh installer with OMARCHY_MAC_IMAGE_BUILD=1 ----------
 
