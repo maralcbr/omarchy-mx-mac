@@ -9,25 +9,49 @@ Run Omarchy on Apple Silicon through Arch Linux ARM and Asahi Linux.
 
 See the [changelog](CHANGELOG.md) for release history and validation notes.
 
-Omarchy 4 (Quattro) is the maintained release:
+Omarchy 4 (Quattro) is the maintained release.
 
-| Version | Status | Installation |
-| --- | --- | --- |
-| Omarchy `4.0.4-mac.1` | Recommended stable version | Existing installations: run `omarchy update` |
-| Omarchy `4.0.3-mac.1` | **Stable** fresh-install image (Asahi kernel) | Install from macOS using the app below, then run `omarchy update` |
-| Omarchy `4.0.3-mac.2` | **RC** fresh-install image (Aurora kernel) | Choose RC in the app; offered on the 14-inch M1 Pro and 16-inch M2 Max only |
-| Omarchy `3.8.4-mac.4` | Legacy | Existing installations can update to Omarchy 4 |
+| What you have | What to do |
+| --- | --- |
+| A Mac with no Omarchy on it | Download the app below and install. It defaults to **Stable**. Run `omarchy update` afterwards. |
+| A Mac you want on the Aurora kernel | Same app, choose **RC** in *Release Channel*. Offered on the 14-inch M1 Pro and 16-inch M2 Max only. |
+| An existing Omarchy 4 install | Run `omarchy update`. |
+| An existing Omarchy 3 install | Run `omarchy update`. It moves you to Omarchy 4. |
 
 > [!NOTE]
-> **Stable** installs the 4.0.3 image with the Asahi Linux kernel. Its exact
-> package candidate passed a native ARM64 VM installation, recovery, reboot,
-> all 23 optional application installs, and completed-installer rerun checks.
-> Hardware support depends on Asahi Linux support for each model.
+> **Stable vs RC is a kernel choice, not a quality ladder.** Stable installs the
+> Asahi Linux kernel; its package candidate passed a native ARM64 VM
+> installation, recovery, reboot, all 23 optional application installs, and
+> completed-installer rerun checks. Hardware support follows Asahi Linux support
+> for each model.
 >
-> **RC** installs the Aurora kernel (`aurora-silicon/linux`), pinned to a commit
-> qualified on real hardware. It is offered only on models qualified that way.
-> Installed Macs keep the kernel they were installed with: an Asahi Mac stays on
-> Stable and an Aurora Mac stays on RC.
+> RC installs the Aurora kernel (`aurora-silicon/linux`), pinned to a commit
+> qualified on real hardware, and is offered only on models qualified that way.
+>
+> A Mac keeps the kernel it was installed with: an Asahi Mac stays on Stable and
+> an Aurora Mac stays on RC. Pick the channel at install time.
+
+<details>
+<summary>Version numbers</summary>
+
+Two things carry versions here, and they do not move together:
+
+- **Packages** — what `omarchy update` gives you. Currently `4.0.4-mac.1`, and it
+  advances with every release.
+- **Fresh-install images** — what the macOS app writes to disk. Currently
+  `4.0.3-mac.1` (Stable, Asahi kernel) and `4.0.3-mac.2` (RC, Aurora kernel).
+  Each image is rebuilt and re-qualified only when it needs to be, so images
+  trail the package version. The first `omarchy update` after an install closes
+  the gap.
+
+The `-mac.N` suffix on an image names the build lane, not the maturity:
+`-mac.1` and `-mac.2` are the same upstream Omarchy 4.0.3 built against
+different kernels. A higher suffix is not a newer release.
+
+Omarchy `3.8.4-mac.4` is the last Omarchy 3 release. It is no longer developed;
+existing installations update to Omarchy 4 in place.
+
+</details>
 
 ## Download For Apple Silicon
 
