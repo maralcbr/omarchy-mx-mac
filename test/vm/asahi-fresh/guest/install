@@ -92,10 +92,13 @@ else
 
   cp install-asahi-quattro install-asahi-quattro.vm
   sed -i \
-    -e '/^\[\[ -r \/proc\/device-tree\/compatible \]\] || fail /c\true # VM-only hardware boundary' \
-    -e "/^grep -aq 'apple,' \/proc\/device-tree\/compatible || fail /c\\true # VM-only hardware boundary" \
+    -e '/^[[:space:]]*\[\[ -r \/proc\/device-tree\/compatible \]\] || fail /c\true # VM-only hardware boundary' \
+    -e "/^[[:space:]]*grep -aq 'apple,' \/proc\/device-tree\/compatible || fail /c\\true # VM-only hardware boundary" \
     -e "s#^trap 'rm -rf \"\$work_dir\"' EXIT#trap ':' EXIT#" \
     install-asahi-quattro.vm
+  # The lines above are the VM's only hardware boundary: a check the patch
+  # missed would fail every run with "device-tree information is unavailable".
+  ! grep -q '/proc/device-tree/compatible' install-asahi-quattro.vm
   mkdir verified
   # The installer is given the channel the pointer named rather than letting it
   # rediscover one; an asset that predates the variable ignores it.
@@ -109,9 +112,10 @@ signed_fresh_installer="$verified_dir/omarchy-install-asahi-fresh"
 fresh_installer="$verified_dir/omarchy-install-asahi-fresh.vm"
 cp /root/omarchy-install-asahi-fresh.candidate "$fresh_installer"
 sed -i \
-  -e '/^\[\[ -r \/proc\/device-tree\/compatible \]\] || fail /c\true # VM-only hardware boundary' \
-  -e "/^grep -aq 'apple,' \/proc\/device-tree\/compatible || fail /c\\true # VM-only hardware boundary" \
+  -e '/^[[:space:]]*\[\[ -r \/proc\/device-tree\/compatible \]\] || fail /c\true # VM-only hardware boundary' \
+  -e "/^[[:space:]]*grep -aq 'apple,' \/proc\/device-tree\/compatible || fail /c\\true # VM-only hardware boundary" \
   "$fresh_installer"
+! grep -q '/proc/device-tree/compatible' "$fresh_installer"
 release_sequence=$(sed -n 's/^sequence=//p' "$verified_dir/asahi-quattro-release")
 release_tag=$(sed -n 's/^release_tag=//p' "$verified_dir/asahi-quattro-release")
 source_commit=$(sed -n 's/^source_commit=//p' "$verified_dir/asahi-quattro-release")
