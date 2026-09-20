@@ -29,6 +29,7 @@ cat >"$stub_bin/pacman" <<'SH'
 case "$*" in
   -Qq) cat "$TEST_FILES/installed" ;;
   "-Qlq "*) [[ -f $TEST_FILES/$2 ]] && cat "$TEST_FILES/$2" ;;
+  "-Qkk "*) exit 0 ;;
   *) exit 1 ;;
 esac
 SH
