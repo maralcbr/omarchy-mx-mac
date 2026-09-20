@@ -853,8 +853,10 @@ reset-rc` records the same request, then run `omarchy update`.
   `linux-aurora` version from `[omarchy-aurora]` on rc Macs, rebuilds m1n1 when
   DTBS is still the default, and rechecks boot. A failed channel read on Apple
   Silicon, a hold, a missing matching version, or a failed check stays pending.
-  Non-Apple machines and a missing Apple record settle; a successful non-Aurora
-  record also settles. A user-set DTBS is not this hazard, so completion skips
+  Non-Apple machines settle. A missing Apple record still repairs when
+  linux-aurora and leftover linux-asahi-headers are installed, stays pending
+  when a previous attempt left a marker, and settles on a pure Asahi Mac; a
+  successful non-Aurora record also settles. A user-set DTBS is not this hazard, so completion skips
   that diagnostic and trusts the boot check. The same
   `omarchy update` re-runs `--complete` after migrations so a switch that failed
   on leftover headers can finish once they are gone. Stable Macs are untouched.

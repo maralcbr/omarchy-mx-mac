@@ -40,8 +40,8 @@ cat >"$tmp/bin/omarchy-apple-silicon-channel" <<'SH'
 #!/bin/bash
 case "$1" in
   status)
+    [[ ${TEST_CHANNEL_EXIT:-0} == 0 ]] || exit "${TEST_CHANNEL_EXIT}"
     cat "$TEST_CHANNEL_STATUS"
-    exit "${TEST_CHANNEL_EXIT:-0}"
     ;;
   held)
     printf '%s\n' "${TEST_HELD:-}"
@@ -53,7 +53,17 @@ SH
 cat >"$tmp/bin/pacman" <<'SH'
 #!/bin/bash
 case "$1" in
-  -Qq) cat "$INSTALLED_PACKAGES" ;;
+  -Qq)
+    if (($# >= 2)); then
+      shift
+      for pkg in "$@"; do
+        grep -Fxq "$pkg" "$INSTALLED_PACKAGES" || exit 1
+        printf '%s\n' "$pkg"
+      done
+    else
+      cat "$INSTALLED_PACKAGES"
+    fi
+    ;;
   -Q)
     if [[ $# == 2 && $2 == linux-aurora ]]; then
       echo "linux-aurora $TEST_KERNEL_VERSION"
@@ -197,12 +207,37 @@ pass "non-Apple Silicon is a no-op"
 reset_packages linux-aurora linux-asahi-headers m1n1-aurora
 TEST_CHANNEL_EXIT=3
 export TEST_CHANNEL_EXIT
+run
+grep -Fxq linux-aurora-headers "$installed" || fail "a missing record still installs Aurora headers"
+! grep -Fxq linux-asahi-headers "$installed" || fail "a missing record still removes Asahi headers"
+grep -Fq "pacman -S --noconfirm --needed omarchy-aurora/linux-aurora-headers=$kernel_version" "$calls" ||
+  fail "a missing record still pins linux-aurora's version" "$(<"$calls")"
+grep -qx 'boot-check linux-aurora' "$calls" || fail "a missing record still checks boot"
+[[ ! -e $pending ]] || fail "a missing record still settles after a verified swap"
+pass "an Apple Silicon Mac without a channel record still repairs leftover Asahi headers"
+
+reset_packages linux-aurora linux-aurora-headers m1n1-aurora
+TEST_CHANNEL_EXIT=3
+export TEST_CHANNEL_EXIT
+: >"$pending"
+cp "$installed" "$tmp/before"
+run_fail "a missing record with a pending leftover headers repair"
+grep -Fq 'the Apple Silicon channel record is missing' "$tmp/err" ||
+  fail "a pending missing-record repair says why it stays pending" "$(<"$tmp/err")"
+cmp -s "$installed" "$tmp/before" || fail "a pending missing-record repair does not touch packages"
+[[ -f $pending ]] || fail "a pending missing-record repair stays pending"
+[[ ! -s $calls ]] || fail "a pending missing-record repair does not retry the swap" "$(<"$calls")"
+pass "an Apple Silicon Mac without a channel record keeps an unfinished leftover headers repair pending"
+
+reset_packages linux-asahi linux-asahi-headers
+TEST_CHANNEL_EXIT=3
+export TEST_CHANNEL_EXIT
 cp "$installed" "$tmp/before"
 run
-[[ ! -s $calls ]] || fail "a missing Apple record is not touched" "$(<"$calls")"
-cmp -s "$installed" "$tmp/before" || fail "a missing Apple record's packages are unchanged"
-[[ ! -e $pending ]] || fail "a missing Apple record does not record a pending swap"
-pass "an Apple Silicon Mac without a channel record is a no-op"
+[[ ! -s $calls ]] || fail "a pure Asahi Mac without a record is not touched" "$(<"$calls")"
+cmp -s "$installed" "$tmp/before" || fail "a pure Asahi Mac without a record is unchanged"
+[[ ! -e $pending ]] || fail "a pure Asahi Mac without a record does not record a pending swap"
+pass "an Apple Silicon Mac without a channel record settles when it is pure Asahi"
 
 reset_packages linux-aurora linux-asahi-headers m1n1-aurora
 TEST_BOOT_STATUS=1

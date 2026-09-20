@@ -2,9 +2,11 @@ echo "Replace leftover linux-asahi-headers on Aurora with linux-aurora-headers"
 
 # linux-aurora provides linux-asahi; list exact names with pacman -Qq. The channel
 # record is the Aurora/stable split; leftover Asahi headers are rc-only. Non-Apple
-# machines and a missing Apple record settle. A failed read on Apple Silicon stays
-# pending. Replacement headers must be the installed linux-aurora's version from
-# [omarchy-aurora]; a hold or a missing match would recreate the hazard.
+# machines settle. A missing Apple record follows installed packages so a login
+# path still repairs Aurora; an unfinished marker stays pending. A failed read on
+# Apple Silicon stays pending. Replacement headers must be the installed
+# linux-aurora's version from [omarchy-aurora]; a hold or a missing match would
+# recreate the hazard.
 
 omarchy-hw-apple-silicon || exit 0
 
@@ -15,20 +17,26 @@ config="${OMARCHY_UPDATE_M1N1_CONFIG:-/etc/default/update-m1n1}"
 status=0
 record=$(omarchy-apple-silicon-channel status) || status=$?
 if (( status == 3 )); then
-  exit 0
-fi
-if (( status != 0 )); then
+  if ! pacman -Qq linux-aurora >/dev/null 2>&1 || ! pacman -Qq linux-asahi-headers >/dev/null 2>&1; then
+    if [[ -f $pending ]]; then
+      echo "Replace leftover linux-asahi-headers: the Apple Silicon channel record is missing; leftover linux-asahi-headers repair will retry." >&2
+      exit 1
+    fi
+    exit 0
+  fi
+elif (( status != 0 )); then
   echo "Replace leftover linux-asahi-headers: the Apple Silicon channel record could not be read." >&2
   exit 1
+else
+  channel="" kernel=""
+  while IFS= read -r line; do
+    case "$line" in
+      channel=*) channel=${line#channel=} ;;
+      kernel=*) kernel=${line#kernel=} ;;
+    esac
+  done <<<"$record"
+  [[ $channel == rc && $kernel == linux-aurora ]] || exit 0
 fi
-channel="" kernel=""
-while IFS= read -r line; do
-  case "$line" in
-    channel=*) channel=${line#channel=} ;;
-    kernel=*) kernel=${line#kernel=} ;;
-  esac
-done <<<"$record"
-[[ $channel == rc && $kernel == linux-aurora ]] || exit 0
 
 installed=$(pacman -Qq) || {
   echo "Replace leftover linux-asahi-headers: cannot list installed packages." >&2
