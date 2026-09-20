@@ -668,6 +668,8 @@ pass "OMARCHY_AURORA_OFFLINE=1 refuses edge discovery and does not download"
 write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=8:%s\n' "$(digest aurora-edge-8)"
 conf_on "$downloads/aurora-edge-8"
 installed_from aurora-edge-8
+cp "$assets/aurora-edge-8/AURORA" "$staged"
+chmod 0644 "$staged"
 mkdir -p "$root/usr/bin" "$root/usr/lib/modules/7.1.13-3-2-ARCH/build" "$root/usr/lib/modules/7.1.12-2.5-1-ARCH/dtbs"
 printf ': ${DTBS:=$(/bin/ls -d /lib/modules/*-ARCH | sort -rV | head -1)/dtbs/*.dtb}\n' >"$root/usr/bin/update-m1n1"
 : >"$root/usr/lib/modules/7.1.12-2.5-1-ARCH/dtbs/t8103-j274.dtb"
