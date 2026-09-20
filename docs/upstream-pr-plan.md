@@ -185,8 +185,7 @@ Present in T3a `pkgbuilds/omarchy-mac-boot/files/` tonight:
 ```
 # Origin: omarchy-mx-mac install/hardware/apple/fix-asahi-hid-race.sh
 # Origin: omarchy-mx-mac install/hardware/apple/fix-asahi-btrfs-race.sh
-# Origin: omarchy-mx-mac default/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf
-# Origin: omarchy-mx-mac default/systemd/zram-generator.conf.d/90-omarchy.conf
+# (historical, removed in T3a round 2: asahi-audio-no-suspend.conf and the zram 90-omarchy.conf stay owned by omarchy-settings-dev)
 ```
 
 Still required (T3 add, same header style):
@@ -367,8 +366,8 @@ reboot-block, Apple Silicon channel routing, and Asahi skip markers.
 
 ### Cutover risks (highest first)
 
-1. **Installed Macs cannot git-ff.** Testers on mx `main` packages
-   cannot fast-forward 955/460. The cutover is a **pacman release**
+1. **Installed Macs get the cutover as packages.** The two-parent merge keeps
+   `main` fast-forwardable, but installed Macs never pull git: the cutover is a **pacman release**
    whose files match the overlayed tree, with migrations that no-op on
    machines that already applied HID/btrfs/audio/trust. Git `main`
    keeps both parents; do not force-push.
