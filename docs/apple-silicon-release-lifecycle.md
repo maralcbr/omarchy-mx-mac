@@ -17,8 +17,9 @@ The commands for every step below, both lanes, are in
 
 ## Payload source
 
-Installed Macs follow signed channels and do not read these two files. They
-still name `omarchy-iso` as the fresh-install payload source. Leave them
+Installed Macs follow signed channels; their normal update path does not read
+these two files (the platform-stack verifier still reads the JSON). Both still
+name `omarchy-iso` as the fresh-install payload source. Leave them
 unchanged until the `omarchy-mac-image` GitHub release in `omarchy-pkgs` lands;
 then retarget exactly these strings:
 
