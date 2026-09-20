@@ -19,10 +19,37 @@ fail() {
   exit 1
 }
 
-# Offline pin/cache failures: first boot maps 4 onto its fallback screen.
+# Offline --offline exits:
+#   4 cache or printed-transaction verification mismatch
+#   5 configuration or pin mismatch
+#   6 Aurora updater refused the offline pin or descriptor
 offline_fail() {
   echo "Error: $*" >&2
   exit 4
+}
+
+offline_config_fail() {
+  echo "Error: $*" >&2
+  exit 5
+}
+
+aurora_offline_fail() {
+  echo "Error: $*" >&2
+  exit 6
+}
+
+repo_config_fail() {
+  echo "Error: $*" >&2
+  if (( offline )); then
+    exit 5
+  fi
+  exit 1
+}
+
+# pacman-conf prints expanded tokens, one per line (PackageRequired, not Required).
+offline_local_file_siglevel_ok() {
+  grep -Fxq PackageRequired <<<"$1" && return 0
+  grep -Fxq Required <<<"$1" && ! grep -Fxq PackageOptional <<<"$1"
 }
 
 usage() {
@@ -102,29 +129,35 @@ EOF
   esac
   if grep -Fxq channel=rc <<<"$channel_record"; then
     echo "Pinning the Aurora kernel repository"
-    runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
-      fail "Could not pin the Aurora kernel repository; no packages were installed"
+    if (( offline )); then
+      runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
+        aurora_offline_fail "Could not pin the Aurora kernel repository; no packages were installed"
+    else
+      runtime_command "$package_runtime_root/usr/bin/omarchy-update-aurora-repository" ||
+        fail "Could not pin the Aurora kernel repository; no packages were installed"
+    fi
   fi
   rm -rf "$package_runtime_root"
   trap - EXIT
 
-  repositories=$(pacman-conf --config "$pacman_conf" --repo-list) || fail "Could not read the configured repositories"
+  repositories=$(pacman-conf --config "$pacman_conf" --repo-list) || repo_config_fail "Could not read the configured repositories"
   [[ ${repositories%%$'\n'*} != "omarchy-aurora" ]] || repositories=${repositories#omarchy-aurora$'\n'}
   [[ ${repositories%%$'\n'*} == "omarchy" ]] ||
-    fail "The [omarchy] repository must come before every other repository, except an [omarchy-aurora] directly ahead of it"
+    repo_config_fail "The [omarchy] repository must come before every other repository, except an [omarchy-aurora] directly ahead of it"
   server=$(awk '
     /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; next }
     inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
     inside && /^[[:space:]]*Server[[:space:]]*=/ { sub(/^[[:space:]]*Server[[:space:]]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print }
   ' "$pacman_conf")
-  [[ -n $server && $server != *$'\n'* ]] || fail "The [omarchy] repository must have exactly one Server"
+  [[ -n $server && $server != *$'\n'* ]] || repo_config_fail "The [omarchy] repository must have exactly one Server"
   if (( offline )); then
     stable_prefix="https://github.com/maralcbr/omarchy-pkgs/releases/download/asahi-packages-stable-"
     [[ $server == "$stable_prefix"* && ${server#"$stable_prefix"} =~ ^[0-9a-f]{40}$ ]] ||
-      offline_fail "The [omarchy] repository must name an asahi-packages-stable tag"
-    if [[ -n ${OMARCHY_ASAHI_KEEP_SERVER:-} && $server != "$OMARCHY_ASAHI_KEEP_SERVER" ]]; then
-      offline_fail "The [omarchy] repository does not match OMARCHY_ASAHI_KEEP_SERVER"
-    fi
+      offline_config_fail "The [omarchy] repository must name an asahi-packages-stable tag"
+    [[ -n ${OMARCHY_ASAHI_KEEP_SERVER:-} ]] ||
+      offline_config_fail "OMARCHY_ASAHI_KEEP_SERVER must name the expected asahi-packages-stable Server"
+    [[ $server == "$OMARCHY_ASAHI_KEEP_SERVER" ]] ||
+      offline_config_fail "The [omarchy] repository does not match OMARCHY_ASAHI_KEEP_SERVER"
   fi
   # System setup rewrites [omarchy] through install/hardware/pacman.sh, which
   # would otherwise swap a kept candidate or mirror for its own default.
@@ -235,6 +268,7 @@ while (($#)); do
 done
 
 (( ! deferred_user )) || [[ -z $target_user ]] || fail "--user and --deferred-user cannot be combined"
+(( ! offline )) || (( deferred_user )) || fail "--offline requires --deferred-user"
 (( ! offline )) || export OMARCHY_AURORA_OFFLINE=1 OMARCHY_ASAHI_OFFLINE=1
 (( EUID == 0 )) || fail "Run the fresh installer as root"
 [[ -d $bundle_dir ]] || fail "The verified package directory is unavailable"
@@ -415,16 +449,27 @@ configure_package_repository /etc/pacman.conf "$settings_archive" "$omarchy_arch
 
 echo "Installing the Omarchy 4 Apple Silicon package set"
 if (( offline )); then
-  local_siglevel=$(pacman-conf LocalFileSigLevel) || offline_fail "Could not read LocalFileSigLevel"
-  [[ $local_siglevel == Required ]] ||
-    offline_fail "LocalFileSigLevel must be Required (got ${local_siglevel:-empty})"
+  local_siglevel=$(pacman-conf LocalFileSigLevel) ||
+    offline_config_fail "Could not read LocalFileSigLevel"
+  offline_local_file_siglevel_ok "$local_siglevel" ||
+    offline_config_fail "LocalFileSigLevel must require package signatures (got ${local_siglevel//$'\n'/, })"
   printed=$(pacman -Sup --print-format '%l %h' --needed --noconfirm --ignore "$kernel_package,$kernel_package-headers,$m1n1_package" \
     base-devel sudo xdg-user-dirs "${repo_packages[@]}") ||
     offline_fail "Could not print the repository transaction"
   verify_offline_printed_archives <<<"$printed"
-  printed=$(pacman -Up --print --print-format '%l %h' --needed --noconfirm "${archives[@]}") ||
+  # Apply transaction 1 to a disposable database copy before resolving transaction 2.
+  [[ -d /var/lib/pacman/local ]] || offline_fail "The local package database is unavailable"
+  offline_db=$(mktemp -d)
+  trap 'rm -rf "$offline_db"' EXIT
+  cp -a /var/lib/pacman/. "$offline_db/" || offline_fail "Could not copy the package database"
+  pacman --dbpath "$offline_db" -Su --dbonly --needed --noconfirm --ignore "$kernel_package,$kernel_package-headers,$m1n1_package" \
+    base-devel sudo xdg-user-dirs "${repo_packages[@]}" ||
+    offline_fail "Could not simulate the repository transaction"
+  printed=$(pacman --dbpath "$offline_db" -Up --print --print-format '%l %h' --needed --noconfirm "${archives[@]}") ||
     offline_fail "Could not print the six-package transaction"
   verify_offline_printed_archives <<<"$printed"
+  rm -rf "$offline_db"
+  trap - EXIT
   pacman -Su --needed --noconfirm --ignore "$kernel_package,$kernel_package-headers,$m1n1_package" \
     base-devel sudo xdg-user-dirs "${repo_packages[@]}"
 else

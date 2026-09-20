@@ -33,11 +33,23 @@ stub() {
 stub pacman <<'EOF'
 #!/bin/bash
 installed="$FRESH_TEST_ROOT/installed"
+orig=("$@")
+dbpath=""
+dbonly=0
+parsed=()
+while (($#)); do
+  case "$1" in
+    --dbpath) dbpath=$2; shift 2 ;;
+    --dbonly) dbonly=1; shift ;;
+    *) parsed+=("$1"); shift ;;
+  esac
+done
+set -- "${parsed[@]}"
 repositories() {
   awk '/^[[:space:]]*\[[^]]+\][[:space:]]*$/ { gsub(/[][[:space:]]/, ""); if ($0 != "options") { printf "%s%s", sep, $0; sep = "," } }' "$FRESH_TEST_ROOT/etc/pacman.conf"
 }
 record() {
-  printf 'pacman %s\n' "$*" >>"$FRESH_TEST_LOG"
+  printf 'pacman %s\n' "${orig[*]}" >>"$FRESH_TEST_LOG"
 }
 case "$1" in
   -Q)
@@ -52,14 +64,18 @@ case "$1" in
     printf '/usr/lib/modules/%s/\n/usr/lib/modules/%s/vmlinuz\n' "$FRESH_TEST_KERNEL_VERSION" "$FRESH_TEST_KERNEL_VERSION"
     ;;
   -Sup)
-    record "$@"
+    record
     [[ ${FRESH_TEST_FAIL:-} != pacman-Sup ]] || exit 1
     cat "$FRESH_TEST_ROOT/printed-sync"
     ;;
   -Up)
-    record "$@"
+    record
     [[ ${FRESH_TEST_FAIL:-} != pacman-Up ]] || exit 1
-    cat "$FRESH_TEST_ROOT/printed-upgrade"
+    if [[ -n $dbpath && -f $dbpath/applied ]]; then
+      cat "$FRESH_TEST_ROOT/printed-upgrade"
+    else
+      cat "$FRESH_TEST_ROOT/printed-upgrade-independent"
+    fi
     ;;
   -Su)
     shift
@@ -72,6 +88,16 @@ case "$1" in
       esac
       shift
     done
+    if (( dbonly )); then
+      [[ -n $dbpath ]] || { echo "error: --dbonly requires --dbpath" >&2; exit 1; }
+      mkdir -p "$dbpath"
+      cat "$installed" >"$dbpath/installed"
+      printf '%s\n' "${targets[@]}" >>"$dbpath/installed"
+      : >"$dbpath/applied"
+      record
+      echo "pacman -Su --dbonly ignore=$ignored dbpath=$dbpath repositories=$(repositories)" >>"$FRESH_TEST_LOG"
+      exit 0
+    fi
     echo "pacman -Su ignore=$ignored repositories=$(repositories)" >>"$FRESH_TEST_LOG"
     printf '%s\n' "${targets[@]}" >>"$installed"
     ;;
@@ -99,22 +125,22 @@ case "$1" in
 esac
 EOF
 
-stub pacman-conf <<'EOF'
+real_pacman_conf=$(command -v pacman-conf)
+[[ -n $real_pacman_conf ]] || fail "pacman-conf is required to test LocalFileSigLevel tokens"
+stub pacman-conf <<EOF
 #!/bin/bash
-conf="$FRESH_TEST_ROOT/etc/pacman.conf"
-args=("$@")
-while (($#)); do
-  case "$1" in
-    --config) conf=$2; shift 2 ;;
+conf="\$FRESH_TEST_ROOT/etc/pacman.conf"
+while ((\$#)); do
+  case "\$1" in
+    --config) conf=\$2; shift 2 ;;
     --repo-list) break ;;
     LocalFileSigLevel)
-      printf '%s\n' "${FRESH_TEST_LOCAL_SIGLEVEL:-Required}"
-      exit 0
+      exec "$real_pacman_conf" --config "\$conf" LocalFileSigLevel
       ;;
     *) shift ;;
   esac
 done
-awk '/^[[:space:]]*\[[^]]+\][[:space:]]*$/ { gsub(/[][[:space:]]/, ""); if ($0 != "options") print }' "$conf"
+awk '/^[[:space:]]*\\[[^]]+\\][[:space:]]*\$/ { gsub(/[][[:space:]]/, ""); if (\$0 != "options") print }' "\$conf"
 EOF
 
 stub getent <<'EOF'
@@ -253,7 +279,7 @@ reset_sandbox() {
 
   rm -rf "$sandbox"
   mkdir -p "$sandbox"/{proc/device-tree,boot/grub,etc/pacman.d,etc/NetworkManager,run/lock,sys/module/zswap/parameters,home,dev} \
-    "$sandbox/usr/share/omarchy" "$sandbox/usr/lib/modules/$version" "$sandbox/var/lib" \
+    "$sandbox/usr/share/omarchy" "$sandbox/usr/lib/modules/$version" "$sandbox/var/lib/pacman/local" \
     "$sandbox/var/cache/pacman/pkg"
   printf 'apple,j314s\0apple,arm-platform\0' >"$sandbox/proc/device-tree/compatible"
   echo "4.0.3" >"$sandbox/usr/share/omarchy/version"
@@ -297,9 +323,12 @@ CONF
   printf 'dep-archive\n' >"$sandbox/var/cache/pacman/pkg/wayland-1-1-aarch64.pkg.tar.zst"
   hyprland_hash=$(sha256sum "$sandbox/var/cache/pacman/pkg/hyprland-1-1-aarch64.pkg.tar.zst" | cut -d' ' -f1)
   wayland_hash=$(sha256sum "$sandbox/var/cache/pacman/pkg/wayland-1-1-aarch64.pkg.tar.zst" | cut -d' ' -f1)
-  printf 'https://example.test/hyprland-1-1-aarch64.pkg.tar.zst %s\n' "$hyprland_hash" >"$sandbox/printed-sync"
-  printf '%s %s\nhttps://example.test/wayland-1-1-aarch64.pkg.tar.zst %s\n' \
-    "$bundle/omarchy-dev-4.0.3-1-aarch64.pkg.tar.zst" "local" "$wayland_hash" >"$sandbox/printed-upgrade"
+  printf 'https://example.test/hyprland-1-1-aarch64.pkg.tar.zst %s\nhttps://example.test/wayland-1-1-aarch64.pkg.tar.zst %s\n' \
+    "$hyprland_hash" "$wayland_hash" >"$sandbox/printed-sync"
+  printf '%s %s\n' "$bundle/omarchy-dev-4.0.3-1-aarch64.pkg.tar.zst" "local" >"$sandbox/printed-upgrade"
+  printf '%s %s\nhttps://example.test/extra-provider-1-1-aarch64.pkg.tar.zst %s\n' \
+    "$bundle/omarchy-dev-4.0.3-1-aarch64.pkg.tar.zst" "local" "$(printf '%064d' 2)" \
+    >"$sandbox/printed-upgrade-independent"
   kernel_name=$kernel
   kernel_version=$version
   : >"$calls"
@@ -313,7 +342,6 @@ run_installer() {
     shift
   done
   env -u FRESH_TEST_FAIL -u FRESH_TEST_CHANNEL -u FRESH_TEST_CHANNEL_STATUS \
-    -u FRESH_TEST_LOCAL_SIGLEVEL \
     PATH="$stub_bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin" \
     TMPDIR="$test_tmp/tmp" \
     FRESH_TEST_ROOT="$sandbox" \
@@ -356,6 +384,39 @@ bash -n "$runnable"
 "$installer" --help 2>&1 | grep -Fq -- '[--offline]' || fail "the fresh installer documents --offline"
 pass "the usage line documents --offline beside --user/--deferred-user"
 
+siglevel_ok() {
+  grep -Fxq PackageRequired <<<"$1" && return 0
+  grep -Fxq Required <<<"$1" && ! grep -Fxq PackageOptional <<<"$1"
+}
+siglevel_tmp=$(mktemp -d)
+cat >"$siglevel_tmp/accept.conf" <<'EOF'
+[options]
+Architecture = auto
+LocalFileSigLevel = Required
+
+[core]
+Server = file:///tmp
+EOF
+cat >"$siglevel_tmp/refuse.conf" <<'EOF'
+[options]
+Architecture = auto
+LocalFileSigLevel = Optional
+
+[core]
+Server = file:///tmp
+EOF
+accept_tokens=$("$real_pacman_conf" --config "$siglevel_tmp/accept.conf" LocalFileSigLevel)
+refuse_tokens=$("$real_pacman_conf" --config "$siglevel_tmp/refuse.conf" LocalFileSigLevel)
+grep -Fxq PackageRequired <<<"$accept_tokens" || fail "Required expands to PackageRequired" "$accept_tokens"
+! grep -Fxq Required <<<"$accept_tokens" || fail "Required is not printed unexpanded" "$accept_tokens"
+grep -Fxq PackageOptional <<<"$refuse_tokens" || fail "Optional expands to PackageOptional" "$refuse_tokens"
+siglevel_ok "$accept_tokens" || fail "the installer predicate accepts Required" "$accept_tokens"
+if siglevel_ok "$refuse_tokens"; then
+  fail "the installer predicate refuses Optional" "$refuse_tokens"
+fi
+rm -rf "$siglevel_tmp"
+pass "real pacman-conf LocalFileSigLevel: Required accepted, Optional refused"
+
 pin_omarchy=0
 reset_sandbox
 status=0
@@ -376,15 +437,30 @@ expect_success "$status" "an offline deferred install completes" offline
 no_refresh "offline emits no database refresh"
 grep -Fq -- "-Sup --print-format %l %h --needed --noconfirm --ignore linux-asahi,linux-asahi-headers,m1n1" "$calls" ||
   fail "offline prints the repository transaction with -Sup" "$(cat "$calls")"
-grep -Fq -- "-Up --print --print-format %l %h --needed --noconfirm" "$calls" ||
-  fail "offline prints the six archives with -Up --print" "$(cat "$calls")"
+grep -Eq -- '--dbpath [^ ]+ -Su --dbonly' "$calls" ||
+  fail "offline applies transaction 1 to a disposable database copy" "$(cat "$calls")"
+grep -Eq -- '--dbpath [^ ]+ -Up --print --print-format %l %h --needed --noconfirm' "$calls" ||
+  fail "offline prints the six archives against the simulated database" "$(cat "$calls")"
 grep -Fxq 'pacman -Su ignore=linux-asahi,linux-asahi-headers,m1n1 repositories=omarchy,asahi-alarm,core,extra,alarm,aur' "$calls" ||
   fail "offline installs with -Su against the pinned [omarchy] section" "$(cat "$calls")"
 called '^pacman -U$' || fail "offline still installs the six archives"
 called '^omarchy-apply-system --defer-provisioning --first-install$' || fail "offline still runs deferred system setup"
 grep -Fxq 'omarchy-apple-silicon-boot-check linux-asahi' "$calls" ||
   fail "offline still checks the boot chain" "$(cat "$calls")"
-pass "offline deferred install skips bootstrap, prints then installs with -Su, and keeps the rest"
+grep -Fq extra-provider "$sandbox/printed-upgrade-independent" ||
+  fail "independent txn 2 names a provider that is not cached"
+! grep -Fq extra-provider "$sandbox/printed-upgrade" || fail "sequential txn 2 does not name the extra provider"
+[[ ! -e $sandbox/var/cache/pacman/pkg/extra-provider-1-1-aarch64.pkg.tar.zst ]] ||
+  fail "the extra provider archive is not in the cache"
+sup_line=$(grep -n -- '-Sup --print-format' "$calls" | head -1 | cut -d: -f1)
+dbonly_line=$(grep -n -- '--dbonly' "$calls" | head -1 | cut -d: -f1)
+up_line=$(grep -n -- '-Up --print' "$calls" | head -1 | cut -d: -f1)
+su_line=$(grep -n '^pacman -Su ignore=' "$calls" | head -1 | cut -d: -f1)
+[[ -n $sup_line && -n $dbonly_line && -n $up_line && -n $su_line ]] ||
+  fail "sequential print-then-apply steps are logged" "$(cat "$calls")"
+(( sup_line < dbonly_line && dbonly_line < up_line && up_line < su_line )) ||
+  fail "transaction 2 is resolved after transaction 1 is simulated" "$(cat "$calls")"
+pass "offline deferred install skips bootstrap, simulates sequentially, then installs with -Su"
 
 reset_sandbox linux-aurora 6.99.0-aurora
 status=0
@@ -418,31 +494,71 @@ no_transaction "a mismatched cached archive installs nothing"
 pass "a mismatched cached archive fails with exit 4 before any transaction"
 
 reset_sandbox
+tokens=$("$real_pacman_conf" --config "$sandbox/etc/pacman.conf" LocalFileSigLevel)
+siglevel_ok "$tokens" || fail "the sandbox Required config is accepted by real pacman-conf" "$tokens"
+sed 's/^LocalFileSigLevel = Required$/LocalFileSigLevel = Optional/' "$sandbox/etc/pacman.conf" \
+  >"$sandbox/etc/pacman.conf.new"
+mv "$sandbox/etc/pacman.conf.new" "$sandbox/etc/pacman.conf"
+tokens=$("$real_pacman_conf" --config "$sandbox/etc/pacman.conf" LocalFileSigLevel)
+grep -Fxq PackageOptional <<<"$tokens" || fail "the sandbox Optional config expands via real pacman-conf" "$tokens"
+if siglevel_ok "$tokens"; then
+  fail "Optional must not pass the installer predicate" "$tokens"
+fi
 status=0
-run_installer siglevel OMARCHY_ASAHI_KEEP_SERVER="$keep_server" FRESH_TEST_LOCAL_SIGLEVEL=Optional --offline --deferred-user || status=$?
-[[ $status == 4 ]] || fail "LocalFileSigLevel not Required exits 4" "status $status: $(cat "$test_tmp/siglevel.err")"
-grep -Fq 'LocalFileSigLevel must be Required' "$test_tmp/siglevel.err" ||
+run_installer siglevel OMARCHY_ASAHI_KEEP_SERVER="$keep_server" --offline --deferred-user || status=$?
+[[ $status == 5 ]] || fail "LocalFileSigLevel Optional exits 5" "status $status: $(cat "$test_tmp/siglevel.err")"
+grep -Fq 'LocalFileSigLevel must require package signatures' "$test_tmp/siglevel.err" ||
   fail "LocalFileSigLevel is named" "$(cat "$test_tmp/siglevel.err")"
 ! grep -Eq '^pacman -S' "$calls" && ! grep -Eq '^pacman -U' "$calls" ||
   fail "LocalFileSigLevel is checked before any pacman print or transaction" "$(cat "$calls")"
-pass "LocalFileSigLevel not Required fails with exit 4 before any pacman print or transaction"
+pass "real pacman-conf Optional LocalFileSigLevel fails with exit 5 before any pacman print or transaction"
 
 reset_sandbox
 : >"$sandbox/dev/tty"
 status=0
 run_installer named OMARCHY_ASAHI_KEEP_SERVER="$keep_server" --offline --user alice || status=$?
-expect_success "$status" "offline without --deferred-user still completes" named
-! called '^bootstrap ' || fail "named offline still skips bootstrap"
-no_refresh "named offline emits no database refresh"
-called '^useradd --uid 1001 ' && called '^passwd alice$' || fail "named offline still creates the user" "$(cat "$calls")"
-called '^omarchy-apply-system --install-user alice --first-install$' || fail "named offline still sets up its user"
-pass "--offline without --deferred-user still installs a named user"
+[[ $status == 1 ]] || fail "--offline --user exits 1" "status $status: $(cat "$test_tmp/named.err")"
+grep -Fq -- '--offline requires --deferred-user' "$test_tmp/named.err" ||
+  fail "--offline --user names the deferred-only restriction" "$(cat "$test_tmp/named.err")"
+! called '^useradd ' && ! called '^runuser ' && ! called '^omarchy-apply-system ' && ! called '^omarchy-provision-user ' ||
+  fail "--offline --user must not provision a named user" "$(cat "$calls")"
+no_transaction "--offline --user installs nothing"
+pass "--offline refuses --user so named-user provisioning cannot fetch"
+
+reset_sandbox
+status=0
+run_installer keep-missing --offline --deferred-user || status=$?
+[[ $status == 5 ]] || fail "missing KEEP_SERVER exits 5" "status $status: $(cat "$test_tmp/keep-missing.err")"
+grep -Fq 'OMARCHY_ASAHI_KEEP_SERVER must name the expected asahi-packages-stable Server' "$test_tmp/keep-missing.err" ||
+  fail "a missing KEEP_SERVER is named" "$(cat "$test_tmp/keep-missing.err")"
+! called '^bootstrap ' && no_transaction "a missing KEEP_SERVER installs nothing"
+pass "OMARCHY_ASAHI_KEEP_SERVER is mandatory in --offline mode"
 
 reset_sandbox
 status=0
 run_installer keep-mismatch OMARCHY_ASAHI_KEEP_SERVER="${keep_server}ffff" --offline --deferred-user || status=$?
-[[ $status == 4 ]] || fail "a KEEP_SERVER mismatch exits 4" "status $status: $(cat "$test_tmp/keep-mismatch.err")"
+[[ $status == 5 ]] || fail "a KEEP_SERVER mismatch exits 5" "status $status: $(cat "$test_tmp/keep-mismatch.err")"
 grep -Fq 'does not match OMARCHY_ASAHI_KEEP_SERVER' "$test_tmp/keep-mismatch.err" ||
   fail "a KEEP_SERVER mismatch is named" "$(cat "$test_tmp/keep-mismatch.err")"
 ! called '^bootstrap ' && no_transaction "a KEEP_SERVER mismatch installs nothing"
 pass "OMARCHY_ASAHI_KEEP_SERVER must match the pinned [omarchy] Server"
+
+pin_omarchy=0
+reset_sandbox
+status=0
+run_installer repo-order OMARCHY_ASAHI_KEEP_SERVER="$keep_server" --offline --deferred-user || status=$?
+[[ $status == 5 ]] || fail "a missing [omarchy] section exits 5" "status $status: $(cat "$test_tmp/repo-order.err")"
+grep -Fq 'The [omarchy] repository must come before every other repository' "$test_tmp/repo-order.err" ||
+  fail "a missing [omarchy] section is named" "$(cat "$test_tmp/repo-order.err")"
+no_transaction "a missing [omarchy] section installs nothing"
+pass "malformed [omarchy] configuration exits 5"
+pin_omarchy=1
+
+reset_sandbox linux-aurora 6.99.0-aurora
+status=0
+run_installer aurora-fail OMARCHY_ASAHI_KEEP_SERVER="$keep_server" FRESH_TEST_CHANNEL=rc FRESH_TEST_FAIL=aurora --offline --deferred-user || status=$?
+[[ $status == 6 ]] || fail "an Aurora offline refusal exits 6" "status $status: $(cat "$test_tmp/aurora-fail.err")"
+grep -Fq 'Could not pin the Aurora kernel repository' "$test_tmp/aurora-fail.err" ||
+  fail "an Aurora offline refusal is named" "$(cat "$test_tmp/aurora-fail.err")"
+no_transaction "an Aurora offline refusal installs nothing"
+pass "Aurora pin/descriptor refusal exits 6"
