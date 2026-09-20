@@ -119,23 +119,12 @@ root_on_luks() {
   [[ -n $part ]]
 }
 
-sd_encrypt_in_mkinitcpio() {
-  local file dir
-  file=$(path /etc/mkinitcpio.conf)
-  if [[ -f $file ]] && grep -Eq '^[[:space:]]*HOOKS=\([^)]*sd-encrypt' "$file"; then
-    return 0
-  fi
-  dir=$(path /etc/mkinitcpio.conf.d)
-  [[ -d $dir ]] || return 1
-  for file in "$dir"/*.conf; do
-    [[ -f $file ]] || continue
-    grep -Eq '^[[:space:]]*HOOKS\+?=\([^)]*sd-encrypt' "$file" && return 0
-  done
-  return 1
-}
-
 sd_encrypt_in_initramfs() {
-  grep -Eq '(^|/)sd-encrypt([/[:space:]]|$)' "$workdir/initramfs"
+  local image analyze
+  image=$(path "/boot/initramfs-$kernel.img")
+  analyze=$(sudo lsinitcpio -a "$image" 2>/dev/null) || return 1
+  grep -Eq '(^|[[:space:]"=])sd-encrypt([[:space:]"]|$)' <<<"$analyze" && return 0
+  grep -Eq '(^|/)(usr/lib/initcpio/)?hooks/sd-encrypt(/|$)' "$workdir/initramfs"
 }
 
 crypttab=$(path /etc/crypttab)
@@ -144,11 +133,17 @@ if [[ -f $crypttab ]] && sudo grep -Eq '^[[:space:]]*root[[:space:]]' "$crypttab
   has_crypttab_root=1
 fi
 if (( has_crypttab_root )); then
+  crypttab_uuid=$(sudo awk '/^[[:space:]]*root[[:space:]]/ {
+    if ($2 ~ /^UUID=/) { sub(/^UUID=/, "", $2); print $2; exit }
+  }' "$crypttab")
+  [[ -n $crypttab_uuid ]] || fail "cannot read the LUKS UUID from crypttab"
   sudo grep -Fq "rd.luks.name=" "$grub_cfg" ||
     fail "/boot/grub/grub.cfg does not set rd.luks.name= for the encrypted root"
+  sudo grep -Eq "rd\\.luks\\.name=${crypttab_uuid}=" "$grub_cfg" ||
+    fail "/boot/grub/grub.cfg rd.luks.name= UUID does not match crypttab"
   sudo grep -Fq "root=/dev/mapper/root" "$grub_cfg" ||
     fail "/boot/grub/grub.cfg does not set root=/dev/mapper/root for the encrypted root"
-  sd_encrypt_in_mkinitcpio || sd_encrypt_in_initramfs ||
+  sd_encrypt_in_initramfs ||
     fail "/boot/initramfs-$kernel.img does not contain sd-encrypt"
 
   # First-boot window: throwaway keyfile and rd.luks.key= are allowed until
@@ -169,9 +164,6 @@ if (( has_crypttab_root )); then
     esac
     luks_dump=$(sudo cryptsetup luksDump "$luks_dev" 2>/dev/null) ||
       fail "cannot read LUKS keyslots on $luks_dev after provisioning"
-    luks_slots=$(awk '/^[[:space:]]+[0-9]+:[[:space:]]+luks2/ { n++ } END { print n+0 }' <<<"$luks_dump")
-    (( luks_slots == 2 )) ||
-      fail "throwaway LUKS keyslot still present after provisioning ($luks_slots keyslots, expected 2)"
 
     encrypt_state=$(path /boot/omarchy/encrypt.state)
     [[ -f $encrypt_state ]] || fail "/boot/omarchy/encrypt.state is missing after provisioning"
@@ -179,6 +171,18 @@ if (( has_crypttab_root )); then
       fail "/boot/omarchy/encrypt.state is not format=1"
     grep -Fxq 'phase=finished' "$encrypt_state" ||
       fail "/boot/omarchy/encrypt.state is not phase=finished after provisioning"
+    owner_slot=$(awk -F= '$1 == "owner_slot" { print $2; exit }' "$encrypt_state")
+    recovery_slot=$(awk -F= '$1 == "recovery_slot" { print $2; exit }' "$encrypt_state")
+    [[ -n $owner_slot && -n $recovery_slot ]] ||
+      fail "/boot/omarchy/encrypt.state does not record owner_slot and recovery_slot after provisioning"
+    [[ "$owner_slot" != "$recovery_slot" ]] ||
+      fail "/boot/omarchy/encrypt.state records the same slot for owner and recovery"
+
+    mapfile -t luks_slots < <(awk '/^[[:space:]]+[0-9]+:[[:space:]]+luks2/ { sub(":", "", $1); print $1 }' <<<"$luks_dump")
+    (( ${#luks_slots[@]} == 2 )) ||
+      fail "throwaway LUKS keyslot still present after provisioning (${#luks_slots[@]} keyslots, expected 2)"
+    [[ " ${luks_slots[*]} " == *" $owner_slot "* && " ${luks_slots[*]} " == *" $recovery_slot "* ]] ||
+      fail "LUKS header does not contain the recorded owner and recovery slots"
   fi
 elif root_on_luks; then
   fail "encrypted root has no crypttab"

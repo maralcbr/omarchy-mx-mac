@@ -61,7 +61,9 @@ grep -Fx /dev/test-luks "$TEST_ARGS" >/dev/null || fail "drive password targets 
 rm -f "$TEST_ARGS" "$TEST_STDIN" "$TEST_CHPASSWD"
 export TEST_CRYPTSETUP_STATUS=1
 printf 'new password\nnew password\n' >"$TEST_INPUTS"
-"$ROOT/bin/omarchy-drive-password" >/dev/null
+if "$ROOT/bin/omarchy-drive-password" >/dev/null; then
+  fail "Intel drive password returns cryptsetup's failure"
+fi
 grep -F 'cryptsetup luksChangeKey' "$TEST_ARGS" >/dev/null || fail "Intel drive password still attempted cryptsetup"
 [[ ! -e $TEST_CHPASSWD ]] || fail "Intel drive password does not call chpasswd after cryptsetup failure"
 pass "drive password rejects empty and mismatched passphrases and passes validated input to cryptsetup"

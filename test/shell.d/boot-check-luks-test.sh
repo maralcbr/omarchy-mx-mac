@@ -34,8 +34,33 @@ esac
 SH
 cat >"$stub_bin/lsinitcpio" <<'SH'
 #!/bin/bash
-[[ $1 == -l && -f $2 ]] || exit 1
+if [[ "$1" == "-a" && -f "$2" ]]; then
+  cat "${TEST_INITRAMFS_ANALYZE:-$TEST_INITRAMFS_LIST.analyze}"
+  exit 0
+fi
+[[ "$1" == "-l" && -f "$2" ]] || exit 1
 cat "$TEST_INITRAMFS_LIST"
+SH
+cat >"$stub_bin/cryptsetup" <<'SH'
+#!/bin/bash
+case "$1" in
+  luksDump)
+    if [[ -n ${TEST_LUKS_SLOTS:-} ]]; then
+      for slot in $TEST_LUKS_SLOTS; do
+        printf '  %s: luks2\n' "$slot"
+      done
+      exit 0
+    fi
+    slots=${TEST_LUKS_SLOT_COUNT:-2}
+    i=0
+    while (( i < slots )); do
+      printf '  %s: luks2\n' "$i"
+      (( ++i ))
+    done
+    exit 0
+    ;;
+  *) exit 1 ;;
+esac
 SH
 cat >"$stub_bin/mount" <<'SH'
 #!/bin/bash
@@ -77,21 +102,6 @@ case "$*" in
     state=$(awk -v target="${@: -1}" '$1 == target { print $2 }' "$TEST_MOUNTS")
     [[ -n $state ]] || exit 1
     echo "$state,relatime"
-    ;;
-  *) exit 1 ;;
-esac
-SH
-cat >"$stub_bin/cryptsetup" <<'SH'
-#!/bin/bash
-case "$1" in
-  luksDump)
-    slots=${TEST_LUKS_SLOT_COUNT:-2}
-    i=0
-    while (( i < slots )); do
-      printf '  %s: luks2\n' "$i"
-      (( ++i ))
-    done
-    exit 0
     ;;
   *) exit 1 ;;
 esac
@@ -193,6 +203,8 @@ run_check() {
     TEST_MOUNTS="$mounts" \
     TEST_ESP_DEVICE="$esp_device" \
     TEST_LUKS_SLOT_COUNT="${TEST_LUKS_SLOT_COUNT:-2}" \
+    TEST_LUKS_SLOTS="${TEST_LUKS_SLOTS:-}" \
+    TEST_INITRAMFS_ANALYZE="${TEST_INITRAMFS_ANALYZE:-$test_tmp/initramfs.analyze}" \
     TEST_LSBLK="${TEST_LSBLK:-}" \
     OMARCHY_BOOT_CHECK_ROOT="$root" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
@@ -217,11 +229,14 @@ encrypt_root() {
   printf 'root UUID=abcd-ef none luks\n' >"$root/etc/crypttab"
   printf 'linux /vmlinuz-linux-aurora rd.luks.name=abcd-ef=root root=/dev/mapper/root\ninitrd /initramfs-linux-aurora.img\n' \
     >"$root/boot/grub/grub.cfg"
-  printf 'usr/lib/modules/%s/kernel/x.ko\nusr/lib/systemd/systemd-cryptsetup\nusr/lib/initcpio/install/sd-encrypt\n' "$kver" \
+  printf 'usr/lib/modules/%s/kernel/x.ko\nusr/lib/systemd/systemd-cryptsetup\nusr/lib/initcpio/hooks/sd-encrypt\n' "$kver" \
     >"$test_tmp/initramfs"
-  printf 'format=1\nphase=finished\npartition=PART-1\nluks_uuid=abcd-ef\n' >"$root/boot/omarchy/encrypt.state"
+  printf 'HOOKS="base systemd autodetect modconf kms keyboard keymap block sd-encrypt filesystems fsck"\n' \
+    >"$test_tmp/initramfs.analyze"
+  printf 'format=1\nphase=finished\npartition=PART-1\nluks_uuid=abcd-ef\nowner_slot=1\nrecovery_slot=2\n' >"$root/boot/omarchy/encrypt.state"
   : >"$root/dev/disk/by-uuid/abcd-ef"
   TEST_LUKS_SLOT_COUNT=2
+  TEST_LUKS_SLOTS="1 2"
 }
 
 # Unencrypted roots keep the existing expectations; missing install.conf is fine.
@@ -252,6 +267,7 @@ expect_fail "an encrypted root without mapper root" "does not set root=/dev/mapp
 system
 encrypt_root
 printf 'usr/lib/modules/%s/kernel/x.ko\nusr/bin/init\n' "$kver" >"$test_tmp/initramfs"
+printf 'HOOKS="base systemd autodetect block filesystems fsck"\n' >"$test_tmp/initramfs.analyze"
 run_check
 expect_fail "an encrypted root without sd-encrypt" "does not contain sd-encrypt"
 
@@ -271,8 +287,22 @@ expect_fail "luks-key after provisioning" "luks-key still exists after provision
 system
 encrypt_root
 TEST_LUKS_SLOT_COUNT=3
+TEST_LUKS_SLOTS="0 1 2"
 run_check
 expect_fail "throwaway keyslot after provisioning" "throwaway LUKS keyslot still present after provisioning"
+
+system
+encrypt_root
+TEST_LUKS_SLOTS="0 1"
+run_check
+expect_fail "wrong slot numbers after provisioning" "does not contain the recorded owner and recovery slots"
+
+system
+encrypt_root
+printf 'linux /vmlinuz-linux-aurora rd.luks.name=other-uuid=root root=/dev/mapper/root\ninitrd /initramfs-linux-aurora.img\n' \
+  >"$root/boot/grub/grub.cfg"
+run_check
+expect_fail "rd.luks.name UUID mismatch" "rd.luks.name= UUID does not match crypttab"
 
 system
 encrypt_root
@@ -302,18 +332,21 @@ pass "boot-check accepts the throwaway keyfile only while first-boot markers rem
 system
 encrypt_root
 printf 'usr/lib/modules/%s/kernel/x.ko\nusr/lib/systemd/systemd-cryptsetup\n' "$kver" >"$test_tmp/initramfs"
+printf 'HOOKS="base systemd autodetect block filesystems fsck"\n' >"$test_tmp/initramfs.analyze"
 run_check
 expect_fail "systemd-cryptsetup without sd-encrypt" "does not contain sd-encrypt"
 
 system
 encrypt_root
 printf 'usr/lib/modules/%s/kernel/x.ko\nusr/bin/init\n' "$kver" >"$test_tmp/initramfs"
+printf 'HOOKS="base systemd autodetect modconf kms keyboard keymap block filesystems fsck"\n' \
+  >"$test_tmp/initramfs.analyze"
 mkdir -p "$root/etc"
 printf 'HOOKS=(base systemd autodetect modconf kms keyboard keymap block sd-encrypt filesystems fsck)\n' \
   >"$root/etc/mkinitcpio.conf"
 run_check
-expect_pass "sd-encrypt from mkinitcpio.conf"
-pass "boot-check requires the sd-encrypt hook, not systemd-cryptsetup"
+expect_fail "sd-encrypt only in mkinitcpio.conf" "does not contain sd-encrypt"
+pass "boot-check requires sd-encrypt in the built initramfs"
 
 system
 mkdir -p "$root/etc"

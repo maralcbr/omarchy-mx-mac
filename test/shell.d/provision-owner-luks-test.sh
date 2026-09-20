@@ -81,7 +81,7 @@ printf 'cryptsetup %s\n' "\$*" >>"$calls"
 slots_file="$slots"
 read_key() {
   local path=\$1
-  [[ -n \$path && -e \$path ]] || return 1
+  [[ -n "\$path" && -e "\$path" ]] || return 1
   cat "\$path"
 }
 slot_for() {
@@ -194,10 +194,10 @@ printf 'nope\n%s\n' "$RECOVERY_ACK_PHRASE" >"$tmp/gum-input"
 cat >"$stub_bin/gum" <<SH
 #!/bin/bash
 printf 'gum %s\n' "\$*" >>"$calls"
-if [[ \$1 == style ]]; then
+if [[ "\$1" == "style" ]]; then
   cat >>"$tmp/gum-stdin"
 fi
-if [[ \$1 == input ]]; then
+if [[ "\$1" == "input" ]]; then
   cat >/dev/null
   IFS= read -r line <"$tmp/gum-input" || exit 1
   tail -n +2 "$tmp/gum-input" >"$tmp/gum-input.new"
@@ -208,7 +208,8 @@ exit 0
 SH
 chmod +x "$stub_bin/gum"
 
-show_recovery_key "$recovery_key"
+show_recovery_key "$recovery_key" >"$tmp/show.out"
+grep -aqF $'\e[3J' "$tmp/show.out" || fail "recovery display clearing uses CSI 3J" "$(od -An -tx1 "$tmp/show.out" | head)"
 
 [[ -f $prov/luks-key ]] || fail "acknowledgement leaves the provisioning luks-key in place"
 [[ -f $boot_key ]] || fail "acknowledgement leaves the Boot-partition luks-key in place"
@@ -219,7 +220,7 @@ grep -Fxq 'phase=encrypted' "$encrypt_state" ||
   fail "acknowledgement happens before any keyslot is added"
 ! grep -F "$recovery_key" "$calls" >/dev/null ||
   fail "the recovery key is not passed as a gum argument" "$(cat "$calls")"
-[[ $(<"$tmp/gum-stdin") == "$recovery_key" ]] ||
+[[ "$(<"$tmp/gum-stdin")" == "$recovery_key" ]] ||
   fail "the recovery key is fed to gum on stdin" "$(cat "$tmp/gum-stdin")"
 grep -F "$RECOVERY_ACK_PHRASE" "$calls" >/dev/null ||
   fail "the owner types the acknowledgement phrase"
@@ -235,28 +236,35 @@ touch "$tmp/grub-fail"
 if rekey_luks; then
   fail "re-key fails closed when update-grub fails"
 fi
-[[ -f $prov/luks-key ]] || fail "a failed GRUB step keeps the staged key for retry"
-[[ -f $boot_key ]] || fail "a failed GRUB step keeps the Boot-partition key for retry"
-grep -q 'rd.luks.key=' "$grub_default" || fail "a failed GRUB step restores rd.luks.key="
-(( $(wc -l <"$slots") == 3 )) || fail "a failed GRUB step keeps throwaway+owner+recovery slots" "$(cat "$slots")"
-[[ -f $REKEY_STATE ]] || fail "slot numbers are recorded for retry"
+[[ ! -e $prov/luks-key ]] || fail "a failed GRUB step after phase=rekeyed has already shredded the staged key"
+[[ ! -e $boot_key ]] || fail "a failed GRUB step after phase=rekeyed has already shredded the Boot-partition key"
+grep -Fxq 'phase=rekeyed' "$encrypt_state" ||
+  fail "a failed GRUB step leaves encrypt.state phase=rekeyed" "$(cat "$encrypt_state")"
+(( $(wc -l <"$slots") == 2 )) || fail "a failed GRUB step has already retired the throwaway slot" "$(cat "$slots")"
+[[ -f $REKEY_STATE ]] || fail "slot numbers remain recorded for retry"
 grep -q '^owner_slot=' "$REKEY_STATE" || fail "owner slot is recorded" "$(cat "$REKEY_STATE")"
 grep -q '^recovery_slot=' "$REKEY_STATE" || fail "recovery slot is recorded" "$(cat "$REKEY_STATE")"
+grep -Fxq 'recovery_shown=1' "$REKEY_STATE" || fail "recovery_shown=1 is recorded after acknowledgement" "$(cat "$REKEY_STATE")"
+[[ -f $prov/pending ]] || fail "provisioning state is not removed before phase=finished"
 (( $(grep -cF 'cryptsetup luksAddKey' "$calls") == 2 )) ||
   fail "first attempt adds the owner key and the recovery keyslot" "$(cat "$calls")"
-! grep -F 'cryptsetup luksKillSlot' "$calls" >/dev/null ||
-  fail "the staged-key slot is not deleted before owner and recovery unlock"
+grep -F 'cryptsetup luksKillSlot' "$calls" >/dev/null || fail "the staged-key slot is killed after slots are recorded"
 
+recorded_owner=$(awk -F= '$1 == "owner_slot" { print $2 }' "$REKEY_STATE")
+recorded_recovery=$(awk -F= '$1 == "recovery_slot" { print $2 }' "$REKEY_STATE")
+
+# A new --attempt process only has a freshly generated recovery key in memory.
+# The retry must reuse the recorded slot rather than adding another.
 : >"$calls"
+recovery_key=$(generate_recovery_passphrase)
+RECOVERY_ACKED=0
 rekey_luks
 
 ! grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null ||
-  fail "retry reuses recorded owner and recovery slots" "$(cat "$calls")"
-grep -F 'cryptsetup luksKillSlot' "$calls" >/dev/null || fail "re-key retires the throwaway slot"
-(( $(grep -cF 'cryptsetup luksKillSlot' "$calls") == 1 )) ||
-  fail "only the staged-key slot is killed after owner and recovery verify" "$(cat "$calls")"
-grep -Fx 'update-grub ' "$calls" >/dev/null || fail "re-key regenerates grub.cfg with update-grub"
-grep -F 'mkinitcpio -P' "$calls" >/dev/null || fail "re-key rebuilds the initramfs" "$(cat "$calls")"
+  fail "retry reuses recorded owner and recovery slots without the original key" "$(cat "$calls")"
+grep -Fx 'update-grub ' "$calls" >/dev/null || fail "retry regenerates grub.cfg with update-grub"
+grep -F 'mkinitcpio -P' "$calls" >/dev/null || fail "retry rebuilds the initramfs" "$(cat "$calls")"
+(( $(wc -l <"$slots") == 2 )) || fail "retry does not accumulate LUKS slots" "$(cat "$slots")"
 
 [[ ! -e $prov/luks-key ]] || fail "provisioning luks-key is shredded"
 [[ ! -e $boot_key ]] || fail "Boot-partition luks-key is shredded"
@@ -270,6 +278,10 @@ grep -Fxq 'format=1' "$encrypt_state" || fail "encrypt.state keeps format=1" "$(
 grep -Fxq 'phase=finished' "$encrypt_state" || fail "encrypt.state is phase=finished" "$(cat "$encrypt_state")"
 grep -Fxq 'partition=PART-UUID-1' "$encrypt_state" || fail "encrypt.state keeps partition=" "$(cat "$encrypt_state")"
 grep -Fxq 'luks_uuid=abcd-ef' "$encrypt_state" || fail "encrypt.state keeps luks_uuid=" "$(cat "$encrypt_state")"
+grep -Fxq "owner_slot=$recorded_owner" "$encrypt_state" ||
+  fail "encrypt.state records the owner slot" "$(cat "$encrypt_state")"
+grep -Fxq "recovery_slot=$recorded_recovery" "$encrypt_state" ||
+  fail "encrypt.state records the recovery slot" "$(cat "$encrypt_state")"
 
 ! grep -Fq "$recovery_key" "$OMARCHY_PROVISION_OWNER_LOG" ||
   fail "the recovery key is never written to the provision log"
@@ -278,5 +290,68 @@ grep -Fxq 'luks_uuid=abcd-ef' "$encrypt_state" || fail "encrypt.state keeps luks
   fail "the recovery key is never written to a keyfile"
 
 ! grep -Fq 'limine-update' "$calls" || fail "Apple re-key does not call limine-update"
-[[ ! -e $tmp/omarchy/install.conf && ! -e /boot/efi/omarchy/install.conf ]] || true
 pass "Apple LUKS re-key adds a recovery keyslot, shreds both keyfiles, and drops rd.luks.key="
+
+# Recorded recovery slot missing: fail rather than add another.
+printf 'format=1\nphase=encrypted\npartition=PART-UUID-1\nluks_uuid=abcd-ef\n' >"$encrypt_state"
+printf '0 throwaway-install-key\n1 owner-secret\n' >"$slots"
+printf 'throwaway-install-key' >"$prov/luks-key"
+printf 'throwaway-install-key' >"$boot_key"
+printf 'owner_slot=1\nrecovery_slot=9\nrecovery_shown=1\n' >"$REKEY_STATE"
+touch "$prov/pending"
+: >"$calls"
+recovery_key="AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH-IIII-JJJJ-KKKK-LLLL"
+RECOVERY_ACKED=0
+if rekey_luks; then
+  fail "a missing recorded recovery slot fails closed"
+fi
+! grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null ||
+  fail "a missing recorded recovery slot does not add another" "$(cat "$calls")"
+[[ -f $prov/pending ]] || fail "a missing recorded slot keeps provisioning state"
+pass "a missing recorded recovery slot fails rather than adding another"
+
+# Crash after shred, before phase=finished: resume without the throwaway keyfile.
+printf 'format=1\nphase=rekeyed\npartition=PART-UUID-1\nluks_uuid=abcd-ef\nowner_slot=1\nrecovery_slot=2\n' >"$encrypt_state"
+printf '1 owner-secret\n2 recovery-material\n' >"$slots"
+printf 'owner_slot=1\nrecovery_slot=2\nrecovery_shown=1\n' >"$REKEY_STATE"
+rm -f "$prov/luks-key" "$boot_key"
+cat >"$grub_default" <<'EOF'
+GRUB_CMDLINE_LINUX="rd.luks.name=abcd-ef=root rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4F4D-5801 root=/dev/mapper/root"
+EOF
+touch "$prov/pending"
+: >"$calls"
+recovery_key=""
+RECOVERY_ACKED=0
+password="owner-secret"
+rekey_luks
+! grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null ||
+  fail "resume from phase=rekeyed does not add slots" "$(cat "$calls")"
+grep -Fxq 'phase=finished' "$encrypt_state" || fail "resume from phase=rekeyed reaches phase=finished"
+[[ -f $prov/pending ]] || fail "resume does not drop provisioning state from rekey_luks"
+! grep -q 'rd.luks.key=' "$grub_default" || fail "resume drops rd.luks.key="
+pass "finalisation resumes from phase=rekeyed without the throwaway keyfile"
+
+# xtrace must not persist the owner or recovery secret into the provision log.
+printf 'format=1\nphase=encrypted\npartition=PART-UUID-1\nluks_uuid=abcd-ef\n' >"$encrypt_state"
+printf '0 throwaway-install-key\n' >"$slots"
+printf 'throwaway-install-key' >"$prov/luks-key"
+printf 'throwaway-install-key' >"$boot_key"
+rm -f "$REKEY_STATE"
+cat >"$grub_default" <<'EOF'
+GRUB_CMDLINE_LINUX="rd.luks.name=abcd-ef=root rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4F4D-5801 root=/dev/mapper/root"
+EOF
+recovery_key="ZZZZ-YYYY-XXXX-WWWW-VVVV-UUUU-TTTT-SSSS-RRRR-QQQQ-PPPP-OOOO"
+password="owner-secret-xtrace"
+printf '0 throwaway-install-key\n' >"$slots"
+# The stub compares slot material exactly; owner-secret-xtrace is new.
+: >"$OMARCHY_PROVISION_OWNER_LOG"
+: >"$calls"
+RECOVERY_ACKED=1
+set -x
+rekey_luks >>"$OMARCHY_PROVISION_OWNER_LOG" 2>&1
+set +x
+! grep -Fq "$recovery_key" "$OMARCHY_PROVISION_OWNER_LOG" ||
+  fail "xtrace does not persist the recovery key in the provision log" "$(cat "$OMARCHY_PROVISION_OWNER_LOG")"
+! grep -Fq "$password" "$OMARCHY_PROVISION_OWNER_LOG" ||
+  fail "xtrace does not persist the owner password in the provision log" "$(cat "$OMARCHY_PROVISION_OWNER_LOG")"
+pass "secret-bearing re-key commands are not captured under xtrace"

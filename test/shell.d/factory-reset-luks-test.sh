@@ -30,19 +30,39 @@ SH
 cat >"$stub_bin/gum" <<SH
 #!/bin/bash
 printf 'gum %s\n' "\$*" >>"$calls"
-if [[ \$1 == input ]]; then
+if [[ "\$1" == "input" ]]; then
   printf '%s' "current-pass"
   exit 0
 fi
 exit 0
 SH
 
+printf '0 current-pass\n' >"$tmp/slots"
 cat >"$stub_bin/cryptsetup" <<SH
 #!/bin/bash
 printf 'cryptsetup %s\n' "\$*" >>"$calls"
+slots_file="$tmp/slots"
 case "\$1" in
   open) exit 0 ;;
-  luksAddKey) exit 0 ;;
+  luksAddKey)
+    next=\$(awk '{s=\$1} END {print s+1}' "\$slots_file")
+    printf '%s throwaway\n' "\$next" >>"\$slots_file"
+    exit 0
+    ;;
+  luksDump)
+    awk '{ printf "  %s: luks2\\n", \$1 }' "\$slots_file"
+    exit 0
+    ;;
+  luksKillSlot)
+    kill_slot=""
+    while ((\$#)); do
+      [[ \$1 =~ ^[0-9]+$ ]] && kill_slot=\$1
+      shift
+    done
+    awk -v s="\$kill_slot" '\$1 != s { print }' "\$slots_file" >"\$slots_file.new"
+    mv "\$slots_file.new" "\$slots_file"
+    exit 0
+    ;;
   luksUUID) echo abcd-ef; exit 0 ;;
   *) exit 1 ;;
 esac
@@ -115,14 +135,64 @@ export PATH="$stub_bin:$PATH"
 stage_luks_rekey "$next"
 
 [[ -f $next/var/lib/omarchy/provisioning/luks-key ]] || fail "reset stages provisioning luks-key"
-[[ -f $boot_key ]] || fail "reset stages the Boot-partition luks-key"
-[[ $(stat -c '%a' "$boot_key") == 600 ]] || fail "Boot-partition luks-key is mode 600"
+[[ ! -e $boot_key ]] || fail "reset does not write the Boot-partition luks-key before rebuilds"
+! grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null ||
+  fail "reset does not add a throwaway slot before rebuilds" "$(cat "$calls")"
 grep -q 'rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4f4d5801-424f-4f54-8000-000000000001' "$next/etc/default/grub" ||
   fail "reset adds rd.luks.key= to the factory GRUB cmdline" "$(cat "$next/etc/default/grub")"
 [[ ! -e $next/etc/omarchy/provisioning.key ]] || fail "Apple reset does not embed a Limine UKI keyfile"
 [[ ! -e $next/etc/limine-entry-tool.d/99-omarchy-provisioning-unlock.conf ]] ||
   fail "Apple reset does not write limine-entry-tool drop-ins"
-grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null || fail "reset adds a throwaway LUKS key"
+
+: >"$calls"
+cat >"$stub_bin/mkinitcpio" <<SH
+#!/bin/bash
+printf 'mkinitcpio %s\n' "\$*" >>"$calls"
+exit 1
+SH
+chmod +x "$stub_bin/mkinitcpio"
+if ( rebuild_next_boot "$next" ); then
+  fail "a failed initramfs rebuild fails closed"
+fi
+[[ ! -e $boot_key ]] || fail "a failed rebuild does not leave /boot/omarchy/luks-key"
+! grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null ||
+  fail "a failed rebuild does not add a throwaway slot" "$(cat "$calls")"
+revoke_reset_luks
+[[ ! -e $boot_key ]] || fail "cleanup shreds the Boot-partition keyfile"
+
+cat >"$stub_bin/mkinitcpio" <<SH
+#!/bin/bash
+printf 'mkinitcpio %s\n' "\$*" >>"$calls"
+exit 0
+SH
+chmod +x "$stub_bin/mkinitcpio"
+
+: >"$calls"
+rebuild_next_boot "$next"
+grep -F 'mkinitcpio -P' "$calls" >/dev/null || fail "reset rebuilds the initramfs" "$(cat "$calls")"
+grep -F 'update-grub' "$calls" >/dev/null || fail "reset regenerates grub.cfg" "$(cat "$calls")"
+grep -F 'update-m1n1' "$calls" >/dev/null || fail "reset regenerates m1n1" "$(cat "$calls")"
+! grep -F 'limine-update' "$calls" >/dev/null || fail "Apple reset does not call limine-update"
+[[ ! -e $boot_key ]] || fail "rebuilds still do not write the Boot-partition luks-key"
+
+: >"$calls"
+stage_luks_rekey_apple_commit "$RESET_LUKS_DEVICE" "$RESET_THROWAY"
+[[ -f $boot_key ]] || fail "reset writes the Boot-partition luks-key immediately before activation"
+[[ $(stat -c '%a' "$boot_key") == "600" ]] || fail "Boot-partition luks-key is mode 600"
+grep -F 'cryptsetup luksAddKey' "$calls" >/dev/null || fail "reset adds a throwaway LUKS key after rebuilds"
+[[ -n $RESET_LUKS_SLOT ]] || fail "reset records the throwaway slot for cleanup"
+
+: >"$calls"
+rm -f "$boot_key"
+printf '0 current-pass\n1 throwaway\n' >"$tmp/slots"
+RESET_LUKS_SLOT=1
+RESET_LUKS_DEVICE=$device
+RESET_LUKS_AUTH=current-pass
+printf 'leftover' >"$boot_key"
+revoke_reset_luks
+[[ ! -e $boot_key ]] || fail "cleanup shreds a leftover Boot-partition keyfile"
+! grep -q '^1 ' "$tmp/slots" || fail "cleanup revokes the throwaway slot" "$(cat "$tmp/slots")"
+grep -F 'cryptsetup luksKillSlot' "$calls" >/dev/null || fail "cleanup calls luksKillSlot"
 
 : >"$calls"
 printf 'GRUB_CMDLINE_LINUX="rd.luks.name=old-uuid=root rd.luks.key=stale-uuid=/wrong-key:UUID=FFFF-FFFF root=/dev/mapper/root quiet"\n' \
@@ -134,13 +204,6 @@ grep -q 'rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4f4d5801-424f-4f54-8000-0000
   fail "reset does not keep a stale rd.luks.key= token" "$(cat "$next/etc/default/grub")"
 grep -q 'rd.luks.name=old-uuid=root' "$next/etc/default/grub" ||
   fail "reset keeps the rest of GRUB_CMDLINE_LINUX when replacing rd.luks.key="
-
-: >"$calls"
-rebuild_next_boot "$next"
-grep -F 'mkinitcpio -P' "$calls" >/dev/null || fail "reset rebuilds the initramfs" "$(cat "$calls")"
-grep -F 'update-grub' "$calls" >/dev/null || fail "reset regenerates grub.cfg" "$(cat "$calls")"
-grep -F 'update-m1n1' "$calls" >/dev/null || fail "reset regenerates m1n1" "$(cat "$calls")"
-! grep -F 'limine-update' "$calls" >/dev/null || fail "Apple reset does not call limine-update"
 
 factory="$tmp/factory"
 mkdir -p "$factory/etc" \
@@ -178,4 +241,4 @@ arm_reset_markers "$cloned"
 [[ ! -e $cloned/var/lib/omarchy/mac-first-boot/install.conf ]] || fail "reset next root does not keep install.conf"
 [[ ! -e $cloned/boot/efi/omarchy/install.conf ]] || fail "reset next root does not keep the ESP install.conf"
 [[ ! -e $cloned/boot/omarchy/encrypt.state ]] || fail "reset next root does not keep encrypt.state"
-pass "LUKS factory reset stages both keyfiles, re-arms both markers, and keeps @factory clean"
+pass "LUKS factory reset commits the Boot key after rebuilds, re-arms both markers, and keeps @factory clean"
