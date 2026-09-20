@@ -1,10 +1,12 @@
 echo "Replace leftover linux-asahi-headers on Aurora with linux-aurora-headers"
 
 # linux-aurora provides linux-asahi; list exact names with pacman -Qq. The channel
-# record is the Aurora/stable split; leftover Asahi headers are rc-only. Only a
-# successful status that is not this Mac may settle the migration; a failed read
-# stays pending. Replacement headers must be the installed linux-aurora's version
-# from [omarchy-aurora]; a hold or a missing match would recreate the hazard.
+# record is the Aurora/stable split; leftover Asahi headers are rc-only. Non-Apple
+# machines and a missing Apple record settle. A failed read on Apple Silicon stays
+# pending. Replacement headers must be the installed linux-aurora's version from
+# [omarchy-aurora]; a hold or a missing match would recreate the hazard.
+
+omarchy-hw-apple-silicon || exit 0
 
 pending="${OMARCHY_AURORA_ASAHI_HEADERS_PENDING:-/var/lib/omarchy/migrations/1789879296-aurora-headers}"
 script="${OMARCHY_UPDATE_M1N1_SCRIPT:-/usr/bin/update-m1n1}"
@@ -12,6 +14,9 @@ config="${OMARCHY_UPDATE_M1N1_CONFIG:-/etc/default/update-m1n1}"
 
 status=0
 record=$(omarchy-apple-silicon-channel status) || status=$?
+if (( status == 3 )); then
+  exit 0
+fi
 if (( status != 0 )); then
   echo "Replace leftover linux-asahi-headers: the Apple Silicon channel record could not be read." >&2
   exit 1
@@ -65,7 +70,7 @@ kernel_version=${kernel_record#linux-aurora }
   exit 1
 }
 
-available=$(pacman -Si omarchy-aurora/linux-aurora-headers | awk -F'[[:space:]]+:[[:space:]]+' '/^Version / { print $2; exit }') || available=""
+available=$(LC_ALL=C pacman -Si omarchy-aurora/linux-aurora-headers | awk -F'[[:space:]]+:[[:space:]]+' '/^Version / { print $2; exit }') || available=""
 if [[ $available != "$kernel_version" ]]; then
   echo "linux-aurora-headers $kernel_version is not available from [omarchy-aurora] (has ${available:-nothing}); leftover linux-asahi-headers repair will retry." >&2
   exit 1

@@ -86,10 +86,12 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   # failure is swallowed so this migrate can swap them. Prove the switch again
   # now so the same update can finish.
   reboot_blocked=${OMARCHY_REBOOT_BLOCKED:-/run/omarchy-reboot-blocked}
+  aurora_unverified=0
   if omarchy-hw-apple-silicon; then
     aurora_complete_status=0
     omarchy-update-aurora-repository --complete || aurora_complete_status=$?
     if (( aurora_complete_status != 0 )); then
+      aurora_unverified=1
       [[ -e $reboot_blocked ]] ||
         sudo tee "$reboot_blocked" >/dev/null <<<"the Aurora kernel switch could not be verified" || true
     fi
@@ -111,10 +113,15 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   omarchy-update-stay-awake stop
   trap - EXIT
 
-  omarchy-update-restart
-  # An unverified kernel switch is not a finished update.
-  if [[ -e $reboot_blocked ]]; then
-    echo -e "\e[31mThe update is not finished: $(head -n 1 "$reboot_blocked").\e[0m" >&2
+  (( aurora_unverified )) || omarchy-update-restart
+  # An unverified kernel switch is not a finished update, even when the
+  # reboot-block marker could not be written.
+  if (( aurora_unverified )) || [[ -e $reboot_blocked ]]; then
+    if [[ -e $reboot_blocked ]]; then
+      echo -e "\e[31mThe update is not finished: $(head -n 1 "$reboot_blocked").\e[0m" >&2
+    else
+      echo -e "\e[31mThe update is not finished: the Aurora kernel switch could not be verified.\e[0m" >&2
+    fi
     exit 1
   fi
 fi

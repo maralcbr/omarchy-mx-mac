@@ -851,10 +851,11 @@ reset-rc` records the same request, then run `omarchy update`.
   owning package, or that it is unowned) and does not delete a package-owned
   tree. `omarchy-migrate` swaps it for `linux-aurora-headers` at the installed
   `linux-aurora` version from `[omarchy-aurora]` on rc Macs, rebuilds m1n1 when
-  DTBS is still the default, and rechecks boot. A failed channel read, a hold,
-  a missing matching version, or a failed check stays pending; only a stable
-  (or other non-Aurora) record settles it. A user-set DTBS is not this hazard,
-  so completion skips that diagnostic and trusts the boot check. The same
+  DTBS is still the default, and rechecks boot. A failed channel read on Apple
+  Silicon, a hold, a missing matching version, or a failed check stays pending.
+  Non-Apple machines and a missing Apple record settle; a successful non-Aurora
+  record also settles. A user-set DTBS is not this hazard, so completion skips
+  that diagnostic and trusts the boot check. The same
   `omarchy update` re-runs `--complete` after migrations so a switch that failed
   on leftover headers can finish once they are gone. Stable Macs are untouched.
 - `this Mac's Aurora lane cannot be read`: `omarchy-apple-silicon-channel

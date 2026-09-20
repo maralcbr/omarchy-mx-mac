@@ -241,3 +241,36 @@ set -e
 diff <(apple_expected_steps) <(steps_run) >"$test_tmp/order" ||
   fail "the leftover-headers heal still runs every Apple Silicon step" "$(cat "$test_tmp/order")"
 pass "the same update heals leftover Asahi headers: migrate, then complete"
+
+# Completion can fail after migrate, and writing the reboot-block marker can
+# fail too. That must not be discarded: the update still fails and must not
+# restart as if the switch were verified.
+cat >"$stub_bin/omarchy-update-system-pkgs" <<'STUB'
+#!/bin/bash
+printf '%s unattended=%s\n' "${0##*/}" "${OMARCHY_UPDATE_UNATTENDED:-}" >>"$STEP_LOG"
+[[ ${FAILING_STEP:-} != "${0##*/}" ]] || exit "${FAILING_STATUS:-42}"
+STUB
+cat >"$stub_bin/omarchy-update-aurora-repository" <<'STUB'
+#!/bin/bash
+printf '%s unattended=%s\n' "${0##*/}" "${OMARCHY_UPDATE_UNATTENDED:-}" >>"$STEP_LOG"
+[[ ${FAILING_STEP:-} != "${0##*/}" ]] || exit "${FAILING_STATUS:-42}"
+STUB
+cat >"$stub_bin/sudo" <<'STUB'
+#!/bin/bash
+exit 1
+STUB
+chmod +x "$stub_bin/omarchy-update-system-pkgs" "$stub_bin/omarchy-update-aurora-repository" "$stub_bin/sudo"
+
+rm -f "$test_tmp/no-reboot-block"
+set +e
+APPLE_SILICON=1 FAILING_STEP=omarchy-update-aurora-repository run_update -y
+update_status=$?
+set -e
+(( update_status != 0 )) || fail "a failed Aurora completion reports success when the reboot block cannot be written" "$(cat "$test_tmp/err")"
+if grep -q '^omarchy-update-restart ' "$test_tmp/steps"; then
+  fail "a failed Aurora completion still restarts when the reboot block cannot be written"
+fi
+[[ ! -e $test_tmp/no-reboot-block ]] || fail "a failed marker write created the reboot block"
+grep -Fq 'The update is not finished: the Aurora kernel switch could not be verified' "$test_tmp/err" ||
+  fail "a failed Aurora completion without a marker still says the update is not finished" "$(cat "$test_tmp/err")"
+pass "a failed Aurora completion with no reboot-block marker fails the update and does not restart"

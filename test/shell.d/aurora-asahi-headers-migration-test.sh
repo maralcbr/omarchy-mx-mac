@@ -29,8 +29,13 @@ export OMARCHY_UPDATE_M1N1_CONFIG="$config"
 export TEST_CHANNEL_STATUS="$status_file" TEST_CHANNEL_EXIT=0
 export TEST_BOOT_STATUS=0 TEST_INSTALL_FAIL=0 TEST_REMOVE_FAIL=0 TEST_M1N1_FAIL=0
 export TEST_KERNEL_VERSION="$kernel_version" TEST_HEADERS_AVAILABLE="$kernel_version"
-export TEST_HELD="" TEST_HELD_EXIT=0 TEST_SI_FAIL=0
+export TEST_HELD="" TEST_HELD_EXIT=0 TEST_SI_FAIL=0 TEST_SI_LOCALIZED=0
+export APPLE_SILICON=1
 
+cat >"$tmp/bin/omarchy-hw-apple-silicon" <<'SH'
+#!/bin/bash
+[[ ${APPLE_SILICON:-1} == 1 ]]
+SH
 cat >"$tmp/bin/omarchy-apple-silicon-channel" <<'SH'
 #!/bin/bash
 case "$1" in
@@ -60,7 +65,11 @@ case "$1" in
   -Si)
     [[ ${TEST_SI_FAIL:-0} == 0 ]] || exit 1
     [[ $2 == omarchy-aurora/linux-aurora-headers ]] || exit 1
-    printf 'Repository      : omarchy-aurora\nName            : linux-aurora-headers\nVersion         : %s\n' "$TEST_HEADERS_AVAILABLE"
+    if [[ ${TEST_SI_LOCALIZED:-0} == 1 && ${LC_ALL:-} != C ]]; then
+      printf 'Repositorio     : omarchy-aurora\nNombre          : linux-aurora-headers\nVersión         : %s\n' "$TEST_HEADERS_AVAILABLE"
+    else
+      printf 'Repository      : omarchy-aurora\nName            : linux-aurora-headers\nVersion         : %s\n' "$TEST_HEADERS_AVAILABLE"
+    fi
     ;;
   -Rdd)
     printf 'pacman %s\n' "$*" >>"$TEST_CALLS"
@@ -132,11 +141,12 @@ run_fail() {
 
 reset_flags() {
   TEST_BOOT_STATUS=0 TEST_INSTALL_FAIL=0 TEST_REMOVE_FAIL=0 TEST_M1N1_FAIL=0
-  TEST_CHANNEL_EXIT=0 TEST_HELD="" TEST_HELD_EXIT=0 TEST_SI_FAIL=0
+  TEST_CHANNEL_EXIT=0 TEST_HELD="" TEST_HELD_EXIT=0 TEST_SI_FAIL=0 TEST_SI_LOCALIZED=0
   TEST_KERNEL_VERSION=$kernel_version TEST_HEADERS_AVAILABLE=$kernel_version
+  APPLE_SILICON=1
   export TEST_BOOT_STATUS TEST_INSTALL_FAIL TEST_REMOVE_FAIL TEST_M1N1_FAIL
-  export TEST_CHANNEL_EXIT TEST_HELD TEST_HELD_EXIT TEST_SI_FAIL
-  export TEST_KERNEL_VERSION TEST_HEADERS_AVAILABLE
+  export TEST_CHANNEL_EXIT TEST_HELD TEST_HELD_EXIT TEST_SI_FAIL TEST_SI_LOCALIZED
+  export TEST_KERNEL_VERSION TEST_HEADERS_AVAILABLE APPLE_SILICON
 }
 
 reset_packages() {
@@ -171,6 +181,28 @@ run
 [[ ! -s $calls ]] || fail "a stable Mac is not touched" "$(<"$calls")"
 cmp -s "$installed" "$tmp/before" || fail "a stable Mac's packages are unchanged"
 pass "stable Asahi Mac is untouched"
+
+reset_packages linux-aurora linux-asahi-headers m1n1-aurora
+APPLE_SILICON=0
+export APPLE_SILICON
+TEST_CHANNEL_EXIT=2
+export TEST_CHANNEL_EXIT
+cp "$installed" "$tmp/before"
+run
+[[ ! -s $calls ]] || fail "a non-Apple machine is not touched" "$(<"$calls")"
+cmp -s "$installed" "$tmp/before" || fail "a non-Apple machine's packages are unchanged"
+[[ ! -e $pending ]] || fail "a non-Apple machine does not record a pending swap"
+pass "non-Apple Silicon is a no-op"
+
+reset_packages linux-aurora linux-asahi-headers m1n1-aurora
+TEST_CHANNEL_EXIT=3
+export TEST_CHANNEL_EXIT
+cp "$installed" "$tmp/before"
+run
+[[ ! -s $calls ]] || fail "a missing Apple record is not touched" "$(<"$calls")"
+cmp -s "$installed" "$tmp/before" || fail "a missing Apple record's packages are unchanged"
+[[ ! -e $pending ]] || fail "a missing Apple record does not record a pending swap"
+pass "an Apple Silicon Mac without a channel record is a no-op"
 
 reset_packages linux-aurora linux-asahi-headers m1n1-aurora
 TEST_BOOT_STATUS=1
@@ -267,3 +299,14 @@ grep -Fq "linux-aurora-headers $kernel_version is not available from [omarchy-au
 cmp -s "$installed" "$tmp/before" || fail "mismatched headers are not installed and Asahi headers stay"
 [[ ! -e $pending ]] || fail "a version mismatch does not start the swap"
 pass "headers that do not match the installed linux-aurora stay pending"
+
+reset_packages linux-aurora linux-asahi-headers m1n1-aurora
+TEST_SI_LOCALIZED=1
+export TEST_SI_LOCALIZED
+run
+grep -Fxq linux-aurora-headers "$installed" || fail "localized pacman metadata still installs matching Aurora headers"
+! grep -Fxq linux-asahi-headers "$installed" || fail "localized pacman metadata still removes Asahi headers"
+grep -Fq "pacman -S --noconfirm --needed omarchy-aurora/linux-aurora-headers=$kernel_version" "$calls" ||
+  fail "localized pacman metadata still pins linux-aurora's version" "$(<"$calls")"
+[[ ! -e $pending ]] || fail "localized pacman metadata still settles after a verified swap"
+pass "localized pacman metadata still finds matching headers"
