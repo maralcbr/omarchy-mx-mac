@@ -511,6 +511,30 @@ defer_expected() {
   expect_no_targets "$description"
   grep -Fq "Aurora edge: " "$test_tmp/err" || fail "$description says why" "$(cat "$test_tmp/err")"
 }
+
+snapshot_repo() {
+  cp "$pacman_conf" "$test_tmp/conf-before"
+  if [[ -e $staged ]]; then
+    cp "$staged" "$test_tmp/staged-before"
+  else
+    rm -f "$test_tmp/staged-before"
+  fi
+}
+
+# Discovery failed from a pin: keep that release, rewrite nothing, stage nothing else.
+defer_unmoved() {
+  local description=$1 section=$2
+  expect_status 3 "$description"
+  [[ $(section_tag) == "$section" ]] || fail "$description leaves the section" "$(section_tag)"
+  cmp -s "$test_tmp/conf-before" "$pacman_conf" || fail "$description does not rewrite pacman.conf" "$(diff "$test_tmp/conf-before" "$pacman_conf" || true)"
+  if [[ -e $test_tmp/staged-before ]]; then
+    cmp -s "$test_tmp/staged-before" "$staged" || fail "$description does not stage another descriptor"
+  else
+    [[ ! -e $staged ]] || fail "$description stages no descriptor"
+  fi
+  expect_no_targets "$description"
+  grep -Fq "Aurora edge: " "$test_tmp/err" || fail "$description says why" "$(cat "$test_tmp/err")"
+}
 rm -f "$assets/pointer"
 pages=()
 for page in $(seq 10); do
@@ -541,12 +565,14 @@ conf_on "$downloads/$pin_tag"
 installed_from "$pin_tag"
 write_lane 'format=1\nlane=edge\nswitch=edge\n'
 rm -f "$assets/pointer"
+snapshot_repo
 run_step
-defer_expected "first contact with neither pointer nor listing" "$pin_tag"
+defer_unmoved "first contact with neither pointer nor listing" "$pin_tag"
 expect_lane "a deferred switch stays open" 'format=1\nlane=edge\nswitch=edge\n'
 write_listing ""
+snapshot_repo
 run_step
-defer_expected "first contact with no edge release published" "$pin_tag"
+defer_unmoved "first contact with no edge release published" "$pin_tag"
 grep -Fq "no edge release is published yet" "$test_tmp/err" || fail "an empty edge lane is named" "$(cat "$test_tmp/err")"
 printf '[\n' >"$assets/api/page-1.json"
 write_pointer 7
@@ -554,7 +580,48 @@ run_step
 expect_status 0 "first contact with the listing down and a pointer"
 [[ $(section_tag) == aurora-edge-7 ]] || fail "first contact follows the pointer when the listing is down" "$(section_tag)"
 grep -Fq "follows the edge pointer to aurora-edge-7" "$test_tmp/err" || fail "following the pointer alone is logged" "$(cat "$test_tmp/err")"
-pass "first contact defers on the rc pin without a listing or a pointer, and otherwise logs following the pointer alone"
+pass "first contact keeps the current pin without a listing or a pointer, and otherwise logs following the pointer alone"
+
+# Failed edge discovery from a stable repository must not fall back to the rc pin.
+stable_discovery_tag=aurora-stable-packages-77cb8f2477cb8f2477cb8f2477cb8f2477cb8f24
+write_release "$stable_discovery_tag"
+printf '# placeholder\ntag=%s\ndescriptor_sha256=%s\npredecessors=\n' \
+  "$stable_discovery_tag" "$(digest "$stable_discovery_tag")" \
+  >"$omarchy_path/default/aurora-stable-release"
+conf_on "$downloads/$stable_discovery_tag"
+cp "$assets/$stable_discovery_tag/AURORA" "$staged"
+chmod 0644 "$staged"
+installed_from "$stable_discovery_tag"
+write_lane 'format=1\nlane=edge\nswitch=edge\n'
+rm -f "$assets/pointer"
+printf '{"message": "API rate limit exceeded"}\n' >"$assets/api/page-1.json"
+snapshot_repo
+run_step
+defer_unmoved "edge discovery failed from a stable repository" "$stable_discovery_tag"
+[[ $(section_tag) != "$pin_tag" ]] || fail "failed edge discovery from stable does not fall back to the rc pin"
+grep -Fq "stays on $stable_discovery_tag" "$test_tmp/err" ||
+  fail "failed edge discovery from stable names the current release" "$(cat "$test_tmp/err")"
+pass "failed edge discovery from stable keeps the authenticated current release and rewrites nothing"
+
+conf_on "$downloads/$pin_tag"
+cp "$assets/$pin_tag/AURORA" "$staged"
+chmod 0644 "$staged"
+installed_from "$pin_tag"
+write_lane 'format=1\nlane=edge\nswitch=edge\n'
+rm -f "$assets/pointer"
+printf '{"message": "API rate limit exceeded"}\n' >"$assets/api/page-1.json"
+snapshot_repo
+run_step
+defer_unmoved "edge discovery failed from an rc repository" "$pin_tag"
+pass "failed edge discovery from rc keeps the authenticated current release and rewrites nothing"
+
+# Restore the first-contact edge section the way-back cases start from.
+write_pointer 7
+write_listing "aurora-edge-7"
+conf_on "$downloads/aurora-edge-7"
+cp "$assets/aurora-edge-7/AURORA" "$staged"
+chmod 0644 "$staged"
+write_lane 'format=1\nlane=edge\nswitch=edge\nedge_pending=7:%s\n' "$(digest aurora-edge-7)"
 
 # edge -> rc: only a switch moves an edge section back, completed the same way.
 installed_from aurora-edge-7

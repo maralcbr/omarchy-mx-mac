@@ -31,6 +31,7 @@ pacman_conf="$root/etc/pacman.conf"
 sync_dir="$root/var/lib/pacman/sync"
 repo=https://github.com/maralcbr/omarchy-pkgs/releases/download
 pin_tag=aurora-packages-1c5e34c99dc2510bf06c673165a79aa92c8f1f4c
+stable_tag=aurora-stable-packages-77cb8f2477cb8f2477cb8f2477cb8f2477cb8f24
 edge_tag=aurora-edge-12
 mkdir -p "$state_dir" "$root/etc" "$sync_dir"
 chmod 0755 "$state_dir"
@@ -72,6 +73,10 @@ write_conf "Server = $repo/$edge_tag/"
 write_descriptor "$edge_tag" "$good"
 run_verify
 (( status == 0 )) || fail "an edge release's database passes" "status $status: $(cat "$test_tmp/err")"
+write_conf "Server = $repo/$stable_tag"
+write_descriptor "$stable_tag" "$good"
+run_verify
+(( status == 0 )) || fail "a stable release's database passes" "status $status: $(cat "$test_tmp/err")"
 write_conf "Server = $repo/$pin_tag" 'DBPath = /srv/pacman/'
 mkdir -p "$root/srv/pacman/sync"
 cp "$sync_dir/omarchy-aurora.db" "$root/srv/pacman/sync/"
@@ -81,7 +86,7 @@ run_verify
 printf 'another database' >"$root/srv/pacman/sync/omarchy-aurora.db"
 run_verify
 (( status == 1 )) || fail "the DBPath database is the one checked" "status $status"
-pass "a synced database the staged descriptor names passes, for rc and edge releases and any DBPath"
+pass "a synced database the staged descriptor names passes, for rc, stable and edge releases and any DBPath"
 
 aborted() {
   local description=$1 message=$2
@@ -94,6 +99,12 @@ write_conf "Server = $repo/$pin_tag"
 write_descriptor "$pin_tag" "$good"
 printf 'a database from another release' >"$sync_dir/omarchy-aurora.db"
 aborted "a synced database the descriptor does not name" "the synced omarchy-aurora database is not the one $pin_tag's signed descriptor names"
+printf 'the synced database' >"$sync_dir/omarchy-aurora.db"
+write_conf "Server = $repo/$stable_tag"
+write_descriptor "$stable_tag" "$good"
+printf 'a database from another stable release' >"$sync_dir/omarchy-aurora.db"
+aborted "a stable synced database the descriptor does not name" "the synced omarchy-aurora database is not the one $stable_tag's signed descriptor names"
+printf 'the synced database' >"$sync_dir/omarchy-aurora.db"
 rm "$sync_dir/omarchy-aurora.db"
 aborted "a missing synced database" "omarchy-aurora.db is missing"
 printf 'the synced database' >"$sync_dir/omarchy-aurora.db"

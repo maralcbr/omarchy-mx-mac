@@ -18,7 +18,7 @@
 # hashes carry no order, so a section on any other release -- a candidate pinned
 # by hand for qualification, say -- is left exactly as it is. Every other byte of
 # pacman.conf stays as it was, and a machine whose channel record is not an
-# unheld rc is never touched.
+# unheld Aurora kernel (linux-aurora) is never touched.
 #
 # An rc Mac whose Aurora lane is edge follows the newest aurora-edge-<N> release
 # instead, never one below the release it last accepted. The release it picks is
@@ -34,7 +34,8 @@
 # $OMARCHY_AURORA_TARGETS so the upgrade installs that release's versions, older
 # or not. --complete then proves they are installed and boot before the move
 # counts as done. Exit 3: edge could not be followed this time, so the section
-# stays on what can be proven, the accepted edge release or the rc pin.
+# stays on the authenticated current release; nothing is rewritten onto another
+# lane's pin.
 
 set -euo pipefail
 
@@ -150,8 +151,9 @@ root_path() {
   printf '%s%s\n' "${OMARCHY_AURORA_ROOT:-}" "$1"
 }
 
-# Only a Mac whose channel record says rc reads [omarchy-aurora]. A record that
-# cannot be trusted stops the update; evidence too ambiguous to record skips this.
+# Only a Mac whose channel record names linux-aurora reads [omarchy-aurora]. A
+# record that cannot be trusted stops the update; evidence too ambiguous to
+# record skips this. Legacy Asahi Macs (stable:linux-asahi) are left alone.
 omarchy-hw-apple-silicon || exit 0
 # Locks nest update lock, then channel lock, and nothing waits for the update lock
 # while holding the channel lock, so ensure and the re-execs below cannot deadlock.
@@ -163,15 +165,18 @@ if [[ ${OMARCHY_APPLE_SILICON_CHANNEL_LOCKED:-} != 1 ]]; then
     3) exit 0 ;;
     *) exit 2 ;;
   esac
-  # ensure took and released the channel lock; an Asahi Mac (record channel=stable
-  # on linux-asahi) stops before the update lock. An Aurora Mac on the stable
-  # *lane* still has record channel=rc and continues.
-  record_channel=""
+  # ensure took and released the channel lock; a legacy Asahi Mac (kernel=linux-asahi)
+  # stops before the update lock. An Aurora Mac, including record channel=stable
+  # on linux-aurora, continues.
+  record_channel="" record_kernel=""
   if asahi_status=$(omarchy-apple-silicon-channel status 2>/dev/null); then
     while IFS= read -r line; do
-      [[ $line == channel=* ]] && record_channel=${line#channel=}
+      case "$line" in
+        channel=*) record_channel=${line#channel=} ;;
+        kernel=*) record_kernel=${line#kernel=} ;;
+      esac
     done <<<"$asahi_status"
-    [[ $record_channel != stable ]] || exit 0
+    [[ $record_kernel == linux-aurora ]] || exit 0
   fi
 
   # omarchy update already holds the update lock; run on its own, take it here.
@@ -194,19 +199,19 @@ case $channel_status in
   3) exit 0 ;;
   *) exit 2 ;;
 esac
-channel="" channel_hold=""
+channel="" channel_hold="" channel_kernel=""
 while IFS= read -r line; do
   case "$line" in
     channel=*) channel=${line#channel=} ;;
+    kernel=*) channel_kernel=${line#kernel=} ;;
     hold=*) channel_hold=${line#hold=} ;;
   esac
 done <<<"$channel_record"
-[[ $channel != stable ]] || exit 0
+[[ $channel_kernel == linux-aurora ]] || exit 0
 if [[ -n $channel_hold && $mode == update ]]; then
   printf "\e[33mLeaving [omarchy-aurora] as it is: this Mac's channel is held (%s).\e[0m\n" "$channel_hold" >&2
   exit 0
 fi
-[[ $channel == rc ]] || fail "unexpected Apple Silicon channel '$channel'"
 
 lane_state=$(omarchy-apple-silicon-channel lane) ||
   fail "this Mac's Aurora lane cannot be read; omarchy-apple-silicon-channel reset-rc returns it to rc"
@@ -509,14 +514,15 @@ if [[ $mode == complete ]]; then
   if dtbs_from_alarm_default && stale_reason=$(stale_aurora_module_trees); then
     unverified "$stale_reason"
   fi
-  omarchy-apple-silicon-boot-check linux-aurora || unverified "the boot files do not match the installed kernel"
+  OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1 omarchy-apple-silicon-boot-check linux-aurora ||
+    unverified "the boot files do not match the installed kernel"
 
   if [[ $lane == rc || $lane == stable ]]; then
     omarchy-apple-silicon-channel lane-write switch= edge_pending= || exit 2
-    message="This Mac is back on $lane ($target_tag), and its boot files match."
+    message="This Mac is back on $lane ($target_tag), running linux-aurora ${package_version[linux-aurora]}, and its boot files match."
   else
     omarchy-apple-silicon-channel lane-write "edge_accepted=${target_tag#aurora-edge-}:$target_digest" edge_pending= switch= || exit 2
-    message="This Mac now runs $target_tag from edge, and its boot files match."
+    message="This Mac now runs $target_tag from edge, linux-aurora ${package_version[linux-aurora]}, and its boot files match."
   fi
   [[ ! -e $reboot_blocked ]] || sudo rm -f "$reboot_blocked"
   echo "$message"
@@ -610,18 +616,19 @@ discover_edge() {
   fi
 }
 
-# Without edge this time, the section stays where it can be proven: the edge
-# release this Mac accepted, or the qualified rc release.
+# Without edge this time, keep the authenticated current release. Never fall
+# back to another lane's pin: a stable section must not become the rc pin, and
+# an rc section must not be rewritten onto stable. Exit before anything is
+# staged or rewritten. An accepted edge release already in place can stay
+# proven without moving.
 plan_defer() {
   defer=$1
   if [[ $section_kind == edge && -n $accepted && $current_tag == "aurora-edge-$accepted_sequence" ]]; then
     target_tag=$current_tag target_digest=$accepted_digest
-  elif [[ $section_kind != edge ]]; then
-    target_tag=$tag target_digest=$pinned_sha256
-  else
-    leave 3 "Aurora edge: $defer; [omarchy-aurora] stays on $current_tag for this update."
+    echo -e "\e[33mAurora edge: $defer; [omarchy-aurora] stays on $target_tag for this update.\e[0m" >&2
+    return
   fi
-  echo -e "\e[33mAurora edge: $defer; [omarchy-aurora] stays on $target_tag for this update.\e[0m" >&2
+  leave 3 "Aurora edge: $defer; [omarchy-aurora] stays on ${current_tag:-${current[*]:-no server}} for this update."
 }
 
 gpg_ready=0

@@ -7,7 +7,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 base_manifest="$ROOT/install/omarchy-base-asahi.packages"
 other_manifest="$ROOT/install/omarchy-other-asahi.packages"
 
-for package in linux-aurora linux-aurora-headers asahi-desktop-meta asahi-fwextract mesa vulkan-asahi ddcutil qrencode libvips rtkit zbar; do
+for package in linux-aurora linux-aurora-headers m1n1-aurora asahi-desktop-meta asahi-fwextract mesa vulkan-asahi ddcutil qrencode libvips rtkit zbar; do
   grep -Fx "$package" "$base_manifest" "$other_manifest" >/dev/null || fail "Asahi manifests include $package"
 done
 if grep -Fxq linux-asahi "$base_manifest" "$other_manifest"; then

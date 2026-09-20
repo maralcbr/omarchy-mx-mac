@@ -712,7 +712,16 @@ TEST_INSTALLED="linux-asahi linux-asahi-headers m1n1" run_status
 [[ ! -s $test_tmp/out && ! -s $test_tmp/err && ! -s $curl_log && ! -s $lock_log ]] ||
   fail "a stable Mac is silent, offline and takes no update lock" "$(cat "$test_tmp/err" "$lock_log")"
 expect_untouched "a stable Mac with an [omarchy-aurora] on a predecessor"
-pass "a Mac recorded as stable leaves even a predecessor [omarchy-aurora] alone"
+pass "a Mac recorded as stable on linux-asahi leaves even a predecessor [omarchy-aurora] alone"
+
+printf 'linux-aurora\n' >"$marker"
+{ options_conf; aurora_conf "$old_server"; omarchy_conf; remaining_conf; } >"$pacman_conf"
+{ options_conf; aurora_conf "$new_server"; omarchy_conf; remaining_conf; } >"$test_tmp/expected"
+printf 'format=1\nchannel=stable\nkernel=linux-aurora\n' >"$channel_record"
+reset_run
+run_status
+expect_repinned "a stable:linux-aurora record still pins [omarchy-aurora]"
+pass "a Mac recorded as stable on linux-aurora is managed like rc"
 
 expect_held() {
   local description=$1 reason=$2

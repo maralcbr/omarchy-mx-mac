@@ -18,7 +18,7 @@ root=${OMARCHY_AURORA_ROOT:-}
 state_dir="$root/var/lib/omarchy"
 descriptor="$state_dir/aurora-target.descriptor"
 pacman_conf="$root/etc/pacman.conf"
-release_url='^https://github\.com/maralcbr/omarchy-pkgs/releases/download/(aurora-packages-[0-9a-f]{40}|aurora-edge-[1-9][0-9]{0,8})/?[[:space:]]*$'
+release_url='^https://github\.com/maralcbr/omarchy-pkgs/releases/download/(aurora-packages-[0-9a-f]{40}|aurora-stable-packages-[0-9a-f]{40}|aurora-edge-[1-9][0-9]{0,8})/?[[:space:]]*$'
 
 notice() {
   echo "Aurora kernel check: $*; the repository is not checked."

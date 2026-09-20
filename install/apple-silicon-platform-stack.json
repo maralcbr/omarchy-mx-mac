@@ -117,8 +117,8 @@
       "update_authority": "installed-system-package-manager",
       "delivery": "required-preinstalled",
       "packages": [
-        "linux-asahi",
-        "m1n1",
+        "linux-aurora",
+        "m1n1-aurora",
         "uboot-asahi",
         "asahi-scripts"
       ],
@@ -174,8 +174,8 @@
       "update_authority": "installed-system-package-manager",
       "delivery": "omarchy-manifest",
       "packages": [
-        "linux-asahi",
-        "linux-asahi-headers"
+        "linux-aurora",
+        "linux-aurora-headers"
       ],
       "required": true,
       "condition": "all-supported-models",
