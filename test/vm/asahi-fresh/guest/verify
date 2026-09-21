@@ -78,7 +78,9 @@ pacman-conf --repo-list | grep -Fxq asahi-alarm || fail "Asahi repository"
 (( $(swapon --show --noheadings | wc -l) == 0 )) || fail "swap disabled"
 [[ $(cat /sys/module/zswap/parameters/enabled 2>/dev/null || echo N) == "N" ]] || fail "zswap disabled"
 [[ -s /var/lib/omarchy/vm-adapter.log ]] || fail "VM adapter audit"
-pacman -Qkk omarchy-dev | grep -Fq '0 altered files' || fail "restored Omarchy package files"
+# pacman's summary is localized; pin the locale and use its exit status too.
+LC_ALL=C pacman -Qkk omarchy-dev >/tmp/omarchy-dev.mtree 2>&1 && grep -Fq '0 altered files' /tmp/omarchy-dev.mtree ||
+  fail "restored Omarchy package files"
 [[ ! -e /etc/sudoers.d/09-omarchy-fresh-build ]] || fail "temporary package build sudo rule removed"
 ! getent passwd omarchy-fresh-build >/dev/null || fail "temporary package build account removed"
 ufw status | grep -Eq '^22/tcp +ALLOW' || fail "temporary VM SSH firewall rule"
