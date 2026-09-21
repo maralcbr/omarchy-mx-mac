@@ -26,6 +26,7 @@ mkdir -p "$tmp/bin" "$tmp/etc/default/grub-btrfs" "$tmp/boot/grub" "$tmp/modules
 export CALL_LOG="$tmp/calls"
 export PATH="$tmp/bin:$PATH"
 printf 'linux-aurora\n' >"$tmp/modules/6.16.0-aurora/pkgbase"
+printf 'kernel-image-6.16\n' >"$tmp/modules/6.16.0-aurora/vmlinuz"
 : >"$tmp/snapshots/1/snapshot$tmp/modules/6.16.0-aurora/modules.dep"
 : >"$tmp/snapshots/2/snapshot$tmp/modules/6.15.0-aurora/modules.dep"
 # snapshot 3 has the directory but no modules.dep: an interrupted install
@@ -43,7 +44,7 @@ printf 'ID 300 gen 1 top level 5 path <FS_TREE>/@omarchy-previous-1790000000\n'
 printf 'ID 301 gen 1 top level 256 path <FS_TREE>/@/.snapshots/1/snapshot\n'
 STUB
 printf '#!/bin/bash\necho linux-aurora\n' >"$tmp/bin/omarchy-hw-apple-kernel"
-: >"$tmp/boot/vmlinuz-linux-aurora"
+printf 'kernel-image-6.16\n' >"$tmp/boot/vmlinuz-linux-aurora"
 # The generator stub records that it ran with the config in place and
 # writes the menu file, as grub-btrfs does.
 cat >"$tmp/generator" <<'STUB'
@@ -86,7 +87,7 @@ grep -Fxq 'GRUB_BTRFS_LIMIT="5"' "$config" && grep -Fxq 'GRUB_BTRFS_SUBMENUNAME=
 grep -Fxq 'GRUB_BTRFS_OVERRIDE_BOOT_PARTITION_DETECTION="true"' "$config" || fail "the separate ext4 /boot is declared"
 [[ $(<"$CALL_LOG") == $'generator\nupdate-grub' ]] || fail "the generator runs, then grub.cfg gains the include once: $(<"$CALL_LOG")"
 grep -Fq 'configfile /grub/grub-btrfs.cfg' "$tmp/boot/grub/grub.cfg" || fail "grub.cfg carries the submenu include"
-grep -Fq '2 snapshot(s) hidden' "$tmp/out" || fail "the summary counts the two hidden snapshots: $(<"$tmp/out")"
+grep -Fq 'refreshed (2 snapshot(s) hidden' "$tmp/out" || fail "the summary counts the two hidden snapshots: $(<"$tmp/out")"
 pass "a refresh hides incompatible snapshots and adds the submenu to grub.cfg once"
 
 refresh || fail "a second refresh runs"
@@ -95,7 +96,9 @@ pass "later refreshes regenerate only grub-btrfs.cfg"
 
 # A new kernel on /boot: the compatible set changes with it.
 mkdir -p "$tmp/modules/6.17.0-aurora"; printf 'linux-aurora\n' >"$tmp/modules/6.17.0-aurora/pkgbase"
-refresh || fail "a refresh after a kernel change runs"
+printf 'kernel-image-6.17\n' >"$tmp/modules/6.17.0-aurora/vmlinuz"
+printf 'kernel-image-6.17\n' >"$tmp/boot/vmlinuz-linux-aurora"
+refresh || fail "a refresh after a kernel change runs: $(<"$tmp/out")"
 grep -Fq '"@/.snapshots/1/snapshot"' "$config" || fail "a snapshot without the new kernel's modules is hidden after a kernel change"
 pass "a kernel change re-evaluates which snapshots may boot"
 

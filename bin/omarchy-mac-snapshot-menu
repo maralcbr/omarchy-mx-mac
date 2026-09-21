@@ -43,12 +43,15 @@ omarchy-hw-apple-silicon || fail "the GRUB snapshot menu is for Apple Silicon Ma
 kernel_package=$(omarchy-hw-apple-kernel 2>/dev/null || true)
 [[ -n $kernel_package && -f $BOOT_DIR/vmlinuz-$kernel_package ]] ||
   fail "the kernel on $BOOT_DIR is not the installed Apple kernel package (${kernel_package:-unknown})"
+# The package ships its image under the modules directory too; the copy on
+# /boot must be that exact image.
 kernels=()
 for dir in "$MODULES_DIR"/*/; do
   [[ -f $dir/pkgbase && $(<"$dir/pkgbase") == "$kernel_package" ]] || continue
+  [[ -f $dir/vmlinuz ]] && cmp -s "$dir/vmlinuz" "$BOOT_DIR/vmlinuz-$kernel_package" || continue
   kernels+=("${dir%/}")
 done
-(( ${#kernels[@]} > 0 )) || fail "no modules for $kernel_package found under $MODULES_DIR"
+(( ${#kernels[@]} > 0 )) || fail "no modules directory under $MODULES_DIR matches the $kernel_package image on $BOOT_DIR"
 
 # grub-btrfs matches IGNORE_PREFIX_PATH as "prefix/*", not as a string
 # prefix, so staging and kept roots are listed by their exact names.
