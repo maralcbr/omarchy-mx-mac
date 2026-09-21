@@ -37,6 +37,10 @@ export CALL_LOG="$tmp/calls" TOP="$top" SNAPSHOTS="$top/@/.snapshots"
 export PATH="$stub_bin:$PATH"
 
 printf 'linux-aurora\n' >"$modules/6.16.0-aurora/pkgbase"
+printf 'kernel-image-6.16\n' >"$modules/6.16.0-aurora/vmlinuz"
+mkdir -p "$top/@/.snapshots/1/snapshot/usr/bin"
+printf '#!/bin/bash\n' >"$top/@/.snapshots/1/snapshot/usr/bin/omarchy-mac-snapshot-restore-finish"
+chmod +x "$top/@/.snapshots/1/snapshot/usr/bin/omarchy-mac-snapshot-restore-finish"
 : >"$top/@/.snapshots/1/snapshot$modules/6.16.0-aurora/modules.dep"
 printf '<snapshot><num>1</num><description>4.0.3-mac.4</description></snapshot>\n' >"$top/@/.snapshots/1/info.xml"
 cp "$unit" "$tmp/units/"
@@ -50,6 +54,7 @@ printf 'btrfs %s\n' "$*" >>"$CALL_LOG"
 case "$1 $2" in
   "subvolume show")
     path=$3
+    [[ $path == / ]] && path=$TOP/@
     [[ $path == /.snapshots* ]] && path=$SNAPSHOTS${path#/.snapshots}
     [[ -f $path/.subvol ]] || exit 1
     printf 'Subvolume ID: \t\t%s\n' "$(cat "$path/.subvol")"
@@ -109,7 +114,7 @@ fi
 exec /usr/bin/mv "$@"
 STUB
 chmod +x "$stub_bin"/*
-: >"$tmp/boot/vmlinuz-linux-aurora"
+printf 'kernel-image-6.16\n' >"$tmp/boot/vmlinuz-linux-aurora"
 
 # The fake top is a directory, so mount is a no-op and the script's
 # /.snapshots checks are redirected by the btrfs stub. The script mounts at
@@ -166,10 +171,24 @@ if FAKE_ROOT_SUBVOL=@factory run_restore 1 --yes --no-reboot; then fail "a root 
 grep -Fq 'not the @ subvolume' "$tmp/out" || fail "a foreign root subvolume is named: $(<"$tmp/out")"
 if run_restore 2 --yes --no-reboot; then fail "a missing snapshot must refuse"; fi
 grep -Fq 'has no info.xml' "$tmp/out" || fail "a missing snapshot is named: $(<"$tmp/out")"
+# The image on /boot is a newer kernel whose modules the snapshot lacks.
 mkdir -p "$modules/6.17.0-aurora"; printf 'linux-aurora\n' >"$modules/6.17.0-aurora/pkgbase"
+printf 'kernel-image-6.17\n' >"$modules/6.17.0-aurora/vmlinuz"
+printf 'kernel-image-6.17\n' >"$tmp/boot/vmlinuz-linux-aurora"
 if run_restore 1 --yes --no-reboot; then fail "a snapshot without the kernel's modules must refuse"; fi
 grep -Fq 'no modules for the kernel on /boot (6.17.0-aurora)' "$tmp/out" || fail "the kernel mismatch names the version: $(<"$tmp/out")"
 rm -r "$modules/6.17.0-aurora"
+printf 'kernel-image-6.16\n' >"$tmp/boot/vmlinuz-linux-aurora"
+# An image on /boot that matches no modules directory is refused too.
+printf 'kernel-image-unknown\n' >"$tmp/boot/vmlinuz-linux-aurora"
+if run_restore 1 --yes --no-reboot; then fail "a /boot image matching no modules directory must refuse"; fi
+grep -Fq 'matches the linux-aurora image' "$tmp/out" || fail "the unmatched image is named: $(<"$tmp/out")"
+printf 'kernel-image-6.16\n' >"$tmp/boot/vmlinuz-linux-aurora"
+# A snapshot from before the restore worker shipped cannot verify itself.
+mv "$top/@/.snapshots/1/snapshot/usr/bin/omarchy-mac-snapshot-restore-finish" "$tmp/finish.bak"
+if run_restore 1 --yes --no-reboot; then fail "a snapshot without the finish worker must refuse"; fi
+grep -Fq 'predates the restore worker' "$tmp/out" || fail "the missing worker is named: $(<"$tmp/out")"
+mv "$tmp/finish.bak" "$top/@/.snapshots/1/snapshot/usr/bin/omarchy-mac-snapshot-restore-finish"
 mv "$tmp/boot/vmlinuz-linux-aurora" "$tmp/boot/vmlinuz-other"
 if run_restore 1 --yes --no-reboot; then fail "a /boot without the Apple kernel package's image must refuse"; fi
 grep -Fq 'not the installed Apple kernel package' "$tmp/out" || fail "the /boot kernel identity is checked: $(<"$tmp/out")"
@@ -257,7 +276,7 @@ grep -Fxq 'phase=finished' "$record" || fail "verification marks the record fini
 grep -q 'snapper --no-dbus -c root create -c number -d Restored from 1 --userdata restored_from=1' "$CALL_LOG" ||
   fail "verification records a snapshot of the restored state"
 grep -q $'\tfinished\t' "$top/@$state/last-result" || fail "verification records its result"
-[[ ! -e $tmp/wants/omarchy-mac-snapshot-restore-finish.service ]] || fail "the finish unit disarms itself"
+[[ ! -L $tmp/wants/omarchy-mac-snapshot-restore-finish.service ]] || fail "the finish unit disarms itself"
 pass "the finish worker fails closed without snapper and verifies the collection otherwise"
 
 # Now the kept root may go: the record is finished and the running root is
@@ -267,6 +286,22 @@ run_restore --prune-previous || fail "pruning drops the kept root: $(<"$tmp/out"
 grep -Fq "delete $previous" "$CALL_LOG.deletes" || fail "the kept root deletion went through btrfs"
 [[ ! -e $record ]] || fail "pruning clears the record"
 pass "prune-previous drops the kept root only after verification"
+
+# A restore refused for a kept root leaves an existing record alone.
+run_restore 1 --yes --no-reboot || fail "a fresh restore after pruning runs: $(<"$tmp/out")"
+if run_restore 1 --yes --no-reboot; then fail "a kept root must block another restore"; fi
+[[ -f $record ]] && grep -Fxq 'phase=swapped' "$record" || fail "the refusal keeps the existing record"
+mkdir -p "$tmp/wants"; ln -sf /etc/systemd/system/omarchy-mac-snapshot-restore-finish.service "$tmp/wants/"
+run_finish || fail "verification after the second restore: $(<"$tmp/out")"
+run_restore --prune-previous || fail "pruning after the second restore: $(<"$tmp/out")"
+pass "a refusal for a kept root never removes the record of the restore that made it"
+
+# Without a record the finish worker cannot prove anything: pending stays.
+: >"$top/@$state/pending"
+rm -f "$record"
+if run_finish; then fail "a missing record must keep the restore pending"; fi
+grep -q $'\tfailed\t' "$top/@$state/last-result" || fail "the missing record is recorded as a failure"
+pass "the finish worker fails closed without a record"
 
 # A restored root whose collection is missing stays pending.
 : >"$top/@$state/pending"

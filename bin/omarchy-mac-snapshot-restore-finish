@@ -40,7 +40,7 @@ if ! btrfs subvolume show "$SNAPSHOTS_DIR" >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v snapper >/dev/null 2>&1; then
+if omarchy-cmd-missing snapper; then
   log "snapper is not installed on the restored root; keeping the restore pending"
   result failed "snapper missing"
   exit 1
@@ -56,12 +56,15 @@ snapper --no-dbus -c root create -c number -d "Restored from ${restored_from:-?}
 
 # The record on /boot is what lets prune-previous tell a verified restore
 # from one that has not rebooted yet, so it must be updated or nothing is.
-if [[ -f $RECORD ]]; then
-  if ! sed -i 's/^phase=.*/phase=finished/' "$RECORD" || ! grep -Fxq 'phase=finished' "$RECORD"; then
-    log "could not mark $RECORD finished; keeping the restore pending"
-    result failed "record update failed"
-    exit 1
-  fi
+if [[ ! -f $RECORD ]]; then
+  log "no restore record at $RECORD; keeping the restore pending"
+  result failed "record missing"
+  exit 1
+fi
+if ! sed -i 's/^phase=.*/phase=finished/' "$RECORD" || ! grep -Fxq 'phase=finished' "$RECORD"; then
+  log "could not mark $RECORD finished; keeping the restore pending"
+  result failed "record update failed"
+  exit 1
 fi
 rm -f "$STATE_DIR/pending"
 result finished "restored from snapshot ${restored_from:-?}"

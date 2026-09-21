@@ -114,16 +114,15 @@ record_field() {
 prune_previous() {
   local kept found=0 phase current_id
   [[ ! -f $STATE_DIR/pending ]] || fail "a restore is still pending verification on the next boot"
-  if [[ -f $RECORD ]]; then
-    phase=$(record_field phase)
-    [[ $phase == finished ]] || fail "the last restore is not verified (phase ${phase:-unknown}); reboot first"
-  fi
-  mount_top
-  current_id=$(subvolume_id "$TOP_MNT/$ROOT_SUBVOL")
-  if [[ -f $RECORD && -n $current_id && $current_id != "$(record_field next_id)" ]]; then
-    umount_top
+  [[ -f $RECORD ]] || fail "no restore record on $RECORD; nothing proves a kept root is not the running one"
+  phase=$(record_field phase)
+  [[ $phase == finished ]] || fail "the last restore is not verified (phase ${phase:-unknown}); reboot first"
+  # The mounted root, not the top-level @ entry: only the running system can
+  # vouch that the clone the record names is what booted.
+  current_id=$(subvolume_id /)
+  [[ -n $current_id && $current_id == "$(record_field next_id)" ]] ||
     fail "the running root is not the restored root named in the record; refusing to prune"
-  fi
+  mount_top
   for kept in "$TOP_MNT"/@omarchy-previous-*; do
     [[ -d $kept ]] || continue
     found=1
@@ -174,12 +173,15 @@ is_subvolume "$snapshot_path" || fail "snapshot $number is not a btrfs subvolume
 kernel_package=$(omarchy-hw-apple-kernel 2>/dev/null || true)
 [[ -n $kernel_package && -f $BOOT_DIR/vmlinuz-$kernel_package ]] ||
   fail "the kernel on $BOOT_DIR is not the installed Apple kernel package (${kernel_package:-unknown})"
+# The package ships its image under the modules directory too; the copy on
+# /boot must be that exact image, or /boot is not what the modules say.
 required_kernels=()
 for dir in "$MODULES_DIR"/*/; do
   [[ -f $dir/pkgbase && $(<"$dir/pkgbase") == "$kernel_package" ]] || continue
+  [[ -f $dir/vmlinuz ]] && cmp -s "$dir/vmlinuz" "$BOOT_DIR/vmlinuz-$kernel_package" || continue
   required_kernels+=("${dir%/}")
 done
-(( ${#required_kernels[@]} > 0 )) || fail "no modules for $kernel_package found under $MODULES_DIR"
+(( ${#required_kernels[@]} > 0 )) || fail "no modules directory under $MODULES_DIR matches the $kernel_package image on $BOOT_DIR"
 for dir in "${required_kernels[@]}"; do
   version=${dir##*/}
   [[ -f $snapshot_path$MODULES_DIR/$version/modules.dep ]] ||
@@ -210,6 +212,7 @@ previous_name=@omarchy-previous-$stamp
 moved_snapshots=0
 root_renamed=0
 swap_done=0
+record_written=0
 next=""
 
 cleanup() {
@@ -236,9 +239,14 @@ cleanup() {
       return
     fi
     if [[ -n $next && -d $next ]] && ! is_subvolume "$next/.snapshots"; then
-      btrfs subvolume delete --recursive "$next" >/dev/null 2>&1 || true
+      if ! btrfs subvolume delete --recursive "$next" >/dev/null 2>&1; then
+        echo "omarchy-mac-snapshot-restore: $next could not be deleted; $RECORD names it for a rescue" >&2
+        umount_top
+        return
+      fi
     fi
-    rm -f "$RECORD"
+    # Only a record this run wrote, and only once nothing is left to recover.
+    (( record_written )) && rm -f "$RECORD"
   fi
   umount_top
   if (( swap_done == 0 )); then
@@ -264,6 +272,7 @@ write_record() {
   local phase=$1 tmp
   mkdir -p "${RECORD%/*}"
   tmp=$(mktemp "${RECORD}.XXXXXX")
+  # omarchy:heredoc-expands paths=none -- the values are subvolume names, ids, a UUID and a number this root-only script computed itself
   cat >"$tmp" <<REC
 format=1
 phase=$phase
@@ -278,6 +287,7 @@ stamp=$stamp
 REC
   chmod 0644 "$tmp"
   mv -f "$tmp" "$RECORD"
+  record_written=1
   sync "${RECORD%/*}" 2>/dev/null || true
 }
 
@@ -298,7 +308,10 @@ rmdir "$next/.snapshots"
 mv -T "$top/$ROOT_SUBVOL/.snapshots" "$next/.snapshots" || fail "could not move /.snapshots into the staged root"
 moved_snapshots=1
 
-# The next boot verifies the restore before the previous root may be pruned.
+# The next boot verifies the restore before the previous root may be pruned;
+# a snapshot from before this tool shipped cannot run the worker.
+[[ -x $next/usr/bin/omarchy-mac-snapshot-restore-finish ]] ||
+  fail "snapshot $number predates the restore worker (no /usr/bin/omarchy-mac-snapshot-restore-finish); refusing"
 install -Dm644 "$UNIT_SRC/omarchy-mac-snapshot-restore-finish.service" \
   "$next/etc/systemd/system/omarchy-mac-snapshot-restore-finish.service"
 install -d "$next/etc/systemd/system/sysinit.target.wants"

@@ -18,7 +18,7 @@ if omarchy-cmd-missing snapper; then
 fi
 
 apple_silicon() {
-  command -v omarchy-hw-apple-silicon >/dev/null 2>&1 && omarchy-hw-apple-silicon
+  ! omarchy-cmd-missing omarchy-hw-apple-silicon && omarchy-hw-apple-silicon
 }
 
 case "$COMMAND" in
