@@ -33,9 +33,9 @@ test/vm/mac-image/run --payload omarchy-<date>-aarch64-apple-silicon-mac-rc-os-p
 
 A published release is downloaded with `gh`, `IMAGE.sig` is verified with the
 repository key (`default/omarchy-arm-repository.asc`), split parts are
-reassembled and the payload is held to PROVENANCE's size and digest. `--only
+reassembled, the payload is held to PROVENANCE's size and digest, and every unpacked member is held to the digests the signed IMAGE lists. `--only
 plain|encrypted` runs one path, `--keep` retains the run directory
-(`~/vm-mac-image/runs/<run-id>`, two sparse 24 GiB disks). Evidence goes to
+(`~/vm-mac-image/runs/<run-id>`, two sparse 35 GiB disks, the production root size). Evidence goes to
 `~/vm-evidence/mac-image-<run-id>/`: `run.txt` with the `ok` lines, payload
 digest and generic kernel, the serial log of each boot and the mkinitcpio log.
 
