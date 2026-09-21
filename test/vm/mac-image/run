@@ -324,6 +324,18 @@ wait_serial() {
   done
 }
 
+# First boot removes install.conf from the vfat ESP without a sync (a persisted
+# copy on the root already won, and a retry deletes it again), so the unlink
+# sits in the page cache until writeback. Give it the writeback interval
+# before the guest is stopped.
+settle_guest() {
+  local waited=0
+  while ((waited < 40)); do
+    kill -0 "$qemu_pid" 2>/dev/null || fail "the guest exited while settling"
+    sleep 5; waited=$((waited + 5))
+  done
+}
+
 stop_guest() {
   kill "$qemu_pid" 2>/dev/null || true
   wait "$qemu_pid" 2>/dev/null || true
@@ -347,6 +359,7 @@ plain_boot() {
   wait_serial "$log" "Finished Omarchy first boot" "plain: first boot"
   wait_serial "$log" "Starting Omarchy provisioning first-boot user setup" "plain: owner provisioning"
   ! grep -aq "Failed to start Omarchy first boot" "$log" || fail "plain: first boot reported a failure"
+  settle_guest
   stop_guest
   local dev
   attach -P "$disk"; dev=$ATTACHED
@@ -383,6 +396,7 @@ encrypted_boot() {
   wait_serial "$log" "Starting Omarchy provisioning first-boot user setup" "encrypted: owner provisioning"
   ! grep -aq "Failed to start Encrypt the Omarchy Mac root\|update-grub failed\|mkinitcpio -P failed" "$log" ||
     fail "encrypted: the encrypt unit reported a failure"
+  settle_guest
   stop_guest
   local dev luks
   attach -P "$disk"; dev=$ATTACHED
