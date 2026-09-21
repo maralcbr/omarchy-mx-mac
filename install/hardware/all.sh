@@ -43,6 +43,7 @@ run_logged "$OMARCHY_INSTALL/hardware/apple/fix-asahi-hid-race.sh"
 run_logged "$OMARCHY_INSTALL/hardware/apple/fix-asahi-btrfs-race.sh"
 run_logged "$OMARCHY_INSTALL/hardware/apple/fix-speaker-pop.sh"
 run_logged "$OMARCHY_INSTALL/hardware/apple/fix-brcmfmac-supplicant.sh"
+run_logged "$OMARCHY_INSTALL/hardware/apple/snapshots-subvolume.sh"
 
 run_logged "$OMARCHY_INSTALL/hardware/lenovo/fix-yoga-pro7-bass-speakers.sh"
 

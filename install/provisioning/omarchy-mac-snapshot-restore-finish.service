@@ -1,0 +1,20 @@
+# Verifies an omarchy-mac-snapshot-restore on the first boot after it: the
+# restored root must carry the snapper collection before the kept previous
+# root may be pruned. Armed by /var/lib/omarchy/snapshot-restore/pending;
+# installed to /etc/systemd/system of the staged root by omarchy-mac-snapshot-restore.
+
+[Unit]
+Description=Omarchy snapshot restore verification
+DefaultDependencies=no
+ConditionPathExists=/var/lib/omarchy/snapshot-restore/pending
+After=systemd-remount-fs.service local-fs.target
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/omarchy-mac-snapshot-restore-finish
+
+[Install]
+WantedBy=sysinit.target

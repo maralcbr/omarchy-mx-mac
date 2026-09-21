@@ -34,8 +34,9 @@ omarchy-update-requires-free-space
 [[ ${1:-} != "-y" ]] || export OMARCHY_UPDATE_UNATTENDED=1
 
 if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
-  # Before the snapshot: the cache is on the snapshotted subvolume, so pruning
-  # after it frees nothing until that snapshot ages out.
+  # Before the snapshot, so the pruned cache is not what the snapshot records.
+  # The cache lives on its own @pkg subvolume outside the snapshot on every
+  # layout; the order is kept so a snapshot never captures a half-pruned cache.
   omarchy-update-pkg-prune
 
   # 127 means Snapper is deliberately absent. Any other failure already said

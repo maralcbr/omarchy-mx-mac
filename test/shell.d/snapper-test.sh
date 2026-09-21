@@ -71,6 +71,46 @@ grep -Fx 'systemctl disable --now snapper-timeline.timer' "$test_tmp/calls.log" 
 grep -Fx 'systemctl enable --now snapper-cleanup.timer limine-snapper-sync.service' "$test_tmp/calls.log" >/dev/null || fail "snapshot configure enables cleanup and Limine snapshot sync"
 pass "snapshot configure normalizes Snapper policy and services"
 
+# Apple Silicon boots GRUB: cleanup is enabled, the Limine sync unit is not.
+printf '#!/bin/bash\nexit 0\n' >"$fake_bin/omarchy-hw-apple-silicon"
+chmod +x "$fake_bin/omarchy-hw-apple-silicon"
+rm -f "$test_tmp/etc/snapper/configs/root"
+: >"$test_tmp/calls.log"
+TEST_LOG="$test_tmp/calls.log" \
+PATH="$fake_bin:$PATH" \
+OMARCHY_SNAPPER_CONFIGURE_TEST=1 \
+OMARCHY_PATH="$ROOT" \
+OMARCHY_SNAPPER_CONFIG_PATH="$test_tmp/etc/snapper/configs/root" \
+OMARCHY_SNAPPER_CONF_PATH="$test_tmp/etc/conf.d/snapper" \
+  bash -euo pipefail "$ROOT/install/config/snapper.sh" >/dev/null
+cmp -s "$template" "$test_tmp/etc/snapper/configs/root" || fail "Apple Silicon gets the same Snapper template"
+grep -Fx 'systemctl enable --now snapper-cleanup.timer' "$test_tmp/calls.log" >/dev/null || fail "Apple Silicon enables snapper cleanup"
+! grep -F 'limine-snapper-sync' "$test_tmp/calls.log" >/dev/null || fail "Apple Silicon never enables the Limine snapshot sync"
+rm -f "$fake_bin/omarchy-hw-apple-silicon"
+pass "snapshot configure enables cleanup without Limine on Apple Silicon"
+
+# An image build has no machine to create the subvolume on: the config is
+# written without snapper's create-config, and the first-boot step makes
+# /.snapshots on the Mac.
+rm -f "$test_tmp/etc/snapper/configs/root"
+: >"$test_tmp/calls.log"
+printf '#!/bin/bash\nprintf "snapper %%s\\n" "$*" >>"$TEST_LOG"; exit 1\n' >"$fake_bin/snapper"
+chmod +x "$fake_bin/snapper"
+TEST_LOG="$test_tmp/calls.log" \
+PATH="$fake_bin:$PATH" \
+OMARCHY_MAC_IMAGE_BUILD=1 \
+OMARCHY_PATH="$ROOT" \
+OMARCHY_SNAPPER_CONFIG_PATH="$test_tmp/etc/snapper/configs/root" \
+OMARCHY_SNAPPER_CONF_PATH="$test_tmp/etc/conf.d/snapper" \
+  bash -euo pipefail "$ROOT/install/config/snapper.sh" >/dev/null
+cmp -s "$template" "$test_tmp/etc/snapper/configs/root" || fail "an image build bakes the Snapper template"
+! grep -F 'create-config' "$test_tmp/calls.log" >/dev/null || fail "an image build never runs create-config against the build root"
+pass "an image build bakes the Snapper policy without creating a subvolume"
+grep -Fq 'snapshots-subvolume.sh' "$ROOT/install/hardware/all.sh" || fail "the first-boot step that creates /.snapshots is a deferred hardware leaf"
+grep -Fxq 'run_logged "$OMARCHY_INSTALL/config/snapper.sh"' "$ROOT/install/config/all.sh" || fail "the config phase runs snapper.sh on every architecture, image builds included"
+! grep -F 'snapper' "$ROOT/install/config/all.sh" | grep -Fq 'omarchy-hw-apple-silicon' || fail "snapper.sh is no longer skipped on Apple Silicon"
+pass "Apple Silicon installs get snapper at build time and the subvolume at first boot"
+
 setup_system="$ROOT/bin/omarchy-apply-system"
 grep -F 'config/all.sh' "$setup_system" >/dev/null ||
   fail "system setup runs the config phase"

@@ -18,7 +18,7 @@ if grep -Fxq linux-asahi-headers "$base_manifest" "$other_manifest"; then
 fi
 pass "Asahi manifests include Apple Silicon platform requirements"
 
-forbidden='^(linux|linux-headers|linux-ptl|linux-ptl-headers|linux-omarchy|linux-omarchy-headers|limine|limine-mkinitcpio-hook|limine-snapper-sync|snapper|broadcom-wl(-dkms)?|egl-wayland|intel-.*|libva-intel-driver|libva-nvidia-driver|libvpl|vpl-gpu-rt|sof-firmware|thermald|nvidia-.*|lib32-.*|macbook12-spi-driver-dkms|apple-bcm-firmware|apple-t2-audio-config|linux-t2|linux-t2-headers|t2fanrd|tiny-dfr|tuxedo-drivers-nocompatcheck-dkms|yt6801-dkms|kvantum-qt5|qt5-wayland|rust)$'
+forbidden='^(linux|linux-headers|linux-ptl|linux-ptl-headers|linux-omarchy|linux-omarchy-headers|limine|limine-mkinitcpio-hook|limine-snapper-sync|broadcom-wl(-dkms)?|egl-wayland|intel-.*|libva-intel-driver|libva-nvidia-driver|libvpl|vpl-gpu-rt|sof-firmware|thermald|nvidia-.*|lib32-.*|macbook12-spi-driver-dkms|apple-bcm-firmware|apple-t2-audio-config|linux-t2|linux-t2-headers|t2fanrd|tiny-dfr|tuxedo-drivers-nocompatcheck-dkms|yt6801-dkms|kvantum-qt5|qt5-wayland|rust)$'
 if grep -Eh "$forbidden" "$base_manifest" "$other_manifest" >"${TMPDIR:-/tmp}/omarchy-asahi-forbidden.$$"; then
   detail=$(<"${TMPDIR:-/tmp}/omarchy-asahi-forbidden.$$")
   rm -f "${TMPDIR:-/tmp}/omarchy-asahi-forbidden.$$"

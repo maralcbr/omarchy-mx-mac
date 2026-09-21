@@ -1,0 +1,287 @@
+#!/bin/bash
+
+# omarchy:summary=Restore a snapper snapshot as the root on an Apple Silicon Mac
+# omarchy:args=<number|--prune-previous> [--yes] [--no-reboot]
+# omarchy:requires-sudo=true
+# omarchy:hidden=true
+
+# Apple Silicon boots GRUB with rootflags=subvol=@, so snapper's rollback
+# (which changes the default subvolume) never takes effect and Limine's
+# restore does not apply. This restores a snapshot the way the factory reset
+# activates a new root: a writable clone of the snapshot is staged on the
+# top level, the live /.snapshots subvolume moves into it so snapper keeps
+# its history and numbering, and the two roots are renamed with a recovery
+# record on the plaintext Boot partition. The previous root is kept as
+# @omarchy-previous-<ts> until the next boot verifies the restore; the
+# owner then removes it with --prune-previous.
+#
+# The rename pair is not crash-safe (a power loss between the two renames
+# leaves no @ until repaired from a rescue system using the record), so the
+# command is gated to machines that opted in with
+# /var/lib/omarchy/snapshot-restore.enabled.
+
+set -euo pipefail
+
+STATE_DIR=${OMARCHY_SNAPSHOT_RESTORE_STATE_DIR:-/var/lib/omarchy/snapshot-restore}
+GATE=${OMARCHY_SNAPSHOT_RESTORE_GATE:-/var/lib/omarchy/snapshot-restore.enabled}
+RECORD=${OMARCHY_SNAPSHOT_RESTORE_RECORD:-/boot/omarchy/snapshot-restore.state}
+PROVISIONING_DIR=${OMARCHY_PROVISIONING_DIR:-/var/lib/omarchy/provisioning}
+FIRST_BOOT_DIR=${OMARCHY_MAC_FIRST_BOOT_DIR:-/var/lib/omarchy/mac-first-boot}
+TOP_MNT=${OMARCHY_SNAPSHOT_RESTORE_TOP:-/run/omarchy/snapshot-restore/top}
+LOCK_FILE=${OMARCHY_ROOT_SWAP_LOCK:-/run/lock/omarchy-root-swap.lock}
+UNIT_SRC=${OMARCHY_SNAPSHOT_RESTORE_UNIT_SRC:-${OMARCHY_PATH:-/usr/share/omarchy}/install/provisioning}
+MODULES_DIR=${OMARCHY_SNAPSHOT_RESTORE_MODULES:-/usr/lib/modules}
+SNAPSHOTS_DIR=${OMARCHY_SNAPSHOTS_DIR:-/.snapshots}
+PROC=${OMARCHY_SNAPSHOT_RESTORE_PROC:-/proc}
+ROOT_SUBVOL=@
+
+number=""
+yes=0
+reboot=1
+prune=0
+
+usage() {
+  echo "Usage: omarchy-mac-snapshot-restore <number> [--yes] [--no-reboot]" >&2
+  echo "       omarchy-mac-snapshot-restore --prune-previous" >&2
+  exit 64
+}
+
+while (($#)); do
+  case $1 in
+    --yes) yes=1 ;;
+    --no-reboot) reboot=0 ;;
+    --prune-previous) prune=1 ;;
+    -*) usage ;;
+    *)
+      [[ -z $number ]] || usage
+      number=$1
+      ;;
+  esac
+  shift
+done
+
+fail() {
+  echo "omarchy-mac-snapshot-restore: $*" >&2
+  exit 1
+}
+
+log() {
+  printf '%s\n' "$*"
+}
+
+(( EUID == 0 )) || fail "run as root"
+omarchy-hw-apple-silicon || fail "this restore is for Apple Silicon Macs; use omarchy-snapshot restore elsewhere"
+
+root_device() {
+  findmnt -no SOURCE / | sed 's/\[.*\]//'
+}
+
+root_subvolume() {
+  findmnt -no OPTIONS / | tr , '\n' | sed -n 's/^subvol=\/*//p' | head -n 1
+}
+
+mount_top() {
+  local device
+  device=$(root_device)
+  [[ -n $device ]] || fail "could not determine the root device"
+  mkdir -p "$TOP_MNT"
+  mountpoint -q "$TOP_MNT" || mount -o subvolid=5 "$device" "$TOP_MNT" || fail "could not mount the btrfs top level"
+}
+
+umount_top() {
+  if mountpoint -q "$TOP_MNT" 2>/dev/null; then
+    umount "$TOP_MNT" 2>/dev/null || true
+  fi
+  rmdir "$TOP_MNT" 2>/dev/null || true
+}
+
+is_subvolume() {
+  btrfs subvolume show "$1" >/dev/null 2>&1
+}
+
+subvolume_id() {
+  btrfs subvolume show "$1" 2>/dev/null | awk -F': *' '$1 ~ /Subvolume ID/ { print $2; exit }'
+}
+
+# --prune-previous: drop the kept roots once the restore has been verified.
+prune_previous() {
+  local kept found=0
+  [[ ! -f $STATE_DIR/pending ]] || fail "a restore is still pending verification on the next boot"
+  mount_top
+  for kept in "$TOP_MNT"/@omarchy-previous-*; do
+    [[ -d $kept ]] || continue
+    found=1
+    log "Deleting kept root ${kept##*/}"
+    btrfs subvolume delete --recursive "$kept" >/dev/null || fail "could not delete ${kept##*/}"
+  done
+  umount_top
+  (( found )) || log "No previous root to prune."
+  rm -f "$RECORD"
+  return 0
+}
+
+if (( prune )); then
+  [[ -z $number ]] || usage
+  exec {lock_fd}>"$LOCK_FILE"
+  flock -n "$lock_fd" || fail "another root swap is in progress"
+  prune_previous
+  exit 0
+fi
+
+[[ -n $number ]] || usage
+[[ $number =~ ^[1-9][0-9]*$ ]] || fail "snapshot number must be a positive integer"
+[[ -e $GATE ]] || fail "the Apple Silicon snapshot restore is experimental; enable it with: sudo touch $GATE"
+
+# Refusals: another staged root change, a half-provisioned system, swap
+# layouts this lane does not handle, or a root layout other than @ with a
+# nested /.snapshots.
+[[ ! -f $PROVISIONING_DIR/pending && ! -f $PROVISIONING_DIR/wipe-pending ]] ||
+  fail "owner provisioning or a factory reset is pending; finish that first"
+[[ ! -f $FIRST_BOOT_DIR/pending ]] || fail "first boot has not finished on this Mac"
+[[ ! -f $STATE_DIR/pending ]] || fail "a previous restore is still pending verification; reboot first"
+[[ $(findmnt -no FSTYPE /) == btrfs ]] || fail "the root is not btrfs"
+[[ $(root_subvolume) == "$ROOT_SUBVOL" ]] || fail "the root is not the @ subvolume"
+if [[ -e /swap || -e /swapfile ]] || awk 'NR > 1 && $2 == "file" { found = 1 } END { exit !found }' "$PROC/swaps" 2>/dev/null; then
+  fail "a swap file on the root is not supported by this restore"
+fi
+! grep -Eq '(^|[[:space:]])resume=' "$PROC/cmdline" 2>/dev/null || fail "hibernation resume is configured; not supported by this restore"
+is_subvolume "$SNAPSHOTS_DIR" || fail "$SNAPSHOTS_DIR is not a btrfs subvolume; run install/hardware/apple/snapshots-subvolume.sh"
+
+snapshot_path=$SNAPSHOTS_DIR/$number/snapshot
+[[ -f $SNAPSHOTS_DIR/$number/info.xml ]] || fail "snapshot $number has no info.xml"
+is_subvolume "$snapshot_path" || fail "snapshot $number is not a btrfs subvolume"
+
+# Next-boot kernel compatibility: /boot is ext4 and not part of the snapshot,
+# so the kernel there stays; the snapshot must carry its modules. The kernel
+# on /boot is the one the running root installed, so its modules directory
+# in the running root names the version.
+required_kernels=()
+for dir in "$MODULES_DIR"/*/; do
+  [[ -f $dir/pkgbase ]] || continue
+  required_kernels+=("${dir%/}")
+done
+(( ${#required_kernels[@]} > 0 )) || fail "no installed kernel found under $MODULES_DIR"
+for dir in "${required_kernels[@]}"; do
+  version=${dir##*/}
+  [[ -f $snapshot_path$MODULES_DIR/$version/modules.dep ]] ||
+    fail "snapshot $number has no modules for the kernel on /boot ($version); refusing an unbootable restore"
+done
+
+description=$(awk -F'[<>]' '/<description>/ { print $3; exit }' "$SNAPSHOTS_DIR/$number/info.xml" 2>/dev/null || true)
+if (( ! yes )); then
+  echo
+  echo "Restore snapshot $number${description:+ ($description)} as the root of this Mac?"
+  echo "The current root is kept as a previous root until the next boot verifies the restore."
+  read -r -p "Type yes to continue: " answer </dev/tty
+  [[ $answer == yes ]] || { echo "Restore cancelled."; exit 0; }
+fi
+
+exec {lock_fd}>"$LOCK_FILE"
+flock -n "$lock_fd" || fail "another root swap is in progress"
+
+if compgen -G "$TOP_MNT/@omarchy-previous-*" >/dev/null 2>&1; then
+  fail "a previous root is still kept; run omarchy-snapshot prune-previous first"
+fi
+
+systemctl stop snapper-cleanup.timer snapper-cleanup.service snapperd.service >/dev/null 2>&1 || true
+
+stamp=$(date +%s)
+next_name=@restore-$stamp
+previous_name=@omarchy-previous-$stamp
+moved_snapshots=0
+swap_done=0
+next=""
+
+cleanup() {
+  local status=$?
+  if (( status != 0 && swap_done == 0 )); then
+    # Undo in reverse: the snapshot collection first, then the staged root,
+    # which is deleted only when it holds no collection.
+    if (( moved_snapshots )) && [[ -n $next && -d $next/.snapshots ]]; then
+      mv -T "$next/.snapshots" "$TOP_MNT/$ROOT_SUBVOL/.snapshots" 2>/dev/null || true
+    fi
+    if [[ -n $next && -d $next ]] && ! is_subvolume "$next/.snapshots"; then
+      btrfs subvolume delete --recursive "$next" >/dev/null 2>&1 || true
+    fi
+    rm -f "$RECORD"
+  fi
+  umount_top
+  if (( swap_done == 0 )); then
+    systemctl start snapper-cleanup.timer >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+mount_top
+top=$TOP_MNT
+[[ -d $top/$ROOT_SUBVOL ]] || fail "the top level has no $ROOT_SUBVOL"
+if compgen -G "$top/@omarchy-previous-*" >/dev/null 2>&1; then
+  fail "a previous root is still kept; run omarchy-snapshot prune-previous first"
+fi
+next=$top/$next_name
+[[ ! -e $next ]] || fail "$next_name already exists"
+
+fs_uuid=$(findmnt -no UUID / || true)
+id_current=$(subvolume_id "$top/$ROOT_SUBVOL")
+id_snapshot=$(subvolume_id "$snapshot_path")
+
+write_record() {
+  local phase=$1 tmp
+  mkdir -p "${RECORD%/*}"
+  tmp=$(mktemp "${RECORD}.XXXXXX")
+  cat >"$tmp" <<REC
+format=1
+phase=$phase
+fs_uuid=$fs_uuid
+snapshot=$number
+snapshot_id=$id_snapshot
+previous=$previous_name
+previous_id=$id_current
+next=$next_name
+next_id=${id_next:-}
+stamp=$stamp
+REC
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$RECORD"
+  sync "${RECORD%/*}" 2>/dev/null || true
+}
+
+log "Staging snapshot $number as $next_name"
+btrfs subvolume snapshot "$top/$ROOT_SUBVOL/.snapshots/$number/snapshot" "$next" >/dev/null ||
+  fail "could not clone snapshot $number"
+id_next=$(subvolume_id "$next")
+install -d -m 0755 "$next$STATE_DIR"
+printf 'restored_from=%s\nstamp=%s\n' "$number" "$stamp" >"$next$STATE_DIR/restored-from"
+write_record staged
+
+# The clone carries /.snapshots only as an empty directory; the live
+# collection moves in whole so snapper keeps every info.xml and its numbering.
+[[ -d $next/.snapshots ]] && ! is_subvolume "$next/.snapshots" ||
+  fail "the clone's /.snapshots is not the expected empty stub"
+[[ -z $(ls -A "$next/.snapshots") ]] || fail "the clone's /.snapshots stub is not empty"
+rmdir "$next/.snapshots"
+mv -T "$top/$ROOT_SUBVOL/.snapshots" "$next/.snapshots" || fail "could not move /.snapshots into the staged root"
+moved_snapshots=1
+
+# The next boot verifies the restore before the previous root may be pruned.
+install -Dm644 "$UNIT_SRC/omarchy-mac-snapshot-restore-finish.service" \
+  "$next/etc/systemd/system/omarchy-mac-snapshot-restore-finish.service"
+install -d "$next/etc/systemd/system/sysinit.target.wants"
+ln -sf /etc/systemd/system/omarchy-mac-snapshot-restore-finish.service \
+  "$next/etc/systemd/system/sysinit.target.wants/omarchy-mac-snapshot-restore-finish.service"
+: >"$next$STATE_DIR/pending"
+sync
+
+log "Activating the restored root (previous root kept as $previous_name)"
+write_record swapping
+mv "$top/$ROOT_SUBVOL" "$top/$previous_name"
+mv "$next" "$top/$ROOT_SUBVOL"
+swap_done=1
+sync
+write_record swapped
+log "Snapshot $number is the root for the next boot."
+
+if (( reboot )); then
+  log "Rebooting now."
+  systemctl reboot
+fi

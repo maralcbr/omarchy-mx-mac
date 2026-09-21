@@ -88,6 +88,15 @@ known-good baseline.
   `/boot/grub/grub.cfg` before a separately approved update test.
 - If an update is later approved, verify the signed release identity, reboot,
   repeat this checklist, and explain every protected boot/package change.
+- **Snapshots:** `snapper list` shows a numbered snapshot for the update just
+  run (`omarchy update` creates one before the package sync, kept to the five
+  most recent). `/.snapshots` is a btrfs subvolume (`btrfs subvolume show
+  /.snapshots`). A restore is a subvolume swap from the running system,
+  gated to lab Macs by `/var/lib/omarchy/snapshot-restore.enabled`:
+  `omarchy-snapshot restore <number>` reboots into a writable clone of that
+  snapshot, the next boot verifies it (`/var/lib/omarchy/snapshot-restore/last-result`),
+  and `omarchy-snapshot prune-previous` drops the kept previous root. The
+  kernel on `/boot` stays, so only snapshots carrying its modules are accepted.
 
 ## Remote checks after a cold boot
 
@@ -110,6 +119,11 @@ greeter. Run these after every boot that follows a kernel or boot-file change:
   sessions have no seat, so run this as the logged-in user.
 - **Networking:** `nmcli device` shows Wi-Fi connected; `bluetoothctl show`
   reports `Powered: yes`.
+- **First-boot wizard on external displays:** the kernel console clones every
+  connected display at the smallest common mode, so a larger monitor shows the
+  tty wizard with an unpainted band below it. That is fbcon, not the wizard;
+  run first boot on the built-in panel or accept the band. It ends at the
+  greeter.
 - **Known noise, not failures:** the greeter's Hyprland (user `sddm`) segfaults
   when the owner logs in, and a crash popup can follow; Thunderbolt logs
   "PCIe-C … m1n1 handoff" when m1n1 did not hand over PCIe tunnelling. Compare

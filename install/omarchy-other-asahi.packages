@@ -15,6 +15,7 @@ pipewire-alsa
 pipewire-jack
 pipewire-pulse
 qt6-wayland
+snapper
 vulkan-asahi
 webp-pixbuf-loader
 zram-generator

@@ -150,6 +150,7 @@ asahi_migration_disposition() {
     1789444024.sh) printf 'skipped\tlinux-omarchy and linux-t2 header repair is not applicable to Apple Silicon kernels\n' ;;
     1789701737.sh) printf 'run\treviewed architecture-neutral repair of the Neovim plugin cache and lockfile seeded by omarchy-nvim\n' ;;
     1789879296.sh) printf 'run\treviewed Aurora leftover linux-asahi-headers repair; self-gating to the rc channel record\n' ;;
+    1789999316.sh) printf 'run\treviewed snapper enablement for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
     *) return 1 ;;
   esac
 }
