@@ -7,6 +7,7 @@ omarchy-hw-apple-silicon || return 0
 [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]] || return 0
 
 snapshots_dir=${OMARCHY_SNAPSHOTS_DIR:-/.snapshots}
+[[ $(findmnt -no FSTYPE "${OMARCHY_SNAPSHOTS_ROOT:-/}" 2>/dev/null) == btrfs ]] || return 0
 
 if sudo btrfs subvolume show "$snapshots_dir" >/dev/null 2>&1; then
   return 0

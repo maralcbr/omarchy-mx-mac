@@ -4,6 +4,15 @@ template="${OMARCHY_SNAPPER_TEMPLATE:-${OMARCHY_PATH:-/usr/share/omarchy}/defaul
 
 echo "Configuring Omarchy Snapper snapshot retention"
 
+# Snapper snapshots a btrfs root. A root on anything else (the VM acceptance
+# guest boots a generic image) gets no config and no timer; installs on real
+# Omarchy layouts are always btrfs.
+root_fstype=$(findmnt -no FSTYPE / 2>/dev/null || true)
+if [[ ${OMARCHY_SNAPPER_CONFIGURE_TEST:-0} != "1" && ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 && $root_fstype != btrfs ]]; then
+  echo "The root is ${root_fstype:-unknown}, not btrfs; skipping Snapper configuration"
+  exit 0
+fi
+
 if [[ ! -f $SNAPPER_CONFIG_PATH ]]; then
   mkdir -p "$(dirname "$SNAPPER_CONFIG_PATH")"
 

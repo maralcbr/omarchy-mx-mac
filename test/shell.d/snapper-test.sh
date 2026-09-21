@@ -111,6 +111,27 @@ grep -Fxq 'run_logged "$OMARCHY_INSTALL/config/snapper.sh"' "$ROOT/install/confi
 ! grep -F 'snapper' "$ROOT/install/config/all.sh" | grep -Fq 'omarchy-hw-apple-silicon' || fail "snapper.sh is no longer skipped on Apple Silicon"
 pass "Apple Silicon installs get snapper at build time and the subvolume at first boot"
 
+# A root that is not btrfs (the VM acceptance guest) gets no config, no
+# timer, and no error.
+cat >"$fake_bin/findmnt" <<'STUB'
+#!/bin/bash
+echo ext4
+STUB
+chmod +x "$fake_bin/findmnt"
+rm -f "$test_tmp/etc/snapper/configs/root"
+: >"$test_tmp/calls.log"
+TEST_LOG="$test_tmp/calls.log" \
+PATH="$fake_bin:$PATH" \
+OMARCHY_PATH="$ROOT" \
+OMARCHY_SNAPPER_CONFIG_PATH="$test_tmp/etc/snapper/configs/root" \
+OMARCHY_SNAPPER_CONF_PATH="$test_tmp/etc/conf.d/snapper" \
+  bash -euo pipefail "$ROOT/install/config/snapper.sh" >"$test_tmp/out" || fail "a non-btrfs root does not fail the config phase"
+[[ ! -e $test_tmp/etc/snapper/configs/root && ! -s $test_tmp/calls.log ]] || fail "a non-btrfs root gets no Snapper config or services"
+grep -Fq 'not btrfs' "$test_tmp/out" || fail "the skip is explained"
+rm -f "$fake_bin/findmnt"
+pass "a root that is not btrfs skips Snapper without failing the install"
+grep -Fq 'findmnt -no FSTYPE' "$ROOT/install/hardware/apple/snapshots-subvolume.sh" || fail "the first-boot subvolume step also requires a btrfs root"
+
 setup_system="$ROOT/bin/omarchy-apply-system"
 grep -F 'config/all.sh' "$setup_system" >/dev/null ||
   fail "system setup runs the config phase"
