@@ -332,6 +332,11 @@ stop_guest() {
 
 root_append="root=UUID=$ROOT_UUID rw rootflags=subvol=@ rootfstype=btrfs"
 
+# The guest is stopped with SIGTERM (owner provisioning holds tty1, so a
+# power-key shutdown never completes), which leaves ext4 and btrfs journals to
+# replay. The disks are read back on read-only loop devices, so the mounts skip
+# replay: ext4 noload, btrfs rescue=nologreplay. Everything asserted was
+# fsynced by the units before they reported success.
 # ── plain first boot ─────────────────────────────────────────────────────────
 plain_boot() {
   local disk=$work/plain.img log=$evidence_dir/plain-serial.log
@@ -347,7 +352,7 @@ plain_boot() {
   attach -P -r "$disk"; dev=$ATTACHED
   mkdir -p "$work/mnt"
   [[ $(sudo blkid -c /dev/null -o value -s TYPE "${dev}p3") == btrfs ]] || fail "plain: the root is no longer plain btrfs"
-  mount_tracked -o ro,subvol=@ "${dev}p3" "$work/mnt"
+  mount_tracked -o ro,rescue=nologreplay,subvol=@ "${dev}p3" "$work/mnt"
   local st=$work/mnt/var/lib/omarchy/mac-first-boot
   sudo test ! -e "$st/pending" || fail "plain: first boot left its pending marker"
   sudo test -f "$st/install.conf" && sudo grep -qx 'encrypt=0' "$st/install.conf" || fail "plain: install.conf was not persisted"
@@ -358,7 +363,7 @@ plain_boot() {
   mount_tracked -o ro "${dev}p1" "$work/mnt"
   sudo test ! -e "$work/mnt/omarchy/install.conf" || fail "plain: install.conf is still on the ESP"
   umount_last
-  mount_tracked -o ro "${dev}p2" "$work/mnt"
+  mount_tracked -o ro,noload "${dev}p2" "$work/mnt"
   sudo grep -q 'phase=declined' "$work/mnt/omarchy/encrypt.state" || fail "plain: encrypt.state does not record the decline"
   umount_last
   detach_last
@@ -384,7 +389,7 @@ encrypted_boot() {
   mkdir -p "$work/mnt"
   [[ $(sudo blkid -c /dev/null -o value -s TYPE "${dev}p3") == crypto_LUKS ]] || fail "encrypted: the root is not crypto_LUKS"
   luks=$(sudo blkid -c /dev/null -o value -s UUID "${dev}p3")
-  mount_tracked -o ro "${dev}p2" "$work/mnt"
+  mount_tracked -o ro,noload "${dev}p2" "$work/mnt"
   sudo grep -q 'phase=configured' "$work/mnt/omarchy/encrypt.state" || fail "encrypted: encrypt.state is not phase=configured"
   sudo grep -q "luks_uuid=$luks" "$work/mnt/omarchy/encrypt.state" || fail "encrypted: encrypt.state names another LUKS UUID"
   [[ $(sudo stat -c '%s %a' "$work/mnt/omarchy/luks-key") == "64 600" ]] || fail "encrypted: the throwaway key is not 64 bytes 0600"
