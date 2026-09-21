@@ -13,6 +13,8 @@ update="$ROOT/bin/omarchy-update"
 
 grep -Fq 'platform_keyring=archlinuxarm-keyring' "$keyring" || fail "Apple Silicon updates use the Arch Linux ARM keyring"
 grep -Fq 'GNUPGHOME=/etc/pacman.d/gnupg gpg' "$keyring" || fail "Apple Silicon key checks do not require another sudo invocation"
+grep -Fq 'sudo pacman-key --populate omarchy' "$keyring" || fail "Apple Silicon updates populate the Omarchy keyring the signed bundle installed"
+! awk '/^if omarchy-hw-apple-silicon; then/,/^elif/' "$keyring" | grep -Fq -- '--recv-keys' || fail "Apple Silicon updates never fetch keys from a keyserver"
 grep -Fq 'omarchy-update-system-pkgs-when-conflicted' "$system_packages" || fail "system updates delegate file conflicts to the recovery helper"
 grep -Fq 'if omarchy-hw-apple-silicon; then' "$conflict_handler" || fail "system updates detect Apple Silicon before resolving file conflicts"
 grep -Fq '/boot|/boot/*|/etc/default/grub|' "$conflict_handler" || fail "system updates protect Asahi boot paths from conflict recovery"

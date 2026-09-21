@@ -6,11 +6,30 @@
 trusted_key=40DFB630FF42BCFFB047046CF0134EE680CAC571
 
 if omarchy-hw-apple-silicon; then
-  installed_fingerprint=$(GNUPGHOME=/etc/pacman.d/gnupg gpg --batch --with-colons --fingerprint "$trusted_key" 2>/dev/null |
-    awk -F: '$1 == "fpr" { print $10; exit }')
-  if omarchy-pkg-missing omarchy-keyring || [[ $installed_fingerprint != "$trusted_key" ]]; then
+  if omarchy-pkg-missing omarchy-keyring; then
     echo "The trusted Omarchy keyring must be installed by the signed Apple Silicon bundle." >&2
     exit 1
+  fi
+  installed_fingerprint=$(GNUPGHOME=/etc/pacman.d/gnupg gpg --batch --with-colons --fingerprint "$trusted_key" 2>/dev/null |
+    awk -F: '$1 == "fpr" { print $10; exit }')
+  if [[ $installed_fingerprint != "$trusted_key" ]]; then
+    # A Mac image builds its pacman keyring on first boot from the ARM keyrings
+    # alone, so the key the installed omarchy-keyring ships is not trusted yet.
+    # Populating from that package is the only source used; no keyserver. A
+    # populate that fails part way can leave the key imported but unsigned, so
+    # its exit status counts, not just the fingerprint afterwards.
+    echo "Trusting the Omarchy keyring shipped by omarchy-keyring"
+    if ! sudo pacman-key --populate omarchy; then
+      echo "pacman-key --populate omarchy failed; the Omarchy keyring is not trusted." >&2
+      echo "The trusted Omarchy keyring must be installed by the signed Apple Silicon bundle." >&2
+      exit 1
+    fi
+    installed_fingerprint=$(GNUPGHOME=/etc/pacman.d/gnupg gpg --batch --with-colons --fingerprint "$trusted_key" 2>/dev/null |
+      awk -F: '$1 == "fpr" { print $10; exit }')
+    if [[ $installed_fingerprint != "$trusted_key" ]]; then
+      echo "The trusted Omarchy keyring must be installed by the signed Apple Silicon bundle." >&2
+      exit 1
+    fi
   fi
 elif omarchy-pkg-missing omarchy-keyring || ! sudo pacman-key --list-keys "$trusted_key" &>/dev/null; then
   sudo pacman-key --recv-keys "$trusted_key" --keyserver keys.openpgp.org
