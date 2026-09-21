@@ -97,6 +97,10 @@ known-good baseline.
   snapshot, the next boot verifies it (`/var/lib/omarchy/snapshot-restore/last-result`),
   and `omarchy-snapshot prune-previous` drops the kept previous root. The
   kernel on `/boot` stays, so only snapshots carrying its modules are accepted.
+  `/boot/grub/grub-btrfs.cfg` lists the same snapshots under the "Omarchy
+  snapshots" GRUB submenu (refreshed by `omarchy-mac-snapshot-menu`, never by
+  a daemon); booting one gives a read-only snapshot under a tmpfs overlay,
+  with `/run/omarchy-snapshot-boot` naming the subvolume.
 
 ## Remote checks after a cold boot
 
