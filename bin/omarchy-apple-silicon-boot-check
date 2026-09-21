@@ -208,7 +208,7 @@ root_on_luks() {
   src=$(root_block_device)
   [[ $src == /dev/mapper/* ]] && return 0
   [[ -n $src ]] || return 1
-  part=$(lsblk -nspo NAME,FSTYPE "$src" 2>/dev/null | awk '$2=="crypto_LUKS"{print $1; exit}')
+  part=$(lsblk -nsrpo NAME,FSTYPE "$src" 2>/dev/null | awk '$2=="crypto_LUKS"{print $1; exit}')
   [[ -n $part ]]
 }
 
@@ -217,7 +217,12 @@ sd_encrypt_in_initramfs() {
   image=$(path "/boot/initramfs-$kernel.img")
   analyze=$(sudo lsinitcpio -a "$image" 2>/dev/null) || return 1
   grep -Eq '(^|[[:space:]"=])sd-encrypt([[:space:]"]|$)' <<<"$analyze" && return 0
-  grep -Eq '(^|/)(usr/lib/initcpio/)?hooks/sd-encrypt(/|$)' "$workdir/initramfs"
+  grep -Eq '(^|/)(usr/lib/initcpio/)?hooks/sd-encrypt(/|$)' "$workdir/initramfs" && return 0
+  # A systemd initramfs has no runtime hook named sd-encrypt and lsinitcpio -a
+  # lists no hooks for it: what the install hook leaves behind is the
+  # cryptsetup generator and its binary.
+  grep -Eq '(^|/)usr/lib/systemd/system-generators/systemd-cryptsetup-generator$' "$workdir/initramfs" &&
+    grep -Eq '(^|/)usr/bin/systemd-cryptsetup$' "$workdir/initramfs"
 }
 
 crypttab=$(path /etc/crypttab)

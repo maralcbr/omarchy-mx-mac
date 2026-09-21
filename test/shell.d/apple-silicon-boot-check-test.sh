@@ -318,6 +318,23 @@ grep -Eq "^mount --bind -o ro $esp $root/run/omarchy-esp\.[A-Za-z0-9]{6}\$" "$ca
 [[ ! -e $root/run/m1n1.conf ]] || fail "/run/m1n1.conf is not rewritten"
 run_check linux-aurora
 expect_pass "linux-aurora, named"
+
+# An encrypted root during the first-boot window: the systemd initramfs
+# carries sd-encrypt as the cryptsetup generator and binary, never as a
+# runtime hook, and lsinitcpio -a names no hook for it.
+system linux-aurora
+mkdir -p "$root/etc" "$root/var/lib/omarchy/mac-first-boot" "$root/boot/omarchy"
+printf '/dev/mapper/root / btrfs subvol=@ 0 0\n' >"$root/etc/fstab"
+printf 'root UUID=0422663f-9969-4953-900f-b342703b7e84 none luks\n' >"$root/etc/crypttab"
+printf 'linux /vmlinuz-linux-aurora root=/dev/mapper/root rd.luks.name=0422663f-9969-4953-900f-b342703b7e84=root rd.luks.key=0422663f-9969-4953-900f-b342703b7e84=/omarchy/luks-key:UUID=b\ninitrd /initramfs-linux-aurora.img\n' >"$root/boot/grub/grub.cfg"
+: >"$root/var/lib/omarchy/mac-first-boot/pending"
+printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\nusr/bin/init\nusr/bin/systemd-cryptsetup\nusr/lib/systemd/system-generators/systemd-cryptsetup-generator\n' "$kver" >"$test_tmp/initramfs"
+printf '==> Image: initramfs\n==> Early hook run order:\n  asahi\n==> Late hook run order:\n  asahi\n' >"$test_tmp/initramfs.analyze"
+run_check linux-aurora
+expect_pass "an encrypted root whose systemd initramfs carries the cryptsetup generator"
+printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\nusr/bin/init\n' "$kver" >"$test_tmp/initramfs"
+run_check linux-aurora
+expect_fail "an encrypted root whose initramfs lacks sd-encrypt" "/boot/initramfs-linux-aurora.img does not contain sd-encrypt"
 system linux-asahi
 run_check
 expect_pass "linux-asahi with m1n1, detected"
