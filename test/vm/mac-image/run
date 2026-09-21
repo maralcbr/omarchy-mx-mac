@@ -112,7 +112,7 @@ cleanup() {
     sudo losetup -d "$l" 2>/dev/null || true
   done
   if ((status == 0 && keep == 0)); then
-    rm -rf "$work"
+    sudo rm -rf "$work"
   else
     echo "run directory kept: $work" >&2
   fi
