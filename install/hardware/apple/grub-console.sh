@@ -57,6 +57,10 @@ if [[ ! -s $grub_font ]]; then
 fi
 [[ -s $grub_font ]] && grub_console_set GRUB_FONT "$grub_font"
 
+# Without a named backend GRUB also tries efi_uga, which the arm64 build
+# does not ship, and prints "efi_uga.mod not found" at every boot.
+grub_console_set GRUB_VIDEO_BACKEND efi_gop
+
 cmdline=$(grub_console_get GRUB_CMDLINE_LINUX)
 if [[ " $cmdline " != *" $device_wait "* ]]; then
   grub_console_set GRUB_CMDLINE_LINUX "${cmdline:+$cmdline }$device_wait"

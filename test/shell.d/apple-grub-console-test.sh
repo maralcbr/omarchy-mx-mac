@@ -37,6 +37,7 @@ grep -Fq "mkfont -s 28 -o $tmp/fonts/omarchy.pf2 $tmp/source.ttf" "$CALL_LOG" ||
 grep -Fxq "GRUB_FONT=\"$tmp/fonts/omarchy.pf2\"" "$tmp/grub" || fail "GRUB_FONT names the rendered font: $(<"$tmp/grub")"
 grep -Fxq 'GRUB_CMDLINE_LINUX="zswap.enabled=0 rootfstype=btrfs rootflags=x-systemd.device-timeout=0"' "$tmp/grub" ||
   fail "the root-device wait is appended to GRUB_CMDLINE_LINUX: $(<"$tmp/grub")"
+grep -Fxq 'GRUB_VIDEO_BACKEND="efi_gop"' "$tmp/grub" || fail "the video backend is pinned to efi_gop so GRUB stops asking for efi_uga"
 [[ $(grep -c update-grub "$CALL_LOG") == 1 ]] || fail "grub.cfg is regenerated once"
 pass "the leaf renders the font, sets GRUB_FONT and the root wait, and regenerates GRUB once"
 
