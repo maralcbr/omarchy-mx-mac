@@ -15,9 +15,12 @@ fi
 echo "Detected Apple Silicon Mac: creating the /.snapshots subvolume for snapper"
 
 if [[ -d $snapshots_dir ]]; then
-  # A plain directory is the flattened stub; anything inside it is not a
-  # snapshot collection, so the directory is replaced.
-  sudo rm -rf "$snapshots_dir"
+  # A plain directory is the flattened stub and must be empty; anything else
+  # is not ours to remove.
+  if ! sudo rmdir "$snapshots_dir"; then
+    echo "$snapshots_dir is a plain directory with contents; leaving it for the owner to inspect" >&2
+    return 1
+  fi
 fi
 sudo btrfs subvolume create "$snapshots_dir" >/dev/null
 sudo chmod 750 "$snapshots_dir"

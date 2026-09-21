@@ -8,6 +8,7 @@ Description=Omarchy snapshot restore verification
 DefaultDependencies=no
 ConditionPathExists=/var/lib/omarchy/snapshot-restore/pending
 After=systemd-remount-fs.service local-fs.target
+RequiresMountsFor=/boot
 Before=sysinit.target shutdown.target
 Conflicts=shutdown.target
 

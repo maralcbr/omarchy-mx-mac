@@ -31,6 +31,7 @@ TOP_MNT=${OMARCHY_SNAPSHOT_RESTORE_TOP:-/run/omarchy/snapshot-restore/top}
 LOCK_FILE=${OMARCHY_ROOT_SWAP_LOCK:-/run/lock/omarchy-root-swap.lock}
 UNIT_SRC=${OMARCHY_SNAPSHOT_RESTORE_UNIT_SRC:-${OMARCHY_PATH:-/usr/share/omarchy}/install/provisioning}
 MODULES_DIR=${OMARCHY_SNAPSHOT_RESTORE_MODULES:-/usr/lib/modules}
+BOOT_DIR=${OMARCHY_SNAPSHOT_RESTORE_BOOT:-/boot}
 SNAPSHOTS_DIR=${OMARCHY_SNAPSHOTS_DIR:-/.snapshots}
 PROC=${OMARCHY_SNAPSHOT_RESTORE_PROC:-/proc}
 ROOT_SUBVOL=@
@@ -103,11 +104,26 @@ subvolume_id() {
   btrfs subvolume show "$1" 2>/dev/null | awk -F': *' '$1 ~ /Subvolume ID/ { print $2; exit }'
 }
 
-# --prune-previous: drop the kept roots once the restore has been verified.
+record_field() {
+  sed -n "s/^$1=//p" "$RECORD" 2>/dev/null | head -n 1
+}
+
+# --prune-previous: drop the kept roots once the restore has been verified,
+# which means the next boot ran the finish worker and the root that is
+# running now is the restored clone, never the root about to be deleted.
 prune_previous() {
-  local kept found=0
+  local kept found=0 phase current_id
   [[ ! -f $STATE_DIR/pending ]] || fail "a restore is still pending verification on the next boot"
+  if [[ -f $RECORD ]]; then
+    phase=$(record_field phase)
+    [[ $phase == finished ]] || fail "the last restore is not verified (phase ${phase:-unknown}); reboot first"
+  fi
   mount_top
+  current_id=$(subvolume_id "$TOP_MNT/$ROOT_SUBVOL")
+  if [[ -f $RECORD && -n $current_id && $current_id != "$(record_field next_id)" ]]; then
+    umount_top
+    fail "the running root is not the restored root named in the record; refusing to prune"
+  fi
   for kept in "$TOP_MNT"/@omarchy-previous-*; do
     [[ -d $kept ]] || continue
     found=1
@@ -152,15 +168,18 @@ snapshot_path=$SNAPSHOTS_DIR/$number/snapshot
 is_subvolume "$snapshot_path" || fail "snapshot $number is not a btrfs subvolume"
 
 # Next-boot kernel compatibility: /boot is ext4 and not part of the snapshot,
-# so the kernel there stays; the snapshot must carry its modules. The kernel
-# on /boot is the one the running root installed, so its modules directory
-# in the running root names the version.
+# so the kernel there stays; the snapshot must carry its modules. The Apple
+# kernel package (omarchy-hw-apple-kernel) owns /boot/vmlinuz-<package>, and
+# the modules directory whose pkgbase names that package is its version.
+kernel_package=$(omarchy-hw-apple-kernel 2>/dev/null || true)
+[[ -n $kernel_package && -f $BOOT_DIR/vmlinuz-$kernel_package ]] ||
+  fail "the kernel on $BOOT_DIR is not the installed Apple kernel package (${kernel_package:-unknown})"
 required_kernels=()
 for dir in "$MODULES_DIR"/*/; do
-  [[ -f $dir/pkgbase ]] || continue
+  [[ -f $dir/pkgbase && $(<"$dir/pkgbase") == "$kernel_package" ]] || continue
   required_kernels+=("${dir%/}")
 done
-(( ${#required_kernels[@]} > 0 )) || fail "no installed kernel found under $MODULES_DIR"
+(( ${#required_kernels[@]} > 0 )) || fail "no modules for $kernel_package found under $MODULES_DIR"
 for dir in "${required_kernels[@]}"; do
   version=${dir##*/}
   [[ -f $snapshot_path$MODULES_DIR/$version/modules.dep ]] ||
@@ -189,16 +208,32 @@ stamp=$(date +%s)
 next_name=@restore-$stamp
 previous_name=@omarchy-previous-$stamp
 moved_snapshots=0
+root_renamed=0
 swap_done=0
 next=""
 
 cleanup() {
   local status=$?
   if (( status != 0 && swap_done == 0 )); then
-    # Undo in reverse: the snapshot collection first, then the staged root,
-    # which is deleted only when it holds no collection.
+    # Undo in reverse. A root renamed away without its replacement in place
+    # comes back first: nothing else matters while there is no @.
+    if (( root_renamed )) && [[ ! -e $TOP_MNT/$ROOT_SUBVOL && -d $TOP_MNT/$previous_name ]]; then
+      mv "$TOP_MNT/$previous_name" "$TOP_MNT/$ROOT_SUBVOL" 2>/dev/null && root_renamed=0
+    fi
+    if (( root_renamed )); then
+      echo "omarchy-mac-snapshot-restore: the root could not be renamed back; $RECORD names the roots for a rescue" >&2
+      umount_top
+      return
+    fi
+    # Then the snapshot collection, then the staged root, which is deleted
+    # only when it holds no collection.
     if (( moved_snapshots )) && [[ -n $next && -d $next/.snapshots ]]; then
-      mv -T "$next/.snapshots" "$TOP_MNT/$ROOT_SUBVOL/.snapshots" 2>/dev/null || true
+      mv -T "$next/.snapshots" "$TOP_MNT/$ROOT_SUBVOL/.snapshots" 2>/dev/null && moved_snapshots=0
+    fi
+    if (( moved_snapshots )); then
+      echo "omarchy-mac-snapshot-restore: /.snapshots stayed in $next; $RECORD names it for a rescue" >&2
+      umount_top
+      return
     fi
     if [[ -n $next && -d $next ]] && ! is_subvolume "$next/.snapshots"; then
       btrfs subvolume delete --recursive "$next" >/dev/null 2>&1 || true
@@ -274,8 +309,10 @@ sync
 
 log "Activating the restored root (previous root kept as $previous_name)"
 write_record swapping
-mv "$top/$ROOT_SUBVOL" "$top/$previous_name"
-mv "$next" "$top/$ROOT_SUBVOL"
+mv "$top/$ROOT_SUBVOL" "$top/$previous_name" || fail "could not rename the current root"
+root_renamed=1
+mv "$next" "$top/$ROOT_SUBVOL" || fail "could not put the restored root in place"
+root_renamed=0
 swap_done=1
 sync
 write_record swapped

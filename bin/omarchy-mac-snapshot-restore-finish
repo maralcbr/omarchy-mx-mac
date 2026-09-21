@@ -40,22 +40,31 @@ if ! btrfs subvolume show "$SNAPSHOTS_DIR" >/dev/null 2>&1; then
   exit 1
 fi
 
-if command -v snapper >/dev/null 2>&1; then
-  if ! snapper --no-dbus -c root list >/dev/null 2>&1; then
-    log "snapper cannot read the restored collection; keeping the restore pending"
-    result failed "snapper list failed"
+if ! command -v snapper >/dev/null 2>&1; then
+  log "snapper is not installed on the restored root; keeping the restore pending"
+  result failed "snapper missing"
+  exit 1
+fi
+if ! snapper --no-dbus -c root list >/dev/null 2>&1; then
+  log "snapper cannot read the restored collection; keeping the restore pending"
+  result failed "snapper list failed"
+  exit 1
+fi
+snapper --no-dbus -c root create -c number -d "Restored from ${restored_from:-?}" \
+  --userdata "restored_from=${restored_from:-unknown}" >/dev/null 2>&1 ||
+  log "could not record a snapshot of the restored state (continuing)"
+
+# The record on /boot is what lets prune-previous tell a verified restore
+# from one that has not rebooted yet, so it must be updated or nothing is.
+if [[ -f $RECORD ]]; then
+  if ! sed -i 's/^phase=.*/phase=finished/' "$RECORD" || ! grep -Fxq 'phase=finished' "$RECORD"; then
+    log "could not mark $RECORD finished; keeping the restore pending"
+    result failed "record update failed"
     exit 1
   fi
-  snapper --no-dbus -c root create -c number -d "Restored from ${restored_from:-?}" \
-    --userdata "restored_from=${restored_from:-unknown}" >/dev/null 2>&1 ||
-    log "could not record a snapshot of the restored state (continuing)"
-fi
-
-if [[ -f $RECORD ]]; then
-  sed -i 's/^phase=.*/phase=finished/' "$RECORD" 2>/dev/null || true
 fi
 rm -f "$STATE_DIR/pending"
 result finished "restored from snapshot ${restored_from:-?}"
-rm -f /etc/systemd/system/sysinit.target.wants/omarchy-mac-snapshot-restore-finish.service
+rm -f "${OMARCHY_SNAPSHOT_RESTORE_WANTS_DIR:-/etc/systemd/system/sysinit.target.wants}/omarchy-mac-snapshot-restore-finish.service"
 log "restore from snapshot ${restored_from:-?} verified; run omarchy-snapshot prune-previous to drop the kept root"
 exit 0

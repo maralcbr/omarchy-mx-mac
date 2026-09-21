@@ -96,7 +96,20 @@ printf '$command %s\n' "\$*" >>"\$CALL_LOG"
 STUB
 done
 printf '#!/bin/bash\nexit 0\n' >"$stub_bin/omarchy-hw-apple-silicon"
+printf '#!/bin/bash\necho linux-aurora\n' >"$stub_bin/omarchy-hw-apple-kernel"
+# mv is real, except when a test asks the second root rename to fail.
+cat >"$stub_bin/mv" <<'STUB'
+#!/bin/bash
+# Fails the first rename onto @ (the second swap step) once; the rollback
+# rename onto @ that follows must succeed.
+if [[ ${MV_FAIL_SECOND:-0} == 1 && ${*: -1} == "$TOP/@" && ! -e $TOP/.mv-failed-once ]]; then
+  : >"$TOP/.mv-failed-once"
+  exit 1
+fi
+exec /usr/bin/mv "$@"
+STUB
 chmod +x "$stub_bin"/*
+: >"$tmp/boot/vmlinuz-linux-aurora"
 
 # The fake top is a directory, so mount is a no-op and the script's
 # /.snapshots checks are redirected by the btrfs stub. The script mounts at
@@ -117,8 +130,15 @@ run_restore() {
   OMARCHY_ROOT_SWAP_LOCK="$tmp/lock/swap" \
   OMARCHY_SNAPSHOT_RESTORE_UNIT_SRC="$tmp/units" \
   OMARCHY_SNAPSHOT_RESTORE_MODULES="$modules" \
+  OMARCHY_SNAPSHOT_RESTORE_BOOT="$tmp/boot" \
   OMARCHY_SNAPSHOTS_DIR="$top/@/.snapshots" \
     bash "$restore" "$@" >"$tmp/out" 2>&1
+}
+
+run_finish() {
+  OMARCHY_SNAPSHOT_RESTORE_STATE_DIR="$top/@$state" OMARCHY_SNAPSHOT_RESTORE_RECORD="$record" \
+    OMARCHY_SNAPSHOTS_DIR="$top/@/.snapshots" OMARCHY_SNAPSHOT_RESTORE_WANTS_DIR="$tmp/wants" \
+    bash "$finish_runnable" >"$tmp/out" 2>&1
 }
 
 # The script insists on root; the sandbox copy drops that one line.
@@ -126,6 +146,9 @@ runnable="$tmp/omarchy-mac-snapshot-restore"
 sed -e 's@^(( EUID == 0 )) || fail "run as root"$@true # test-only root boundary@' "$restore" >"$runnable"
 grep -Fq 'test-only root boundary' "$runnable" || fail "the sandbox copy drops the root boundary"
 restore=$runnable
+finish_runnable="$tmp/omarchy-mac-snapshot-restore-finish"
+sed -e 's@^if (( EUID != 0 )); then$@if false; then # test-only root boundary@' "$finish" >"$finish_runnable"
+grep -Fq 'test-only root boundary' "$finish_runnable" || fail "the finish sandbox copy drops the root boundary"
 
 # Without the gate nothing happens.
 if run_restore 1 --yes --no-reboot; then fail "a restore without the opt-in gate must refuse"; fi
@@ -147,11 +170,15 @@ mkdir -p "$modules/6.17.0-aurora"; printf 'linux-aurora\n' >"$modules/6.17.0-aur
 if run_restore 1 --yes --no-reboot; then fail "a snapshot without the kernel's modules must refuse"; fi
 grep -Fq 'no modules for the kernel on /boot (6.17.0-aurora)' "$tmp/out" || fail "the kernel mismatch names the version: $(<"$tmp/out")"
 rm -r "$modules/6.17.0-aurora"
+mv "$tmp/boot/vmlinuz-linux-aurora" "$tmp/boot/vmlinuz-other"
+if run_restore 1 --yes --no-reboot; then fail "a /boot without the Apple kernel package's image must refuse"; fi
+grep -Fq 'not the installed Apple kernel package' "$tmp/out" || fail "the /boot kernel identity is checked: $(<"$tmp/out")"
+mv "$tmp/boot/vmlinuz-other" "$tmp/boot/vmlinuz-linux-aurora"
 printf 'Filename\tType\tSize\tUsed\tPriority\n/swapfile file 4194300 0 -2\n' >"$tmp/proc/swaps"
 if run_restore 1 --yes --no-reboot; then fail "a swap file on the root must refuse"; fi
 grep -Fq 'swap file' "$tmp/out" || fail "the swap refusal is named: $(<"$tmp/out")"
 printf 'Filename\tType\tSize\tUsed\tPriority\n' >"$tmp/proc/swaps"
-[[ ! -e $record && ! -d $top/@restore-* ]] || fail "refusals stage nothing"
+[[ ! -e $record && -z $(compgen -G "$top/@restore-*") ]] || fail "refusals stage nothing"
 ! grep -q 'btrfs subvolume snapshot' "$CALL_LOG" || fail "refusals clone nothing"
 pass "the restore refuses pending provisioning, foreign roots, missing snapshots and kernel mismatches"
 
@@ -166,6 +193,20 @@ grep -Fq 'delete' "$CALL_LOG.deletes" || fail "the staging root deletion went th
 [[ -d $top/@ ]] || fail "the root is untouched on failure"
 cp "$unit" "$tmp/units/"
 pass "a failure after the move restores /.snapshots and drops the staging root"
+
+# The second rename fails: the current root gets its name back before anything
+# else is unwound, so the machine still has an @ to boot.
+rm -f "$CALL_LOG.deletes"
+original_id=$(<"$top/@/.subvol")
+if MV_FAIL_SECOND=1 run_restore 1 --yes --no-reboot; then fail "a failed second rename must fail the restore"; fi
+[[ -d $top/@ && $(<"$top/@/.subvol") == "$original_id" ]] || fail "the current root is renamed back to @"
+[[ -z $(compgen -G "$top/@omarchy-previous-*") ]] || fail "no previous root is left behind"
+[[ -f $top/@/.snapshots/.subvol && -f $top/@/.snapshots/1/info.xml ]] || fail "the collection is back in the current root"
+[[ -z $(compgen -G "$top/@restore-*") ]] || fail "the staging root is dropped"
+[[ ! -e $record ]] || fail "a fully unwound restore leaves no record"
+grep -Fq 'could not put the restored root in place' "$tmp/out" || fail "the failure is named: $(<"$tmp/out")"
+rm -f "$top/.mv-failed-once"
+pass "a failed second rename restores the root name before unwinding the rest"
 
 # The happy path, without the reboot.
 rm -f "$CALL_LOG.deletes"
@@ -189,47 +230,49 @@ grep -q 'systemctl stop snapper-cleanup.timer' "$CALL_LOG" || fail "snapper clea
 pass "a restore clones the snapshot, moves /.snapshots, swaps the roots and records it"
 
 # A second restore waits for the kept root to be pruned; pruning needs the
-# next boot's verification first.
+# next boot's verification first: the record still says swapped and the
+# pending marker sits in the restored root.
 if run_restore 1 --yes --no-reboot; then fail "a kept previous root must block another restore"; fi
 grep -Fq 'prune-previous' "$tmp/out" || fail "the refusal names prune-previous"
-mkdir -p "$state"; : >"$state/pending"
-if run_restore --prune-previous; then fail "pruning before verification must refuse"; fi
-grep -Fq 'pending verification' "$tmp/out" || fail "the prune refusal names the pending verification"
-rm -f "$state/pending"
-run_restore --prune-previous || fail "pruning drops the kept root: $(<"$tmp/out")"
-[[ -z $(compgen -G "$top/@omarchy-previous-*") ]] || fail "the kept root is deleted"
-grep -Fq "delete $previous" "$CALL_LOG.deletes" || fail "the kept root deletion went through btrfs"
-[[ ! -e $record ]] || fail "pruning clears the record"
-pass "prune-previous drops the kept root only after verification"
+if run_restore --prune-previous; then fail "pruning before the verifying reboot must refuse"; fi
+grep -Fq 'not verified (phase swapped)' "$tmp/out" || fail "the prune refusal names the unverified restore: $(<"$tmp/out")"
+[[ -d $previous ]] || fail "the running root survives a refused prune"
+pass "prune-previous refuses until the restore was verified by a reboot"
 
-# The finish worker on the next boot.
+# The finish worker on the next boot: it runs inside the restored root.
+mkdir -p "$tmp/wants"; ln -s /etc/systemd/system/omarchy-mac-snapshot-restore-finish.service "$tmp/wants/"
+if run_finish; then fail "without snapper the verification must fail closed"; fi
+[[ -f $top/@$state/pending ]] || fail "a failed verification keeps the pending marker"
+grep -q $'\tfailed\t' "$top/@$state/last-result" || fail "the failure is recorded"
 cat >"$stub_bin/snapper" <<'STUB'
 #!/bin/bash
 printf 'snapper %s\n' "$*" >>"$CALL_LOG"
 exit 0
 STUB
 chmod +x "$stub_bin/snapper"
-mkdir -p "$state" "$tmp/wants"
-: >"$state/pending"
-printf 'restored_from=1\n' >"$state/restored-from"
-printf 'format=1\nphase=swapped\n' >"$record"
 : >"$CALL_LOG"
-OMARCHY_SNAPSHOT_RESTORE_STATE_DIR="$state" OMARCHY_SNAPSHOT_RESTORE_RECORD="$record" \
-  OMARCHY_SNAPSHOTS_DIR="$top/@/.snapshots" bash "$finish" >"$tmp/out" 2>&1 || fail "the finish worker verifies the restore: $(<"$tmp/out")"
-[[ ! -e $state/pending ]] || fail "verification clears the pending marker"
+run_finish || fail "the finish worker verifies the restore: $(<"$tmp/out")"
+[[ ! -e $top/@$state/pending ]] || fail "verification clears the pending marker"
 grep -Fxq 'phase=finished' "$record" || fail "verification marks the record finished"
 grep -q 'snapper --no-dbus -c root create -c number -d Restored from 1 --userdata restored_from=1' "$CALL_LOG" ||
   fail "verification records a snapshot of the restored state"
-grep -q $'\tfinished\t' "$state/last-result" || fail "verification records its result"
-pass "the finish worker verifies the collection and records the restored state"
+grep -q $'\tfinished\t' "$top/@$state/last-result" || fail "verification records its result"
+[[ ! -e $tmp/wants/omarchy-mac-snapshot-restore-finish.service ]] || fail "the finish unit disarms itself"
+pass "the finish worker fails closed without snapper and verifies the collection otherwise"
+
+# Now the kept root may go: the record is finished and the running root is
+# the restored clone the record names.
+run_restore --prune-previous || fail "pruning drops the kept root: $(<"$tmp/out")"
+[[ -z $(compgen -G "$top/@omarchy-previous-*") ]] || fail "the kept root is deleted"
+grep -Fq "delete $previous" "$CALL_LOG.deletes" || fail "the kept root deletion went through btrfs"
+[[ ! -e $record ]] || fail "pruning clears the record"
+pass "prune-previous drops the kept root only after verification"
 
 # A restored root whose collection is missing stays pending.
-: >"$state/pending"
+: >"$top/@$state/pending"
+printf 'format=1\nphase=swapped\n' >"$record"
 rm "$top/@/.snapshots/.subvol"
-if OMARCHY_SNAPSHOT_RESTORE_STATE_DIR="$state" OMARCHY_SNAPSHOT_RESTORE_RECORD="$record" \
-  OMARCHY_SNAPSHOTS_DIR="$top/@/.snapshots" bash "$finish" >"$tmp/out" 2>&1; then
-  fail "a missing collection must keep the restore pending"
-fi
-[[ -f $state/pending ]] || fail "the pending marker stays"
-grep -q $'\tfailed\t' "$state/last-result" || fail "the failure is recorded"
+if run_finish; then fail "a missing collection must keep the restore pending"; fi
+[[ -f $top/@$state/pending ]] || fail "the pending marker stays"
+grep -q $'\tfailed\t' "$top/@$state/last-result" || fail "the failure is recorded"
 pass "a restored root without its collection stays pending"

@@ -25,8 +25,7 @@ chmod 0644 "$SNAPPER_CONF_PATH"
 
 systemctl disable --now snapper-timeline.timer >/dev/null 2>&1 || true
 if command -v omarchy-hw-apple-silicon >/dev/null 2>&1 && omarchy-hw-apple-silicon; then
-  # Apple Silicon boots GRUB: no Limine menu to sync. Bootable snapshot
-  # entries come from grub-btrfs, refreshed by omarchy-snapshot.
+  # Apple Silicon boots GRUB: no Limine menu to sync.
   systemctl enable --now snapper-cleanup.timer >/dev/null 2>&1 || true
 else
   systemctl enable --now snapper-cleanup.timer limine-snapper-sync.service >/dev/null 2>&1 || true
