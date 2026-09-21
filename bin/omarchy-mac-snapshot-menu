@@ -83,6 +83,7 @@ quoted() {
 
 mkdir -p "${CONFIG%/*}"
 tmp=$(mktemp "$CONFIG.XXXXXX")
+# omarchy:heredoc-expands paths=none -- the values are a number, a submenu name and subvolume names this root-only tool computed itself
 cat >"$tmp" <<CONF
 # Written by omarchy-mac-snapshot-menu; edits are replaced on the next refresh.
 GRUB_BTRFS_SUBMENUNAME="Omarchy snapshots"
