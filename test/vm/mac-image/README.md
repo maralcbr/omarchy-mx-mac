@@ -39,7 +39,6 @@ plain|encrypted` runs one path, `--keep` retains the run directory
 `~/vm-evidence/mac-image-<run-id>/`: `run.txt` with the `ok` lines, payload
 digest and generic kernel, the serial log of each boot and the mkinitcpio log.
 
-A failed run keeps its run directory; delete it when done. The host's own disk
-must not carry the image's fixed UUIDs (`4F4D-5801`, the Boot and root UUIDs):
-a Mac installed from an image does, so run this on the VM acceptance host, not
-on an imaged Mac.
+A failed run keeps its run directory; delete it when done. The guest's disks
+are addressed by device path, never by the image's fixed UUIDs, so the harness
+also runs on a Mac that was itself installed from an image.
