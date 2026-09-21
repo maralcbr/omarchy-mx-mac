@@ -12,7 +12,7 @@
     }
 
     func testSerializesOptOutAndEveryAppChannel() throws {
-      for lane in ["stable", "rc", "rc-aurora"] {
+      for lane in ["stable", "rc"] {
         let conf = try InstallConf(encrypt: false, lane: lane)
         XCTAssertEqual(conf.serialized, "format=1\nencrypt=0\nlane=\(lane)\n")
         XCTAssertEqual(try InstallConf.parse(conf.serialized).lane, lane)

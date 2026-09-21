@@ -3,7 +3,7 @@
 Production packaging reads this directory and copies its contents into
 `Omarchy MX Mac Installer.app/Contents/Resources/Release/`:
 
-- `release.json` — schema version 3 descriptor naming the stable, rc, and rc-aurora
+- `release.json` — schema version 3 descriptor naming the stable and rc
   channel catalog URLs, the default channel, the expected Ed25519 trust-root
   fingerprint, the helper Mach service name, and the helper code-signing
   requirement. Generate it with `scripts/make-release-descriptor`.

@@ -217,17 +217,14 @@
     public static let startOver = "Start over"
     public static let downloadInstaller = "Download the installer"
     public static let rcBadge = "Release candidate"
-    public static let rcAuroraBadge = "RC (Aurora)"
     public static let channelMenuTitle = "Release channel"
     public static let channelStable = "Stable"
     public static let channelRC = "Release candidate"
-    public static let channelRCAurora = "RC (Aurora)"
 
     public static func badge(for channel: ReleaseChannel) -> String {
       switch channel {
       case .stable: channelStable
       case .rc: rcBadge
-      case .rcAurora: rcAuroraBadge
       }
     }
 

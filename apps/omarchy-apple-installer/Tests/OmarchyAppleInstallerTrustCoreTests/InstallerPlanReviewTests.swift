@@ -248,9 +248,6 @@
           .rc: URL(
             string: "https://releases.example.com/channels/rc/catalog.signed.json"
           )!,
-          .rcAurora: URL(
-            string: "https://releases.example.com/channels/rc-aurora/catalog.signed.json"
-          )!,
         ])!,
         defaultChannel: .stable,
         trustRoot: trustRoot,

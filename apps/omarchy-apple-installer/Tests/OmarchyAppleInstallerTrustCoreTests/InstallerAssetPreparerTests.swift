@@ -9,7 +9,7 @@
     private let now = Date(timeIntervalSince1970: 1_788_000_000)
 
     func testTwoReleasesShareOneStagingDirectoryWithoutColliding() async throws {
-      // rc and rc-aurora both deliver an installer_data.json, with different
+      // rc delivers an installer_data.json, with different
       // bytes. A tester who tries one channel and then the other must not be
       // refused because the first channel's file is still staged.
       let first = try makeFixture(
@@ -516,9 +516,6 @@
         channels: ReleaseChannelEndpoints(endpoints: [
           .stable: stableURL,
           .rc: rcURL,
-          .rcAurora: URL(
-            string: "https://releases.example.com/channels/rc-aurora/catalog.signed.json"
-          )!,
         ])!,
         defaultChannel: .stable,
         trustRoot: trustRoot,

@@ -11,7 +11,7 @@ public struct InstallConf: Equatable, Sendable {
   public static let relativePath = "omarchy/install.conf"
   public static let directoryName = "omarchy"
   public static let fileName = "install.conf"
-  public static let allowedLanes: Set<String> = ["stable", "rc", "rc-aurora"]
+  public static let allowedLanes: Set<String> = ["stable", "rc"]
 
   public let encrypt: Bool
   public let lane: String

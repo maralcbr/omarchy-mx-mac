@@ -167,7 +167,6 @@ struct OmarchyAppleInstallerApp: App {
         Picker(PlainLanguage.channelMenuTitle, selection: channelBinding) {
           Text(PlainLanguage.channelStable).tag(ReleaseChannel.stable)
           Text(PlainLanguage.channelRC).tag(ReleaseChannel.rc)
-          Text(PlainLanguage.channelRCAurora).tag(ReleaseChannel.rcAurora)
         }
         .pickerStyle(.inline)
         .disabled(

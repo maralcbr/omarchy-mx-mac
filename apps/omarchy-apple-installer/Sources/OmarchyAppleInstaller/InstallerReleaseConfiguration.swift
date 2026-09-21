@@ -19,15 +19,11 @@
   }
 
   /// The release channels a build can read. Every build names all of them, so
-  /// a channel can be opened later without shipping a new signed app.
-  ///
-  /// rcAurora serves the Aurora kernel payload. It is a separate channel rather
-  /// than a variant inside rc because it is a different OS image, and a tester
-  /// on rc must never be handed it by accident.
+  /// a channel can be opened later without shipping a new signed app. The rc
+  /// channel carries the Aurora kernel image; the old rc-aurora lane is gone.
   public enum ReleaseChannel: String, CaseIterable, Codable, Sendable {
     case stable
     case rc
-    case rcAurora = "rc-aurora"
   }
 
   public struct ReleaseChannelEndpoints: Equatable, Sendable {

@@ -120,7 +120,7 @@
       let helper = MockInstallConfESPHelper(result: .failure(.readbackMismatch))
       let writer = InstallConfESPWriter(helper: helper)
       let outcome = await writer.record(
-        try InstallConf(encrypt: true, lane: "rc-aurora"),
+        try InstallConf(encrypt: true, lane: "rc"),
         storeIdentifier: "disk0", offsetBytes: 1, lengthBytes: 2)
       XCTAssertEqual(outcome, .unconfirmed(encrypt: true))
     }
