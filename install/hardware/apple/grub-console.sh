@@ -16,16 +16,27 @@ device_wait='rootflags=x-systemd.device-timeout=0'
 
 [[ -f $grub_default ]] || return 0
 
+# A regeneration that failed (the ESP read-only, say) is owed until it
+# succeeds, even when the defaults already read as configured.
+pending=${OMARCHY_GRUB_CONSOLE_PENDING:-/var/lib/omarchy/grub-console.pending}
 grub_console_changed=0
+[[ ! -e $pending ]] || grub_console_changed=1
 
+# The value GRUB would use: the last active assignment, quotes stripped.
+grub_console_get() {
+  sed -n "s/^$1=//p" "$grub_default" | tail -n 1 | sed -E "s/^\"(.*)\"$/\1/; s/^'(.*)'$/\1/"
+}
+
+# One authoritative assignment: the first occurrence (active or commented)
+# takes the value, every later one goes, a missing key is appended.
 grub_console_set() {
   local key=$1 value=$2 staged
-  if grep -Fxq "$key=\"$value\"" "$grub_default"; then
+  if [[ $(grub_console_get "$key") == "$value" && $(grep -Ec "^$key=" "$grub_default") == 1 ]]; then
     return 0
   fi
   staged=$(mktemp)
   awk -v key="$key" -v line="$key=\"$value\"" '
-    !done && $0 ~ "^#?" key "=" { print line; done = 1; next }
+    $0 ~ "^#?" key "=" { if (!done) { print line; done = 1 }; next }
     { print }
     END { if (!done) print line }
   ' "$grub_default" >"$staged"
@@ -46,12 +57,17 @@ if [[ ! -s $grub_font ]]; then
 fi
 [[ -s $grub_font ]] && grub_console_set GRUB_FONT "$grub_font"
 
-cmdline=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p' "$grub_default" | head -n 1)
+cmdline=$(grub_console_get GRUB_CMDLINE_LINUX)
 if [[ " $cmdline " != *" $device_wait "* ]]; then
   grub_console_set GRUB_CMDLINE_LINUX "${cmdline:+$cmdline }$device_wait"
+else
+  grub_console_set GRUB_CMDLINE_LINUX "$cmdline"
 fi
 
 if (( grub_console_changed )); then
+  sudo mkdir -p "$(dirname "$pending")"
+  sudo touch "$pending"
   echo "Regenerating GRUB for the console font and the unbounded root wait"
   sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null
+  sudo rm -f "$pending"
 fi

@@ -26,6 +26,7 @@ chmod +x "$tmp/bin"/*
 
 run_leaf() {
   : >"$CALL_LOG"
+  OMARCHY_GRUB_CONSOLE_PENDING="$tmp/pending" \
   OMARCHY_GRUB_DEFAULT="$tmp/grub" OMARCHY_GRUB_FONT="$tmp/fonts/omarchy.pf2" OMARCHY_GRUB_FONT_SOURCE="$tmp/source.ttf" \
     bash -euo pipefail -c 'source "$1"' _ "$leaf" >"$tmp/out" 2>&1
 }
@@ -42,6 +43,27 @@ pass "the leaf renders the font, sets GRUB_FONT and the root wait, and regenerat
 run_leaf || fail "a second run passes"
 [[ ! -s $CALL_LOG ]] || fail "a configured Mac renders nothing and runs no update-grub: $(<"$CALL_LOG")"
 pass "the leaf is idempotent"
+
+# A duplicate or commented assignment: one authoritative line survives with
+# the effective (last) value extended.
+printf '#GRUB_CMDLINE_LINUX="old"\nGRUB_CMDLINE_LINUX="first"\nGRUB_TIMEOUT="1"\nGRUB_CMDLINE_LINUX='"'"'zswap.enabled=0'"'"'\n' >"$tmp/grub"
+run_leaf || fail "duplicate assignments are handled: $(<"$tmp/out")"
+[[ $(grep -c "GRUB_CMDLINE_LINUX=" "$tmp/grub") == 1 ]] || fail "one GRUB_CMDLINE_LINUX line remains: $(<"$tmp/grub")"
+grep -Fxq 'GRUB_CMDLINE_LINUX="zswap.enabled=0 rootflags=x-systemd.device-timeout=0"' "$tmp/grub" ||
+  fail "the effective (last, single-quoted) value is the one extended: $(<"$tmp/grub")"
+pass "the leaf leaves one authoritative assignment carrying the effective value"
+
+# A failed update-grub leaves the regeneration owed: the next run retries it
+# even though the defaults already read as configured.
+printf '#!/bin/bash\necho update-grub >>"$CALL_LOG"; exit 1\n' >"$tmp/bin/update-grub"
+printf 'GRUB_CMDLINE_LINUX="zswap.enabled=0"\n' >"$tmp/grub"
+if run_leaf; then fail "a failed update-grub must fail the leaf"; fi
+[[ -e $tmp/pending ]] || fail "a failed regeneration is recorded as pending"
+printf '#!/bin/bash\necho update-grub >>"$CALL_LOG"\n' >"$tmp/bin/update-grub"
+run_leaf || fail "the retry runs: $(<"$tmp/out")"
+grep -q update-grub "$CALL_LOG" || fail "the retry regenerates GRUB although the defaults were already set"
+[[ ! -e $tmp/pending ]] || fail "a successful regeneration clears the pending marker"
+pass "a failed regeneration is retried on the next run"
 
 printf 'GRUB_CMDLINE_LINUX="zswap.enabled=0"\n' >"$tmp/grub"
 APPLE=1 run_leaf || fail "a non-Apple machine passes"
