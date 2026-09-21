@@ -101,7 +101,7 @@ is_subvolume() {
 }
 
 subvolume_id() {
-  btrfs subvolume show "$1" 2>/dev/null | awk -F': *' '$1 ~ /Subvolume ID/ { print $2; exit }'
+  btrfs subvolume show "$1" 2>/dev/null | awk -F: '$1 ~ /Subvolume ID/ { gsub(/[[:space:]]/, "", $2); print $2; exit }'
 }
 
 record_field() {

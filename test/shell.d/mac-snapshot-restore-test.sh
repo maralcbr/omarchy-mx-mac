@@ -57,7 +57,7 @@ case "$1 $2" in
     [[ $path == / ]] && path=$TOP/@
     [[ $path == /.snapshots* ]] && path=$SNAPSHOTS${path#/.snapshots}
     [[ -f $path/.subvol ]] || exit 1
-    printf 'Subvolume ID: \t\t%s\n' "$(cat "$path/.subvol")"
+    printf '\tSubvolume ID:\t\t%s\n' "$(cat "$path/.subvol")"
     ;;
   "subvolume snapshot")
     src=$3; dst=$4
@@ -241,6 +241,7 @@ previous=$(compgen -G "$top/@omarchy-previous-*")
   fail "the finish unit is installed and enabled in the new root"
 [[ -f $top/@$state/pending ]] || fail "the new root carries the pending marker"
 grep -Fxq 'restored_from=1' "$top/@$state/restored-from" || fail "the new root records its snapshot"
+grep -Eq '^next_id=[0-9]+$' "$record" && grep -Eq '^previous_id=[0-9]+$' "$record" || fail "subvolume ids are bare numbers: $(grep _id "$record")"
 grep -Fxq 'phase=swapped' "$record" && grep -Fxq 'snapshot=1' "$record" &&
   grep -Fq "previous=${previous##*/}" "$record" || fail "the record names the swap: $(<"$record")"
 ! grep -q 'reboot' "$CALL_LOG" || fail "--no-reboot does not reboot"
