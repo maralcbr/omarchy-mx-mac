@@ -152,6 +152,7 @@ asahi_migration_disposition() {
     1789879296.sh) printf 'run\treviewed Aurora leftover linux-asahi-headers repair; self-gating to the rc channel record\n' ;;
     1789999316.sh) printf 'run\treviewed snapper enablement for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
     1790003445.sh) printf 'run\treviewed quiet GRUB defaults for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
+    1790009252.sh) printf 'run\treviewed grub-btrfs enablement for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
     *) return 1 ;;
   esac
 }
