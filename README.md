@@ -57,14 +57,15 @@ existing installations update to Omarchy 4 in place.
 
 ## Download For Apple Silicon
 
-Download the ZIP, extract it, and open **Omarchy MX Mac Installer.app**.
-You can run it directly from Downloads; no PKG or Applications-folder installation is required.
+Download the installer package, open it, and launch **Omarchy MX Mac Installer**
+from Applications.
 
-**[Download Omarchy MX Mac Installer for macOS](https://downloads.aicodelabs.com.au/installer/previews/20260918-e1b8abc05135/Omarchy-MX-Mac-Installer.zip)**
+**[Download Omarchy MX Mac Installer for macOS](https://downloads.aicodelabs.com.au/installer/stable/Omarchy-MX-Mac-Installer.pkg)**
 
-The app (version 2.0.5) is signed with Developer ID, notarized by Apple, and
-stapled. It defaults to **Stable**; choose **RC** from *Release Channel* in the
-menu bar to follow release candidates. It fetches the latest signed release from
+That link always serves the current installer (2.0.7 today), signed with
+Developer ID, notarized by Apple, and stapled. The app offers the **Release
+candidate** channel by default; **Stable** is available from *Release Channel*
+in the menu bar. It fetches the latest signed release from
 the selected channel each time you prepare an installation. Matching cached files are verified and
 reused instead of downloaded again. The existing installation screens remain the
 same, and the privileged worker runs only for the installation session.
