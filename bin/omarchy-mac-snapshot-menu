@@ -21,6 +21,7 @@ GRUB_CFG=${OMARCHY_GRUB_CFG:-/boot/grub/grub.cfg}
 MENU_CFG=${OMARCHY_GRUB_BTRFS_CFG:-/boot/grub/grub-btrfs.cfg}
 SNAPSHOTS_DIR=${OMARCHY_SNAPSHOTS_DIR:-/.snapshots}
 MODULES_DIR=${OMARCHY_SNAPSHOT_RESTORE_MODULES:-/usr/lib/modules}
+BOOT_DIR=${OMARCHY_SNAPSHOT_RESTORE_BOOT:-/boot}
 UPDATE_GRUB=${OMARCHY_UPDATE_GRUB:-update-grub}
 LIMIT=${OMARCHY_SNAPSHOT_MENU_LIMIT:-5}
 
@@ -36,16 +37,28 @@ fail() {
 omarchy-hw-apple-silicon || fail "the GRUB snapshot menu is for Apple Silicon Macs"
 [[ -x $GENERATOR ]] || exit 127
 
-# The kernel on /boot is the one the running root installed; its modules
-# directory here names the version every offered snapshot must carry.
+# The Apple kernel package (omarchy-hw-apple-kernel) owns /boot/vmlinuz-<package>;
+# the modules directory whose pkgbase names it is the version every offered
+# snapshot must carry.
+kernel_package=$(omarchy-hw-apple-kernel 2>/dev/null || true)
+[[ -n $kernel_package && -f $BOOT_DIR/vmlinuz-$kernel_package ]] ||
+  fail "the kernel on $BOOT_DIR is not the installed Apple kernel package (${kernel_package:-unknown})"
 kernels=()
 for dir in "$MODULES_DIR"/*/; do
-  [[ -f $dir/pkgbase ]] || continue
+  [[ -f $dir/pkgbase && $(<"$dir/pkgbase") == "$kernel_package" ]] || continue
   kernels+=("${dir%/}")
 done
-(( ${#kernels[@]} > 0 )) || fail "no installed kernel found under $MODULES_DIR"
+(( ${#kernels[@]} > 0 )) || fail "no modules for $kernel_package found under $MODULES_DIR"
 
+# grub-btrfs matches IGNORE_PREFIX_PATH as "prefix/*", not as a string
+# prefix, so staging and kept roots are listed by their exact names.
+incompatible=0
 hidden=("@" "@factory")
+while IFS= read -r name; do
+  case $name in
+    @restore-* | @omarchy-previous-* | @omarchy-old-*) hidden+=("$name") ;;
+  esac
+done < <(btrfs subvolume list -a / 2>/dev/null | sed -n 's/.* path \(<FS_TREE>\/\)\{0,1\}//p')
 for info in "$SNAPSHOTS_DIR"/*/info.xml; do
   [[ -f $info ]] || continue
   number=${info%/info.xml}
@@ -56,7 +69,7 @@ for info in "$SNAPSHOTS_DIR"/*/info.xml; do
   for dir in "${kernels[@]}"; do
     [[ -f $snapshot$MODULES_DIR/${dir##*/}/modules.dep ]] || compatible=0
   done
-  (( compatible )) || hidden+=("@/.snapshots/$number/snapshot")
+  (( compatible )) || { hidden+=("@/.snapshots/$number/snapshot"); incompatible=$((incompatible + 1)); }
 done
 
 quoted() {
@@ -75,7 +88,7 @@ GRUB_BTRFS_SHOW_SNAPSHOTS_FOUND="false"
 GRUB_BTRFS_TITLE_FORMAT=("date" "snapshot" "description")
 GRUB_BTRFS_OVERRIDE_BOOT_PARTITION_DETECTION="true"
 GRUB_BTRFS_IGNORE_SPECIFIC_PATH=($(quoted "${hidden[@]}"))
-GRUB_BTRFS_IGNORE_PREFIX_PATH=("@omarchy-previous-" "@restore-" "@omarchy-old-" "var/lib/docker" "@var/lib/docker" "@/var/lib/docker" "var/lib/containers" "@var/lib/containers" "@/var/lib/containers")
+GRUB_BTRFS_IGNORE_PREFIX_PATH=("var/lib/docker" "@var/lib/docker" "@/var/lib/docker" "var/lib/containers" "@var/lib/containers" "@/var/lib/containers")
 CONF
 chmod 0644 "$tmp"
 mv -f "$tmp" "$CONFIG"
@@ -88,4 +101,4 @@ if [[ -f $MENU_CFG ]] && ! grep -Fq 'grub-btrfs.cfg' "$GRUB_CFG" 2>/dev/null; th
   echo "Adding the snapshot submenu to $GRUB_CFG"
   "$UPDATE_GRUB" >/dev/null || fail "$UPDATE_GRUB failed while adding the snapshot submenu"
 fi
-echo "GRUB snapshot menu refreshed ($(( ${#hidden[@]} - 2 )) snapshot(s) hidden for kernel mismatch)."
+echo "GRUB snapshot menu refreshed ($incompatible snapshot(s) hidden for kernel mismatch)."

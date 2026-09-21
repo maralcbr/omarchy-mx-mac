@@ -33,6 +33,17 @@ for number in 1 2 3; do printf '<snapshot><num>%s</num></snapshot>\n' "$number" 
 printf 'menuentry Omarchy {\n}\n' >"$tmp/boot/grub/grub.cfg"
 
 printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/omarchy-hw-apple-silicon"
+# The top level holds the live root, the factory baseline, and a kept root.
+cat >"$tmp/bin/btrfs" <<'STUB'
+#!/bin/bash
+[[ "$1 $2" == "subvolume list" ]] || exit 1
+printf 'ID 256 gen 1 top level 5 path <FS_TREE>/@\n'
+printf 'ID 257 gen 1 top level 5 path <FS_TREE>/@factory\n'
+printf 'ID 300 gen 1 top level 5 path <FS_TREE>/@omarchy-previous-1790000000\n'
+printf 'ID 301 gen 1 top level 256 path <FS_TREE>/@/.snapshots/1/snapshot\n'
+STUB
+printf '#!/bin/bash\necho linux-aurora\n' >"$tmp/bin/omarchy-hw-apple-kernel"
+: >"$tmp/boot/vmlinuz-linux-aurora"
 # The generator stub records that it ran with the config in place and
 # writes the menu file, as grub-btrfs does.
 cat >"$tmp/generator" <<'STUB'
@@ -60,21 +71,22 @@ refresh() {
   OMARCHY_GRUB_BTRFS_CFG="$tmp/boot/grub/grub-btrfs.cfg" \
   OMARCHY_SNAPSHOTS_DIR="$tmp/snapshots" \
   OMARCHY_SNAPSHOT_RESTORE_MODULES="$tmp/modules" \
+  OMARCHY_SNAPSHOT_RESTORE_BOOT="$tmp/boot" \
   OMARCHY_UPDATE_GRUB=update-grub \
     bash "$runnable" refresh >"$tmp/out" 2>&1
 }
 
 refresh || fail "the refresh runs: $(<"$tmp/out")"
 config="$CALL_LOG.config"
-grep -Fxq 'GRUB_BTRFS_IGNORE_SPECIFIC_PATH=("@" "@factory" "@/.snapshots/2/snapshot" "@/.snapshots/3/snapshot")' "$config" ||
-  fail "snapshots without the /boot kernel's modules are hidden, @ and @factory always: $(grep IGNORE_SPECIFIC "$config")"
-grep -Fq '"@omarchy-previous-" "@restore-" "@omarchy-old-"' "$config" || fail "staging and kept roots are hidden by prefix"
+grep -Fxq 'GRUB_BTRFS_IGNORE_SPECIFIC_PATH=("@" "@factory" "@omarchy-previous-1790000000" "@/.snapshots/2/snapshot" "@/.snapshots/3/snapshot")' "$config" ||
+  fail "snapshots without the /boot kernel's modules are hidden, @, @factory and kept roots by exact name: $(grep IGNORE_SPECIFIC "$config")"
+! grep -Fq '"@omarchy-previous-"' "$config" || fail "kept roots are not hidden by a string prefix grub-btrfs would read as prefix/*"
 grep -Fxq 'GRUB_BTRFS_LIMIT="5"' "$config" && grep -Fxq 'GRUB_BTRFS_SUBMENUNAME="Omarchy snapshots"' "$config" ||
   fail "the menu is limited to five entries under the Omarchy submenu"
 grep -Fxq 'GRUB_BTRFS_OVERRIDE_BOOT_PARTITION_DETECTION="true"' "$config" || fail "the separate ext4 /boot is declared"
 [[ $(<"$CALL_LOG") == $'generator\nupdate-grub' ]] || fail "the generator runs, then grub.cfg gains the include once: $(<"$CALL_LOG")"
 grep -Fq 'configfile /grub/grub-btrfs.cfg' "$tmp/boot/grub/grub.cfg" || fail "grub.cfg carries the submenu include"
-grep -Fq '1 snapshot(s) hidden' "$tmp/out" || grep -Fq '2 snapshot(s) hidden' "$tmp/out" || fail "the summary counts hidden snapshots: $(<"$tmp/out")"
+grep -Fq '2 snapshot(s) hidden' "$tmp/out" || fail "the summary counts the two hidden snapshots: $(<"$tmp/out")"
 pass "a refresh hides incompatible snapshots and adds the submenu to grub.cfg once"
 
 refresh || fail "a second refresh runs"
@@ -86,6 +98,13 @@ mkdir -p "$tmp/modules/6.17.0-aurora"; printf 'linux-aurora\n' >"$tmp/modules/6.
 refresh || fail "a refresh after a kernel change runs"
 grep -Fq '"@/.snapshots/1/snapshot"' "$config" || fail "a snapshot without the new kernel's modules is hidden after a kernel change"
 pass "a kernel change re-evaluates which snapshots may boot"
+
+# A /boot whose kernel is not the Apple package's image is refused.
+mv "$tmp/boot/vmlinuz-linux-aurora" "$tmp/boot/vmlinuz-other"
+if refresh; then fail "a /boot without the Apple kernel image must refuse"; fi
+grep -Fq 'not the installed Apple kernel package' "$tmp/out" || fail "the /boot kernel identity is checked: $(<"$tmp/out")"
+mv "$tmp/boot/vmlinuz-other" "$tmp/boot/vmlinuz-linux-aurora"
+pass "the refresh checks that /boot carries the Apple kernel package's image"
 
 # Without grub-btrfs installed the refresh is a no-op that says so with 127.
 rm "$tmp/generator"
