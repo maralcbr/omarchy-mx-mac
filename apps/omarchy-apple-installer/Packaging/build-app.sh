@@ -116,17 +116,14 @@ if [[ $descriptor_default_channel != "stable" && $descriptor_default_channel != 
 fi
 descriptor_stable_url="$(plutil -extract channels.stable.catalog_url raw -o - "$release_descriptor")"
 descriptor_rc_url="$(plutil -extract channels.rc.catalog_url raw -o - "$release_descriptor")"
-descriptor_rc_aurora_url="$(plutil -extract channels.rc-aurora.catalog_url raw -o - "$release_descriptor")"
-for descriptor_url in "$descriptor_stable_url" "$descriptor_rc_url" "$descriptor_rc_aurora_url"; do
+for descriptor_url in "$descriptor_stable_url" "$descriptor_rc_url"; do
   if [[ $descriptor_url != https://?*/?* ]]; then
     fail "release.json channel URLs must be https with a host and a path"
   fi
 done
 # Two channels pointing at one object would silently erase the separation
 # between what testers see and what everyone else installs.
-if [[ $descriptor_stable_url == "$descriptor_rc_url" ||
-  $descriptor_stable_url == "$descriptor_rc_aurora_url" ||
-  $descriptor_rc_url == "$descriptor_rc_aurora_url" ]]; then
+if [[ $descriptor_stable_url == "$descriptor_rc_url" ]]; then
   fail "release.json channels must not share a URL"
 fi
 if [[ $descriptor_service != "$helper_identifier" ]]; then
