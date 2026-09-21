@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# omarchy:summary=Refresh the GRUB snapshot menu on an Apple Silicon Mac
+# omarchy:args=[refresh]
+# omarchy:requires-sudo=true
+# omarchy:hidden=true
+
+# Apple Silicon boots GRUB; grub-btrfs writes the "Omarchy snapshots" submenu
+# into /boot/grub/grub-btrfs.cfg, which grub.cfg includes. There is no
+# grub-btrfsd here: omarchy-snapshot and the restore tools call this after
+# every change, and the kernel hook after a kernel change. The kernel lives
+# on the ext4 /boot outside every snapshot, so only snapshots that carry the
+# modules of the kernel on /boot are offered; the rest are hidden from the
+# menu, not marked.
+
+set -euo pipefail
+
+CONFIG=${OMARCHY_GRUB_BTRFS_CONFIG:-/etc/default/grub-btrfs/config}
+GENERATOR=${OMARCHY_GRUB_BTRFS_GENERATOR:-/etc/grub.d/41_snapshots-btrfs}
+GRUB_CFG=${OMARCHY_GRUB_CFG:-/boot/grub/grub.cfg}
+MENU_CFG=${OMARCHY_GRUB_BTRFS_CFG:-/boot/grub/grub-btrfs.cfg}
+SNAPSHOTS_DIR=${OMARCHY_SNAPSHOTS_DIR:-/.snapshots}
+MODULES_DIR=${OMARCHY_SNAPSHOT_RESTORE_MODULES:-/usr/lib/modules}
+UPDATE_GRUB=${OMARCHY_UPDATE_GRUB:-update-grub}
+LIMIT=${OMARCHY_SNAPSHOT_MENU_LIMIT:-5}
+
+command=${1:-refresh}
+[[ $command == refresh ]] || { echo "Usage: omarchy-mac-snapshot-menu [refresh]" >&2; exit 64; }
+
+fail() {
+  echo "omarchy-mac-snapshot-menu: $*" >&2
+  exit 1
+}
+
+(( EUID == 0 )) || fail "run as root"
+omarchy-hw-apple-silicon || fail "the GRUB snapshot menu is for Apple Silicon Macs"
+[[ -x $GENERATOR ]] || exit 127
+
+# The kernel on /boot is the one the running root installed; its modules
+# directory here names the version every offered snapshot must carry.
+kernels=()
+for dir in "$MODULES_DIR"/*/; do
+  [[ -f $dir/pkgbase ]] || continue
+  kernels+=("${dir%/}")
+done
+(( ${#kernels[@]} > 0 )) || fail "no installed kernel found under $MODULES_DIR"
+
+hidden=("@" "@factory")
+for info in "$SNAPSHOTS_DIR"/*/info.xml; do
+  [[ -f $info ]] || continue
+  number=${info%/info.xml}
+  number=${number##*/}
+  snapshot=$SNAPSHOTS_DIR/$number/snapshot
+  [[ -d $snapshot ]] || continue
+  compatible=1
+  for dir in "${kernels[@]}"; do
+    [[ -f $snapshot$MODULES_DIR/${dir##*/}/modules.dep ]] || compatible=0
+  done
+  (( compatible )) || hidden+=("@/.snapshots/$number/snapshot")
+done
+
+quoted() {
+  local item out=()
+  for item in "$@"; do out+=("\"$item\""); done
+  printf '%s' "${out[*]}"
+}
+
+mkdir -p "${CONFIG%/*}"
+tmp=$(mktemp "$CONFIG.XXXXXX")
+cat >"$tmp" <<CONF
+# Written by omarchy-mac-snapshot-menu; edits are replaced on the next refresh.
+GRUB_BTRFS_SUBMENUNAME="Omarchy snapshots"
+GRUB_BTRFS_LIMIT="$LIMIT"
+GRUB_BTRFS_SHOW_SNAPSHOTS_FOUND="false"
+GRUB_BTRFS_TITLE_FORMAT=("date" "snapshot" "description")
+GRUB_BTRFS_OVERRIDE_BOOT_PARTITION_DETECTION="true"
+GRUB_BTRFS_IGNORE_SPECIFIC_PATH=($(quoted "${hidden[@]}"))
+GRUB_BTRFS_IGNORE_PREFIX_PATH=("@omarchy-previous-" "@restore-" "@omarchy-old-" "var/lib/docker" "@var/lib/docker" "@/var/lib/docker" "var/lib/containers" "@var/lib/containers" "@/var/lib/containers")
+CONF
+chmod 0644 "$tmp"
+mv -f "$tmp" "$CONFIG"
+
+# The generator writes the submenu file itself and prints the stanza
+# grub-mkconfig would splice into grub.cfg; the stanza only matters once.
+"$GENERATOR" >/dev/null || fail "grub-btrfs could not generate the snapshot menu"
+
+if [[ -f $MENU_CFG ]] && ! grep -Fq 'grub-btrfs.cfg' "$GRUB_CFG" 2>/dev/null; then
+  echo "Adding the snapshot submenu to $GRUB_CFG"
+  "$UPDATE_GRUB" >/dev/null || fail "$UPDATE_GRUB failed while adding the snapshot submenu"
+fi
+echo "GRUB snapshot menu refreshed ($(( ${#hidden[@]} - 2 )) snapshot(s) hidden for kernel mismatch)."

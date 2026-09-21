@@ -132,6 +132,7 @@ prune_previous() {
   umount_top
   (( found )) || log "No previous root to prune."
   rm -f "$RECORD"
+  omarchy-mac-snapshot-menu refresh >/dev/null 2>&1 || true
   return 0
 }
 

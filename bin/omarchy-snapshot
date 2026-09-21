@@ -46,10 +46,12 @@ create)
   done
 
   if apple_silicon; then
-    echo "Restore one from a running system with: omarchy-snapshot restore <number>"
-  else
-    echo "Snapshots can be selected during boot."
+    # Bootable entries come from grub-btrfs, refreshed here; 127 means the
+    # package is not installed yet, which is not a failed snapshot.
+    sudo omarchy-mac-snapshot-menu refresh || (($? == 127)) ||
+      echo -e "\e[33mThe GRUB snapshot menu could not be refreshed; the snapshot itself was created.\e[0m" >&2
   fi
+  echo "Snapshots can be selected during boot."
   ;;
 restore)
   # Apple Silicon boots GRUB, so Limine's restore does not apply; the Mac

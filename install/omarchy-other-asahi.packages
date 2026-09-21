@@ -6,6 +6,7 @@ base
 base-devel
 btrfs-progs
 dkms
+grub-btrfs
 gst-plugin-pipewire
 gtk4-layer-shell
 libpulse

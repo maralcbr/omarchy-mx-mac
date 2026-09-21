@@ -69,5 +69,6 @@ fi
 rm -f "$STATE_DIR/pending"
 result finished "restored from snapshot ${restored_from:-?}"
 rm -f "${OMARCHY_SNAPSHOT_RESTORE_WANTS_DIR:-/etc/systemd/system/sysinit.target.wants}/omarchy-mac-snapshot-restore-finish.service"
+omarchy-mac-snapshot-menu refresh >/dev/null 2>&1 || true
 log "restore from snapshot ${restored_from:-?} verified; run omarchy-snapshot prune-previous to drop the kept root"
 exit 0
