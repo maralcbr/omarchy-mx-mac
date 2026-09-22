@@ -71,9 +71,6 @@ if ! sudo grep -Fq 'interface_branding: Omarchy Bootloader' "$esp/limine.conf" 2
 fi
 sudo sed -i -E 's/^#?timeout: .*/timeout: 3/' "$esp/limine.conf"
 sudo grep -Eq '^timeout: ' "$esp/limine.conf" || printf 'timeout: 3\n' | sudo tee -a "$esp/limine.conf" >/dev/null
-if ! sudo grep -Fq '/GRUB (recovery)' "$esp/limine.conf"; then
-  printf '\n/GRUB (recovery)\n    protocol: efi_chainload\n    path: boot():/EFI/BOOT/grub-aa64.efi\n' | sudo tee -a "$esp/limine.conf" >/dev/null
-fi
 # Leftovers of the hand experiment would shadow the real configuration.
 sudo rm -rf "$esp/limine" "$esp/omarchy"
 
@@ -81,3 +78,11 @@ sudo rm -rf "$esp/limine" "$esp/omarchy"
 echo "Building the Omarchy UKI and Limine entries"
 sudo limine-update
 sudo limine-snapper-sync || echo "limine-snapper-sync did not finish; snapshot entries come with the next snapshot" >&2
+
+# 6. GRUB stays reachable from the menu, after the Omarchy block: with the
+# tool's expanded /+Omarchy group first, default_entry 2 is the kernel entry
+# (as on x86); a recovery entry placed before it would make the default the
+# group header, which Limine cannot boot unattended.
+if ! sudo grep -Fq '/GRUB (recovery)' "$esp/limine.conf"; then
+  printf '\n/GRUB (recovery)\n    protocol: efi_chainload\n    path: boot():/EFI/BOOT/grub-aa64.efi\n' | sudo tee -a "$esp/limine.conf" >/dev/null
+fi
