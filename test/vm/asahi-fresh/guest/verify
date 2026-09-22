@@ -78,8 +78,8 @@ pacman-conf --repo-list | grep -Fxq asahi-alarm || fail "Asahi repository"
 # The VM boots its own kernel through this harness's configuration; the one
 # Omarchy generated during the install is kept beside it and must boot the
 # Asahi kernel and its initramfs.
-grep -Fq vmlinuz-linux-asahi /var/lib/omarchy/vm-omarchy-grub.cfg &&
-  grep -Fq initramfs-linux-asahi.img /var/lib/omarchy/vm-omarchy-grub.cfg ||
+grep -Eq '^[[:space:]]*linux(16|efi)?[[:space:]]+[^[:space:]]*vmlinuz-linux-asahi([[:space:]]|$)' /var/lib/omarchy/vm-omarchy-grub.cfg &&
+  grep -Eq '^[[:space:]]*initrd(16|efi)?[[:space:]]+[^[:space:]]*initramfs-linux-asahi\.img([[:space:]]|$)' /var/lib/omarchy/vm-omarchy-grub.cfg ||
   fail "the GRUB configuration Omarchy generated boots the Asahi kernel"
 (( $(swapon --show --noheadings | wc -l) == 0 )) || fail "swap disabled"
 [[ $(cat /sys/module/zswap/parameters/enabled 2>/dev/null || echo N) == "N" ]] || fail "zswap disabled"

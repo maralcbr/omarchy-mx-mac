@@ -392,7 +392,8 @@ cmp asahi-kernel.before /boot/vmlinuz-linux-asahi
 # boot the Asahi kernel the VM keeps. The VM itself boots its own kernel
 # (/Image) through the configuration this harness wrote, so that one goes back
 # before the reboot, the way the Asahi kernel image is kept untouched above.
-grep -Fq vmlinuz-linux-asahi /boot/grub/grub.cfg && grep -Fq initramfs-linux-asahi.img /boot/grub/grub.cfg
+grep -Eq '^[[:space:]]*linux(16|efi)?[[:space:]]+[^[:space:]]*vmlinuz-linux-asahi([[:space:]]|$)' /boot/grub/grub.cfg
+grep -Eq '^[[:space:]]*initrd(16|efi)?[[:space:]]+[^[:space:]]*initramfs-linux-asahi\.img([[:space:]]|$)' /boot/grub/grub.cfg
 install -Dm644 /boot/grub/grub.cfg /var/lib/omarchy/vm-omarchy-grub.cfg
 cp --preserve=all vm-grub.before /boot/grub/grub.cfg
 install -Dm644 vm-adapter.log /var/lib/omarchy/vm-adapter.log

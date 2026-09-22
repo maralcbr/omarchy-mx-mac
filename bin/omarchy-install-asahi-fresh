@@ -232,8 +232,12 @@ verify_initramfs() {
     fail "The $kernel_package initramfs does not carry the modules of $kernel_version"
 }
 
+# A menu entry that actually boots the kernel: a linux directive naming the
+# kernel image and an initrd directive naming its initramfs, not a mention of
+# either name in a comment.
 verify_grub_config() {
-  grep -Fq "vmlinuz-$kernel_package" /boot/grub/grub.cfg && grep -Fq "initramfs-$kernel_package.img" /boot/grub/grub.cfg ||
+  grep -Eq "^[[:space:]]*linux(16|efi)?[[:space:]]+[^[:space:]]*vmlinuz-$kernel_package([[:space:]]|\$)" /boot/grub/grub.cfg &&
+    grep -Eq "^[[:space:]]*initrd(16|efi)?[[:space:]]+[^[:space:]]*initramfs-$kernel_package\.img([[:space:]]|\$)" /boot/grub/grub.cfg ||
     fail "The GRUB configuration does not boot $kernel_package"
 }
 

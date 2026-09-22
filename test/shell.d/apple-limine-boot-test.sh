@@ -76,36 +76,47 @@ pass "Limine is opt-in"
 
 : >"$test_tmp/limine.enabled"
 
-# No menu template: nothing happens at all.
+# No menu template: nothing happens at all. The checkout's own template is
+# never moved; the leaf is pointed at a path that does not exist.
 : >"$calls"
-mv "$ROOT/default/limine/limine.conf" "$test_tmp/limine.conf.away" 2>/dev/null ||
-  cp "$ROOT/default/limine/limine.conf" "$test_tmp/limine.conf.away"
-OMARCHY_LIMINE_CONF_SOURCE="$test_tmp/missing.conf" run 2>"$test_tmp/err" || fail "the leaf returns cleanly without the menu template"
-mv "$test_tmp/limine.conf.away" "$ROOT/default/limine/limine.conf"
+OMARCHY_LIMINE_CONF_SOURCE="$test_tmp/missing.conf" run 2>"$test_tmp/err" ||
+  fail "the leaf returns cleanly without the menu template"
 [[ ! -s $calls && ! -e $etc/limine && $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "GRUB image" ]] ||
   fail "without the menu template nothing changes" "$(cat "$calls")"
 grep -q 'leaving GRUB in place' "$test_tmp/err" || fail "the missing template is reported" "$(cat "$test_tmp/err")"
 pass "no menu template, no activation"
 
-# A step that fails unexpectedly (production bash -eE) rolls back too.
+# A step the leaf does not guard fails (installing the menu on the ESP), under
+# the production shell flags: the ERR trap rolls the activation back and the
+# leaf reports the failure.
 : >"$calls"
-printf '#!/bin/bash
-echo "limine-update" >>"$TEST_CALLS"
-exit 7
-' >"$stub_bin/limine-update.broken"
-cp "$stub_bin/limine-update" "$test_tmp/limine-update.good"
-cp "$stub_bin/limine-update.broken" "$stub_bin/limine-update"
-chmod +x "$stub_bin/limine-update"
-TEST_CALLS="$calls" TEST_ESP="$esp" TEST_UPDATE_GRUB_DEFAULT="$etc/update-grub" TEST_LIMINE_DEFAULT="$etc/limine"   OMARCHY_PATH="$ROOT" OMARCHY_ESP="$esp" OMARCHY_LIMINE_EFI="$test_tmp/share/limine/BOOTAA64.EFI"   OMARCHY_GRUB_DEFAULT="$etc/grub" OMARCHY_UPDATE_GRUB_DEFAULT="$etc/update-grub" OMARCHY_LIMINE_DEFAULT="$etc/limine"   OMARCHY_GRUB_TARGET="$test_tmp/boot/grub/grub-aa64.efi" OMARCHY_LIMINE_BOOT_HOOKS_DIR="$etc/boot/hooks/pre.d"   OMARCHY_PACMAN_HOOKS_DIR="$etc/pacman.d/hooks" OMARCHY_SYSTEMD_DIR="$etc/systemd/system"   OMARCHY_LIMINE_GATE="$test_tmp/limine.enabled" OMARCHY_FSTAB="$etc/fstab"   PATH="$stub_bin:$PATH" bash -eE -c "source '$leaf'" 2>"$test_tmp/err" || true
-cp "$test_tmp/limine-update.good" "$stub_bin/limine-update"
-[[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "GRUB image" ]] || fail "an unexpected failure leaves GRUB in the U-Boot slot"
-[[ ! -e $etc/limine ]] || fail "an unexpected failure removes the Limine defaults it created" "$(cat "$etc/limine" 2>&1)"
-[[ ! -e $etc/update-grub ]] || fail "an unexpected failure puts GRUB's update target back"
-pass "an unexpected failure rolls the activation back"
+cat >"$stub_bin/install" <<'SH'
+#!/bin/bash
+for arg in "$@"; do
+  [[ $arg == "$TEST_ESP/limine.conf" ]] && exit 9
+done
+exec /usr/bin/install "$@"
+SH
+chmod +x "$stub_bin/install"
+status=0
+TEST_CALLS="$calls" TEST_ESP="$esp" TEST_UPDATE_GRUB_DEFAULT="$etc/update-grub" TEST_LIMINE_DEFAULT="$etc/limine" \
+  OMARCHY_PATH="$ROOT" OMARCHY_ESP="$esp" OMARCHY_LIMINE_EFI="$test_tmp/share/limine/BOOTAA64.EFI" \
+  OMARCHY_GRUB_DEFAULT="$etc/grub" OMARCHY_UPDATE_GRUB_DEFAULT="$etc/update-grub" OMARCHY_LIMINE_DEFAULT="$etc/limine" \
+  OMARCHY_GRUB_TARGET="$test_tmp/boot/grub/grub-aa64.efi" OMARCHY_LIMINE_BOOT_HOOKS_DIR="$etc/boot/hooks/pre.d" \
+  OMARCHY_PACMAN_HOOKS_DIR="$etc/pacman.d/hooks" OMARCHY_SYSTEMD_DIR="$etc/systemd/system" \
+  OMARCHY_LIMINE_GATE="$test_tmp/limine.enabled" OMARCHY_FSTAB="$etc/fstab" \
+  PATH="$stub_bin:$PATH" bash -eE -c "source '$leaf'" 2>"$test_tmp/err" || status=$?
+rm -f "$stub_bin/install"
+(( status != 0 )) || fail "an unguarded failure fails the leaf" "$(cat "$test_tmp/err")"
+grep -q 'a step failed with status' "$test_tmp/err" || fail "the unguarded failure is reported" "$(cat "$test_tmp/err")"
+[[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "GRUB image" ]] || fail "an unguarded failure leaves GRUB in the U-Boot slot"
+[[ ! -e $etc/limine ]] || fail "an unguarded failure removes the Limine defaults it created" "$(cat "$etc/limine" 2>&1)"
+[[ ! -e $etc/update-grub ]] || fail "an unguarded failure puts GRUB's update target back"
+pass "an unguarded failure rolls the activation back"
 
 # limine-update fails: GRUB keeps the U-Boot slot and the Mac is not a Limine Mac.
 : >"$calls"
-FAIL_LIMINE_UPDATE=1 run 2>"$test_tmp/err" || fail "the leaf returns cleanly when limine-update fails"
+FAIL_LIMINE_UPDATE=1 run 2>"$test_tmp/err" || fail "a guarded failure is a decline, not a failed install step"
 [[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "GRUB image" ]] || fail "a failed UKI build leaves GRUB in the U-Boot slot"
 [[ ! -e $etc/limine ]] || fail "a failed activation removes the Limine defaults it created"
 [[ ! -e $etc/update-grub ]] || fail "a failed activation puts GRUB's update target back (none before)"

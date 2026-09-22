@@ -43,6 +43,8 @@ findmnt -no TARGET "$esp" >/dev/null 2>&1 || { echo "The ESP is not mounted at $
 # regeneration into the U-Boot slot when it was retargeted here) and the
 # Limine defaults this run created, so the Mac does not count as a Limine
 # Mac while GRUB still boots it.
+# Returns 0: a decline is not a failed install step, and the ERR trap must not
+# fire a second rollback on the way out of the caller.
 limine_boot_fail() {
   echo "limine-boot: $*; GRUB stays the boot loader" >&2
   if (( update_grub_default_changed )); then
@@ -54,7 +56,9 @@ limine_boot_fail() {
     sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1 || echo "limine-boot: update-grub failed while restoring GRUB's target" >&2
   fi
   (( limine_default_created )) && sudo rm -f "$limine_default"
-  return 1
+  update_grub_default_changed=0
+  limine_default_created=0
+  return 0
 }
 limine_default_created=0
 update_grub_default_changed=0
@@ -65,7 +69,7 @@ update_grub_default_before=""
 limine_boot_trap() {
   local status=$?
   trap - ERR
-  limine_boot_fail "a step failed with status $status" || true
+  limine_boot_fail "a step failed with status $status"
 }
 trap limine_boot_trap ERR
 
