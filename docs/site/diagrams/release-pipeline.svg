@@ -1,0 +1,105 @@
+<svg viewBox="0 0 900 720" role="img" aria-label="How a change travels from a commit to a channel" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="arrow"/></marker><marker id="arrow-brand" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="arrow brand"/></marker></defs>
+<rect class="lane" x="16" y="16" width="420" height="620"/>
+<text class="lane-title" x="30" y="40">omarchy-pkgs lanes</text>
+<text class="lane-sub" x="30" y="58">arm64 runners, gated environment</text>
+<rect class="lane" x="456" y="16" width="428" height="620"/>
+<text class="lane-title" x="470" y="40">Acceptance and publication</text>
+<text class="lane-sub" x="470" y="58">test Macs, R2 and the owner's signing key</text>
+<path class="edge" d="M 216 98.5 C 228.0 98.5 228.0 107.0 240 107.0" marker-end="url(#arrow)"/>
+<path class="edge" d="M 330.0 144 C 330.0 227.0 330.0 227.0 216 227.0" marker-end="url(#arrow)"/>
+<path class="edge dashed" d="M 216 227.0 C 346.0 227.0 346.0 227.0 476 227.0" marker-end="url(#arrow)"/>
+<path class="edge" d="M 656 227.0 C 673.0 227.0 673.0 227.0 690 227.0" marker-end="url(#arrow)"/>
+<path class="edge brand" d="M 780.0 264 C 780.0 287.0 126.0 287.0 126.0 310" marker-end="url(#arrow-brand)"/>
+<text class="edge-label" x="453" y="283">accepted</text>
+<path class="edge" d="M 216 347.0 C 228.0 347.0 228.0 347.0 240 347.0" marker-end="url(#arrow)"/>
+<path class="edge" d="M 126.0 384 C 126.0 407.0 126.0 407.0 126.0 430" marker-end="url(#arrow)"/>
+<path class="edge dashed" d="M 216 467.0 C 346.0 467.0 346.0 467.0 476 467.0" marker-end="url(#arrow)"/>
+<path class="edge" d="M 656 467.0 C 673.0 467.0 673.0 347.0 690 347.0" marker-end="url(#arrow)"/>
+<path class="edge brand" d="M 780.0 384 C 780.0 407.0 780.0 407.0 780.0 430" marker-end="url(#arrow-brand)"/>
+<path class="edge brand" d="M 780.0 504 C 780.0 527.0 780.0 527.0 780.0 550" marker-end="url(#arrow-brand)"/>
+<path class="edge" d="M 330.0 384 C 330.0 587.0 330.0 587.0 476 587.0" marker-end="url(#arrow)"/>
+<g class="node">
+<rect x="36" y="70" width="180" height="57"/>
+<text class="n-title" x="48" y="91">Runtime commit</text>
+<text class="n-sub" x="48" y="110">omarchy-mx-mac main</text>
+</g>
+<g class="node">
+<rect x="240" y="70" width="180" height="74"/>
+<text class="n-title" x="252" y="91">Incremental planner</text>
+<text class="n-sub" x="252" y="110">rebuilds only what</text>
+<text class="n-sub" x="252" y="127">changed, else full</text>
+</g>
+<g class="node tone-blue">
+<rect x="36" y="190" width="180" height="74"/>
+<text class="n-title" x="48" y="211">Candidate</text>
+<text class="n-sub" x="48" y="230">asahi-packages-</text>
+<text class="n-sub" x="48" y="247">candidate-&lt;sha&gt;</text>
+</g>
+<g class="node tone-orange">
+<rect x="476" y="190" width="180" height="74"/>
+<text class="n-title" x="488" y="211">VM acceptance</text>
+<text class="n-sub" x="488" y="230">fresh install in KVM</text>
+<text class="n-sub" x="488" y="247">on a test Mac</text>
+</g>
+<g class="node tone-orange">
+<rect x="690" y="190" width="180" height="74"/>
+<text class="n-title" x="702" y="211">Hardware gate</text>
+<text class="n-sub" x="702" y="230">cold boot when a boot</text>
+<text class="n-sub" x="702" y="247">payload changed</text>
+</g>
+<g class="node tone-blue">
+<rect x="36" y="310" width="180" height="74"/>
+<text class="n-title" x="48" y="331">Promoted packages</text>
+<text class="n-sub" x="48" y="350">asahi-packages-stable-</text>
+<text class="n-sub" x="48" y="367">&lt;sha&gt;, byte-identical</text>
+</g>
+<g class="node tone-blue">
+<rect x="240" y="310" width="180" height="74"/>
+<text class="n-title" x="252" y="331">Runtime channel</text>
+<text class="n-sub" x="252" y="350">asahi-quattro-</text>
+<text class="n-sub" x="252" y="367">channel-N bundle</text>
+</g>
+<g class="node tone-blue">
+<rect x="36" y="430" width="180" height="74"/>
+<text class="n-title" x="48" y="451">Mac image</text>
+<text class="n-sub" x="48" y="470">mac-image-&lt;N&gt;-&lt;lane&gt;</text>
+<text class="n-sub" x="48" y="487">rc and edge lanes</text>
+</g>
+<g class="node tone-orange">
+<rect x="476" y="430" width="180" height="74"/>
+<text class="n-title" x="488" y="451">Image acceptance</text>
+<text class="n-sub" x="488" y="470">plain + encrypted</text>
+<text class="n-sub" x="488" y="487">boot, evidence kept</text>
+</g>
+<g class="node tone-brand">
+<rect x="690" y="310" width="180" height="74"/>
+<text class="n-title" x="702" y="331">Owner signs catalog</text>
+<text class="n-sub" x="702" y="350">Keychain Ed25519 key,</text>
+<text class="n-sub" x="702" y="367">never on disk</text>
+</g>
+<g class="node tone-brand">
+<rect x="690" y="430" width="180" height="74"/>
+<text class="n-title" x="702" y="451">Channel promotion</text>
+<text class="n-sub" x="702" y="470">os-promote --to rc,</text>
+<text class="n-sub" x="702" y="487">later --to stable</text>
+</g>
+<g class="node">
+<rect x="476" y="550" width="180" height="74"/>
+<text class="n-title" x="488" y="571">Installed Macs</text>
+<text class="n-sub" x="488" y="590">omarchy update follows</text>
+<text class="n-sub" x="488" y="607">the runtime pointer</text>
+</g>
+<g class="node">
+<rect x="690" y="550" width="180" height="74"/>
+<text class="n-title" x="702" y="571">New installs</text>
+<text class="n-sub" x="702" y="590">installer app reads</text>
+<text class="n-sub" x="702" y="607">catalog.signed.json</text>
+</g>
+<g class="node tone-blue"><rect x="16" y="695" width="14" height="14"/></g>
+<text class="legend" x="36" y="706">signed release</text>
+<g class="node tone-orange"><rect x="169.0" y="695" width="14" height="14"/></g>
+<text class="legend" x="189.0" y="706">gate</text>
+<g class="node tone-brand"><rect x="247.0" y="695" width="14" height="14"/></g>
+<text class="legend" x="267.0" y="706">owner step or public channel</text>
+</svg>

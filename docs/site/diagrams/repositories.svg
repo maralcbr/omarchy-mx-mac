@@ -1,0 +1,106 @@
+<svg viewBox="0 0 900 700" role="img" aria-label="How the repositories, the package channels and the installer fit together" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="arrow"/></marker><marker id="arrow-brand" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="arrow brand"/></marker></defs>
+<rect class="lane" x="16" y="16" width="276" height="560"/>
+<text class="lane-title" x="30" y="40">omarchy-mx-mac</text>
+<text class="lane-sub" x="30" y="58">fork of omacom/omarchy, main</text>
+<rect class="lane" x="312" y="16" width="276" height="560"/>
+<text class="lane-title" x="326" y="40">omarchy-pkgs</text>
+<text class="lane-sub" x="326" y="58">fork of omacom/omarchy-pkgs</text>
+<rect class="lane" x="608" y="16" width="276" height="560"/>
+<text class="lane-title" x="622" y="40">Distribution</text>
+<text class="lane-sub" x="622" y="58">Cloudflare R2 and the user's Mac</text>
+<path class="edge" d="M 272 107.0 C 302.0 107.0 302.0 115.5 332 115.5" marker-end="url(#arrow)"/>
+<text class="edge-label" x="302" y="107">source pin</text>
+<path class="edge" d="M 272 207.0 C 302.0 207.0 302.0 115.5 332 115.5" marker-end="url(#arrow)"/>
+<path class="edge" d="M 450.0 161 C 450.0 165.5 450.0 165.5 450.0 170" marker-end="url(#arrow)"/>
+<path class="edge" d="M 450.0 244 C 450.0 257.0 450.0 257.0 450.0 270" marker-end="url(#arrow)"/>
+<path class="edge" d="M 450.0 344 C 450.0 357.0 450.0 357.0 450.0 370" marker-end="url(#arrow)"/>
+<path class="edge dashed" d="M 272 407.0 C 302.0 407.0 302.0 407.0 332 407.0" marker-end="url(#arrow)"/>
+<text class="edge-label" x="302" y="403">VM acceptance</text>
+<path class="edge brand" d="M 272 307.0 C 450.0 307.0 450.0 115.5 628 115.5" marker-end="url(#arrow-brand)"/>
+<text class="edge-label" x="450" y="207">publish</text>
+<path class="edge brand" d="M 568 407.0 C 598.0 407.0 598.0 115.5 628 115.5" marker-end="url(#arrow-brand)"/>
+<text class="edge-label" x="598" y="257">release + catalog</text>
+<path class="edge brand" d="M 746.0 161 C 746.0 215.5 746.0 215.5 746.0 270" marker-end="url(#arrow-brand)"/>
+<text class="edge-label" x="746" y="212">signed catalog</text>
+<path class="edge" d="M 568 307.0 C 598.0 307.0 598.0 315.5 628 315.5" marker-end="url(#arrow)"/>
+<text class="edge-label" x="598" y="307">omarchy update</text>
+<path class="edge" d="M 746.0 470 C 746.0 415.5 746.0 415.5 746.0 361" marker-end="url(#arrow)"/>
+<text class="edge-label" x="746" y="412">live mirrors</text>
+<g class="node">
+<rect x="36" y="70" width="236" height="74"/>
+<text class="n-title" x="48" y="91">Desktop runtime</text>
+<text class="n-sub" x="48" y="110">bin, install, migrations,</text>
+<text class="n-sub" x="48" y="127">themes, shell, config</text>
+</g>
+<g class="node">
+<rect x="36" y="170" width="236" height="74"/>
+<text class="n-title" x="48" y="191">Apple Silicon layer</text>
+<text class="n-sub" x="48" y="210">install/hardware/apple,</text>
+<text class="n-sub" x="48" y="227">behind the Apple Silicon gate</text>
+</g>
+<g class="node tone-brand">
+<rect x="36" y="270" width="236" height="74"/>
+<text class="n-title" x="48" y="291">macOS installer app</text>
+<text class="n-sub" x="48" y="310">SwiftPM, Developer ID,</text>
+<text class="n-sub" x="48" y="327">notarized .pkg</text>
+</g>
+<g class="node">
+<rect x="36" y="370" width="236" height="74"/>
+<text class="n-title" x="48" y="391">Acceptance harness</text>
+<text class="n-sub" x="48" y="410">test/vm: KVM on the test Macs,</text>
+<text class="n-sub" x="48" y="427">evidence records</text>
+</g>
+<g class="node">
+<rect x="332" y="70" width="236" height="91"/>
+<text class="n-title" x="344" y="91">PKGBUILDs</text>
+<text class="n-sub" x="344" y="110">omarchy-dev, omarchy-</text>
+<text class="n-sub" x="344" y="127">settings-dev, omarchy-</text>
+<text class="n-sub" x="344" y="144">mac-boot, linux-aurora</text>
+</g>
+<g class="node">
+<rect x="332" y="170" width="236" height="74"/>
+<text class="n-title" x="344" y="191">Release lanes</text>
+<text class="n-sub" x="344" y="210">arm64 runners: candidate,</text>
+<text class="n-sub" x="344" y="227">promote, runtime, image</text>
+</g>
+<g class="node tone-blue">
+<rect x="332" y="270" width="236" height="74"/>
+<text class="n-title" x="344" y="291">[omarchy] aarch64 repo</text>
+<text class="n-sub" x="344" y="310">signed packages, immutable</text>
+<text class="n-sub" x="344" y="327">releases, pointer on R2</text>
+</g>
+<g class="node tone-blue">
+<rect x="332" y="370" width="236" height="74"/>
+<text class="n-title" x="344" y="391">Mac image</text>
+<text class="n-sub" x="344" y="410">root.img, boot.img,</text>
+<text class="n-sub" x="344" y="427">PROVENANCE, IMAGE.sig</text>
+</g>
+<g class="node tone-brand">
+<rect x="628" y="70" width="236" height="91"/>
+<text class="n-title" x="640" y="91">downloads.aicodelabs…</text>
+<text class="n-sub" x="640" y="110">channels/&lt;ch&gt;/catalog</text>
+<text class="n-sub" x="640" y="127">installer/&lt;ch&gt;/…pkg</text>
+<text class="n-sub" x="640" y="144">releases/… immutable</text>
+</g>
+<g class="node">
+<rect x="628" y="270" width="236" height="91"/>
+<text class="n-title" x="640" y="291">User's Mac</text>
+<text class="n-sub" x="640" y="310">verifies the catalog,</text>
+<text class="n-sub" x="640" y="327">writes the image, first</text>
+<text class="n-sub" x="640" y="344">boot, omarchy update</text>
+</g>
+<g class="node tone-ext">
+<rect x="628" y="470" width="236" height="91"/>
+<text class="n-title" x="640" y="491">Arch Linux ARM + Asahi</text>
+<text class="n-sub" x="640" y="510">core, extra, alarm,</text>
+<text class="n-sub" x="640" y="527">asahi-alarm: linux-asahi,</text>
+<text class="n-sub" x="640" y="544">mesa, vendor firmware</text>
+</g>
+<g class="node tone-brand"><rect x="16" y="675" width="14" height="14"/></g>
+<text class="legend" x="36" y="686">signed artefact</text>
+<g class="node tone-blue"><rect x="176.5" y="675" width="14" height="14"/></g>
+<text class="legend" x="196.5" y="686">package or image release</text>
+<g class="node tone-ext"><rect x="404.5" y="675" width="14" height="14"/></g>
+<text class="legend" x="424.5" y="686">external input</text>
+</svg>

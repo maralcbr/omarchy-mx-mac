@@ -7,3 +7,6 @@ test/vm/asahi-fresh/test-runs/
 
 # macOS Finder metadata
 .DS_Store
+
+# Built documentation site (GitHub Pages builds it from docs/site/)
+docs/site/dist/

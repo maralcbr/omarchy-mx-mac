@@ -1,0 +1,37 @@
+---
+title: Welcome to Omarchy MX Mac
+description: Omarchy for Apple Silicon Macs, installed from macOS with a signed installer.
+section: Using it
+---
+
+Omarchy MX Mac runs [Omarchy](https://omarchy.org) on Apple Silicon Macs. It keeps Omarchy's desktop, keybindings and update experience, and replaces the parts that Apple hardware needs: a macOS installer instead of an ISO, Arch Linux ARM and the Asahi Linux stack instead of x86 Arch, and a boot chain that lives next to macOS.
+
+It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). Everything that is not Mac-specific is upstream Omarchy, so the [Omarchy manual](https://omarchy.org/manual/) applies unchanged. This manual covers only what is different on a Mac and how the fork is built.
+
+## Who this is for
+
+- Owners of an M1, M2 or M3 Mac who want Omarchy as a daily driver next to macOS.
+- People who want to know how the fork is put together before trusting it with a disk.
+- Contributors who need the map of repositories, channels and release gates.
+
+## Current state
+
+| | |
+| --- | --- |
+| Omarchy runtime | 4.0.4-mac.1 (tracks Omarchy 4 "Quattro") |
+| Installer app | 2.0.7 on the rc channel, 2.0.4 on stable |
+| Channels | `stable` (Asahi kernel) and `rc` (Aurora kernel) |
+| Reference Mac | MacBook Pro 14" 2021, M1 Pro (`apple,j314s`) |
+| Also exercised | MacBook Pro 16" 2023, M2 Max (`apple,j416c`), five displays |
+
+Apple Silicon support depends on the Asahi Linux project and, for the `rc` channel, on the Aurora kernel. See [Hardware support](../hardware/) before installing.
+
+## Where to start
+
+1. [Install on a Mac](../install/): download, verify and run the installer.
+2. [Channels and updates](../channels/): what `stable` and `rc` mean and how updates arrive.
+3. [Architecture](../architecture/): how the three repositories, the signed channels and the installer fit together.
+
+<div class="note" markdown="1">
+This project is not affiliated with Apple, the Asahi Linux project or the Omarchy Foundation. It is not intended for Parallels, virtual machines or non-Asahi ARM systems.
+</div>

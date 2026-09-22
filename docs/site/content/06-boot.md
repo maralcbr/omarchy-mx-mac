@@ -1,0 +1,63 @@
+---
+title: Boot chain and kernels
+description: From Apple firmware to the Omarchy root, and the three kernel lanes.
+section: How it is built
+---
+
+An Apple Silicon Mac has no UEFI of its own. Everything up to U-Boot comes from the Asahi Linux project, and the fork keeps it exactly as Asahi ships it. Omarchy's part starts at the boot loader.
+
+{{diagram:boot-chain}}
+
+## Stages
+
+| Stage | Owner | What it does |
+| --- | --- | --- |
+| iBoot | Apple | Apple firmware. Enforces the boot policy set in recoveryOS and starts the chosen boot object. |
+| m1n1 | Asahi | Stage 1 is the boot object iBoot starts. Stage 2 initialises the hardware Apple firmware leaves alone and passes a Linux device tree on. |
+| U-Boot | Asahi, packaged as `uboot-asahi` | The only UEFI implementation on Apple Silicon. Loads the EFI boot loader from the EFI system partition. |
+| Boot loader | Omarchy | GRUB today. Limine from the next release, with GRUB kept as a recovery entry. |
+| Kernel and initramfs | omarchy-pkgs and `omarchy-mac-boot` | `linux-asahi` or `linux-aurora`, a systemd initramfs built by mkinitcpio with the vendor firmware and Apple HID hooks. |
+| Root | Omarchy | A btrfs root with the `@` subvolume, snapper snapshots and, optionally, LUKS. |
+
+The boot check that `omarchy update` runs before offering a reboot verifies the kernel, the initramfs hooks, the m1n1 payload and the boot loader configuration against what the packages say they should be, and refuses the reboot on a mismatch.
+
+## Boot loader
+
+The shipped releases boot through GRUB with a themed menu and `grub-btrfs` entries for snapshots. On 2026-09-22 the fork settled on Limine, upstream Omarchy's boot loader, after comparing the two on hardware:
+
+- U-Boot loads Limine from `BOOTAA64.EFI` on the EFI system partition.
+- `limine-mkinitcpio-hook` builds a unified kernel image (UKI) on every kernel or initramfs change. Kernel copies must live on the EFI system partition, so the hook keeps them there.
+- `limine-snapper-sync` lists snapper snapshots in the boot menu, and `limine-snapper-restore` restores one.
+- GRUB stays as the `GRUB (recovery)` chain-load entry until it is retired.
+- U-Boot is made silent: no banner, no logo, no boot delay. The menu the user sees is Limine's.
+
+The Limine packages are already in the `[omarchy]` repository. Enabling them in the image and on first boot is the next release's work. Until then the GRUB path is what installs and updates.
+
+## Kernel lanes
+
+| Lane | Package | Source | Channel |
+| --- | --- | --- | --- |
+| Asahi | `linux-asahi` from `[asahi-alarm]` | Asahi Linux project | `stable` |
+| Aurora rc | `linux-aurora` from `[omarchy-aurora]` | `aurora-silicon/linux`, pinned commit | `rc` |
+| Aurora edge | `linux-aurora` from `[omarchy-aurora]` | `aurora-silicon/linux` branch `aurora-wip`, floating | `edge` |
+
+`linux-aurora` provides `linux-asahi`, so the rest of the system does not care which one is installed. Lane selection is the choice of the `[omarchy-aurora]` repository, and moving between lanes is an explicit, signed downgrade or upgrade rather than a version comparison.
+
+The three Aurora recipes live in omarchy-pkgs as `linux-aurora-rc`, `linux-aurora-stable` and `linux-aurora-edge`. The edge recipe rebuilds when the upstream branch head moves, gated by an input digest so an unchanged tree never rebuilds. Patches the fork needed have been merged upstream, so the recipes currently carry none.
+
+## Initramfs
+
+The initramfs is systemd-based. `omarchy-mac-boot` drops in:
+
+- `MODULES` entries for `hid_apple`, `hid_magicmouse`, `dockchannel-hid` and `usbhid`, added only when the running kernel really has them as modules, so a kernel that builds a driver in does not break later `mkinitcpio -P` runs;
+- the vendor firmware service that copies Apple firmware onto the root, and a second copy that runs before `cryptsetup-pre.target` on encrypted Macs so Wi-Fi and input work at the passphrase prompt;
+- a Plymouth drop-in so the passphrase prompt is graphical;
+- the `kmod-static-nodes` ordering fix that btrfs roots need on Apple hardware.
+
+## Encryption
+
+Encryption is chosen in the installer and performed on the first boot. The conversion runs in the initramfs before `sysroot.mount`, shrinks the file system, re-encrypts in place, then regenerates the boot loader configuration and the initramfs with `sd-encrypt`. A second boot unlocks the volume with the owner's passphrase. Installed Macs that were not asked to encrypt are never touched: the unit requires a pending marker written by the installer and refuses to run without it.
+
+## Snapshots
+
+The root is btrfs. `omarchy update` creates a snapper snapshot before the package sync and keeps the five most recent. `omarchy-snapshot restore <number>` reboots into a writable clone of a snapshot, the next boot verifies it, and `omarchy-snapshot prune-previous` drops the kept previous root. Because the kernel on the boot partition stays, only snapshots that carry the modules for the current kernel are accepted.
