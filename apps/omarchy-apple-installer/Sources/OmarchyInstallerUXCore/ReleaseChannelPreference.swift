@@ -37,5 +37,21 @@
     public func resolve(descriptorDefault: ReleaseChannel) -> ReleaseChannel {
       stored ?? descriptorDefault
     }
+
+    /// The channel the next preparation fetches. The window and the download
+    /// both resolve through here, so they cannot disagree.
+    public func resolve(configuration: InstallerReleaseConfiguration) -> ReleaseChannel {
+      resolve(descriptorDefault: configuration.defaultChannel)
+    }
+
+    /// `nil` when the app bundle carries no valid release descriptor; nothing
+    /// can be fetched then either.
+    public func resolveFromMainBundle() -> ReleaseChannel? {
+      guard
+        let configuration = try? InstallerReleaseConfigurationLocator()
+          .loadFromMainBundle()
+      else { return nil }
+      return resolve(configuration: configuration)
+    }
   }
 #endif

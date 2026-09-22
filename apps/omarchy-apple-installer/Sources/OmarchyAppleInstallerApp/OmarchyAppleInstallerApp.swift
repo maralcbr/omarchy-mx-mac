@@ -105,8 +105,7 @@ struct OmarchyAppleInstallerApp: App {
       onSessionAvailable: { liveSession = $0 })
   }
 
-  @State private var channel: ReleaseChannel = ReleaseChannelPreference()
-    .resolve(descriptorDefault: .stable)
+  @State private var channel = ReleaseChannelPreference().resolveFromMainBundle()
 
   var body: some Scene {
     WindowGroup(PlainLanguage.windowTitle) {
@@ -165,22 +164,24 @@ struct OmarchyAppleInstallerApp: App {
       }
       CommandMenu(PlainLanguage.channelMenuTitle) {
         Picker(PlainLanguage.channelMenuTitle, selection: channelBinding) {
-          Text(PlainLanguage.channelStable).tag(ReleaseChannel.stable)
-          Text(PlainLanguage.channelRC).tag(ReleaseChannel.rc)
+          Text(PlainLanguage.channelStable).tag(ReleaseChannel?.some(.stable))
+          Text(PlainLanguage.channelRC).tag(ReleaseChannel?.some(.rc))
         }
         .pickerStyle(.inline)
         .disabled(
           removalNeedsReview || showsRemoval || liveSession?.canChangeChannel != true
-            || isSimulation)
+            || isSimulation || channel == nil)
       }
     }
   }
 
-  private var channelBinding: Binding<ReleaseChannel> {
+  private var channelBinding: Binding<ReleaseChannel?> {
     Binding(
       get: { channel },
       set: { selected in
-        guard liveSession?.canChangeChannel == true && !isSimulation else { return }
+        guard let selected, liveSession?.canChangeChannel == true && !isSimulation else {
+          return
+        }
         ReleaseChannelPreference().select(selected)
         channel = selected
       }

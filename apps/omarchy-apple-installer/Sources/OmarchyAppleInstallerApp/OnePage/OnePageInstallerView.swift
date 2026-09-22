@@ -18,16 +18,15 @@ struct OnePageInstallerView: View {
   @State private var host: HostDisplay?
   @State private var contentHeight: CGFloat = 400
   /// Which channel this Mac reads. Owned by the scene so the banner always
-  /// names the channel the next preparation will actually fetch.
-  let channel: ReleaseChannel
+  /// names the channel the next preparation will actually fetch; `nil` when
+  /// the bundle has no release descriptor to fetch from.
+  let channel: ReleaseChannel?
   let onChannelAvailability: (Bool) -> Void
   let onSessionAvailable: (InstallerSession) -> Void
 
   init(
     environment: any InstallerEnvironment,
-    channel: ReleaseChannel = ReleaseChannelPreference().resolve(
-      descriptorDefault: .stable
-    ),
+    channel: ReleaseChannel?,
     onChannelAvailability: @escaping (Bool) -> Void = { _ in },
     onSessionAvailable: @escaping (InstallerSession) -> Void = { _ in }
   ) {
@@ -142,7 +141,9 @@ struct OnePageInstallerView: View {
         } else {
           StatusBadge(text: PlainLanguage.supportedBadge, kind: .ok)
         }
-        StatusBadge(text: PlainLanguage.badge(for: channel), kind: .ok)
+        if let channel {
+          StatusBadge(text: PlainLanguage.badge(for: channel), kind: .ok)
+        }
       }
       .lineLimit(1)
     } else {

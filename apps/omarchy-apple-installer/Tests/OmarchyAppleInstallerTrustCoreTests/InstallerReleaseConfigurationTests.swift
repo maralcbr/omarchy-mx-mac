@@ -30,7 +30,7 @@
       )
     }
 
-    func testTheAuroraChannelResolvesItsOwnCatalog() throws {
+    func testTheRetiredRCAuroraLaneIsNoChannel() throws {
       let key = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
       let configuration = try InstallerReleaseConfigurationLoader().load(
         descriptor: descriptor(fingerprint: digest(key)),
@@ -87,8 +87,7 @@
     func testDescriptorsMissingAChannelFailClosed() throws {
       try assertDescriptorRejected { value in
         value["channels"] = [
-          "stable": ["catalog_url": "https://releases.omarchy.example/s.json"],
-          "rc": ["catalog_url": "https://releases.omarchy.example/r.json"],
+          "stable": ["catalog_url": "https://releases.omarchy.example/s.json"]
         ]
       }
     }

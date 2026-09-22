@@ -6,7 +6,7 @@
   @testable import OmarchyInstallerUXCore
 
   final class PlainLanguageTests: XCTestCase {
-    func testChannelBadgesDistinguishStableRCAndAurora() {
+    func testChannelBadgesDistinguishStableAndRC() {
       XCTAssertEqual(PlainLanguage.badge(for: .stable), "Stable")
       XCTAssertEqual(PlainLanguage.badge(for: .rc), "Release candidate")
     }
