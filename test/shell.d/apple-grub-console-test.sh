@@ -1,20 +1,32 @@
 #!/bin/bash
 #
-# The GRUB console leaf renders a larger font for GRUB, points GRUB_FONT at
-# it, appends the unbounded root-device wait to GRUB_CMDLINE_LINUX, and runs
-# update-grub once; a Mac already configured is left alone.
+# The GRUB console leaf gives an Apple Silicon Mac the x86 Limine look and a
+# splash-only boot: theme fonts and theme.txt under /boot/grub/themes/omarchy,
+# a readable console font, the menu shown for three seconds, the efi_gop
+# backend, the unbounded root-device wait, Plymouth told to ignore the serial
+# console, and 10_linux's "Loading ..." echoes guarded behind "quiet". One
+# update-grub per change, nothing on a second run, a retry when it failed.
 
 set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 leaf="$ROOT/install/hardware/apple/grub-console.sh"
-migration="$ROOT/migrations/1790030337.sh"
+theme="$ROOT/default/grub/omarchy/theme.txt"
+fixture="$ROOT/test/fixtures/grub/10_linux"
 grep -Fq 'hardware/apple/grub-console.sh' "$ROOT/install/hardware/all.sh" || fail "the leaf is a deferred hardware step"
+[[ -f $theme && -f $fixture ]] || fail "the theme and the 10_linux fixture ship with the runtime"
+grep -Fxq 'desktop-color: "#1a1b26"' "$theme" && grep -Fxq 'title-color: "#9ece6a"' "$theme" ||
+  fail "the theme carries the Tokyo Night backdrop and the green Omarchy title"
+! grep -Fq '.png' "$theme" || fail "the theme references no bitmap GRUB would have to load"
+for face in "Liberation Sans Bold 36" "Liberation Mono Regular 28" "Liberation Mono Regular 24" "Liberation Mono Regular 20"; do
+  grep -Fq "\"$face\"" "$theme" || fail "the theme names the face the leaf renders: $face"
+done
+pass "the theme is the x86 palette and names only fonts the leaf renders"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/bin" "$tmp/fonts"
+mkdir -p "$tmp/bin" "$tmp/fonts" "$tmp/liberation" "$tmp/grub.d" "$tmp/backups"
 export CALL_LOG="$tmp/calls"
 export PATH="$tmp/bin:$ROOT/bin:$PATH"
 printf '#!/bin/bash\nexit "${APPLE:-0}"\n' >"$tmp/bin/omarchy-hw-apple-silicon"
@@ -22,24 +34,45 @@ printf '#!/bin/bash\nexec "$@"\n' >"$tmp/bin/sudo"
 printf '#!/bin/bash\necho "mkfont $*" >>"$CALL_LOG"; while (( $# > 1 )); do [[ $1 == -o ]] && printf font >"$2"; shift; done\n' >"$tmp/bin/grub-mkfont"
 printf '#!/bin/bash\necho update-grub >>"$CALL_LOG"\n' >"$tmp/bin/update-grub"
 chmod +x "$tmp/bin"/*
-: >"$tmp/source.ttf"
+for ttf in LiberationMono-Regular LiberationSans-Bold; do : >"$tmp/liberation/$ttf.ttf"; done
+cp "$fixture" "$tmp/grub.d/10_linux"
 
 run_leaf() {
   : >"$CALL_LOG"
-  OMARCHY_GRUB_CONSOLE_PENDING="$tmp/pending" \
-  OMARCHY_GRUB_DEFAULT="$tmp/grub" OMARCHY_GRUB_FONT="$tmp/fonts/omarchy.pf2" OMARCHY_GRUB_FONT_SOURCE="$tmp/source.ttf" \
+  OMARCHY_GRUB_CONSOLE_PENDING="$tmp/pending" OMARCHY_GRUB_DEFAULT="$tmp/grub" \
+  OMARCHY_GRUB_FONT="$tmp/fonts/omarchy.pf2" OMARCHY_GRUB_THEME_DIR="$tmp/themes/omarchy" \
+  OMARCHY_GRUB_THEME_SOURCE="$theme" OMARCHY_GRUB_FONT_SOURCE_DIR="$tmp/liberation" \
+  OMARCHY_GRUB_LINUX_SCRIPT="$tmp/grub.d/10_linux" OMARCHY_GRUB_BACKUP_DIR="$tmp/backups" \
     bash -euo pipefail -c 'source "$1"' _ "$leaf" >"$tmp/out" 2>&1
 }
 
-printf 'GRUB_TIMEOUT="1"\nGRUB_CMDLINE_LINUX="zswap.enabled=0 rootfstype=btrfs"\n' >"$tmp/grub"
+printf 'GRUB_TIMEOUT="1"\nGRUB_TIMEOUT_STYLE="hidden"\nGRUB_CMDLINE_LINUX="zswap.enabled=0 rootfstype=btrfs"\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=0"\n' >"$tmp/grub"
 run_leaf || fail "the leaf runs: $(<"$tmp/out")"
-grep -Fq "mkfont -s 28 -o $tmp/fonts/omarchy.pf2 $tmp/source.ttf" "$CALL_LOG" || fail "the font is rendered from Liberation Mono at 28px: $(<"$CALL_LOG")"
-grep -Fxq "GRUB_FONT=\"$tmp/fonts/omarchy.pf2\"" "$tmp/grub" || fail "GRUB_FONT names the rendered font: $(<"$tmp/grub")"
-grep -Fxq 'GRUB_CMDLINE_LINUX="zswap.enabled=0 rootfstype=btrfs rootflags=x-systemd.device-timeout=0"' "$tmp/grub" ||
-  fail "the root-device wait is appended to GRUB_CMDLINE_LINUX: $(<"$tmp/grub")"
-grep -Fxq 'GRUB_VIDEO_BACKEND="efi_gop"' "$tmp/grub" || fail "the video backend is pinned to efi_gop so GRUB stops asking for efi_uga"
+for spec in "28 -o $tmp/fonts/omarchy.pf2 $tmp/liberation/LiberationMono-Regular.ttf" \
+  "36 -o $tmp/themes/omarchy/sans-bold-36.pf2 $tmp/liberation/LiberationSans-Bold.ttf" \
+  "28 -o $tmp/themes/omarchy/mono-28.pf2 $tmp/liberation/LiberationMono-Regular.ttf" \
+  "24 -o $tmp/themes/omarchy/mono-24.pf2 $tmp/liberation/LiberationMono-Regular.ttf" \
+  "20 -o $tmp/themes/omarchy/mono-20.pf2 $tmp/liberation/LiberationMono-Regular.ttf"; do
+  grep -Fq "mkfont -s $spec" "$CALL_LOG" || fail "the leaf renders $spec: $(<"$CALL_LOG")"
+done
+cmp -s "$theme" "$tmp/themes/omarchy/theme.txt" || fail "the theme is installed beside its fonts"
+for line in "GRUB_FONT=\"$tmp/fonts/omarchy.pf2\"" "GRUB_THEME=\"$tmp/themes/omarchy/theme.txt\"" 'GRUB_TIMEOUT="3"' \
+  'GRUB_TIMEOUT_STYLE="menu"' 'GRUB_VIDEO_BACKEND="efi_gop"' \
+  'GRUB_CMDLINE_LINUX="zswap.enabled=0 rootfstype=btrfs rootflags=x-systemd.device-timeout=0"' \
+  'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=0 plymouth.ignore-serial-consoles"'; do
+  grep -Fxq "$line" "$tmp/grub" || fail "the defaults carry $line: $(<"$tmp/grub")"
+done
 [[ $(grep -c update-grub "$CALL_LOG") == 1 ]] || fail "grub.cfg is regenerated once"
-pass "the leaf renders the font, sets GRUB_FONT and the root wait, and regenerates GRUB once"
+pass "the leaf installs the theme and fonts, shows the menu for 3 s, and quiets the kernel line"
+
+# 10_linux: both echoes guarded, the original kept outside grub.d.
+[[ $(grep -Fc 'Omarchy: no narration' "$tmp/grub.d/10_linux") == 2 ]] || fail "both loading messages are guarded"
+[[ $(grep -Fc $'\t${message:+echo\t' "$tmp/grub.d/10_linux") == 2 ]] || fail "both echoes are emitted only with a message"
+! grep -Fq $'^\techo\t\'$(echo "$message"' "$tmp/grub.d/10_linux" || fail "no unguarded echo survives"
+cmp -s "$fixture" "$tmp/backups/10_linux.pre-omarchy" || fail "the original 10_linux is kept under the backups directory"
+[[ -z $(ls "$tmp/grub.d" | grep -v '^10_linux$') ]] || fail "nothing extra lands in grub.d: $(ls "$tmp/grub.d")"
+bash -n "$tmp/grub.d/10_linux" || fail "the patched 10_linux still parses"
+pass "10_linux narrates only without quiet, and its original stays out of grub.d"
 
 run_leaf || fail "a second run passes"
 [[ ! -s $CALL_LOG ]] || fail "a configured Mac renders nothing and runs no update-grub: $(<"$CALL_LOG")"
@@ -54,8 +87,7 @@ grep -Fxq 'GRUB_CMDLINE_LINUX="zswap.enabled=0 rootflags=x-systemd.device-timeou
   fail "the effective (last, single-quoted) value is the one extended: $(<"$tmp/grub")"
 pass "the leaf leaves one authoritative assignment carrying the effective value"
 
-# A failed update-grub leaves the regeneration owed: the next run retries it
-# even though the defaults already read as configured.
+# A failed update-grub leaves the regeneration owed.
 printf '#!/bin/bash\necho update-grub >>"$CALL_LOG"; exit 1\n' >"$tmp/bin/update-grub"
 printf 'GRUB_CMDLINE_LINUX="zswap.enabled=0"\n' >"$tmp/grub"
 if run_leaf; then fail "a failed update-grub must fail the leaf"; fi
@@ -71,6 +103,6 @@ APPLE=1 run_leaf || fail "a non-Apple machine passes"
 [[ ! -s $CALL_LOG ]] && grep -Fxq 'GRUB_CMDLINE_LINUX="zswap.enabled=0"' "$tmp/grub" || fail "a non-Apple machine is untouched"
 pass "the leaf gates itself to Apple Silicon"
 
-# The migration sources the leaf.
-grep -Fq 'hardware/apple/grub-console.sh' "$migration" || fail "the migration runs the leaf"
-pass "installed Macs get the same through the migration"
+grep -Fq 'hardware/apple/grub-console.sh' "$ROOT/migrations/1790030337.sh" "$ROOT/migrations/1790037110.sh" >/dev/null ||
+  fail "installed Macs run the leaf through the migrations"
+pass "installed Macs get the same through the migrations"

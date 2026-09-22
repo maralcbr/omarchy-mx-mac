@@ -1,0 +1,46 @@
+# Omarchy GRUB theme: the x86 Limine look (Tokyo Night) for Apple Silicon.
+desktop-color: "#1a1b26"
+title-text: "Omarchy Bootloader"
+title-color: "#9ece6a"
+title-font: "Liberation Sans Bold 36"
+terminal-font: "Liberation Mono Regular 24"
+
++ boot_menu {
+  left = 15%
+  width = 70%
+  top = 25%
+  height = 55%
+  item_font = "Liberation Mono Regular 28"
+  item_color = "#a9b1d6"
+  selected_item_font = "Liberation Mono Regular 28"
+  selected_item_color = "#9ece6a"
+  item_height = 44
+  item_padding = 4
+  item_spacing = 8
+  scrollbar = false
+}
+
++ label {
+  left = 15%
+  width = 70%
+  top = 84%
+  height = 32
+  color = "#565f89"
+  font = "Liberation Mono Regular 20"
+  text = "Enter selects, arrows move, e edits, c opens a console"
+}
+
++ progress_bar {
+  id = "__timeout__"
+  left = 15%
+  width = 70%
+  top = 90%
+  height = 24
+  show_text = true
+  font = "Liberation Mono Regular 20"
+  text_color = "#c0caf5"
+  fg_color = "#9ece6a"
+  bg_color = "#24283b"
+  border_color = "#414868"
+  text = "@TIMEOUT_NOTIFICATION_SHORT@"
+}
