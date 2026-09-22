@@ -86,28 +86,100 @@ for package in linux-aurora m1n1-aurora linux-asahi m1n1; do
   [[ $package == "$kernel" || $package == "$bootloader" ]] || ! is_installed "$package" ||
     fail "$kernel boots with $bootloader, but $package is installed too"
 done
-# The mtree check, minus the depmod outputs: the kernel package ships
-# modules.* and the depmod hook rewrites them on every install, so their
-# modification times never match. Anything else altered or missing fails.
-for package in "$kernel" "$bootloader"; do
-  set +e
-  mtree_output=$(LC_ALL=C pacman -Qkk "$package" 2>&1)
-  mtree_status=$?
-  set -e
-  altered=$(grep -Ev ' altered files$' <<<"$mtree_output" |
-    grep -Ev '^warning: [^:]+: /usr/lib/modules/[^/]+/modules\.[A-Za-z.]+ \(Modification time mismatch\)$' || true)
-  [[ -z $altered ]] || fail "installed $package files do not match the package mtree: $(head -n 1 <<<"$altered")"
-  # pacman exits 1 for the depmod lines alone; any other failure is one.
-  (( mtree_status == 0 )) || grep -Fq '(Modification time mismatch)' <<<"$mtree_output" ||
-    fail "pacman -Qkk $package failed"
-done
-
 pacman -Qlq "$kernel" >"$workdir/kernel-files" 2>/dev/null || fail "cannot list the files of $kernel"
 pacman -Qlq "$bootloader" >"$workdir/bootloader-files" 2>/dev/null || fail "cannot list the files of $bootloader"
 mapfile -t images < <(grep -E '^/usr/lib/modules/[^/]+/vmlinuz$' "$workdir/kernel-files" || true)
 (( ${#images[@]} == 1 )) || fail "$kernel does not install exactly one kernel"
 kver=${images[0]#/usr/lib/modules/}
 kver=${kver%/vmlinuz}
+
+# DKMS moves stock modules into original_module before installing replacements.
+# Accept that absence only when the archive still matches pacman's mtree and
+# modinfo selects the bytes from the active DKMS build for this kernel. This
+# checks consistency with the locally installed driver, not its provenance.
+dkms_replaces_module() {
+  local missing=$1 module_name dbpath package_id expected archived_sha selected vermagic
+  local arch family active build version backup origin status built
+  [[ $missing =~ ^/usr/lib/modules/[^/]+/kernel/.+\.ko(\.(gz|xz|zst))?$ ]] || return 1
+  [[ $missing == /usr/lib/modules/"$kver"/kernel/* ]] || return 1
+  omarchy-cmd-present dkms || return 1
+  package_id=$(pacman -Q "$kernel") || return 1
+  [[ $package_id == "$kernel "* && $package_id != *$'\n'* ]] || return 1
+  dbpath=$(pacman-conf DBPath) || return 1
+  [[ $dbpath == /* && $dbpath != *$'\n'* ]] || return 1
+  # Package mtree paths escape whitespace; module paths without such escapes
+  # are matched literally. An unrecognised entry remains a verification failure.
+  expected=$(gzip -cd "$(path "${dbpath%/}/local/${package_id/ /-}/mtree")" |
+    awk -v entry=".$missing" '$1 == entry { for (i=2; i<=NF; i++) if ($i ~ /^sha256digest=/) print substr($i,14) }') || return 1
+  [[ $expected =~ ^[[:xdigit:]]{64}$ ]] || return 1
+  module_name=${missing##*/}
+  module_name=${module_name%%.ko*}
+  selected=$(modinfo -b "${root:-/}" -k "$kver" -n "$module_name") || return 1
+  selected=$(realpath -e -- "$selected") || return 1
+  [[ $selected == "$(path "/usr/lib/modules/$kver")/"* && -f $selected ]] || return 1
+  vermagic=$(modinfo -F vermagic "$selected") || return 1
+  [[ $vermagic == "$kver "* ]] || return 1
+  arch=$(uname -m) || return 1
+  for active in "$(path /var/lib/dkms)"/*/kernel-"$kver-$arch"; do
+    [[ -L $active ]] || continue
+    family=${active%/*}
+    build=$(realpath -e -- "$active") || continue
+    [[ $build == "$family/"*"/$kver/$arch" ]] || continue
+    version=${build#"$family/"}
+    version=${version%"/$kver/$arch"}
+    [[ -n $version && $version != */* ]] || continue
+    backup="$family/original_module/$kver/$arch/${missing##*/}"
+    origin="$backup.origin"
+    [[ -f $backup && -f $origin ]] || continue
+    # DKMS installations may record either spelling of Arch's /lib symlink.
+    origin=$(cat "$origin") || continue
+    [[ ${origin/#\/lib\//\/usr\/lib\/} == "$missing" ]] || continue
+    archived_sha=$(sha256sum "$backup") || continue
+    [[ ${archived_sha%% *} == "$expected" ]] || continue
+    status=$(LC_ALL=C dkms status -m "${family##*/}" -v "$version" -k "$kver" -a "$arch") || continue
+    [[ $status == "${family##*/}/$version, $kver, $arch: installed" ||
+      $status == "${family##*/}/$version, $kver, $arch: installed (Original modules exist)" ]] || continue
+    # DKMS copies its build output, including compression/signatures, verbatim.
+    # The original package and the replacement need not use the same suffix.
+    built="$build/module/${selected##*/}"
+    [[ -f $built ]] && cmp -s -- "$built" "$selected" || continue
+    echo "Apple Silicon boot check: verified installed DKMS ${family##*/}/$version replacing $missing with $selected (local build consistency, not package provenance)" >&2
+    return 0
+  done
+  return 1
+}
+
+expected_package_change() {
+  local warning=$1 prefix="warning: $kernel: /usr/lib/modules/$kver/" relative
+  [[ $warning == "$prefix"* ]] || return 1
+  relative=${warning#"$prefix"}
+  # Only depmod's generated indexes qualify, never modules.order,
+  # modules.builtin or modules.builtin.modinfo shipped by the kernel build.
+  if [[ $relative =~ ^modules\.(alias(\.bin)?|dep(\.bin)?|symbols(\.bin)?|softdep|weakdep|devname|builtin(\.alias)?\.bin)\ \((Modification\ time|Size|SHA256\ checksum)\ mismatch\)$ ]]; then
+    return 0
+  fi
+  [[ $relative == *" (No such file or directory)" ]] || return 1
+  dkms_replaces_module "/usr/lib/modules/$kver/${relative%" (No such file or directory)"}"
+}
+
+# Keep other package damage and pacman errors fatal, including missing indexes.
+for package in "$kernel" "$bootloader"; do
+  mtree_status=0
+  mtree_output=$(LC_ALL=C pacman -Qkk "$package" 2>&1) || mtree_status=$?
+  (( mtree_status <= 1 )) || fail "pacman -Qkk $package failed"
+  [[ -n $mtree_output || $mtree_status == 0 ]] || fail "pacman -Qkk $package failed"
+  accepted_changes=0
+  while IFS= read -r warning; do
+    [[ -n $warning ]] || continue
+    [[ $warning =~ ^$package:\ [0-9]+\ total\ files,\ [0-9]+\ altered\ files$ ]] && continue
+    if [[ $package == "$kernel" ]] && expected_package_change "$warning"; then
+      (( accepted_changes += 1 ))
+      continue
+    fi
+    fail "installed $package files do not match the package mtree: $warning"
+  done <<<"$mtree_output"
+  (( mtree_status == 0 || accepted_changes > 0 )) || fail "pacman -Qkk $package failed"
+done
 
 sudo cmp -s "$(path "/boot/vmlinuz-$kernel")" "$(path "${images[0]}")" ||
   fail "/boot/vmlinuz-$kernel is not the $kver kernel $kernel installed"
