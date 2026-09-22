@@ -146,9 +146,11 @@ available.
 
 ## Release Details
 
-The RC app currently installs signed image `os-v4.0.3-mac.1.20260913` (Omarchy
-4.0.3, Asahi). It follows the latest signed catalog for the channel you select; cached
-files are reused only when their size and SHA-256 match that catalog.
+The **Release candidate** channel currently installs signed image
+`os-v4.0.3-mac.4.20260921-rc` (Omarchy 4.0.3, Aurora); **Stable** installs
+`os-v4.0.3-mac.1.20260913` (Omarchy 4.0.3, Asahi), which the rest of this section
+describes. The app follows the latest signed catalog for the channel you select;
+cached files are reused only when their size and SHA-256 match that catalog.
 
 Omarchy 4.0.3 brings upstream security fixes and AI integrations, Apple Silicon
 migration support, and ARM OpenClaw/Perplexity integration while retaining Mac
@@ -159,7 +161,7 @@ through `omarchy update`.
 [Stable packages](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-83973903b7deb9b56ce75f02b432fba0561d6293)
 and [runtime channel 32](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-32)
 carry the accepted `4.0.3.r6962.ga67d7f7-1` runtime/settings pair embedded in
-this RC image. The release includes greeter password masking and focus fixes,
+the Stable image. The release includes greeter password masking and focus fixes,
 Apple DRM readiness handling, and the initramfs static-device race fix.
 
 See [4.0.3 release notes](docs/releases/v4.0.3-mac.1.md).

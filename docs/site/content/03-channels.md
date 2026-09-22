@@ -33,19 +33,19 @@ There is a third Aurora lane, `edge`, which floats on the upstream branch head. 
 
 ## Picking a channel
 
-New installs choose in the installer app's **Release Channel** menu, or beforehand:
+The installer offers `rc` by default. `stable` is in its **Release Channel** menu, or can be chosen beforehand:
 
 ```bash
-defaults write com.omarchy.mx.installer ReleaseChannel rc
+defaults write com.omarchy.mx.installer ReleaseChannel stable
 ```
 
-An installed Mac switches with the ordinary Omarchy command, which records the request, takes the update lock and then runs an update that moves the kernel and proves it boots:
+**Choose at install time, because the kernel family stays.** A Mac installed on the Asahi kernel stays on it, and the switch command refuses: moving between kernel families is not available. A Mac on the Aurora kernel can move between the Aurora lanes, `stable` and `rc`, with the ordinary Omarchy command, which records the request, takes the update lock and runs an update that moves the kernel and proves it boots:
 
 ```bash
 omarchy-channel-set rc
 ```
 
-The Mac's own record lives in `/var/lib/omarchy/apple-silicon-channel`, and the installed kernel is named in `/usr/share/omarchy/apple-silicon-kernel`. A switch is a policy request until an update has proven the new kernel boots; the record is only cleared then.
+The Mac's own record lives in `/var/lib/omarchy/apple-silicon-channel`, and the installed kernel is named in `/usr/share/omarchy/apple-silicon-kernel`. A lane switch is a request until an update has proven the new kernel boots; only then is it recorded as done.
 
 ## How an update arrives
 
