@@ -1,88 +1,82 @@
-<svg viewBox="0 0 900 620" role="img" aria-label="The testing ladder, and what each rung cannot prove" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 900 680" role="img" aria-label="The three questions, the evidence for each, and what it leaves unproved" xmlns="http://www.w3.org/2000/svg">
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="arrow"/></marker><marker id="arrow-brand" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="arrow brand"/></marker></defs>
-<rect class="lane" x="16" y="16" width="520" height="570"/>
-<text class="lane-title" x="30" y="40">What runs</text>
-<text class="lane-sub" x="30" y="58">cheap and broad at the bottom, costly and narrow at the top</text>
-<rect class="lane" x="556" y="16" width="328" height="570"/>
-<text class="lane-title" x="570" y="40">What it cannot prove</text>
-<path class="edge" d="M 276.0 512 C 276.0 504.0 276.0 504.0 276.0 496" marker-end="url(#arrow)"/>
-<path class="edge" d="M 276.0 422 C 276.0 414.0 276.0 414.0 276.0 406" marker-end="url(#arrow)"/>
-<path class="edge" d="M 276.0 332 C 276.0 324.0 276.0 324.0 276.0 316" marker-end="url(#arrow)"/>
-<path class="edge" d="M 276.0 242 C 276.0 234.0 276.0 234.0 276.0 226" marker-end="url(#arrow)"/>
-<path class="edge" d="M 276.0 152 C 276.0 144.0 276.0 144.0 276.0 136" marker-end="url(#arrow)"/>
-<g class="node tone-brand">
-<rect x="36" y="62" width="480" height="74"/>
-<text class="n-title" x="48" y="83">Hardware qualification</text>
-<text class="n-sub" x="48" y="102">a person at a real Mac, cold booted:</text>
-<text class="n-sub" x="48" y="119">graphics, audio, suspend, displays</text>
-</g>
-<g class="node tone-ext">
-<rect x="576" y="62" width="300" height="57"/>
-<text class="n-title" x="588" y="83">Every Mac</text>
-<text class="n-sub" x="588" y="102">two machines in the lab</text>
+<rect class="lane" x="16" y="16" width="520" height="620"/>
+<text class="lane-title" x="30" y="40">Evidence</text>
+<text class="lane-sub" x="30" y="58">these do not substitute for one another</text>
+<rect class="lane" x="556" y="16" width="328" height="620"/>
+<text class="lane-title" x="570" y="40">Left unproved</text>
+<path class="edge dashed" d="M 516 172.0 C 546.0 172.0 546.0 172.0 576 172.0" marker-end="url(#arrow)"/>
+<path class="edge dashed" d="M 516 339.0 C 546.0 339.0 546.0 339.0 576 339.0" marker-end="url(#arrow)"/>
+<path class="edge dashed" d="M 516 429.0 C 546.0 429.0 546.0 429.0 576 429.0" marker-end="url(#arrow)"/>
+<path class="edge dashed" d="M 516 600.5 C 546.0 600.5 546.0 600.5 576 600.5" marker-end="url(#arrow)"/>
+<g class="node tone-purple">
+<rect x="36" y="62" width="480" height="57"/>
+<text class="n-title" x="48" y="83">1. Does it preserve macOS?</text>
+<text class="n-sub" x="48" y="102">the expensive failure</text>
 </g>
 <g class="node tone-orange">
-<rect x="36" y="152" width="480" height="74"/>
-<text class="n-title" x="48" y="173">Graphical acceptance</text>
-<text class="n-sub" x="48" y="192">9 files in a live session,</text>
-<text class="n-sub" x="48" y="209">in a disposable virtual machine</text>
+<rect x="36" y="135" width="480" height="74"/>
+<text class="n-title" x="48" y="156">Engine and app tests, by hand</text>
+<text class="n-sub" x="48" y="175">~3,800 lines over 9 engine modules,</text>
+<text class="n-sub" x="48" y="192">38 Swift files. Simulated disks only</text>
 </g>
 <g class="node tone-ext">
-<rect x="576" y="152" width="300" height="57"/>
-<text class="n-title" x="588" y="173">Apple hardware</text>
-<text class="n-sub" x="588" y="192">and it is never run by CI</text>
+<rect x="576" y="135" width="300" height="74"/>
+<text class="n-title" x="588" y="156">A real APFS resize</text>
+<text class="n-sub" x="588" y="175">both VM harnesses start</text>
+<text class="n-sub" x="588" y="192">from a blank disk</text>
 </g>
-<g class="node tone-orange">
-<rect x="36" y="242" width="480" height="74"/>
-<text class="n-title" x="48" y="263">Image acceptance</text>
-<text class="n-sub" x="48" y="282">boots the image plain, encrypted,</text>
-<text class="n-sub" x="48" y="299">then again. 7 checks</text>
-</g>
-<g class="node tone-ext">
-<rect x="576" y="242" width="300" height="74"/>
-<text class="n-title" x="588" y="263">The real boot chain</text>
-<text class="n-sub" x="588" y="282">Aurora cannot boot on QEMU,</text>
-<text class="n-sub" x="588" y="299">so a generic kernel stands in</text>
-</g>
-<g class="node tone-orange">
-<rect x="36" y="332" width="480" height="74"/>
-<text class="n-title" x="48" y="353">Fresh-install acceptance</text>
-<text class="n-sub" x="48" y="372">a clean install in a VM: interrupt,</text>
-<text class="n-sub" x="48" y="389">resume, reboot, verify. 45 assertions</text>
-</g>
-<g class="node tone-ext">
-<rect x="576" y="332" width="300" height="57"/>
-<text class="n-title" x="588" y="353">Anything about Apple</text>
-<text class="n-sub" x="588" y="372">no GPU, Wi-Fi, audio or suspend</text>
+<g class="node tone-purple">
+<rect x="36" y="229" width="480" height="57"/>
+<text class="n-title" x="48" y="250">2. Does the system work?</text>
+<text class="n-sub" x="48" y="269">most of the automation is here</text>
 </g>
 <g class="node tone-blue">
-<rect x="36" y="422" width="480" height="74"/>
-<text class="n-title" x="48" y="443">Package manifests</text>
-<text class="n-sub" x="48" y="462">both architectures resolve,</text>
-<text class="n-sub" x="48" y="479">in matching containers</text>
+<rect x="36" y="302" width="480" height="74"/>
+<text class="n-title" x="48" y="323">Source tests, every change</text>
+<text class="n-sub" x="48" y="342">315 shell files, the router suite,</text>
+<text class="n-sub" x="48" y="359">4 CI shards. Fixtures, not a machine</text>
 </g>
 <g class="node tone-ext">
-<rect x="576" y="422" width="300" height="57"/>
-<text class="n-title" x="588" y="443">That installing works</text>
-<text class="n-sub" x="588" y="462">resolvability only</text>
+<rect x="576" y="302" width="300" height="74"/>
+<text class="n-title" x="588" y="323">An installed system</text>
+<text class="n-sub" x="588" y="342">and runtime probes skip</text>
+<text class="n-sub" x="588" y="359">when headless</text>
 </g>
 <g class="node tone-blue">
-<rect x="36" y="512" width="480" height="74"/>
-<text class="n-title" x="48" y="533">Source tests</text>
-<text class="n-sub" x="48" y="552">316 shell files, 65 router</text>
-<text class="n-sub" x="48" y="569">assertions, 4 CI shards</text>
+<rect x="36" y="392" width="480" height="74"/>
+<text class="n-title" x="48" y="413">VM acceptance, every release</text>
+<text class="n-sub" x="48" y="432">fresh install: interrupt, resume,</text>
+<text class="n-sub" x="48" y="449">reboot, verify. Image: 3 boots</text>
 </g>
 <g class="node tone-ext">
-<rect x="576" y="512" width="300" height="57"/>
-<text class="n-title" x="588" y="533">An installed system</text>
-<text class="n-sub" x="588" y="552">fixtures, not a real machine</text>
+<rect x="576" y="392" width="300" height="74"/>
+<text class="n-title" x="588" y="413">The kernel you boot</text>
+<text class="n-sub" x="588" y="432">Aurora cannot run on QEMU,</text>
+<text class="n-sub" x="588" y="449">so a generic kernel stands in</text>
 </g>
-<g class="node tone-blue"><rect x="16" y="595" width="14" height="14"/></g>
-<text class="legend" x="36" y="606">automated, every change</text>
-<g class="node tone-orange"><rect x="236.5" y="595" width="14" height="14"/></g>
-<text class="legend" x="256.5" y="606">automated, every release</text>
-<g class="node tone-brand"><rect x="464.5" y="595" width="14" height="14"/></g>
-<text class="legend" x="484.5" y="606">a person</text>
-<g class="node tone-ext"><rect x="572.5" y="595" width="14" height="14"/></g>
-<text class="legend" x="592.5" y="606">the gap it leaves</text>
+<g class="node tone-orange">
+<rect x="36" y="482" width="480" height="74"/>
+<text class="n-title" x="48" y="503">Graphical acceptance, by hand</text>
+<text class="n-sub" x="48" y="522">8 tests in a live session,</text>
+<text class="n-sub" x="48" y="539">in a disposable VM. Never in CI</text>
+</g>
+<g class="node tone-purple">
+<rect x="36" y="572" width="480" height="57"/>
+<text class="n-title" x="48" y="593">3. Does it work on your Mac?</text>
+<text class="n-sub" x="48" y="612">a person at a real Mac, cold booted</text>
+</g>
+<g class="node tone-ext">
+<rect x="576" y="572" width="300" height="57"/>
+<text class="n-title" x="588" y="593">Every Mac</text>
+<text class="n-sub" x="588" y="612">two machines in the lab</text>
+</g>
+<g class="node tone-purple"><rect x="16" y="655" width="14" height="14"/></g>
+<text class="legend" x="36" y="666">the question</text>
+<g class="node tone-blue"><rect x="154.0" y="655" width="14" height="14"/></g>
+<text class="legend" x="174.0" y="666">automated</text>
+<g class="node tone-orange"><rect x="269.5" y="655" width="14" height="14"/></g>
+<text class="legend" x="289.5" y="666">run by hand</text>
+<g class="node tone-ext"><rect x="400.0" y="655" width="14" height="14"/></g>
+<text class="legend" x="420.0" y="666">the gap it leaves</text>
 </svg>
