@@ -16,9 +16,9 @@
 </g>
 <g class="node tone-orange">
 <rect x="36" y="135" width="480" height="74"/>
-<text class="n-title" x="48" y="156">Engine and app tests, by hand</text>
-<text class="n-sub" x="48" y="175">~3,800 lines over 9 engine modules,</text>
-<text class="n-sub" x="48" y="192">38 Swift files. Simulated disks only</text>
+<text class="n-title" x="48" y="156">Installer unit tests</text>
+<text class="n-sub" x="48" y="175">engine tests gate the engine build,</text>
+<text class="n-sub" x="48" y="192">Swift tests have no gate. Neither in CI</text>
 </g>
 <g class="node tone-ext">
 <rect x="576" y="135" width="300" height="74"/>
@@ -33,9 +33,9 @@
 </g>
 <g class="node tone-blue">
 <rect x="36" y="302" width="480" height="74"/>
-<text class="n-title" x="48" y="323">Source tests, every change</text>
-<text class="n-sub" x="48" y="342">315 shell files, the router suite,</text>
-<text class="n-sub" x="48" y="359">4 CI shards. Fixtures, not a machine</text>
+<text class="n-title" x="48" y="323">Source tests</text>
+<text class="n-sub" x="48" y="342">pull requests and main, 4 CI shards.</text>
+<text class="n-sub" x="48" y="359">Fixtures, not a running machine</text>
 </g>
 <g class="node tone-ext">
 <rect x="576" y="302" width="300" height="74"/>
@@ -45,9 +45,9 @@
 </g>
 <g class="node tone-blue">
 <rect x="36" y="392" width="480" height="74"/>
-<text class="n-title" x="48" y="413">VM acceptance, every release</text>
-<text class="n-sub" x="48" y="432">fresh install: interrupt, resume,</text>
-<text class="n-sub" x="48" y="449">reboot, verify. Image: 3 boots</text>
+<text class="n-title" x="48" y="413">VM acceptance</text>
+<text class="n-sub" x="48" y="432">fresh install gates a full release;</text>
+<text class="n-sub" x="48" y="449">the image run is separate</text>
 </g>
 <g class="node tone-ext">
 <rect x="576" y="392" width="300" height="74"/>
@@ -57,9 +57,9 @@
 </g>
 <g class="node tone-orange">
 <rect x="36" y="482" width="480" height="74"/>
-<text class="n-title" x="48" y="503">Graphical acceptance, by hand</text>
-<text class="n-sub" x="48" y="522">8 tests in a live session,</text>
-<text class="n-sub" x="48" y="539">in a disposable VM. Never in CI</text>
+<text class="n-title" x="48" y="503">Graphical acceptance</text>
+<text class="n-sub" x="48" y="522">8 tests in a live session in a</text>
+<text class="n-sub" x="48" y="539">disposable VM. Never in CI</text>
 </g>
 <g class="node tone-purple">
 <rect x="36" y="572" width="480" height="57"/>
@@ -74,9 +74,9 @@
 <g class="node tone-purple"><rect x="16" y="655" width="14" height="14"/></g>
 <text class="legend" x="36" y="666">the question</text>
 <g class="node tone-blue"><rect x="154.0" y="655" width="14" height="14"/></g>
-<text class="legend" x="174.0" y="666">automated</text>
-<g class="node tone-orange"><rect x="269.5" y="655" width="14" height="14"/></g>
-<text class="legend" x="289.5" y="666">run by hand</text>
-<g class="node tone-ext"><rect x="400.0" y="655" width="14" height="14"/></g>
-<text class="legend" x="420.0" y="666">the gap it leaves</text>
+<text class="legend" x="174.0" y="666">automated and gated</text>
+<g class="node tone-orange"><rect x="344.5" y="655" width="14" height="14"/></g>
+<text class="legend" x="364.5" y="666">automated, launched by hand</text>
+<g class="node tone-ext"><rect x="595.0" y="655" width="14" height="14"/></g>
+<text class="legend" x="615.0" y="666">the gap it leaves</text>
 </svg>

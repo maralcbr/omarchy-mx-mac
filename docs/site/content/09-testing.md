@@ -18,15 +18,23 @@ Most of the automated testing addresses the second. The first is covered by simu
 
 This is the expensive failure, and it is the least automated of the three.
 
-**The engine is tested in simulation.** The Python overlay that drives the installation carries about 3,800 lines of tests across nine modules: the planner that chooses where the new partitions go, the staged execution and its checkpoints, interruption and resume, the repair path, replacing an existing install, and the image writer. They run against simulated disk layouts, so they prove the logic handles the cases it was given, including being interrupted partway. They do not touch a disk.
+**The installer is covered by unit and component tests against simulated targets.** The engine's Python overlay carries about 3,800 lines across nine modules: the planner that chooses where partitions go, staged execution and its checkpoints, interruption and resume, the repair path, replacing an existing install, and the image writer. The Swift package adds three test targets over 38 files for the trust core, the installation lifecycle and the interface, and some of those touch a real file system to check staging and permissions. What none of them do is resize a real APFS container.
 
-**The app is tested in simulation too.** The Swift package has three test targets over 38 files, covering the trust core that verifies catalogs and signatures, the installation lifecycle, and the interface.
+**Only some of this is wired into a gate.** Building the pinned engine runs its test modules first and stops if they fail, so a broken engine cannot be packaged. The Swift tests have no such gate. Neither suite runs in this repository's continuous integration, though several shell tests do cover the app from outside.
 
-**Neither runs in continuous integration, but the engine's do gate its build.** Building the pinned engine runs the overlay's test modules first and stops if they fail, so an engine cannot be packaged with them broken. The Swift tests have no such gate and are run by hand. A handful of the shell tests do cover the app from outside, checking its branding, its channel publication and its daemon configuration.
+**No virtual machine test performs the resize either.** The image harness builds its own empty disk with `sgdisk`: three partitions on a blank file, no APFS container, no macOS. The fresh-install harness installs into a blank generic machine. Neither ever meets the situation that could cost someone their macOS install.
 
-**No virtual machine test exercises the resize.** This is the important one. The image harness builds its own empty disk with `sgdisk`, three partitions on a blank file. There is no APFS container in it and no macOS, so it never performs the operation that could damage a real Mac. The fresh-install harness likewise installs into a blank generic virtual machine.
+So the evidence is the engine's planning and interruption tests, the fact that APFS resizing, the boot policy and recoveryOS are Asahi's code rather than this project's, and whatever physical installation a given release records. There is no automated end-to-end proof, and this page will not imply one.
 
-So the evidence that an install preserves macOS is: the engine's simulated interruption and planning tests, the fact that APFS resizing, the boot policy and recoveryOS are Asahi's code rather than this project's, and installs performed by hand on the lab Macs and recorded against the release. There is no automated end-to-end proof, and this page will not imply one.
+### How to read a release's evidence
+
+Each release carries notes and a hash-bound acceptance record in [docs/releases/](https://github.com/maralcbr/omarchy-mx-mac/tree/main/docs/releases). They are worth reading literally, because they distinguish things that are easy to blur:
+
+- A virtual-machine acceptance pass is not a physical install.
+- A physical check of one feature is not a fresh install of the final image.
+- An update on an existing Mac is not a first install alongside macOS.
+
+The notes for the current stable release say outright that a fresh physical installation of the final image was not performed. Match the identities too: the installer, the engine and the image each have their own version, and evidence for one is not evidence for another. The underlying transcripts live on the maintainer's machines and the records reference them by path and hash, so what you can inspect is the record, not the run.
 
 ## Does the installed system work?
 
@@ -42,7 +50,7 @@ Two suites that need no Mac, no virtual machine and no network.
 
 The **router suite** drives `omarchy` end to end: help output, the command list in human and JSON form, the requirement that every one of the 200-plus documented commands carries a summary, that the JSON keeps its shape, and that dispatch refuses anything unsafe. It covers the theme helpers too.
 
-The **shell suite** is 315 runnable files in `test/shell.d/`, plus a shared helper, roughly one per command or feature and named after what it covers. Forty-five are Apple Silicon work: the boot check, the Limine path, fresh installs, the Aurora verification hook, the kernel marker, the initramfs fixes. The rest read like an index of the distribution: the compositor and its plugins, monitors and the top bar, menus, the lock screen, themes, batteries, networking, Bluetooth, audio, suspend, printing, browsers, the updater and its migrations, the channel record, privilege grants.
+The **shell suite** is 315 runnable files in `test/shell.d/`, plus a shared helper, roughly one per command or feature and named after what it covers. The list reads like an index of the distribution, from the compositor and the top bar to the updater, the channel record and the Apple Silicon boot path.
 
 ```bash
 ls test/shell.d/          # the names are the documentation
@@ -63,7 +71,7 @@ It is an adapted environment, not a Mac. The hardware check is patched out of a 
 
 The verification stage then interrogates the result in detail: the release version, sequence and tag agree; `[omarchy]` leads the pacman configuration with signatures required; the signing fingerprints are present; the candidate descriptor checksum and package versions match; the expected units are enabled; the network backend is iwd; no migration is pending; the runtime package passes a file-integrity check; the temporary build account is gone; and the boot payloads are present.
 
-A passing run prints 25 `ok` lines and exits zero, and takes 10 to 15 minutes. Read that number carefully: 23 are optional-package transactions and the whole verification stage collapses into one line.
+Run the way the release tooling runs it, with the optional-package checks enabled, a pass prints 25 `ok` lines in 10 to 15 minutes. Read that carefully: 23 of the 25 are optional-package transactions, and the whole verification stage collapses into one line. Those checks are off by default.
 
 Packages come from a dated, immutable mirror snapshot rather than live mirrors, so a mirror mid-update cannot fail an unrelated run.
 
@@ -102,14 +110,14 @@ Gates are enforced by tooling, and it is worth being precise about what each one
 
 | Gate | What the tooling actually verifies |
 | --- | --- |
-| Candidate build | Every package builds and signs; the descriptor lists each archive with its digest |
-| Fresh-install acceptance | A record exists and is bound to that exact candidate identity |
+| Candidate build | Changed packages build and sign, eligible archives are reused, and every one keeps its signature and digest check |
+| Fresh-install acceptance | A fresh run must pass, with its exit status, identities, log hashes and failures checked. A matching committed record is accepted instead, without rechecking its logs |
 | Hardware evidence | A supplied record's identity lines match the candidate and the boot packages that moved |
 | Promotion | The promoted release is a byte-identical copy of the accepted candidate |
 | Channel publication | The sequence strictly increases and every published object is read back |
 | Catalog signature | The owner signs, with a key that never leaves their Keychain |
 
-Two of these are weaker than they sound. The **hardware evidence** gate binds a record to the release; it does not require a stated outcome, a model, a date or a transcript, and it cannot validate that any testing happened. The **acceptance record** check trusts matching metadata rather than replaying logs. Both are bookkeeping that makes an unqualified release hard to publish by accident, not proof that the qualification was done.
+The **hardware evidence** gate is the weak one. It binds a record to the candidate and to the boot packages that moved, and checks nothing else: no stated outcome, no model, no date, no transcript. It makes publishing an unqualified release hard to do by accident, and proves nothing about whether the testing happened.
 
 A **boot package** is a kernel, m1n1, U-Boot, the Asahi firmware and script tools, the boot package, the Limine hook or a DKMS module. One counts as moved when the release would publish a different version, when its recipe changed, or when its payload differs file by file. A comparison that cannot be made also counts as moved, which is the safe direction.
 
@@ -117,19 +125,15 @@ There is also a **fast path** that publishes a runtime-only change without VM ac
 
 ## Evidence
 
-Every acceptance run writes a directory under `~/vm-evidence/` holding the identities it ran against, the result, the logs with their hashes, a checksum file and a screenshot of the desktop it reached. A passing fresh-install run deletes its own 23 GB disk image; a failing one keeps it. Acceptance records are committed alongside their release, and a valid record for the same candidate already on the main branch counts instead of a fresh run.
+A fresh-install run writes a directory holding the identities it ran against, the result, the logs with their hashes, a checksum file and a screenshot of the desktop it reached; a passing run deletes its own 23 GB disk image and a failing one keeps it. The image harness records identities and logs without that bundle. Acceptance records are committed alongside their release, and a valid record for the same candidate already on the main branch counts instead of a fresh run.
 
 Hardware evidence is plain text: date, model, pass or fail or not-tested, the command, its output, and where any artefact lives.
 
 ## What is not tested
 
-- **Nothing automated resizes a real APFS container.** Both virtual-machine harnesses start from a blank disk, so the operation that could cost someone their macOS install is covered by simulation and by hand.
-- **No virtual machine boots the kernel you will boot.** The Aurora kernel cannot run under QEMU's virtual machine, so every automated boot test substitutes a generic one.
 - **The installer's own tests are not in CI.** The engine's run when the engine is built, which is a real gate; the Swift tests are run by hand.
-- **Passphrase unlocking is not tested.** The encrypted boot test unlocks with a throwaway key file, not an owner passphrase.
+- **No test boots a Mac on an owner passphrase.** Enrolment and recovery have fixture tests with a stubbed `cryptsetup`, and the image harness unlocks with a throwaway key file, so the two halves are never joined.
 - **No automated test touches Apple hardware.** Graphics, Wi-Fi, audio, suspend and power are a person with a checklist, on two machines.
-- **Two Macs are not every Mac.** Other models rely on Asahi's support for that chip and on the installer refusing identifiers it does not know.
-- **The hardware gate checks paperwork.** It matches a record against the release; it does not check that the record reports success, let alone that the tests ran.
 - **The graphical suite never runs in CI**, so a desktop regression waits for someone to run it.
 - **Some suites run in no workflow at all.** In the package repository, 13 of 43 test scripts, including the one covering the encryption path.
 - **A green headless run can contain skips**, because the runtime probes pass when no compositor is present.
