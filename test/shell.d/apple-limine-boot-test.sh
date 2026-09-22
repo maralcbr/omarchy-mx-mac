@@ -81,6 +81,8 @@ pass "Limine is opt-in"
 FAIL_LIMINE_UPDATE=1 run 2>"$test_tmp/err" || fail "the leaf returns cleanly when limine-update fails"
 [[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "GRUB image" ]] || fail "a failed UKI build leaves GRUB in the U-Boot slot"
 [[ ! -e $etc/limine ]] || fail "a failed activation removes the Limine defaults it created"
+[[ ! -e $etc/update-grub ]] || fail "a failed activation puts GRUB's update target back (none before)"
+[[ $(tail -n 1 "$calls") == update-grub ]] || fail "GRUB is regenerated into the U-Boot slot after the rollback" "$(cat "$calls")"
 grep -q 'GRUB stays the boot loader' "$test_tmp/err" || fail "the failure is reported" "$(cat "$test_tmp/err")"
 pass "GRUB keeps the slot until the Limine menu boots the kernel"
 

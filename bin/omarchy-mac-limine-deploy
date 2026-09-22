@@ -20,8 +20,11 @@ omarchy-mac-limine-active || exit 0
 findmnt -no TARGET "$esp" >/dev/null 2>&1 || { echo "omarchy-mac-limine-deploy: the ESP is not mounted at $esp" >&2; exit 1; }
 
 cmp -s "$limine_efi" "$target" && exit 0
+# Staged beside the slot and synced before the rename: the slot is never
+# half-written, and a Mac that loses power keeps GRUB or gets whole Limine.
 mkdir -p "$esp/EFI/BOOT" &&
   install -m600 "$limine_efi" "$target.new" &&
-  mv -f "$target.new" "$target" &&
-  sync -f "$target" || { echo "omarchy-mac-limine-deploy: could not write $target" >&2; exit 1; }
+  sync -f "$target.new" || { rm -f "$target.new"; echo "omarchy-mac-limine-deploy: could not stage Limine on $esp" >&2; exit 1; }
+mv -f "$target.new" "$target" || { rm -f "$target.new"; echo "omarchy-mac-limine-deploy: could not write $target" >&2; exit 1; }
+sync -f "$target" || true
 echo "Limine updated on $target"

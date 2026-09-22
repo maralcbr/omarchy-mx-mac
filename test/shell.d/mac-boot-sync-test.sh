@@ -40,7 +40,7 @@ echo 'root=UUID=x rw rootflags=subvol=@ quiet' >"$cmdline"
 run() {
   OMARCHY_BOOT_DIR="$boot" OMARCHY_MODULES_DIR="$modules" OMARCHY_CMDLINE="$cmdline" \
     OMARCHY_SNAPSHOT_BOOT_MARKER="$marker" OMARCHY_RUNNING_KERNEL=7.1.12-2-7-ARCH \
-    OMARCHY_LIMINE_GATE="$gate" OMARCHY_LIMINE_DEFAULT="$limine_default" \
+    OMARCHY_LIMINE_GATE="$gate" OMARCHY_LIMINE_DEFAULT="$limine_default" OMARCHY_MKINITCPIO="$stub_bin/mkinitcpio" \
     PATH="$stub_bin:$PATH" bash "$sync_cmd"
 }
 

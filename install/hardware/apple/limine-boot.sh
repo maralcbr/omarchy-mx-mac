@@ -39,18 +39,33 @@ fi
 [[ -f $grub_default ]] || { echo "No $grub_default; cannot derive the kernel command line" >&2; return 0; }
 findmnt -no TARGET "$esp" >/dev/null 2>&1 || { echo "The ESP is not mounted at $esp; leaving GRUB in place" >&2; return 0; }
 
+# A failed activation puts everything back: GRUB's update target (and a
+# regeneration into the U-Boot slot when it was retargeted here) and the
+# Limine defaults this run created, so the Mac does not count as a Limine
+# Mac while GRUB still boots it.
 limine_boot_fail() {
   echo "limine-boot: $*; GRUB stays the boot loader" >&2
-  # A half-configured Mac must not count as a Limine Mac.
+  if (( update_grub_default_changed )); then
+    if [[ -n $update_grub_default_before ]]; then
+      printf '%s\n' "$update_grub_default_before" | sudo tee "$update_grub_default" >/dev/null
+    else
+      sudo rm -f "$update_grub_default"
+    fi
+    sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1 || echo "limine-boot: update-grub failed while restoring GRUB's target" >&2
+  fi
   (( limine_default_created )) && sudo rm -f "$limine_default"
   return 1
 }
 limine_default_created=0
+update_grub_default_changed=0
+update_grub_default_before=""
 
 # 1. GRUB keeps regenerating, into the recovery slot; produced now by GRUB
 # itself, never copied from whatever sits in the U-Boot slot.
 sudo mkdir -p "$backup_dir" "$esp/EFI/BOOT"
 if ! grep -Fxq "TARGET=\"$recovery\"" "$update_grub_default" 2>/dev/null; then
+  [[ ! -f $update_grub_default ]] || update_grub_default_before=$(<"$update_grub_default")
+  update_grub_default_changed=1
   printf '# Written by Omarchy: Limine owns BOOTAA64.EFI; GRUB stays available as a recovery entry.\nTARGET="%s"\n' "$recovery" |
     sudo tee "$update_grub_default" >/dev/null
 fi
@@ -108,7 +123,10 @@ sudo install -m600 "$limine_menu" "$esp/limine.conf"
 rm -f "$limine_menu"
 
 # 6. Limine as the default EFI application, kept current by a pacman hook.
+# From here on the Mac boots Limine: no rollback past this point.
 sudo omarchy-mac-limine-deploy || { limine_boot_fail "could not put Limine on the ESP"; return 0; }
+update_grub_default_changed=0
+limine_default_created=0
 sudo install -d "$pacman_hooks_dir"
 sudo tee "$pacman_hooks_dir/81-omarchy-mac-limine-deploy.hook" >/dev/null <<'HOOK'
 [Trigger]

@@ -8,8 +8,9 @@
 # back on the ESP, but the ext4 /boot that GRUB (the recovery entry) boots
 # from stays as it was: its kernel and initramfs may no longer match the
 # modules in the restored root. omarchy-mac-boot-sync.service runs this on
-# every boot of a Limine Mac: when /boot's kernel is not the running one, the
-# kernel is copied back, the initramfs rebuilt, and both loaders regenerated.
+# every boot of a Limine Mac: when /boot's kernel has no modules in this
+# root, the running kernel is copied back, the initramfs rebuilt, and both
+# loaders regenerated.
 # A snapshot boot (read-only history under a tmpfs overlay) writes nothing.
 
 set -uo pipefail
@@ -39,6 +40,8 @@ done
 
 echo "omarchy-mac-boot-sync: $boot_dir/vmlinuz-$kernel has no modules in this root; rebuilding /boot from the running $running for GRUB"
 install -m644 "$modules/vmlinuz" "$boot_dir/vmlinuz-$kernel" || exit 1
-mkinitcpio -P </dev/null || exit 1
+# /usr/bin: the limine-mkinitcpio-hook wrapper on PATH would run a UKI
+# rebuild whose success hides a failed initramfs.
+"${OMARCHY_MKINITCPIO:-/usr/bin/mkinitcpio}" -P </dev/null || exit 1
 omarchy-mac-boot-update || exit 1
 omarchy-mac-snapshot-menu refresh >/dev/null 2>&1 || true

@@ -13,6 +13,7 @@
 # it runs before every UKI rebuild; omarchy-mac-boot-update runs it too.
 
 set -uo pipefail
+set -f
 
 grub_default=${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}
 limine_default=${OMARCHY_LIMINE_DEFAULT:-/etc/default/limine}
@@ -29,8 +30,8 @@ grub_value() {
 root_uuid=$(awk '$1 !~ /^#/ && $2 == "/" && $1 ~ /^UUID=/ { sub(/^UUID=/, "", $1); print $1; exit }' "$fstab" 2>/dev/null)
 [[ -n $root_uuid ]] || root_uuid=$(findmnt -no UUID / 2>/dev/null)
 if [[ -z $root_uuid ]]; then
-  echo "omarchy-mac-limine-cmdline: cannot tell the root filesystem UUID; leaving $limine_default as it is" >&2
-  exit 0
+  echo "omarchy-mac-limine-cmdline: cannot tell the root filesystem UUID; $limine_default keeps its command line" >&2
+  exit 1
 fi
 
 rootflags=(subvol=@)
