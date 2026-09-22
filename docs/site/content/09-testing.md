@@ -35,17 +35,13 @@ Two suites, both pure. They read fixture trees and stubbed commands and assert o
 
 **The command-line suite** is one script with 65 assertions. It drives the `omarchy` router end to end: help output, the command list in both human and JSON form, and the checks that every one of the 200-plus documented commands carries a summary, that the JSON keeps its shape, and that dispatch refuses anything unsafe. It also covers the theme helpers.
 
-**The shell suite** is 316 test files in `test/shell.d/`, one per area. They divide roughly like this:
+**The shell suite** is 316 test files in `test/shell.d/`, roughly one per command or feature, named after what they cover. Forty-five of them are Apple Silicon work: the boot check, the Limine path, fresh installs, the Aurora verification hook, the kernel marker, the HID and btrfs initramfs fixes. The rest follow the desktop and the command set, so the list reads like an index of the distribution: the compositor and its plugins, monitors and the top bar, menus and the lock screen, themes, batteries and networking and Bluetooth and audio and suspend, printing, browsers and web apps, the updater and its migrations, the channel record, the usage panels, and the privilege grants.
 
-| Area | Files | Examples of what they assert |
-| --- | --- | --- |
-| Desktop, compositor and interface | 67 | Hyprland configuration, plugins, monitors, the top bar, menus, the lock screen, themes |
-| Apple Silicon, Asahi, Aurora and boot | 45 | The boot check, the Limine path, fresh installs, the Aurora verification hook, kernel markers |
-| Hardware and peripherals | 34 | Battery, networking, Bluetooth, audio, sleep, fingerprint, brightness, printing |
-| Install, packages and applications | 29 | Optional package transactions, web apps, browsers, development tooling |
-| Update, migration and channels | 25 | The updater's stages, migrations, the channel record, the update lock |
-| Agents and usage | 9 | The usage scanners and their panel |
-| Security | 6 | Privilege grants, the encrypted boot check, the keyring |
+The names are the documentation. To see what is covered, list them:
+
+```bash
+ls test/shell.d/
+```
 
 Run one file directly, or shard the suite the way CI does:
 

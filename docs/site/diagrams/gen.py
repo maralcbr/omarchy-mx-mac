@@ -326,7 +326,7 @@ def test_ladder() -> Diagram:
         Node("vmx", 576, 332, "Anything about Apple", ["no GPU, Wi-Fi, audio or suspend"], w=G, tone="tone-ext"),
         Node("pkg", 36, 422, "Package manifests", ["both architectures resolve,", "in matching containers"], w=W, tone="tone-blue"),
         Node("pkgx", 576, 422, "That installing works", ["resolvability only"], w=G, tone="tone-ext"),
-        Node("src", 36, 512, "Source tests", ["316 shell files + 65 router", "assertions, 4 CI shards"], w=W, tone="tone-blue"),
+        Node("src", 36, 512, "Source tests", ["316 shell files, 65 router", "assertions, 4 CI shards"], w=W, tone="tone-blue"),
         Node("srcx", 576, 512, "An installed system", ["fixtures, not a real machine"], w=G, tone="tone-ext"),
     ]
     d.edges = [

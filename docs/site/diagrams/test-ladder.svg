@@ -69,7 +69,7 @@
 <g class="node tone-blue">
 <rect x="36" y="512" width="480" height="74"/>
 <text class="n-title" x="48" y="533">Source tests</text>
-<text class="n-sub" x="48" y="552">316 shell files + 65 router</text>
+<text class="n-sub" x="48" y="552">316 shell files, 65 router</text>
 <text class="n-sub" x="48" y="569">assertions, 4 CI shards</text>
 </g>
 <g class="node tone-ext">
