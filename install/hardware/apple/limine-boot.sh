@@ -36,6 +36,7 @@ if [[ ! -f $limine_efi ]]; then
   return 0
 fi
 [[ -f $grub_default ]] || { echo "No $grub_default; cannot derive the kernel command line" >&2; return 0; }
+[[ -f $limine_conf_source ]] || { echo "No $limine_conf_source; leaving GRUB in place" >&2; return 0; }
 findmnt -no TARGET "$esp" >/dev/null 2>&1 || { echo "The ESP is not mounted at $esp; leaving GRUB in place" >&2; return 0; }
 
 # A failed activation puts everything back: GRUB's update target (and a
@@ -58,6 +59,15 @@ limine_boot_fail() {
 limine_default_created=0
 update_grub_default_changed=0
 update_grub_default_before=""
+# Any unexpected error rolls back too: under `bash -eE` the leaf stops where
+# it is, and a Mac left with Omarchy's Limine defaults while GRUB still owns
+# the U-Boot slot would regenerate only the unused recovery image from then on.
+limine_boot_trap() {
+  local status=$?
+  trap - ERR
+  limine_boot_fail "a step failed with status $status" || true
+}
+trap limine_boot_trap ERR
 
 # 1. The Asahi update-grub keeps running on kernel updates; its EFI image
 # goes to a file under /boot instead of the U-Boot slot.
@@ -124,6 +134,7 @@ fi
 sudo omarchy-mac-limine-deploy || { limine_boot_fail "could not put Limine on the ESP"; return 0; }
 update_grub_default_changed=0
 limine_default_created=0
+trap - ERR
 sudo install -d "$pacman_hooks_dir"
 sudo tee "$pacman_hooks_dir/81-omarchy-mac-limine-deploy.hook" >/dev/null <<'HOOK'
 [Trigger]

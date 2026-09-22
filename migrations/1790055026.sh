@@ -33,3 +33,7 @@ sudo omarchy-mac-limine-active || {
   echo "Limine was not activated; the Limine migration will retry later." >&2
   exit 1
 }
+sudo omarchy-apple-silicon-boot-check "$(omarchy-hw-apple-kernel)" >/dev/null || {
+  echo "The Limine boot files did not verify; the Limine migration will retry later." >&2
+  exit 1
+}
