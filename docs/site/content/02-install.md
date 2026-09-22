@@ -57,7 +57,3 @@ spctl -a -vv -t execute ~/Downloads/"Omarchy MX Mac Installer.app"
 ```
 
 Gatekeeper must report `Notarized Developer ID`.
-
-## Manual path
-
-The fork can also bootstrap a fresh [Asahi Arch Minimal](https://asahi-alarm.org) installation into a full Omarchy desktop with the signed `install-asahi-quattro` script from omarchy-pkgs. That path exists for lab and recovery use. The runbook is the [omarchy-pkgs README](https://github.com/maralcbr/omarchy-pkgs/blob/asahi-quattro/README.md).

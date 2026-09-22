@@ -27,6 +27,8 @@ It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). E
 
 Apple Silicon support depends on the Asahi Linux project and, for the `rc` channel, on the Aurora kernel. See [Hardware support]({{page:hardware}}) before installing.
 
+The two channels are at different points in the fork's history: `rc` comes from the current image pipeline, `stable` from an older one. This manual describes what each channel installs today and says so where they differ. Work that is decided but not yet in either channel is on [Decided, not yet shipped]({{page:roadmap}}), never stated here as if it shipped.
+
 ## Where to start
 
 1. [Install on a Mac]({{page:install}}): download, verify and run the installer.

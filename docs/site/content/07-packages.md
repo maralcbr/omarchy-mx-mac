@@ -28,7 +28,7 @@ Unchanged packages are carried forward byte for byte from the predecessor releas
 | Gate | Where | What it proves |
 | --- | --- | --- |
 | Candidate build | GitHub Actions, environment `asahi-quattro-release` | Every package builds and signs; the descriptor lists each archive with its digest |
-| VM acceptance | KVM on the M1 Pro or the M2 Max (GitHub's arm64 runners have no KVM) | A fresh install from the candidate boots, updates and passes 25 checks |
+| VM acceptance | KVM on a test Mac, because GitHub's arm64 runners have no KVM | A fresh install from the candidate boots, updates and passes its checks |
 | Hardware gate | A test Mac, cold boot | Required only when a boot-critical payload changed: `omarchy-mac-boot`, the Limine hook, U-Boot, a kernel |
 | Image acceptance | KVM on a test Mac | The Mac image installs, boots plain and encrypted, and survives a second boot |
 | Catalog signature | The owner's Mac | The channel catalog is signed with the Keychain key |
@@ -39,7 +39,7 @@ A candidate that passes is promoted byte-identically to `asahi-packages-stable-<
 
 `bin/asahi-release` in omarchy-pkgs runs the whole path: plan, candidate, wait for acceptance, promote, runtime channel, image, stop at any gate that needs a human, and resume with the evidence. It refuses to publish an older build over a newer one, and the publisher checks the asset set before it marks a release complete.
 
-The Mac side has a fast lane too. When only the runtime commit changed and no repository package was rebuilt, `bin/asahi-runtime-release` produces a new runtime channel in about fifteen minutes without touching the package channel or the image.
+There is a fast path too. It needs two things at once: the candidate rebuilt only runtime packages, and its package set is exactly what the live package channel already publishes, name, version and archive hash for every package. Then a new runtime channel is published in about fifteen minutes and nothing else moves. Anything else takes the full path, including a candidate whose set matches but which rebuilt a non-runtime package.
 
 ## Mirrors
 

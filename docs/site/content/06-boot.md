@@ -16,7 +16,7 @@ An Apple Silicon Mac has no UEFI of its own. Everything up to U-Boot comes from 
 | m1n1 | Asahi | Stage 1 is the boot object iBoot starts. Stage 2 initialises the hardware Apple firmware leaves alone and passes a Linux device tree on. |
 | U-Boot | Asahi, packaged as `uboot-asahi` | The only UEFI implementation on Apple Silicon. Loads the EFI boot loader from the EFI system partition. |
 | Boot loader | Omarchy | GRUB today. Limine from the next release, with GRUB kept as a recovery entry. |
-| Kernel and initramfs | omarchy-pkgs and `omarchy-mac-boot` | `linux-asahi` or `linux-aurora`, a systemd initramfs built by mkinitcpio with the vendor firmware and Apple HID hooks. |
+| Kernel and initramfs | omarchy-pkgs and `omarchy-mac-boot` | `linux-asahi` or `linux-aurora`, with a systemd initramfs built by mkinitcpio carrying the vendor firmware and Apple HID hooks. |
 | Root | Omarchy | A btrfs root with the `@` subvolume, snapper snapshots and, optionally, LUKS. |
 
 The boot check that `omarchy update` runs before offering a reboot verifies the kernel, the initramfs hooks, the m1n1 payload and the boot loader configuration against what the packages say they should be, and refuses the reboot on a mismatch.
@@ -35,15 +35,15 @@ The Limine packages are already in the `[omarchy]` repository. Enabling them in 
 
 ## Kernel lanes
 
-| Lane | Package | Source | Channel |
+| Package | Source | Where it comes from | Used by |
 | --- | --- | --- | --- |
-| Asahi | `linux-asahi` from `[asahi-alarm]` | Asahi Linux project | `stable` |
-| Aurora rc | `linux-aurora` from `[omarchy-aurora]` | `aurora-silicon/linux`, pinned commit | `rc` |
-| Aurora edge | `linux-aurora` from `[omarchy-aurora]` | `aurora-silicon/linux` branch `aurora-wip`, floating | `edge` |
+| `linux-asahi` | Asahi Linux project | the `[asahi-alarm]` repository, not built here | Macs installed from the current `stable` image |
+| `linux-aurora` | `aurora-silicon/linux` | built here from a pinned commit | the `stable` and `rc` lanes as they move to Aurora |
+| `linux-aurora` | `aurora-silicon/linux` branch head | built here, floating | the `edge` lane, lab Macs only |
 
-`linux-aurora` provides `linux-asahi`, so the rest of the system does not care which one is installed. Lane selection is the choice of the `[omarchy-aurora]` repository, and moving between lanes is an explicit, signed downgrade or upgrade rather than a version comparison.
+`linux-aurora` provides `linux-asahi`, so nothing above the kernel cares which is installed. The lane is the choice of the `[omarchy-aurora]` repository, and moving between lanes is an explicit signed upgrade or downgrade rather than a version comparison, because versions are not ordered across lanes.
 
-The three Aurora recipes live in omarchy-pkgs as `linux-aurora-rc`, `linux-aurora-stable` and `linux-aurora-edge`. The edge recipe rebuilds when the upstream branch head moves, gated by an input digest so an unchanged tree never rebuilds. Patches the fork needed have been merged upstream, so the recipes currently carry none.
+The three recipes in omarchy-pkgs are `linux-aurora-rc`, `linux-aurora-stable` and `linux-aurora-edge`, all with `pkgbase` `linux-aurora`. The edge recipe rebuilds when the upstream branch head moves, gated by an input digest so an unchanged tree never rebuilds. The patches the fork used to carry have been merged upstream, so the recipes carry none.
 
 ## Initramfs
 

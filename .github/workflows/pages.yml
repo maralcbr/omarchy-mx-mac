@@ -30,8 +30,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install "markdown==3.7"
-      - run: python3 docs/site/diagrams/gen.py
-      - run: git diff --exit-code -- docs/site/diagrams
+      - name: Diagrams match their generator
+        run: |
+          python3 docs/site/diagrams/gen.py
+          # --exit-code alone misses a diagram the generator newly produced,
+          # because an untracked file is not a diff.
+          if [ -n "$(git status --porcelain -- docs/site/diagrams)" ]; then
+            echo "docs/site/diagrams is out of date; run docs/site/diagrams/gen.py and commit"
+            git status --porcelain -- docs/site/diagrams
+            exit 1
+          fi
       - run: python3 docs/site/build.py
       - uses: actions/upload-pages-artifact@v3
         with:
