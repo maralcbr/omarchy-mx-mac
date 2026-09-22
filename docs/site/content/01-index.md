@@ -18,9 +18,10 @@ It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). E
 
 | | |
 | --- | --- |
-| Omarchy runtime | 4.0.4-mac.1 (tracks Omarchy 4 "Quattro") |
-| Installer app | 2.0.7 on the rc channel, 2.0.4 on stable |
-| Channels | `stable` (Asahi kernel) and `rc` (Aurora kernel) |
+| Omarchy release | 4.0.3, on both channels |
+| Installer app | 2.0.7 |
+| Stable channel | `os-v4.0.3-mac.1.20260913`, Asahi kernel |
+| Release candidate channel | `os-v4.0.3-mac.4.20260921-rc`, Aurora kernel |
 | Reference Mac | MacBook Pro 14" 2021, M1 Pro (`apple,j314s`) |
 | Also exercised | MacBook Pro 16" 2023, M2 Max (`apple,j416c`), five displays |
 

@@ -10,6 +10,7 @@ Installation starts in macOS. The installer app downloads the current signed Oma
 
 - Back up macOS and anything you care about. The installer shrinks your macOS volume.
 - Check your model on the [Hardware support](../hardware/) page and the [Asahi Linux device list](https://asahilinux.org/fedora/#device-support).
+- The release carries firmware for macOS 13.5 and 14.8.3, and the installer picks one for the Omarchy volume. A Mac running a newer macOS than the release knows about cannot install until the release is updated.
 - Keep at least 50 GB free on the internal SSD. 100 GB is comfortable.
 - Plug in power and use a reliable Internet connection. The image is a multi-gigabyte download.
 - Expect model-specific limits around external displays, speakers, cameras and power management.
