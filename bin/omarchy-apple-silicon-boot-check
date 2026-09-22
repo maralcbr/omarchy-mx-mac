@@ -185,9 +185,15 @@ sudo lsinitcpio -l "$(path "/boot/initramfs-$kernel.img")" >"$workdir/initramfs"
 awk -v prefix="usr/lib/modules/$kver/" '{ sub(/^\.\//, "") } index($0, prefix) == 1 { found = 1 } END { exit !found }' \
   "$workdir/initramfs" || fail "/boot/initramfs-$kernel.img does not hold the $kver modules"
 
+# A Limine Mac (install/hardware/apple/limine-boot.sh) boots the UKI from
+# Limine's menu and GRUB is not part of its boot; a GRUB Mac boots grub.cfg.
+limine_mac=0
+[[ -e $(path /var/lib/omarchy/limine.enabled) && -f $(path /etc/default/limine) ]] && limine_mac=1
 grub_cfg=$(path /boot/grub/grub.cfg)
-sudo grep -Fq "vmlinuz-$kernel" "$grub_cfg" && sudo grep -Fq "initramfs-$kernel.img" "$grub_cfg" ||
-  fail "/boot/grub/grub.cfg does not boot vmlinuz-$kernel with initramfs-$kernel.img"
+if (( ! limine_mac )); then
+  sudo grep -Fq "vmlinuz-$kernel" "$grub_cfg" && sudo grep -Fq "initramfs-$kernel.img" "$grub_cfg" ||
+    fail "/boot/grub/grub.cfg does not boot vmlinuz-$kernel with initramfs-$kernel.img"
+fi
 
 # Encrypted Apple Silicon roots (GRUB + sd-encrypt). A mapper or crypto_LUKS
 # root with no crypttab is a failure, not an unencrypted opt-out.
@@ -235,26 +241,28 @@ if (( has_crypttab_root )); then
     if ($2 ~ /^UUID=/) { sub(/^UUID=/, "", $2); print $2; exit }
   }' "$crypttab")
   [[ -n $crypttab_uuid ]] || fail "cannot read the LUKS UUID from crypttab"
-  sudo grep -Fq "rd.luks.name=" "$grub_cfg" ||
-    fail "/boot/grub/grub.cfg does not set rd.luks.name= for the encrypted root"
-  sudo grep -Eq "rd\\.luks\\.name=${crypttab_uuid}=" "$grub_cfg" ||
-    fail "/boot/grub/grub.cfg rd.luks.name= UUID does not match crypttab"
-  # update-grub emits root=UUID=<filesystem inside the mapper> unless
-  # GRUB_DISABLE_LINUX_UUID is set; both name the opened root.
-  # Only the kernel lines: grub's own `set root=` and other entries do not
-  # count. The kernel honours the last root= on its line, so does this.
-  root_arg=$(sudo grep -E '^[[:space:]]*linux[[:space:]]' "$grub_cfg" | grep -Eo 'root=[^[:space:]]+' | tail -n 1 || true)
-  case $root_arg in
-    root=/dev/mapper/root) ;;
-    root=UUID=*)
-      mapper_uuid=$(sudo blkid -o value -s UUID /dev/mapper/root 2>/dev/null || true)
-      [[ -n $mapper_uuid && ${root_arg#root=UUID=} == "$mapper_uuid" ]] ||
-        fail "/boot/grub/grub.cfg root=UUID= does not name the filesystem on /dev/mapper/root"
-      ;;
-    *)
-      fail "/boot/grub/grub.cfg does not set root=/dev/mapper/root (or root=UUID= of its filesystem) for the encrypted root"
-      ;;
-  esac
+  if (( ! limine_mac )); then
+    sudo grep -Fq "rd.luks.name=" "$grub_cfg" ||
+      fail "/boot/grub/grub.cfg does not set rd.luks.name= for the encrypted root"
+    sudo grep -Eq "rd\\.luks\\.name=${crypttab_uuid}=" "$grub_cfg" ||
+      fail "/boot/grub/grub.cfg rd.luks.name= UUID does not match crypttab"
+    # update-grub emits root=UUID=<filesystem inside the mapper> unless
+    # GRUB_DISABLE_LINUX_UUID is set; both name the opened root.
+    # Only the kernel lines: grub's own `set root=` and other entries do not
+    # count. The kernel honours the last root= on its line, so does this.
+    root_arg=$(sudo grep -E '^[[:space:]]*linux[[:space:]]' "$grub_cfg" | grep -Eo 'root=[^[:space:]]+' | tail -n 1 || true)
+    case $root_arg in
+      root=/dev/mapper/root) ;;
+      root=UUID=*)
+        mapper_uuid=$(sudo blkid -o value -s UUID /dev/mapper/root 2>/dev/null || true)
+        [[ -n $mapper_uuid && ${root_arg#root=UUID=} == "$mapper_uuid" ]] ||
+          fail "/boot/grub/grub.cfg root=UUID= does not name the filesystem on /dev/mapper/root"
+        ;;
+      *)
+        fail "/boot/grub/grub.cfg does not set root=/dev/mapper/root (or root=UUID= of its filesystem) for the encrypted root"
+        ;;
+    esac
+  fi
   sd_encrypt_in_initramfs ||
     fail "/boot/initramfs-$kernel.img does not contain sd-encrypt"
 
@@ -262,7 +270,7 @@ if (( has_crypttab_root )); then
   # owner provisioning finishes (v3 item 1e). After that both must be gone,
   # the throwaway keyslot retired, and encrypt.state phase=finished.
   if [[ ! -f $(path /var/lib/omarchy/provisioning/luks-key) && ! -f $(path /var/lib/omarchy/mac-first-boot/pending) ]]; then
-    sudo grep -q 'rd.luks.key=' "$grub_cfg" &&
+    (( limine_mac )) || ! sudo grep -q 'rd.luks.key=' "$grub_cfg" ||
       fail "/boot/grub/grub.cfg still has rd.luks.key= after provisioning"
     [[ ! -e $(path /boot/omarchy/luks-key) ]] ||
       fail "/boot/omarchy/luks-key still exists after provisioning"
@@ -300,11 +308,10 @@ elif root_on_luks; then
   fail "encrypted root has no crypttab"
 fi
 
-# A Limine Mac (install/hardware/apple/limine-boot.sh) boots the UKI from
-# Limine's menu; GRUB above is its recovery entry. The menu must name the
-# kernel's UKI and pass the same root (and LUKS mapping) GRUB does, and the
-# U-Boot slot must hold the installed Limine.
-if [[ -e $(path /var/lib/omarchy/limine.enabled) && -f $(path /etc/default/limine) ]]; then
+# A Limine Mac: the menu must name the kernel's UKI and pass the root (and
+# the LUKS mapping) the system needs, and the U-Boot slot must hold the
+# installed Limine.
+if (( limine_mac )); then
   limine_cfg=$(path /boot/efi/limine.conf)
   limine_uki=$(path "/boot/efi/EFI/Linux/omarchy_$kernel.efi")
   limine_efi=$(path /usr/share/limine/BOOTAA64.EFI)

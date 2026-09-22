@@ -35,6 +35,8 @@ fail() {
 
 (( EUID == 0 )) || fail "run as root"
 omarchy-hw-apple-silicon || fail "the GRUB snapshot menu is for Apple Silicon Macs"
+# A Limine Mac's snapshot entries come from limine-snapper-sync.
+! omarchy-mac-limine-active || exit 0
 [[ -x $GENERATOR ]] || exit 127
 
 # The Apple kernel package (omarchy-hw-apple-kernel) owns /boot/vmlinuz-<package>;

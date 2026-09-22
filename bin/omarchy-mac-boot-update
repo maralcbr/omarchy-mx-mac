@@ -6,14 +6,16 @@
 
 # Every flow that changes the kernel command line or the initramfs (the
 # encrypt flow, the owner's re-key, a fresh install, the factory reset) calls
-# this instead of update-grub. GRUB is regenerated either way; a Limine Mac
-# then gets its command line re-derived from GRUB's defaults, its UKI and
-# entries rebuilt, and the packaged Limine on the ESP.
+# this instead of update-grub. A Limine Mac gets its command line re-derived
+# from GRUB's defaults file, its UKI and entries rebuilt, and the packaged
+# Limine on the ESP; a GRUB Mac regenerates GRUB.
 
 set -uo pipefail
 
-update-grub || { echo "omarchy-mac-boot-update: update-grub failed" >&2; exit 1; }
-omarchy-mac-limine-active || exit 0
+if ! omarchy-mac-limine-active; then
+  update-grub || { echo "omarchy-mac-boot-update: update-grub failed" >&2; exit 1; }
+  exit 0
+fi
 omarchy-mac-limine-cmdline || { echo "omarchy-mac-boot-update: could not derive the Limine command line" >&2; exit 1; }
 limine-update || { echo "omarchy-mac-boot-update: limine-update failed" >&2; exit 1; }
 omarchy-mac-limine-deploy || exit 1

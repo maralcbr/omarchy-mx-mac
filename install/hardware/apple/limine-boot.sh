@@ -1,17 +1,18 @@
 # Limine in front of U-Boot on Apple Silicon: the x86 Omarchy boot experience.
 #
 # U-Boot (the Mac's UEFI) boots ESP:/EFI/BOOT/BOOTAA64.EFI. This leaf puts
-# Limine there and keeps GRUB beside it as a recovery entry: the Asahi
-# update-grub is retargeted so kernel updates keep regenerating GRUB into
-# grub-aa64.efi instead of over Limine. Limine's configuration is Omarchy's
-# (an ESP at /boot/efi, the kernel command line derived from GRUB's defaults
-# by omarchy-mac-limine-cmdline before every rebuild), and the x86 tooling
-# does the rest: limine-update builds the UKI with the aarch64 systemd-stub
-# and writes the entries, limine-snapper-sync the snapshot entries. Only a
-# menu that already boots the kernel replaces GRUB in the U-Boot slot; a
-# pacman hook keeps the ESP's Limine current, since the limine package's own
-# hook deploys nothing on aarch64. Opt-in: Macs carrying
-# /var/lib/omarchy/limine.enabled. Every step is idempotent.
+# Limine there. The Asahi update-grub (run by the asahi-scripts pacman hook on
+# every kernel update) is retargeted to a file under /boot/grub so it never
+# writes over Limine; GRUB itself is no longer part of the boot. Limine's
+# configuration is Omarchy's (an ESP at /boot/efi, the kernel command line
+# derived from GRUB's defaults file by omarchy-mac-limine-cmdline before every
+# rebuild), and the x86 tooling does the rest: limine-update builds the UKI
+# with the aarch64 systemd-stub and writes the entries, limine-snapper-sync
+# the snapshot entries. Only a menu that already boots the kernel replaces
+# GRUB in the U-Boot slot; a pacman hook keeps the ESP's Limine current,
+# since the limine package's own hook deploys nothing on aarch64. Gated on
+# /var/lib/omarchy/limine.enabled (shipped by the image). Every step is
+# idempotent.
 omarchy-hw-apple-silicon || return 0
 [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]] || return 0
 
@@ -24,12 +25,10 @@ limine_conf_source=${OMARCHY_LIMINE_CONF_SOURCE:-${OMARCHY_PATH:-/usr/share/omar
 grub_default=${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}
 update_grub_default=${OMARCHY_UPDATE_GRUB_DEFAULT:-/etc/default/update-grub}
 limine_default=${OMARCHY_LIMINE_DEFAULT:-/etc/default/limine}
-backup_dir=${OMARCHY_GRUB_BACKUP_DIR:-/var/lib/omarchy/backups}
 boot_hooks_dir=${OMARCHY_LIMINE_BOOT_HOOKS_DIR:-/etc/boot/hooks/pre.d}
 pacman_hooks_dir=${OMARCHY_PACMAN_HOOKS_DIR:-/etc/pacman.d/hooks}
-unit_src=${OMARCHY_PROVISIONING_UNIT_SRC:-${OMARCHY_PATH:-/usr/share/omarchy}/install/provisioning}
 systemd_dir=${OMARCHY_SYSTEMD_DIR:-/etc/systemd/system}
-recovery=$esp/EFI/BOOT/grub-aa64.efi
+grub_target=${OMARCHY_GRUB_TARGET:-/boot/grub/grub-aa64.efi}
 kernel=$(omarchy-hw-apple-kernel)
 
 if [[ ! -f $limine_efi ]]; then
@@ -60,18 +59,17 @@ limine_default_created=0
 update_grub_default_changed=0
 update_grub_default_before=""
 
-# 1. GRUB keeps regenerating, into the recovery slot; produced now by GRUB
-# itself, never copied from whatever sits in the U-Boot slot.
-sudo mkdir -p "$backup_dir" "$esp/EFI/BOOT"
-if ! grep -Fxq "TARGET=\"$recovery\"" "$update_grub_default" 2>/dev/null; then
+# 1. The Asahi update-grub keeps running on kernel updates; its EFI image
+# goes to a file under /boot instead of the U-Boot slot.
+sudo mkdir -p "$esp/EFI/BOOT"
+if ! grep -Fxq "TARGET=\"$grub_target\"" "$update_grub_default" 2>/dev/null; then
   [[ ! -f $update_grub_default ]] || update_grub_default_before=$(<"$update_grub_default")
   update_grub_default_changed=1
-  printf '# Written by Omarchy: Limine owns BOOTAA64.EFI; GRUB stays available as a recovery entry.\nTARGET="%s"\n' "$recovery" |
+  printf '# Written by Omarchy: Limine owns BOOTAA64.EFI; update-grub writes its image here, unused.\nTARGET="%s"\n' "$grub_target" |
     sudo tee "$update_grub_default" >/dev/null
 fi
-sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null || { limine_boot_fail "update-grub could not write the GRUB recovery image"; return 0; }
-sudo test -f "$recovery" || { limine_boot_fail "update-grub wrote no $recovery"; return 0; }
-sudo cp "$recovery" "$backup_dir/grub-aa64.efi"
+sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null || { limine_boot_fail "update-grub failed with its new target"; return 0; }
+sudo rm -f "$esp/EFI/BOOT/grub-aa64.efi"
 
 # 2. Limine's configuration: the static keys here, the kernel command line
 # from GRUB's defaults, re-derived before every UKI rebuild.
@@ -107,20 +105,19 @@ sudo limine-update || { limine_boot_fail "limine-update failed"; return 0; }
 sudo test -f "$esp/EFI/Linux/omarchy_$kernel.efi" || { limine_boot_fail "limine-update built no $esp/EFI/Linux/omarchy_$kernel.efi"; return 0; }
 sudo grep -Fq "//$kernel" "$esp/limine.conf" || { limine_boot_fail "limine.conf has no $kernel entry"; return 0; }
 
-# 5. GRUB stays reachable from the menu, after the Omarchy block: with the
-# tool's expanded /+Omarchy group first, default_entry 2 is the kernel entry
-# (as on x86); a recovery entry placed before it would make the default the
-# group header, which Limine cannot boot unattended. Re-placed every run.
-limine_menu=$(mktemp)
-sudo awk '
-  /^\/GRUB \(recovery\)$/ { skip = 1; next }
-  skip && /^[[:space:]]/ { next }
-  skip && /^[[:space:]]*$/ { next }
-  { skip = 0; print }
-' "$esp/limine.conf" >"$limine_menu"
-printf '\n/GRUB (recovery)\n    protocol: efi_chainload\n    path: boot():/EFI/BOOT/grub-aa64.efi\n' >>"$limine_menu"
-sudo install -m600 "$limine_menu" "$esp/limine.conf"
-rm -f "$limine_menu"
+# 5. The menu is Omarchy's and its snapshots, nothing else: the GRUB recovery
+# entry of the experiment is dropped.
+if sudo grep -Fq '/GRUB (recovery)' "$esp/limine.conf"; then
+  limine_menu=$(mktemp)
+  sudo awk '
+    /^\/GRUB \(recovery\)$/ { skip = 1; next }
+    skip && /^[[:space:]]/ { next }
+    skip && /^[[:space:]]*$/ { next }
+    { skip = 0; print }
+  ' "$esp/limine.conf" >"$limine_menu"
+  sudo install -m600 "$limine_menu" "$esp/limine.conf"
+  rm -f "$limine_menu"
+fi
 
 # 6. Limine as the default EFI application, kept current by a pacman hook.
 # From here on the Mac boots Limine: no rollback past this point.
@@ -141,11 +138,13 @@ When = PostTransaction
 Exec = /usr/bin/omarchy-mac-limine-deploy
 HOOK
 
-# 7. Snapshot entries as on x86, and the /boot resync after a Limine restore.
+# 7. Snapshot entries as on x86: the watcher writes them.
 sudo limine-snapper-sync || echo "limine-snapper-sync did not finish; snapshot entries come with the next snapshot" >&2
 sudo systemctl enable --now limine-snapper-sync.service >/dev/null 2>&1 || true
-sudo install -d "$systemd_dir" && sudo install -m644 "$unit_src/omarchy-mac-boot-sync.service" "$systemd_dir/omarchy-mac-boot-sync.service"
-sudo systemctl enable omarchy-mac-boot-sync.service >/dev/null 2>&1 || true
 
-# Leftovers of the hand experiment would shadow the real configuration.
+# Leftovers of the experiment: the hand-placed menu, the /boot resync unit.
 sudo rm -rf "$esp/limine" "$esp/omarchy"
+if [[ -f $systemd_dir/omarchy-mac-boot-sync.service ]]; then
+  sudo systemctl disable omarchy-mac-boot-sync.service >/dev/null 2>&1 || true
+  sudo rm -f "$systemd_dir/omarchy-mac-boot-sync.service"
+fi

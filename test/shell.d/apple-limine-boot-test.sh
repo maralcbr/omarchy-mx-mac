@@ -12,7 +12,7 @@ stub_bin="$test_tmp/bin"
 calls="$test_tmp/calls"
 esp="$test_tmp/esp"
 etc="$test_tmp/etc"
-mkdir -p "$stub_bin" "$esp/EFI/BOOT" "$etc" "$test_tmp/share/limine"
+mkdir -p "$stub_bin" "$esp/EFI/BOOT" "$etc" "$test_tmp/share/limine" "$test_tmp/boot/grub"
 
 printf '#!/bin/bash\nexec "$@"\n' >"$stub_bin/sudo"
 printf '#!/bin/bash\nexit 0\n' >"$stub_bin/omarchy-hw-apple-silicon"
@@ -61,7 +61,7 @@ run() {
   TEST_CALLS="$calls" TEST_ESP="$esp" TEST_UPDATE_GRUB_DEFAULT="$etc/update-grub" TEST_LIMINE_DEFAULT="$etc/limine" \
   OMARCHY_PATH="$ROOT" OMARCHY_ESP="$esp" OMARCHY_LIMINE_EFI="$test_tmp/share/limine/BOOTAA64.EFI" \
   OMARCHY_GRUB_DEFAULT="$etc/grub" OMARCHY_UPDATE_GRUB_DEFAULT="$etc/update-grub" OMARCHY_LIMINE_DEFAULT="$etc/limine" \
-  OMARCHY_GRUB_BACKUP_DIR="$test_tmp/backups" OMARCHY_LIMINE_BOOT_HOOKS_DIR="$etc/boot/hooks/pre.d" \
+  OMARCHY_GRUB_TARGET="$test_tmp/boot/grub/grub-aa64.efi" OMARCHY_LIMINE_BOOT_HOOKS_DIR="$etc/boot/hooks/pre.d" \
   OMARCHY_PACMAN_HOOKS_DIR="$etc/pacman.d/hooks" OMARCHY_SYSTEMD_DIR="$etc/systemd/system" \
   OMARCHY_LIMINE_GATE="$test_tmp/limine.enabled" OMARCHY_FSTAB="$etc/fstab" \
   PATH="$stub_bin:$PATH" bash -c "source '$leaf'"
@@ -89,9 +89,9 @@ pass "GRUB keeps the slot until the Limine menu boots the kernel"
 # The full activation.
 : >"$calls"
 run || fail "the leaf activates Limine"
-grep -Fxq "TARGET=\"$esp/EFI/BOOT/grub-aa64.efi\"" "$etc/update-grub" || fail "update-grub is retargeted to the recovery slot"
-[[ $(cat "$esp/EFI/BOOT/grub-aa64.efi") == "GRUB image" && $(cat "$test_tmp/backups/grub-aa64.efi") == "GRUB image" ]] ||
-  fail "the recovery image and its backup come from update-grub"
+grep -Fxq "TARGET=\"$test_tmp/boot/grub/grub-aa64.efi\"" "$etc/update-grub" || fail "update-grub is retargeted away from the U-Boot slot"
+[[ $(cat "$test_tmp/boot/grub/grub-aa64.efi") == "GRUB image" ]] || fail "update-grub wrote its image to the unused target"
+[[ ! -e $esp/EFI/BOOT/grub-aa64.efi ]] || fail "no GRUB image is left on the ESP"
 [[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "LIMINE v1" ]] || fail "Limine takes the U-Boot slot"
 grep -Fxq 'KERNEL_CMDLINE[default]="root=UUID=root-uuid rw rootflags=subvol=@,x-systemd.device-timeout=0 quiet splash"' "$etc/limine" ||
   fail "the Limine command line is derived from GRUB's defaults" "$(cat "$etc/limine")"
@@ -102,34 +102,27 @@ grep -Fxq 'BOOT_ORDER="linux-aurora, *, *fallback, Snapshots"' "$etc/limine" && 
   fail "GRUB is regenerated first, the UKI built before Limine is deployed, snapshots synced last" "$(cat "$calls")"
 grep -Fxq 'timeout: 3' "$esp/limine.conf" && grep -Fq 'interface_branding: Omarchy Bootloader' "$esp/limine.conf" ||
   fail "Omarchy's Limine menu with a 3 s timeout"
-recovery_line=$(grep -n '^/GRUB (recovery)$' "$esp/limine.conf" | cut -d: -f1)
-omarchy_line=$(grep -n '^/+Omarchy$' "$esp/limine.conf" | cut -d: -f1)
-[[ -n $recovery_line && -n $omarchy_line ]] && (( recovery_line > omarchy_line )) ||
-  fail "the GRUB recovery entry follows the Omarchy block" "$(cat "$esp/limine.conf")"
-grep -Fq 'path: boot():/EFI/BOOT/grub-aa64.efi' "$esp/limine.conf" || fail "the recovery entry chainloads grub-aa64.efi"
+! grep -q '^/GRUB' "$esp/limine.conf" || fail "the menu has no GRUB entry" "$(cat "$esp/limine.conf")"
 grep -Fq 'Exec = /usr/bin/omarchy-mac-limine-deploy' "$etc/pacman.d/hooks/81-omarchy-mac-limine-deploy.hook" ||
   fail "a pacman hook redeploys Limine when the package changes"
-[[ -f $etc/systemd/system/omarchy-mac-boot-sync.service ]] && grep -q 'systemctl enable omarchy-mac-boot-sync.service' "$calls" ||
-  fail "the /boot resync unit is installed and enabled"
 grep -q 'systemctl enable --now limine-snapper-sync.service' "$calls" || fail "limine-snapper-sync.service (the watcher that writes snapshot entries) is enabled and started"
-pass "Limine is activated the way x86 boots, with GRUB as recovery"
+pass "Limine is activated the way x86 boots"
 
-# Idempotent, and a misplaced recovery entry is put back after the Omarchy block.
-{ printf '/GRUB (recovery)\n    protocol: efi_chainload\n    path: boot():/EFI/BOOT/grub-aa64.efi\n'; cat "$esp/limine.conf"; } >"$test_tmp/conf"
+# Idempotent, and the experiment's GRUB recovery entry and resync unit are removed.
+{ cat "$esp/limine.conf"; printf '\n/GRUB (recovery)\n    protocol: efi_chainload\n    path: boot():/EFI/BOOT/grub-aa64.efi\n'; } >"$test_tmp/conf"
 cp "$test_tmp/conf" "$esp/limine.conf"
+mkdir -p "$etc/systemd/system" && : >"$etc/systemd/system/omarchy-mac-boot-sync.service"
 run || fail "a second run succeeds"
-(( $(grep -c '^/GRUB (recovery)$' "$esp/limine.conf") == 1 )) || fail "one recovery entry after a second run" "$(cat "$esp/limine.conf")"
-recovery_line=$(grep -n '^/GRUB (recovery)$' "$esp/limine.conf" | cut -d: -f1)
-omarchy_line=$(grep -n '^/+Omarchy$' "$esp/limine.conf" | cut -d: -f1)
-(( recovery_line > omarchy_line )) || fail "a recovery entry placed first is moved after the Omarchy block"
+! grep -q '^/GRUB' "$esp/limine.conf" || fail "a leftover GRUB recovery entry is removed" "$(cat "$esp/limine.conf")"
+grep -q '^/+Omarchy$' "$esp/limine.conf" || fail "the Omarchy block survives the cleanup"
+[[ ! -e $etc/systemd/system/omarchy-mac-boot-sync.service ]] || fail "the experiment's resync unit is removed"
 (( $(grep -c '^timeout: 3$' "$esp/limine.conf") == 1 )) || fail "one timeout line"
-pass "re-running the leaf changes nothing that was right"
+pass "re-running the leaf changes nothing that was right and cleans the experiment up"
 
 # A newer Limine package: the ESP follows, and GRUB's recovery image is never
 # overwritten with the old Limine.
 printf 'LIMINE v2\n' >"$test_tmp/share/limine/BOOTAA64.EFI"
 run || fail "the leaf runs after a Limine upgrade"
 [[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "LIMINE v2" ]] || fail "the ESP gets the new Limine"
-[[ $(cat "$esp/EFI/BOOT/grub-aa64.efi") == "GRUB image" && $(cat "$test_tmp/backups/grub-aa64.efi") == "GRUB image" ]] ||
-  fail "the recovery image stays GRUB's after a Limine upgrade"
-pass "a Limine upgrade never touches the GRUB recovery image"
+[[ ! -e $esp/EFI/BOOT/grub-aa64.efi ]] || fail "no GRUB image appears on the ESP after a Limine upgrade"
+pass "a Limine upgrade only replaces the U-Boot slot"

@@ -51,16 +51,11 @@ pass "a GRUB Mac regenerates GRUB only"
 printf 'ESP_PATH="/boot/efi"\nKERNEL_CMDLINE[default]="stale"\n' >"$limine_default"
 : >"$calls"
 run || fail "boot update on a Limine Mac succeeds"
-[[ $(cat "$calls") == $'update-grub \nlimine-update \nomarchy-mac-limine-deploy ' ]] ||
-  fail "a Limine Mac regenerates GRUB, then Limine, then deploys Limine" "$(cat "$calls")"
+[[ $(cat "$calls") == $'limine-update \nomarchy-mac-limine-deploy ' ]] ||
+  fail "a Limine Mac rebuilds Limine and deploys it, and never runs update-grub" "$(cat "$calls")"
 grep -Fxq 'KERNEL_CMDLINE[default]="root=UUID=root-uuid rw rootflags=subvol=@ rd.luks.name=abc=root quiet splash"' "$limine_default" ||
   fail "the Limine command line is re-derived from GRUB's defaults before limine-update" "$(cat "$limine_default")"
-pass "a Limine Mac rebuilds both loaders from GRUB's defaults"
-
-: >"$calls"
-FAIL_update_grub=1 run && fail "a failed update-grub fails the boot update"
-[[ $(cat "$calls") == "update-grub " ]] || fail "nothing runs after a failed update-grub" "$(cat "$calls")"
-pass "a failed update-grub stops the boot update"
+pass "a Limine Mac rebuilds Limine from GRUB's defaults file"
 
 : >"$calls"
 FAIL_limine_update=1 run && fail "a failed limine-update fails the boot update"
