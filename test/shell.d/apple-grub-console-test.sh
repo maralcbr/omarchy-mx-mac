@@ -68,11 +68,45 @@ pass "the leaf installs the theme and fonts, shows the menu for 3 s, and quiets 
 # 10_linux: both echoes guarded, the original kept outside grub.d.
 [[ $(grep -Fc 'Omarchy: no narration' "$tmp/grub.d/10_linux") == 2 ]] || fail "both loading messages are guarded"
 [[ $(grep -Fc $'\t${message:+echo\t' "$tmp/grub.d/10_linux") == 2 ]] || fail "both echoes are emitted only with a message"
-! grep -Fq $'^\techo\t\'$(echo "$message"' "$tmp/grub.d/10_linux" || fail "no unguarded echo survives"
+! grep -Fq $'\techo\t\'$(echo "$message" | grub_quote)\'' "$tmp/grub.d/10_linux" || fail "no unguarded echo survives"
 cmp -s "$fixture" "$tmp/backups/10_linux.pre-omarchy" || fail "the original 10_linux is kept under the backups directory"
 [[ -z $(ls "$tmp/grub.d" | grep -v '^10_linux$') ]] || fail "nothing extra lands in grub.d: $(ls "$tmp/grub.d")"
-bash -n "$tmp/grub.d/10_linux" || fail "the patched 10_linux still parses"
+sh -n "$tmp/grub.d/10_linux" || fail "the patched 10_linux still parses"
+# The guarded heredoc, executed as sh: a quiet line emits no echo, a loud one does.
+render_echo() {
+  GRUB_CMDLINE_LINUX_DEFAULT=$1 sh "$tmp/render.sh" | grep -c "echo"
+}
+cat >"$tmp/render.sh" <<'RENDER'
+grub_quote() { sed "s/'/'\\\\''/g"; }
+gettext_printf() { printf "$@"; }
+version=aurora submenu_indentation="" rel_dirname=/ basename=vmlinuz linux_root_device_thisversion=UUID=x args=""
+message="$(gettext_printf "Loading Linux %s ..." ${version})"
+case " $GRUB_CMDLINE_LINUX_DEFAULT " in *" quiet "*) message="" ;; esac
+sed "s/^/$submenu_indentation/" << HEREDOC
+	${message:+echo	'$(echo "$message" | grub_quote)'}
+	linux	${rel_dirname}/${basename} root=${linux_root_device_thisversion} rw ${args}
+HEREDOC
+RENDER
+[[ $(render_echo "quiet splash") == 0 && $(render_echo "splash") == 1 ]] || fail "the guard drops the echo only on a quiet line"
 pass "10_linux narrates only without quiet, and its original stays out of grub.d"
+
+# An unexpected 10_linux (different echo lines) is left alone, with a warning.
+printf 'GRUB_CMDLINE_LINUX="zswap.enabled=0"\n' >"$tmp/grub"
+sed 's/^\techo\t/\t  echo\t/' "$fixture" >"$tmp/grub.d/10_linux"
+cp "$tmp/grub.d/10_linux" "$tmp/unfamiliar"
+run_leaf || fail "an unfamiliar 10_linux does not fail the leaf: $(<"$tmp/out")"
+cmp -s "$tmp/unfamiliar" "$tmp/grub.d/10_linux" || fail "an unfamiliar 10_linux is left untouched"
+grep -Fq 'leaving its echoes' "$tmp/out" || fail "the leaf says why the echoes stay: $(<"$tmp/out")"
+cp "$fixture" "$tmp/grub.d/10_linux"; run_leaf || fail "back to the fixture: $(<"$tmp/out")"
+
+# A font that cannot be rendered keeps the theme off rather than half on.
+printf '#!/bin/bash\necho "mkfont $*" >>"$CALL_LOG"; exit 1\n' >"$tmp/bin/grub-mkfont"
+rm -rf "$tmp/themes" "$tmp/fonts"; printf 'GRUB_CMDLINE_LINUX="zswap.enabled=0"\n' >"$tmp/grub"
+run_leaf || fail "a failed font render does not fail the leaf: $(<"$tmp/out")"
+! grep -q "GRUB_THEME=" "$tmp/grub" && ! grep -q "GRUB_FONT=" "$tmp/grub" || fail "no theme or font is activated without its faces: $(<"$tmp/grub")"
+printf '#!/bin/bash\necho "mkfont $*" >>"$CALL_LOG"; while (( $# > 1 )); do [[ $1 == -o ]] && printf font >"$2"; shift; done\n' >"$tmp/bin/grub-mkfont"
+pass "a font that cannot be rendered leaves the theme off"
+run_leaf || fail "the fonts render once grub-mkfont works again: $(<"$tmp/out")"
 
 run_leaf || fail "a second run passes"
 [[ ! -s $CALL_LOG ]] || fail "a configured Mac renders nothing and runs no update-grub: $(<"$CALL_LOG")"

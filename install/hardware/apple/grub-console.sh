@@ -63,7 +63,11 @@ grub_console_font() {
   [[ -f $source ]] || { echo "No $source; leaving GRUB's default font for $target" >&2; return 1; }
   omarchy-cmd-missing grub-mkfont && { echo "No grub-mkfont; leaving GRUB's default font" >&2; return 1; }
   sudo mkdir -p "$(dirname "$target")"
-  sudo grub-mkfont -s "$size" -o "$target" "$source" >/dev/null
+  if ! sudo grub-mkfont -s "$size" -o "$target" "$source" >/dev/null; then
+    echo "grub-mkfont could not render $target" >&2
+    sudo rm -f "$target"
+    return 1
+  fi
   grub_console_changed=1
 }
 
@@ -118,7 +122,7 @@ if [[ -f $linux_script ]] && ! grep -Fq 'Omarchy: no narration' "$linux_script";
     grep -Fq 'message="$(gettext_printf "Loading Linux %s ..." ${version})"' "$linux_script" &&
     grep -Fq 'message="$(gettext_printf "Loading initial ramdisk ...")"' "$linux_script"; then
     sudo mkdir -p "$backup_dir"
-    sudo cp -n "$linux_script" "$backup_dir/10_linux.pre-omarchy"
+    [[ -e $backup_dir/10_linux.pre-omarchy ]] || sudo cp "$linux_script" "$backup_dir/10_linux.pre-omarchy"
     staged=$(mktemp)
     ECHO_LINE=$echo_line awk '
       $0 == ENVIRON["ECHO_LINE"] { print "\t${message:+echo\t'"'"'$(echo \"$message\" | grub_quote)'"'"'}"; next }
@@ -128,9 +132,16 @@ if [[ -f $linux_script ]] && ! grep -Fq 'Omarchy: no narration' "$linux_script";
         print "    case \" $GRUB_CMDLINE_LINUX_DEFAULT \" in *\" quiet \"*) message=\"\" ;; esac  # Omarchy: no narration on a quiet boot"
       }
     ' "$linux_script" >"$staged"
-    sudo cp "$staged" "$linux_script"
+    # Only a complete transformation is installed: both echoes guarded and
+    # both guards in place, or the script keeps narrating and says so.
+    if [[ $(grep -Fc 'Omarchy: no narration' "$staged") == 2 && $(grep -Fc $'\t${message:+echo\t' "$staged") == 2 ]] &&
+      ! grep -Fq "$echo_line" "$staged" && sh -n "$staged"; then
+      sudo cp "$staged" "$linux_script"
+      grub_console_changed=1
+    else
+      echo "$linux_script could not be guarded completely; leaving its echoes" >&2
+    fi
     rm -f "$staged"
-    grub_console_changed=1
   else
     echo "$linux_script does not look like the GRUB 2.12 script; leaving its echoes" >&2
   fi
