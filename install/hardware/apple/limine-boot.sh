@@ -98,7 +98,7 @@ sudo rm -f "$esp/EFI/BOOT/grub-aa64.efi"
 # 2. Limine's configuration: the static keys here, the kernel command line
 # from GRUB's defaults, re-derived before every UKI rebuild.
 [[ -f $limine_default ]] || limine_default_created=1
-# omarchy:heredoc-expands paths=none -- esp resolves to the root-owned /boot/efi; its OMARCHY_ESP override is a test seam only a caller that already runs sudo can set; kernel is pattern-checked by omarchy-hw-apple-kernel
+# omarchy:heredoc-expands paths=none -- esp resolves to the root-owned /boot/efi; its OMARCHY_ESP override is trusted caller input, and production callers require root or sudo; kernel is pattern-checked by omarchy-hw-apple-kernel
 sudo tee "$limine_default" >/dev/null <<CONF
 # Written by Omarchy (install/hardware/apple/limine-boot.sh). KERNEL_CMDLINE
 # is derived from /etc/default/grub by omarchy-mac-limine-cmdline; edit GRUB's
