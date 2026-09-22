@@ -1,0 +1,39 @@
+Hardware evidence: Limine boot packages on the M1 Pro (MacBookPro18,3, j314s)
+
+Tested on 2026-09-22 on the M1 Pro (omarchy-m1-pro), Omarchy rc channel,
+linux-aurora 7.1.12.aurora2-7. The three boot packages of this candidate were
+installed from the candidate's own archives with pacman -U, then the Mac was
+rebooted twice and checked.
+
+What they change: the Mac boots Limine (ESP:/EFI/BOOT/BOOTAA64.EFI) instead of
+GRUB. limine-mkinitcpio-hook 1.36.0-3 builds the UKI with the aarch64
+systemd-stub and writes the Limine entries (1.36.0-2 added the aarch64 support,
+-3 drops the interactive /usr/local/bin/mkinitcpio wrapper). omarchy-mac-boot
+20260921-9 rebuilds that UKI from the initrd encryption flow and keeps the
+Limine kernel hook idle until Omarchy has activated Limine. uboot-asahi
+2026.07.asahi2-3 is the Asahi U-Boot with a silent console (no banner, no logo,
+no boot delay), which Limine runs under.
+
+Result: the Mac boots through m1n1 -> U-Boot -> Limine -> UKI and reaches the
+login screen with no failed units. Verified after the reboot:
+
+  bootctl:  Product: Limine 12.9.0
+            Product: systemd-stub 261.3-1-arch
+  /proc/cmdline: root=UUID=4f4d5801-524f-4f54-8000-000000000001 rw
+                 rootflags=subvol=@,x-systemd.device-timeout=0 ... quiet splash
+  systemctl --failed: none
+  omarchy-apple-silicon-boot-check linux-aurora: passes (UKI, entry command
+    line and the ESP's Limine verified)
+  omarchy-mac-limine-active: yes
+  /boot/efi/limine.conf: the Omarchy block, its kernel entry and the snapshot
+    entries (11 entry lines)
+
+Snapshot cycle on the same machine, before this candidate and with the same
+tooling: a snapper snapshot booted from the Limine menu under the tmpfs
+overlay, limine-snapper-restore swapped the root from inside it, and the
+restored root booted clean.
+
+candidate_sha256=c38602bed12addaccc86a731ee07d5eeca029780f78d58f099b67599ccdf5c29
+boot=limine-mkinitcpio-hook 1.36.0-3
+boot=omarchy-mac-boot 20260921-9
+boot=uboot-asahi 2026.07.asahi2-3
