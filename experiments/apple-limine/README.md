@@ -1,41 +1,63 @@
-# Limine on Apple Silicon (experiment)
+# Limine on Apple Silicon
 
-Tried on the M1 Pro on 2026-09-22 against the project invariant that Apple
-Silicon boots GRUB. Limine 12.9 (Arch Linux ARM `limine`, aarch64) placed as
-`/EFI/BOOT/BOOTAA64.EFI` on the ESP, GRUB kept beside it as
-`grub-aa64.efi` (and a copy under `/var/lib/omarchy/backups`) with a
-chainload entry in the Limine menu. The kernel and initramfs are copies on
-the ESP under `/omarchy/` because Limine reads FAT and ISO 9660 only, not
-the ext4 Boot partition. U-Boot's device tree reaches the kernel through the
-EFI configuration table (Limine's aarch64 Linux protocol copies it and
-enters the kernel directly, bypassing the EFI stub).
+Status (2026-09-22): integrated on the branch behind an opt-in gate and
+running on the M1 Pro. The M2 Max stays on GRUB until the owner picks one.
 
-Result: boots. `/proc/cmdline` is the Limine one, `efi: EFI v2.11 by Das
-U-Boot`, the initrd is handed over through the EFI table, no failed units.
+## How it boots
 
-Second round with Omarchy's x86 tooling (`limine-mkinitcpio-hook`,
-`limine-snapper-sync`, built for aarch64 in omarchy-pkgs): `limine-update`
-builds a UKI with the aarch64 systemd-stub into `ESP:/EFI/Linux/`
-(`ESP_PATH=/boot/efi`), and Limine chainloads it (`protocol:
-efi_chainload`) under U-Boot: the M1 Pro booted the UKI, `bootctl` names
-Limine as the loader. `limine-install` exits 0 on aarch64 (no EFI
-deployment, no efibootmgr), and the entry tool refuses to write UKI entries
-(`Utility.isSystemAmd64()` in its Java source, buildable with a patch in
-omarchy-pkgs); the UKI entry was added by hand. `limine-snapper-sync`
-needs `TARGET_OS_NAME` and an existing OS entry. A hand generator
-(`limine-snapshots.sh`) produced a Snapshots submenu from snapper's list.
+m1n1 → U-Boot (the Mac's UEFI) → `ESP:/EFI/BOOT/BOOTAA64.EFI`, which is
+Limine 12.9 (Arch Linux ARM `limine`). Limine chainloads the UKI that
+`limine-mkinitcpio-hook` builds with the aarch64 systemd-stub into
+`ESP:/EFI/Linux/omarchy_<kernel>.efi`; U-Boot's device tree reaches the
+kernel through the EFI configuration table. GRUB stays on the ESP as
+`grub-aa64.efi` (the Asahi `update-grub` is retargeted to it through
+`/etc/default/update-grub`) and as the last menu entry, `GRUB (recovery)`.
 
-What a real integration would need beyond this experiment:
-- keep the ESP copies in step with `/boot` on every kernel and initramfs
-  rebuild (a pacman hook, or UKIs through `limine-mkinitcpio-hook` if
-  `systemd-stub` for aarch64 boots under U-Boot's UEFI);
-- the encrypt flow, provisioning re-key and boot check write GRUB's
-  `/etc/default/grub` (`rd.luks.*`, `root=`); they would write Limine entries;
-- snapshot entries (`limine-snapper-sync` expects UKIs and x86 paths);
-- the Asahi `update-grub` pacman hook keeps regenerating GRUB and copies its
-  EFI over `/EFI/BOOT/BOOTAA64.EFI` on kernel updates, so Limine must be
-  restored after it or installed under another path that U-Boot boots first;
-- U-Boot's own console text is unaffected either way.
+## Pieces
 
-`deploy-m1.sh install|rollback` stages or reverts the experiment on the Mac
-where it runs; `~/omarchy-lab/serve/g` is the macOS-side rescue.
+- `install/hardware/apple/limine-boot.sh`: activation, idempotent. Runs
+  from `install/hardware/all.sh` on Macs carrying
+  `/var/lib/omarchy/limine.enabled` with the `limine`,
+  `limine-mkinitcpio-hook` (omarchy-pkgs build, aarch64-enabled) and
+  `limine-snapper-sync` packages installed. GRUB is regenerated into the
+  recovery slot first, Limine's defaults and menu written, the UKI and
+  entries built, and only then is Limine copied into the U-Boot slot.
+- `bin/omarchy-mac-limine-cmdline`: `/etc/default/grub` stays the one
+  source of the kernel command line; this derives `KERNEL_CMDLINE[default]`
+  from it (root=UUID of the root filesystem, one `rootflags=` with
+  `subvol=@`) and runs before every UKI rebuild as
+  `/etc/boot/hooks/pre.d/20-omarchy-mac-cmdline`.
+- `bin/omarchy-mac-boot-update`: `update-grub`, then on a Limine Mac
+  `limine-update` and the ESP's Limine. The encrypt flow (omarchy-pkgs,
+  `omarchy-mac-encrypt`), the owner's re-key, the fresh installer and the
+  factory reset call it.
+- `bin/omarchy-mac-limine-deploy` and the pacman hook
+  `81-omarchy-mac-limine-deploy.hook`: `limine-install` deploys nothing on
+  aarch64, so the packaged Limine is copied to the ESP when it changes.
+- `bin/omarchy-snapshot`: on a Limine Mac the x86 tooling (the
+  `limine-snapper-sync` watcher writes the entries, `limine-snapper-restore`
+  restores). `bin/omarchy-mac-boot-sync` (+ unit) rebuilds the ext4 `/boot`
+  for the GRUB recovery entry when a Limine restore leaves it behind the
+  running kernel.
+- `bin/omarchy-apple-silicon-boot-check`: verifies the UKI, the entry's
+  root and LUKS mapping, and that the ESP carries the installed Limine.
+- omarchy-pkgs `uboot-omarchy`: the Asahi U-Boot with a silent console and
+  no logo (`silent=1` in the default environment, `CONFIG_SILENT_CONSOLE`).
+  An `uboot.env` on the ESP overrides the default environment, so it must
+  carry `silent=1` or not exist.
+
+## Findings
+
+- `default_entry` counts every entry in the menu tree, directories
+  included, so `2` is the kernel entry under `/+Omarchy` as on x86; naming a
+  directory leaves Limine waiting at the menu. Prefer entry paths for
+  anything but the default. There is no one-shot boot from the OS: U-Boot's
+  runtime SetVariable is volatile.
+- `limine-snapper-sync.service` is a watcher; without it running, a
+  snapshot gets no entry (the snapper plugin only notifies it).
+- The tool preserves top-level entry order across `limine-update`; the
+  leaf still re-places the recovery entry after the Omarchy block.
+- Snapshots cannot roll back m1n1 or U-Boot: those live on the ESP.
+- `deploy-m1.sh` and `limine-snapshots.sh` are the first-round hand
+  experiment and are superseded by the leaf; `~/omarchy-lab/serve/g` is
+  the macOS-side rescue (GRUB back into the U-Boot slot).
