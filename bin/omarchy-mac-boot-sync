@@ -29,9 +29,15 @@ esac
 kernel=$(omarchy-hw-apple-kernel) || exit 1
 modules=$modules_dir/$running
 [[ -f $modules/vmlinuz && -f $modules/pkgbase && $(<"$modules/pkgbase") == "$kernel" ]] || exit 0
-cmp -s "$modules/vmlinuz" "$boot_dir/vmlinuz-$kernel" && exit 0
+# /boot is consistent while its kernel has its modules in this root: that
+# covers the running kernel and a newer one installed with a reboot pending
+# (kernel-modules-hook keeps the old modules alongside).
+for dir in "$modules_dir"/*/; do
+  [[ -f $dir/pkgbase && $(<"$dir/pkgbase") == "$kernel" && -f $dir/vmlinuz ]] || continue
+  cmp -s "$dir/vmlinuz" "$boot_dir/vmlinuz-$kernel" && exit 0
+done
 
-echo "omarchy-mac-boot-sync: $boot_dir/vmlinuz-$kernel is not the running $running; rebuilding /boot for GRUB"
+echo "omarchy-mac-boot-sync: $boot_dir/vmlinuz-$kernel has no modules in this root; rebuilding /boot from the running $running for GRUB"
 install -m644 "$modules/vmlinuz" "$boot_dir/vmlinuz-$kernel" || exit 1
 mkinitcpio -P </dev/null || exit 1
 omarchy-mac-boot-update || exit 1

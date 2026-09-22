@@ -68,7 +68,21 @@ run || fail "boot sync succeeds during a snapshot boot by cmdline"
 [[ ! -s $calls ]] || fail "a snapshot boot (cmdline) writes nothing to /boot"
 pass "snapshot boots never touch /boot"
 
+# A kernel update with the reboot pending: /boot carries the new kernel and
+# its modules are in this root (kernel-modules-hook kept the running ones).
 echo 'root=UUID=x rw rootflags=subvol=@ quiet' >"$cmdline"
+mkdir -p "$modules/7.2.0-1-1-ARCH"
+echo linux-aurora >"$modules/7.2.0-1-1-ARCH/pkgbase"
+echo newer-kernel >"$modules/7.2.0-1-1-ARCH/vmlinuz"
+echo newer-kernel >"$boot/vmlinuz-linux-aurora"
+: >"$calls"
+run || fail "boot sync succeeds with a newer kernel on /boot"
+[[ ! -s $calls && $(cat "$boot/vmlinuz-linux-aurora") == newer-kernel ]] ||
+  fail "a newer kernel on /boot whose modules are present is never overwritten with the running one" "$(cat "$calls")"
+rm -rf "$modules/7.2.0-1-1-ARCH"
+pass "a pending kernel update is left alone"
+
+echo older-kernel >"$boot/vmlinuz-linux-aurora"
 rm -f "$gate"
 run || fail "boot sync succeeds on a GRUB Mac"
 [[ ! -s $calls && $(cat "$boot/vmlinuz-linux-aurora") == older-kernel ]] || fail "a GRUB Mac is left alone"
