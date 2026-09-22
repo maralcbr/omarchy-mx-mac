@@ -8,17 +8,23 @@ Hardware support is the Asahi Linux project's, plus what the Aurora kernel adds 
 
 ## Supported Macs
 
-The installer catalog admits the M1 and M2 family device identifiers below. M3 Macs install on the `stable` channel with the newer engine; GPU support on M3 is still limited upstream.
+A Mac is admitted by its device-tree identifier, never by its marketing name. The
+identifier is what the installer catalog lists and what the fork qualifies against, because
+one marketing name can cover boards with different hardware. Read yours with:
 
-| Family | Models |
-| --- | --- |
-| M1 | MacBook Air, MacBook Pro 13", Mac mini, iMac 24" |
-| M1 Pro / Max | MacBook Pro 14" and 16" (2021), Mac Studio |
-| M1 Ultra | Mac Studio |
-| M2 | MacBook Air 13" and 15", MacBook Pro 13", Mac mini |
-| M2 Pro / Max | MacBook Pro 14" and 16" (2023), Mac mini, Mac Studio |
-| M2 Ultra | Mac Studio, Mac Pro |
-| M3 | `stable` only, GPU limitations |
+```bash
+cat /proc/device-tree/model
+tr '\0' '\n' < /proc/device-tree/compatible
+```
+
+The catalog admits 33 identifiers today, covering the M1, M1 Pro, M1 Max, M1 Ultra, M2, M2
+Pro, M2 Max and M2 Ultra MacBook Air, MacBook Pro, Mac mini, Mac Studio, Mac Pro and iMac,
+and the M3 machines the current engine handles. An identifier that is not in the catalog is
+refused before anything on the disk is touched, which is the intended behaviour rather than
+a gap to work around.
+
+M3 support is newer and is limited by what Asahi supports on that chip. The M4 generation is
+deliberately not admitted.
 
 ## Reference machines
 
@@ -46,9 +52,18 @@ The installer catalog admits the M1 and M2 family device identifiers below. M3 M
 | Fullscreen window on a very wide display | <span class="status wip">known issue</span> | Hyprland paints only a band of a fullscreen window on a 5120×1440 output next to a scaled internal display. Upstream Hyprland issue. |
 | Fourth external display after HDMI unplug | <span class="status wip">known issue</span> | A stale DisplayPort link on the M2 Max after unplugging HDMI; replug or reboot |
 | Text console between Plymouth and the greeter | <span class="status wip">known issue</span> | Cosmetic, a few seconds |
-| Touch ID, Thunderbolt display chaining, microphone array beamforming | <span class="status no">no</span> | Not supported by Asahi or Aurora yet |
 | Widevine DRM in browsers | <span class="status ok">works</span> | When the package is available from the Asahi repositories |
 | Steam | <span class="status ok">works</span> | Optional, through the Asahi FEX environment |
+
+## What Asahi supports on your chip
+
+Everything below the desktop is the Asahi Linux project's work, and the authoritative, current list of what each Apple chip supports is theirs:
+
+- [M1 feature support](https://asahilinux.org/docs/platform/feature-support/m1/)
+- [M2 feature support](https://asahilinux.org/docs/platform/feature-support/m2/)
+- [Overview across chips](https://asahilinux.org/docs/platform/feature-support/overview/)
+
+Anything marked work-in-progress there, Thunderbolt device support among them, is work-in-progress here too. The Aurora kernel adds the display, camera and USB4 work described above on top of that.
 
 ## Validation
 
