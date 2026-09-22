@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# omarchy:summary=Keep /boot's GRUB kernel in step with the running root of a Limine Mac
+# omarchy:requires-sudo=true
+# omarchy:hidden=true
+
+# limine-snapper-restore swaps the root subvolume and puts the snapshot's UKI
+# back on the ESP, but the ext4 /boot that GRUB (the recovery entry) boots
+# from stays as it was: its kernel and initramfs may no longer match the
+# modules in the restored root. omarchy-mac-boot-sync.service runs this on
+# every boot of a Limine Mac: when /boot's kernel is not the running one, the
+# kernel is copied back, the initramfs rebuilt, and both loaders regenerated.
+# A snapshot boot (read-only history under a tmpfs overlay) writes nothing.
+
+set -uo pipefail
+
+boot_dir=${OMARCHY_BOOT_DIR:-/boot}
+modules_dir=${OMARCHY_MODULES_DIR:-/usr/lib/modules}
+snapshot_marker=${OMARCHY_SNAPSHOT_BOOT_MARKER:-/run/omarchy-snapshot-boot}
+cmdline=${OMARCHY_CMDLINE:-/proc/cmdline}
+running=${OMARCHY_RUNNING_KERNEL:-$(uname -r)}
+
+omarchy-mac-limine-active || exit 0
+[[ ! -e $snapshot_marker ]] || exit 0
+case " $(<"$cmdline") " in
+  *"/.snapshots/"*) exit 0 ;;
+esac
+
+kernel=$(omarchy-hw-apple-kernel) || exit 1
+modules=$modules_dir/$running
+[[ -f $modules/vmlinuz && -f $modules/pkgbase && $(<"$modules/pkgbase") == "$kernel" ]] || exit 0
+cmp -s "$modules/vmlinuz" "$boot_dir/vmlinuz-$kernel" && exit 0
+
+echo "omarchy-mac-boot-sync: $boot_dir/vmlinuz-$kernel is not the running $running; rebuilding /boot for GRUB"
+install -m644 "$modules/vmlinuz" "$boot_dir/vmlinuz-$kernel" || exit 1
+mkinitcpio -P </dev/null || exit 1
+omarchy-mac-boot-update || exit 1
+omarchy-mac-snapshot-menu refresh >/dev/null 2>&1 || true

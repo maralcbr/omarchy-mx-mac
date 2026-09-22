@@ -1075,8 +1075,9 @@ luks_kill_other_slots() {
   if (( xtrace_on )); then set -x; fi
 }
 
-# Drop rd.luks.key= and rebuild GRUB + initramfs. Idempotent: a retry after a
-# failed rebuild continues from the already-dropped cmdline.
+# Drop rd.luks.key= and rebuild the initramfs and the boot loaders (GRUB, and
+# Limine's UKI on a Limine Mac). Idempotent: a retry after a failed rebuild
+# continues from the already-dropped cmdline.
 apple_rekey_boot() {
   [[ -f $GRUB_DEFAULT ]] || {
     log_step "no $GRUB_DEFAULT to drop rd.luks.key="
@@ -1086,9 +1087,9 @@ apple_rekey_boot() {
   if grep -q 'rd.luks.key=' "$GRUB_DEFAULT"; then
     grub_drop_rd_luks_key "$GRUB_DEFAULT" || return 1
   fi
-  if ! update-grub >>"$LOG_FILE" 2>&1 ||
-    ! mkinitcpio -P </dev/null >>"$LOG_FILE" 2>&1; then
-    log_step "update-grub or mkinitcpio failed during re-key; will retry from phase=rekeyed"
+  if ! mkinitcpio -P </dev/null >>"$LOG_FILE" 2>&1 ||
+    ! omarchy-mac-boot-update >>"$LOG_FILE" 2>&1; then
+    log_step "mkinitcpio or omarchy-mac-boot-update failed during re-key; will retry from phase=rekeyed"
     say --foreground 1 "Could not rebuild boot files after the LUKS re-key; will retry."
     return 1
   fi

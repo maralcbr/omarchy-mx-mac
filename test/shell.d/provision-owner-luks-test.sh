@@ -56,6 +56,15 @@ fi
 exit 0
 SH
 
+# The re-key regenerates boot files through omarchy-mac-boot-update, which on
+# a GRUB Mac is update-grub.
+ln -sf "$ROOT/bin/omarchy-mac-boot-update" "$stub_bin/omarchy-mac-boot-update"
+cat >"$stub_bin/omarchy-mac-limine-active" <<'SH'
+#!/bin/bash
+exit 1
+SH
+chmod +x "$stub_bin/omarchy-mac-limine-active"
+
 cat >"$stub_bin/mkinitcpio" <<SH
 #!/bin/bash
 printf 'mkinitcpio %s\n' "\$*" >>"$calls"

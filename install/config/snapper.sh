@@ -33,8 +33,10 @@ printf '%s\n' 'SNAPPER_CONFIGS="root"' >"$SNAPPER_CONF_PATH"
 chmod 0644 "$SNAPPER_CONF_PATH"
 
 systemctl disable --now snapper-timeline.timer >/dev/null 2>&1 || true
-if command -v omarchy-hw-apple-silicon >/dev/null 2>&1 && omarchy-hw-apple-silicon; then
-  # Apple Silicon boots GRUB: no Limine menu to sync.
+if command -v omarchy-hw-apple-silicon >/dev/null 2>&1 && omarchy-hw-apple-silicon &&
+  ! { command -v omarchy-mac-limine-active >/dev/null 2>&1 && omarchy-mac-limine-active; }; then
+  # A GRUB Mac has no Limine menu to sync (grub-btrfs is refreshed by
+  # omarchy-snapshot); a Limine Mac syncs like x86.
   systemctl enable --now snapper-cleanup.timer >/dev/null 2>&1 || true
 else
   systemctl enable --now snapper-cleanup.timer limine-snapper-sync.service >/dev/null 2>&1 || true

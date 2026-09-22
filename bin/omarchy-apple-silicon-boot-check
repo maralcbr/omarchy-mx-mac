@@ -300,6 +300,44 @@ elif root_on_luks; then
   fail "encrypted root has no crypttab"
 fi
 
+# A Limine Mac (install/hardware/apple/limine-boot.sh) boots the UKI from
+# Limine's menu; GRUB above is its recovery entry. The menu must name the
+# kernel's UKI and pass the same root (and LUKS mapping) GRUB does, and the
+# U-Boot slot must hold the installed Limine.
+if [[ -e $(path /var/lib/omarchy/limine.enabled) && -f $(path /etc/default/limine) ]]; then
+  limine_cfg=$(path /boot/efi/limine.conf)
+  limine_uki=$(path "/boot/efi/EFI/Linux/omarchy_$kernel.efi")
+  limine_efi=$(path /usr/share/limine/BOOTAA64.EFI)
+  sudo test -f "$limine_uki" || fail "/boot/efi/EFI/Linux/omarchy_$kernel.efi (the Limine UKI) is missing"
+  sudo test -f "$limine_cfg" || fail "/boot/efi/limine.conf is missing on a Limine Mac"
+  sudo grep -Fq "/EFI/Linux/omarchy_$kernel.efi" "$limine_cfg" ||
+    fail "/boot/efi/limine.conf does not boot the $kernel UKI"
+  sudo cmp -s "$limine_efi" "$(path /boot/efi/EFI/BOOT/BOOTAA64.EFI)" ||
+    fail "/boot/efi/EFI/BOOT/BOOTAA64.EFI is not the installed Limine"
+  # The first kernel entry's cmdline: the tool writes the Omarchy block first.
+  limine_cmdline=$(sudo awk -v entry="//$kernel" '
+    { line = $0; sub(/^[[:space:]]+/, "", line) }
+    line == entry { inside = 1; next }
+    inside && $1 == "cmdline:" { sub(/^[[:space:]]*cmdline:[[:space:]]*/, ""); print; exit }
+  ' "$limine_cfg")
+  [[ -n $limine_cmdline ]] || fail "/boot/efi/limine.conf has no cmdline for the $kernel entry"
+  limine_root=$(grep -Eo 'root=[^[:space:]]+' <<<"$limine_cmdline" | tail -n 1 || true)
+  [[ $limine_root == root=UUID=* ]] || fail "the Limine $kernel entry does not set root=UUID="
+  grep -Eq '(^|[[:space:]])rootflags=subvol=@' <<<"$limine_cmdline" ||
+    fail "the Limine $kernel entry does not select rootflags=subvol=@"
+  if (( has_crypttab_root )); then
+    grep -Eq "rd\\.luks\\.name=${crypttab_uuid}=" <<<"$limine_cmdline" ||
+      fail "the Limine $kernel entry does not set rd.luks.name= for the encrypted root"
+    mapper_uuid=$(sudo blkid -o value -s UUID /dev/mapper/root 2>/dev/null || true)
+    [[ -z $mapper_uuid || ${limine_root#root=UUID=} == "$mapper_uuid" ]] ||
+      fail "the Limine $kernel entry root=UUID= does not name the filesystem on /dev/mapper/root"
+    if [[ ! -f $(path /var/lib/omarchy/provisioning/luks-key) && ! -f $(path /var/lib/omarchy/mac-first-boot/pending) ]]; then
+      grep -q 'rd.luks.key=' <<<"$limine_cmdline" &&
+        fail "the Limine $kernel entry still has rd.luks.key= after provisioning"
+    fi
+  fi
+fi
+
 # m1n1 stage 2, built the way this update-m1n1 builds it.
 script=$(path /usr/bin/update-m1n1)
 [[ -r $script ]] || fail "/usr/bin/update-m1n1 is not installed"

@@ -365,7 +365,12 @@ rebuild_next_boot_apple() {
   if ! chroot "$next" mkinitcpio -P </dev/null >>"$LOG_FILE" 2>&1; then
     fail "mkinitcpio failed in the factory root (see $LOG_FILE)"
   fi
-  if ! chroot "$next" update-grub >>"$LOG_FILE" 2>&1; then
+  # A factory root from before the Limine work has no omarchy-mac-boot-update.
+  if [[ -x $next/usr/bin/omarchy-mac-boot-update ]]; then
+    if ! chroot "$next" omarchy-mac-boot-update >>"$LOG_FILE" 2>&1; then
+      fail "omarchy-mac-boot-update failed in the factory root (see $LOG_FILE)"
+    fi
+  elif ! chroot "$next" update-grub >>"$LOG_FILE" 2>&1; then
     fail "update-grub failed in the factory root (see $LOG_FILE)"
   fi
   if ! chroot "$next" update-m1n1 >>"$LOG_FILE" 2>&1; then

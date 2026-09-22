@@ -200,6 +200,14 @@ echo "update-grub $*" >>"$FRESH_TEST_LOG"
 printf '# generated\nlinux /vmlinuz-%s root=UUID=test\ninitrd /initramfs-%s.img\n' "$FRESH_TEST_KERNEL" "$FRESH_TEST_KERNEL" >"$FRESH_TEST_ROOT/boot/grub/grub.cfg"
 EOF
 
+# The fresh installer regenerates boot files through omarchy-mac-boot-update,
+# which on a GRUB Mac is update-grub.
+ln -sf "$ROOT/bin/omarchy-mac-boot-update" "$stub_bin/omarchy-mac-boot-update"
+stub omarchy-mac-limine-active <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+
 stub lsinitcpio <<'EOF'
 #!/bin/bash
 [[ $1 == -l ]] && cat "$2"

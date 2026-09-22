@@ -21,6 +21,13 @@ apple_silicon() {
   ! omarchy-cmd-missing omarchy-hw-apple-silicon && omarchy-hw-apple-silicon
 }
 
+# An Apple Silicon Mac that boots Limine (install/hardware/apple/limine-boot.sh)
+# has the x86 snapshot tooling: the snapper plugin writes its entries and
+# limine-snapper-restore restores. GRUB Macs use the Mac tools.
+apple_limine() {
+  apple_silicon && ! omarchy-cmd-missing omarchy-mac-limine-active && omarchy-mac-limine-active
+}
+
 case "$COMMAND" in
 create)
   # The description is just a label, so never let it abort the snapshot.
@@ -45,7 +52,7 @@ create)
     sudo snapper -c "$config" cleanup number
   done
 
-  if apple_silicon; then
+  if apple_silicon && ! apple_limine; then
     # Bootable entries come from grub-btrfs, refreshed here; 127 means the
     # package is not installed yet, which is not a failed snapshot.
     sudo omarchy-mac-snapshot-menu refresh || (($? == 127)) ||
@@ -54,19 +61,26 @@ create)
   echo "Snapshots can be selected during boot."
   ;;
 restore)
-  # Apple Silicon boots GRUB, so Limine's restore does not apply; the Mac
-  # restore swaps the root subvolume from the running system and reboots.
-  if apple_silicon; then
+  # A GRUB Mac restores by swapping the root subvolume from the running
+  # system and rebooting; a Limine Mac restores as x86 does.
+  if apple_silicon && ! apple_limine; then
     sudo omarchy-mac-snapshot-restore "${@:2}"
   else
+    if (( $# > 1 )); then
+      echo "limine-snapper-restore picks the snapshot itself; run omarchy-snapshot restore without a number." >&2
+      exit 64
+    fi
     sudo limine-snapper-restore
   fi
   ;;
 prune-previous)
-  if apple_silicon; then
+  if apple_silicon && ! apple_limine; then
     sudo omarchy-mac-snapshot-restore --prune-previous
+  elif apple_silicon; then
+    echo "A Limine restore keeps the previous root as a snapper snapshot; remove it with snapper delete." >&2
+    exit 1
   else
-    echo "prune-previous applies to Apple Silicon restores only." >&2
+    echo "prune-previous applies to Apple Silicon GRUB restores only." >&2
     exit 1
   fi
   ;;

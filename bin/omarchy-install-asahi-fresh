@@ -209,7 +209,7 @@ verify_offline_printed_archives() {
 # deferred install regenerates them on every attempt and checks what it made
 # against the installed kernel package.
 regenerate_boot_files() {
-  update-grub || fail "Could not regenerate the GRUB configuration"
+  omarchy-mac-boot-update || fail "Could not regenerate the boot loader configuration"
   update-m1n1 || fail "Could not regenerate the m1n1 boot image"
 }
 

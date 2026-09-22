@@ -1,0 +1,18 @@
+# Keeps the ext4 /boot (GRUB's kernel and initramfs) in step with the running
+# root on a Limine Mac after limine-snapper-restore swapped the root.
+# Installed and enabled by install/hardware/apple/limine-boot.sh.
+
+[Unit]
+Description=Omarchy boot files resync after a snapshot restore
+ConditionPathExists=/var/lib/omarchy/limine.enabled
+After=local-fs.target
+RequiresMountsFor=/boot /boot/efi
+Before=omarchy-provision-owner.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/omarchy-mac-boot-sync
+
+[Install]
+WantedBy=multi-user.target

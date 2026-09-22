@@ -149,6 +149,14 @@ else
 fi
 EOF
 
+# The fresh installer regenerates boot files through omarchy-mac-boot-update,
+# which on a GRUB Mac is update-grub.
+ln -sf "$ROOT/bin/omarchy-mac-boot-update" "$stub_bin/omarchy-mac-boot-update"
+stub omarchy-mac-limine-active <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+
 stub lsinitcpio <<'EOF'
 #!/bin/bash
 [[ $1 == -l ]] && cat "$2"
