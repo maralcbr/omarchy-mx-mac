@@ -25,13 +25,13 @@ It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). E
 | Reference Mac | MacBook Pro 14" 2021, M1 Pro (`apple,j314s`) |
 | Also exercised | MacBook Pro 16" 2023, M2 Max (`apple,j416c`), five displays |
 
-Apple Silicon support depends on the Asahi Linux project and, for the `rc` channel, on the Aurora kernel. See [Hardware support](../hardware/) before installing.
+Apple Silicon support depends on the Asahi Linux project and, for the `rc` channel, on the Aurora kernel. See [Hardware support]({{page:hardware}}) before installing.
 
 ## Where to start
 
-1. [Install on a Mac](../install/): download, verify and run the installer.
-2. [Channels and updates](../channels/): what `stable` and `rc` mean and how updates arrive.
-3. [Architecture](../architecture/): how the three repositories, the signed channels and the installer fit together.
+1. [Install on a Mac]({{page:install}}): download, verify and run the installer.
+2. [Channels and updates]({{page:channels}}): what `stable` and `rc` mean and how updates arrive.
+3. [Architecture]({{page:architecture}}): how the three repositories, the signed channels and the installer fit together.
 
 <div class="note" markdown="1">
 This project is not affiliated with Apple, the Asahi Linux project or the Omarchy Foundation. It is not intended for Parallels, virtual machines or non-Asahi ARM systems.

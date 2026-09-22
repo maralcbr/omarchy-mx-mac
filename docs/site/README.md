@@ -20,7 +20,7 @@ python3 -m http.server 8877 --directory docs/site/dist
 
 | Path | What it is |
 | --- | --- |
-| `content/NN-slug.md` | One page. The number orders it in the chapter rail; the slug is the URL. |
+|  `content/NN-slug.md` | One page. The number orders it in the chapter rail; the slug is the URL. |
 | `diagrams/gen.py` | Builds every SVG. Edit this, never the SVGs. |
 | `diagrams/*.svg` | Generated and committed. CI regenerates them and fails if they differ. |
 | `templates/page.html` | The page shell. |
@@ -44,8 +44,11 @@ A page with no `section` continues under the heading above it, so only the
 first page of each group needs one.
 
 Place a diagram with `{{diagram:name}}` on its own line, where `name` matches a
-file in `diagrams/`. The builder fails on a name it cannot find, so a renamed
-diagram cannot leave a hole in a page.
+file in `diagrams/`. Link to another page with `[text]({{page:slug}})`, never a
+hand-written relative path: the index sits one directory above the rest, so a
+path that works on one page is wrong on the other. The builder fails on an
+unknown diagram or slug, and it checks every link in the finished site, so a
+rename cannot leave a dead link behind.
 
 ## Design
 

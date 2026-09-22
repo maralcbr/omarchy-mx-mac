@@ -58,6 +58,7 @@ class Page:
 
 FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 DIAGRAM_TAG = re.compile(r"\{\{diagram:([a-z0-9-]+)\}\}")
+PAGE_TAG = re.compile(r"\{\{page:([a-z0-9-]+)\}\}")
 HEADING = re.compile(r'<h2 id="([^"]+)">(.*?)</h2>')
 
 
@@ -98,6 +99,22 @@ def inline_diagram(match: re.Match[str]) -> str:
         raise SystemExit(f"diagram not found: {svg_path}")
     svg = svg_path.read_text().strip()
     return f'<figure class="diagram" data-diagram="{name}">\n{svg}\n</figure>'
+
+
+def resolve_page_links(body: str, current: Page, slugs: set[str]) -> str:
+    """Turn {{page:slug}} into a link that works from this page's directory.
+
+    Pages live one directory deep except the index, so a hand-written relative
+    link is right on one page and wrong on the other. The slug is checked here,
+    which makes a typo or a renamed page a build failure rather than a 404."""
+
+    def one(m: re.Match[str]) -> str:
+        slug = m.group(1)
+        if slug not in slugs:
+            raise SystemExit(f"{current.slug}: link to unknown page {slug!r}")
+        return current.rel_root + ("" if slug == "index" else f"{slug}/")
+
+    return PAGE_TAG.sub(one, body)
 
 
 def render_markdown(body: str) -> str:
@@ -152,6 +169,7 @@ def pager(pages: list[Page], current: Page) -> str:
 
 def build() -> None:
     pages = load_pages()
+    slugs = {p.slug for p in pages}
     template = TEMPLATE.read_text()
     if DIST.exists():
         shutil.rmtree(DIST)
@@ -160,7 +178,7 @@ def build() -> None:
     (DIST / ".nojekyll").write_text("")
 
     for page in pages:
-        page.html = add_heading_links(render_markdown(page.body_md))
+        page.html = add_heading_links(render_markdown(resolve_page_links(page.body_md, page, slugs)))
         page.headings = re.findall(r'<h2 id="([^"]+)"><a[^>]*>(.*?)<span', page.html)
         canonical = SITE_URL + "/" + ("" if page.slug == "index" else f"{page.slug}/")
         title = SITE_TITLE if page.slug == "index" else f"{page.title} - {SITE_TITLE}"
@@ -192,7 +210,25 @@ def build() -> None:
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
         f"{sitemap}\n</urlset>\n"
     )
+    check_links()
     print(f"built {len(pages)} pages into {DIST.relative_to(ROOT.parent.parent)}")
+
+
+def check_links() -> None:
+    """Every local href and src in the output must resolve to a real file."""
+    broken = []
+    for page in DIST.rglob("index.html"):
+        html_text = page.read_text()
+        for ref in re.findall(r'(?:href|src)="([^"]+)"', html_text):
+            if ref.startswith(("http://", "https://", "#", "mailto:", "data:")):
+                continue
+            target = (page.parent / ref.split("#")[0]).resolve()
+            if target.is_dir():
+                target = target / "index.html"
+            if not target.exists():
+                broken.append(f"{page.relative_to(DIST)} -> {ref}")
+    if broken:
+        raise SystemExit("broken links:\n  " + "\n  ".join(broken))
 
 
 if __name__ == "__main__":

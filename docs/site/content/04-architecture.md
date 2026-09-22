@@ -59,4 +59,4 @@ mirror/alarm/<date>/                     the Arch Linux ARM snapshot used by ima
 
 ## Upstream
 
-The fork tracks upstream Omarchy closely. Package recipes that make sense for every aarch64 user are contributed to omacom/omarchy-pkgs directly. Kernel fixes go to aurora-silicon/linux. Compositor fixes go to Hyprland and aquamarine. See [Upstream and contributing](../upstream/).
+The fork tracks upstream Omarchy closely. Package recipes that make sense for every aarch64 user are contributed to omacom/omarchy-pkgs directly. Kernel fixes go to aurora-silicon/linux. Compositor fixes go to Hyprland and aquamarine. See [Upstream and contributing]({{page:upstream}}).
