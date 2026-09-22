@@ -70,7 +70,10 @@ grep -Fq 'kernel_package=linux-aurora' "$installer" || fail "fresh installer def
 grep -Fq 'asahi_kernel_sha256=$(sha256sum "/boot/vmlinuz-$kernel_package")' "$installer" || fail "fresh installer protects the selected kernel"
 grep -Fq '/boot/grub/grub.cfg' "$installer" || fail "fresh installer protects GRUB"
 grep -Fq 'sha256sum --check --status <<<"$asahi_kernel_sha256"' "$installer" || fail "fresh installer verifies the Asahi kernel hash"
-(( $(grep -c '^  verify_grub_config$' "$installer") == 2 )) || fail "fresh installer verifies that GRUB boots the kernel on resume and at the end"
+grep -Fq 'sha256sum --check --status <<<"$grub_sha256" || verify_grub_config' "$installer" ||
+  fail "fresh installer resumes on the recorded GRUB configuration or one that boots the kernel"
+# Once in verify_boot_files (the deferred path), once at the end of a normal install.
+(( $(grep -c '^  verify_grub_config$' "$installer") == 2 )) || fail "fresh installer verifies that GRUB boots the kernel at the end"
 validation_line=$(grep -n '^  verify_grub_config$' "$installer" | tail -1 | cut -d: -f1)
 alarm_retirement_line=$(grep -n -m1 'usermod -L alarm' "$installer" | cut -d: -f1)
 completion_line=$(grep -n 'rm -rf "$state_dir"' "$installer" | tail -1 | cut -d: -f1)

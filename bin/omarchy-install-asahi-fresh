@@ -394,7 +394,7 @@ expected_release=$(printf '%s\n' \
 exec {install_lock}>/run/lock/omarchy-asahi-fresh.lock
 flock -n "$install_lock" || fail "Another fresh installation is already running"
 if [[ -e $state_dir ]]; then
-  [[ -d $state_dir && -f $state_dir/release && -f $state_dir/asahi-kernel.sha256 && -f $state_dir/owner-token ]] ||
+  [[ -d $state_dir && -f $state_dir/release && -f $state_dir/asahi-kernel.sha256 && -f $state_dir/grub.sha256 && -f $state_dir/owner-token ]] ||
     fail "The incomplete installation checkpoint is invalid"
   [[ $(<"$state_dir/release") == "$expected_state" ]] || fail "An incomplete installation belongs to a different release or user"
   owner_token=$(<"$state_dir/owner-token")
@@ -449,23 +449,27 @@ cp -a /etc/pacman.conf /etc/pacman.d /etc/NetworkManager "$backup_dir/" 2>/dev/n
 cp -a /boot/grub/grub.cfg "$backup_dir/grub.cfg"
 pacman -Q >"$backup_dir/installed-packages.txt"
 # The kernel image is protected by digest. GRUB's configuration is Omarchy's
-# own output (the console leaf regenerates it during system setup), so it is
-# checked by content: it must boot the installed kernel.
+# own output once the console leaf has regenerated it during system setup:
+# a resume accepts the configuration recorded at the checkpoint, or one that
+# boots the installed kernel; the end of the install requires the latter.
 if [[ -d $state_dir ]]; then
   asahi_kernel_sha256=$(<"$state_dir/asahi-kernel.sha256")
+  grub_sha256=$(<"$state_dir/grub.sha256")
   # A deferred install regenerates its boot files and checks those instead.
   if (( ! deferred_user )); then
     sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed after the interrupted installation"
-    verify_grub_config
+    sha256sum --check --status <<<"$grub_sha256" || verify_grub_config
   fi
 else
   asahi_kernel_sha256=$(sha256sum "/boot/vmlinuz-$kernel_package")
+  grub_sha256=$(sha256sum /boot/grub/grub.cfg)
   owner_token=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
   install -d -m 0755 /var/lib/omarchy
   checkpoint_tmp=$(mktemp -d /var/lib/omarchy/.fresh-install.XXXXXX)
   chmod 0700 "$checkpoint_tmp"
   printf '%s\n' "$expected_state" >"$checkpoint_tmp/release"
   printf '%s\n' "$asahi_kernel_sha256" >"$checkpoint_tmp/asahi-kernel.sha256"
+  printf '%s\n' "$grub_sha256" >"$checkpoint_tmp/grub.sha256"
   printf '%s\n' "$owner_token" >"$checkpoint_tmp/owner-token"
   mv -T "$checkpoint_tmp" "$state_dir"
 fi

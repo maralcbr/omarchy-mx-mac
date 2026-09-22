@@ -248,6 +248,7 @@ done
 (( interrupted == 1 ))
 [[ -f /var/lib/omarchy/fresh-install/release ]]
 [[ -f /var/lib/omarchy/fresh-install/asahi-kernel.sha256 ]]
+[[ -f /var/lib/omarchy/fresh-install/grub.sha256 ]]
 [[ -f /var/lib/omarchy/fresh-install/owner-token ]]
 [[ -f /var/lib/omarchy/fresh-install/target-user ]]
 [[ -f /home/omarchy/.omarchy-fresh-install-owner ]]
