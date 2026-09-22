@@ -17,6 +17,10 @@ export PATH="$tmp/bin:$PATH"
 printf '#!/bin/bash\nexit "${APPLE:-0}"\n' >"$tmp/bin/omarchy-hw-apple-silicon"
 printf '#!/bin/bash\nexec "$@"\n' >"$tmp/bin/sudo"
 printf '#!/bin/bash\necho update-grub >>"$CALL_LOG"\n' >"$tmp/bin/update-grub"
+# GRUB's own tools are what says GRUB is installed: update-grub ships with
+# asahi-scripts even on a Mac that has no GRUB.
+printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/grub-probe"
+printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/grub-mkconfig"
 chmod +x "$tmp/bin"/*
 
 run() {

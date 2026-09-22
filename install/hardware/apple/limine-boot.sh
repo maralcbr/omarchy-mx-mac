@@ -45,6 +45,11 @@ findmnt -no TARGET "$esp" >/dev/null 2>&1 || { echo "The ESP is not mounted at $
 # Mac while GRUB still boots it.
 # Returns 0: a decline is not a failed install step, and the ERR trap must not
 # fire a second rollback on the way out of the caller.
+grub_installed() {
+  command -v "${OMARCHY_GRUB_PROBE:-grub-probe}" >/dev/null 2>&1 &&
+    command -v "${OMARCHY_GRUB_MKCONFIG:-grub-mkconfig}" >/dev/null 2>&1
+}
+
 limine_boot_fail() {
   echo "limine-boot: $*; GRUB stays the boot loader" >&2
   if (( update_grub_default_changed )); then
@@ -76,8 +81,10 @@ trap limine_boot_trap ERR
 # 1. The Asahi update-grub keeps running on kernel updates; its EFI image
 # goes to a file under /boot instead of the U-Boot slot.
 sudo mkdir -p "$esp/EFI/BOOT"
-# An image that never shipped GRUB has nothing to retarget.
-if command -v "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1; then
+# An image that never shipped GRUB has nothing to retarget. update-grub comes
+# from asahi-scripts, which stays for update-m1n1, so GRUB's own tools are
+# what says whether it is there.
+if grub_installed; then
   if ! grep -Fxq "TARGET=\"$grub_target\"" "$update_grub_default" 2>/dev/null; then
     [[ ! -f $update_grub_default ]] || update_grub_default_before=$(<"$update_grub_default")
     update_grub_default_changed=1

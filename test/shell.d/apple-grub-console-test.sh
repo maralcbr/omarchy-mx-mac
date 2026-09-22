@@ -31,6 +31,10 @@ export CALL_LOG="$tmp/calls"
 export PATH="$tmp/bin:$ROOT/bin:$PATH"
 printf '#!/bin/bash\nexit "${APPLE:-0}"\n' >"$tmp/bin/omarchy-hw-apple-silicon"
 printf '#!/bin/bash\nexec "$@"\n' >"$tmp/bin/sudo"
+# GRUB's own tools are what says GRUB is installed: update-grub ships with
+# asahi-scripts even on a Mac that has no GRUB.
+printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/grub-probe"
+printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/grub-mkconfig"
 printf '#!/bin/bash\necho "mkfont $*" >>"$CALL_LOG"; while (( $# > 1 )); do [[ $1 == -o ]] && printf font >"$2"; shift; done\n' >"$tmp/bin/grub-mkfont"
 printf '#!/bin/bash\necho update-grub >>"$CALL_LOG"\n' >"$tmp/bin/update-grub"
 chmod +x "$tmp/bin"/*

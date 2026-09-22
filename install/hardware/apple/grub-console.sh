@@ -149,7 +149,9 @@ fi
 
 # The command line above is what a Limine Mac derives its UKI from, so those
 # edits matter on every Mac; only the GRUB regeneration needs GRUB installed.
-if (( grub_console_changed )) && command -v "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1; then
+if (( grub_console_changed )) &&
+  command -v "${OMARCHY_GRUB_PROBE:-grub-probe}" >/dev/null 2>&1 &&
+  command -v "${OMARCHY_GRUB_MKCONFIG:-grub-mkconfig}" >/dev/null 2>&1; then
   sudo mkdir -p "$(dirname "$pending")"
   sudo touch "$pending"
   echo "Regenerating GRUB for the Omarchy theme and the quiet boot"

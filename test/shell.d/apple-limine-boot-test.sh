@@ -52,6 +52,11 @@ for name in omarchy-mac-limine-cmdline omarchy-mac-limine-deploy omarchy-mac-lim
   ln -s "$ROOT/bin/$name" "$stub_bin/$name"
 done
 
+# A Mac from today's image: GRUB and its tools are installed.
+printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-probe"
+printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-mkconfig"
+chmod +x "$stub_bin/grub-probe" "$stub_bin/grub-mkconfig"
+
 printf 'LIMINE v1\n' >"$test_tmp/share/limine/BOOTAA64.EFI"
 printf 'GRUB image\n' >"$esp/EFI/BOOT/BOOTAA64.EFI"
 printf 'GRUB_CMDLINE_LINUX=""\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash rootflags=x-systemd.device-timeout=0"\n' >"$etc/grub"
@@ -169,12 +174,16 @@ pass "a Limine upgrade only replaces the U-Boot slot"
 # update-grub to retarget and no GRUB image anywhere.
 rm -f "$etc/update-grub" "$esp/limine.conf" "$test_tmp/boot/grub/grub-aa64.efi"
 printf 'GRUB image\n' >"$esp/EFI/BOOT/BOOTAA64.EFI"
-mv "$stub_bin/update-grub" "$test_tmp/update-grub.away"
+# asahi-scripts keeps update-grub for update-m1n1 even where GRUB is gone, and
+# it fails without grub-probe: the leaf must read GRUB's own tools.
+printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-probe"
+printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-mkconfig"
+chmod +x "$stub_bin/grub-probe" "$stub_bin/grub-mkconfig"
+rm -f "$stub_bin/grub-probe" "$stub_bin/grub-mkconfig"
 : >"$calls"
 run || fail "the leaf activates Limine without GRUB installed"
 [[ ! -e $etc/update-grub ]] || fail "nothing is retargeted when there is no update-grub"
 [[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "LIMINE v2" ]] || fail "Limine takes the U-Boot slot without GRUB"
 grep -q '^/+Omarchy$' "$esp/limine.conf" || fail "the menu is written without GRUB"
 ! grep -q '^update-grub$' "$calls" || fail "no GRUB regeneration is attempted" "$(cat "$calls")"
-mv "$test_tmp/update-grub.away" "$stub_bin/update-grub"
 pass "an image without GRUB activates Limine on its own"
