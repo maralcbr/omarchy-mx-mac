@@ -10,7 +10,7 @@ Omarchy MX Mac writes to the internal disk of a Mac that also holds macOS. Three
 2. **The system it installs actually works.**
 3. **It works on your particular Mac.**
 
-Most of the automated testing addresses the second. The first is covered by simulation plus a person at a real Mac. The third is covered by two machines and by Asahi's support for your chip. This page says which is which, because a reader deciding whether to run the installer is asking the first question, and a green test suite is not an answer to it.
+Most of the automation addresses the second. This page says which evidence answers which question, because a reader deciding whether to run the installer is asking the first, and a green test suite is not an answer to it.
 
 {{diagram:test-ladder}}
 
@@ -67,7 +67,7 @@ A workflow resolves the default package lists against real repositories in conta
 
 The gate a full release cannot skip. It exercises the Linux installation lifecycle in a throwaway virtual machine on one of the test Macs: install from the candidate, interrupt it and resume, reboot, run the installer again to check it refuses, and work through the optional package transactions.
 
-It is an adapted environment, not a Mac. The hardware check is patched out of a retained copy of the installer and restored afterwards, and the guest boots a generic kernel.
+It is an adapted environment, not a Mac: the hardware check is patched out of a retained copy of the installer and restored afterwards, and the guest boots a generic kernel.
 
 The verification stage then interrogates the result in detail: the release version, sequence and tag agree; `[omarchy]` leads the pacman configuration with signatures required; the signing fingerprints are present; the candidate descriptor checksum and package versions match; the expected units are enabled; the network backend is iwd; no migration is pending; the runtime package passes a file-integrity check; the temporary build account is gone; and the boot payloads are present.
 
@@ -119,7 +119,7 @@ Gates are enforced by tooling, and it is worth being precise about what each one
 
 The **hardware evidence** gate is the weak one. It binds a record to the candidate and to the boot packages that moved, and checks nothing else: no stated outcome, no model, no date, no transcript. It makes publishing an unqualified release hard to do by accident, and proves nothing about whether the testing happened.
 
-A **boot package** is a kernel, m1n1, U-Boot, the Asahi firmware and script tools, the boot package, the Limine hook or a DKMS module. One counts as moved when the release would publish a different version, when its recipe changed, or when its payload differs file by file. A comparison that cannot be made also counts as moved, which is the safe direction.
+A **boot package** is a kernel, m1n1, U-Boot, the Asahi firmware and script tools, the boot package, the Limine hook or a DKMS module. One counts as moved when the release would publish a different version, when its recipe changed, or when its payload differs file by file. A comparison that cannot be made counts as moved too, which is the safe direction.
 
 There is also a **fast path** that publishes a runtime-only change without VM acceptance, an image, or a package channel. It is allowed only when the candidate rebuilt nothing but runtime packages and its package set is exactly what the live channel already publishes.
 
