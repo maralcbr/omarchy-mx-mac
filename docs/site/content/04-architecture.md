@@ -41,6 +41,14 @@ Each repository pins the one before it by content, never by branch:
 
 A change anywhere therefore produces a new artefact all the way down, and an old artefact can always be reproduced from its pins.
 
+## What signs what
+
+Nothing in the chain is trusted because of where it came from. Each step carries its own signature or digest, and each is checked on the user's Mac by something that was not downloaded alongside it.
+
+{{diagram:trust-chain}}
+
+The one key that matters most never leaves the owner's Keychain: the Ed25519 key that signs a channel catalog. Its public half is compiled into the installer app, so rotating it means shipping a new app rather than editing a file on the server.
+
 ## Distribution
 
 `downloads.aicodelabs.com.au` is a Cloudflare R2 bucket:

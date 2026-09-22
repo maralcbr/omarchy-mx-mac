@@ -4,7 +4,7 @@
 <path class="edge" d="M 442 77.0 C 457.0 77.0 457.0 77.0 472 77.0" marker-end="url(#arrow)"/>
 <path class="edge" d="M 668 77.0 C 683.0 77.0 683.0 77.0 698 77.0" marker-end="url(#arrow)"/>
 <path class="edge" d="M 796.0 114 C 796.0 177.0 796.0 177.0 796.0 240" marker-end="url(#arrow)"/>
-<text class="edge-label" x="796" y="173">first Linux boot</text>
+<text class="edge-label" x="796" y="173">then the user reboots</text>
 <path class="edge" d="M 698 277.0 C 683.0 277.0 683.0 277.0 668 277.0" marker-end="url(#arrow)"/>
 <path class="edge" d="M 472 277.0 C 457.0 277.0 457.0 277.0 442 277.0" marker-end="url(#arrow)"/>
 <path class="edge brand" d="M 246 277.0 C 231.0 277.0 231.0 277.0 216 277.0" marker-end="url(#arrow-brand)"/>
@@ -18,25 +18,25 @@
 <rect x="246" y="40" width="196" height="74"/>
 <text class="n-title" x="258" y="61">Signed catalog</text>
 <text class="n-sub" x="258" y="80">Ed25519 envelope,</text>
-<text class="n-sub" x="258" y="97">sequence must grow</text>
+<text class="n-sub" x="258" y="97">sequence cannot go back</text>
 </g>
 <g class="node">
 <rect x="472" y="40" width="196" height="74"/>
 <text class="n-title" x="484" y="61">Pinned Asahi engine</text>
-<text class="n-sub" x="484" y="80">APFS resize, partitions,</text>
-<text class="n-sub" x="484" y="97">m1n1, device trees</text>
-</g>
-<g class="node tone-ext">
-<rect x="698" y="40" width="196" height="74"/>
-<text class="n-title" x="710" y="61">recoveryOS step</text>
-<text class="n-sub" x="710" y="80">boot policy set by the</text>
-<text class="n-sub" x="710" y="97">user, one reboot</text>
+<text class="n-sub" x="484" y="80">APFS stub, ESP, boot</text>
+<text class="n-sub" x="484" y="97">and root partitions</text>
 </g>
 <g class="node tone-blue">
+<rect x="698" y="40" width="196" height="74"/>
+<text class="n-title" x="710" y="61">Image written</text>
+<text class="n-sub" x="710" y="80">root.img, boot.img,</text>
+<text class="n-sub" x="710" y="97">m1n1, device trees</text>
+</g>
+<g class="node tone-ext">
 <rect x="698" y="240" width="196" height="74"/>
-<text class="n-title" x="710" y="261">Mac image written</text>
-<text class="n-sub" x="710" y="280">root.img + boot.img</text>
-<text class="n-sub" x="710" y="297">from the catalog</text>
+<text class="n-title" x="710" y="261">recoveryOS handoff</text>
+<text class="n-sub" x="710" y="280">the user sets the boot</text>
+<text class="n-sub" x="710" y="297">policy, one reboot</text>
 </g>
 <g class="node tone-blue">
 <rect x="472" y="240" width="196" height="74"/>

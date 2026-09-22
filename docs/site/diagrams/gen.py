@@ -100,6 +100,17 @@ class Diagram:
             room = lane.w - 28
             if len(lane.sub) * 11.5 * 0.6 > room:
                 raise SystemExit(f"{self.name}: lane sub too wide: {lane.sub!r}")
+        for n in self.nodes:
+            lane = next(
+                (
+                    l
+                    for l in self.lanes
+                    if l.x <= n.x and n.x + n.w <= l.x + l.w + 1
+                ),
+                None,
+            )
+            if lane and n.y + n.h > lane.y + lane.h:
+                raise SystemExit(f"{self.name}: node {n.id} overflows the bottom of its lane")
 
     def render(self) -> str:
         self.check()
@@ -205,10 +216,10 @@ def install_flow() -> Diagram:
     W = 196
     d.nodes = [
         Node("app", 20, 40, "Installer app", ["Gatekeeper, channels,", "bundled trust root"], w=W, tone="tone-brand"),
-        Node("catalog", 246, 40, "Signed catalog", ["Ed25519 envelope,", "sequence must grow"], w=W, tone="tone-brand"),
-        Node("engine", 472, 40, "Pinned Asahi engine", ["APFS resize, partitions,", "m1n1, device trees"], w=W),
-        Node("stage2", 698, 40, "recoveryOS step", ["boot policy set by the", "user, one reboot"], w=W, tone="tone-ext"),
-        Node("image", 698, 240, "Mac image written", ["root.img + boot.img", "from the catalog"], w=W, tone="tone-blue"),
+        Node("catalog", 246, 40, "Signed catalog", ["Ed25519 envelope,", "sequence cannot go back"], w=W, tone="tone-brand"),
+        Node("engine", 472, 40, "Pinned Asahi engine", ["APFS stub, ESP, boot", "and root partitions"], w=W),
+        Node("image", 698, 40, "Image written", ["root.img, boot.img,", "m1n1, device trees"], w=W, tone="tone-blue"),
+        Node("stage2", 698, 240, "recoveryOS handoff", ["the user sets the boot", "policy, one reboot"], w=W, tone="tone-ext"),
         Node("firstboot", 472, 240, "omarchy-mac-boot", ["vendor firmware, HID,", "optional LUKS"], w=W, tone="tone-blue"),
         Node("provision", 246, 240, "Owner provisioning", ["user, password, re-key,", "deferred steps"], w=W),
         Node("desktop", 20, 240, "Omarchy desktop", ["Hyprland + Quickshell,", "omarchy update onward"], w=W, tone="tone-brand"),
@@ -216,9 +227,9 @@ def install_flow() -> Diagram:
     d.edges = [
         Edge("app", "catalog", cls="brand"),
         Edge("catalog", "engine"),
-        Edge("engine", "stage2"),
-        Edge("stage2", "image", "first Linux boot", "bottom", "top"),
-        Edge("image", "firstboot"),
+        Edge("engine", "image"),
+        Edge("image", "stage2", "then the user reboots", "bottom", "top"),
+        Edge("stage2", "firstboot"),
         Edge("firstboot", "provision"),
         Edge("provision", "desktop", cls="brand"),
     ]
@@ -232,7 +243,7 @@ def boot_chain() -> Diagram:
         Node("iboot", 20, 40, "iBoot", ["Apple firmware,", "boot policy"], w=150, tone="tone-ext"),
         Node("m1n1", 200, 40, "m1n1", ["stage 1 + 2,", "device tree"], w=150, tone="tone-ext"),
         Node("uboot", 380, 40, "U-Boot", ["the UEFI on Apple", "Silicon, uboot-asahi"], w=220),
-        Node("loader", 630, 40, "GRUB now, Limine next", ["grub.cfg or limine.conf", "on the EFI partition"], w=250, tone="tone-purple"),
+        Node("loader", 630, 40, "GRUB now, Limine next", ["grub.cfg on /boot,", "limine.conf on the ESP"], w=250, tone="tone-purple"),
         Node("kernel", 630, 190, "Kernel + initramfs", ["linux-asahi or linux-aurora,", "mkinitcpio, vendor firmware"], w=250, tone="tone-blue"),
         Node("root", 20, 190, "btrfs root", ["@ subvolume, snapper snapshots, optional LUKS (sd-encrypt)"], w=580),
     ]
@@ -287,8 +298,38 @@ def release_pipeline() -> Diagram:
     return d
 
 
+def trust_chain() -> Diagram:
+    d = Diagram("trust-chain", 900, 630, "What signs each artefact, and what checks the signature")
+    d.lanes = [
+        Lane(16, 16, 420, 570, "Signed by", "keys held by the project and the owner"),
+        Lane(456, 16, 428, 570, "Checked by", "on the user's Mac, before anything is trusted"),
+    ]
+    W = 380
+    d.nodes = [
+        Node("apple", 36, 70, "Apple Developer ID T2C384FJBD", ["notarized installer .pkg and app"], w=W, tone="tone-brand"),
+        Node("gk", 476, 70, "Gatekeeper", ["macOS refuses an unsigned or", "un-notarized installer"], w=W),
+        Node("ed", 36, 170, "Ed25519 catalog key", ["lives only in the owner's Keychain,", "signs each channel catalog"], w=W, tone="tone-brand"),
+        Node("root", 476, 170, "Trust root in the app bundle", ["catalog signature, and a sequence", "that may not go backwards"], w=W),
+        Node("hash", 36, 290, "Per-file SHA-256 in the catalog", ["image parts, engine overlay"], w=W, tone="tone-blue"),
+        Node("dl", 476, 290, "The installer app", ["hashes every file it downloads,", "reuses a cached file only on a match"], w=W),
+        Node("rel", 36, 400, "Release key 5983B1CA…5959", ["runtime bundle and release", "descriptors"], w=W, tone="tone-blue"),
+        Node("upd", 476, 400, "omarchy-update-asahi-bundle", ["descriptor, six-package manifest,", "checksums and signatures"], w=W),
+        Node("pac", 36, 510, "Repository signing subkey", ["every package in [omarchy]"], w=W, tone="tone-blue"),
+        Node("pm", 476, 510, "pacman and omarchy-keyring", ["refuses an unsigned package"], w=W),
+    ]
+    d.edges = [
+        Edge("apple", "gk", "", "right", "left", cls="brand"),
+        Edge("ed", "root", "", "right", "left", cls="brand"),
+        Edge("hash", "dl", "", "right", "left"),
+        Edge("rel", "upd", "", "right", "left"),
+        Edge("pac", "pm", "", "right", "left"),
+    ]
+    d.legend = [("tone-brand", "owner or Apple key"), ("tone-blue", "project key or digest")]
+    return d
+
+
 def main() -> None:
-    for build in (repos, install_flow, boot_chain, release_pipeline):
+    for build in (repos, install_flow, boot_chain, release_pipeline, trust_chain):
         d = build()
         (OUT / f"{d.name}.svg").write_text(d.render())
         print(f"wrote {d.name}.svg")

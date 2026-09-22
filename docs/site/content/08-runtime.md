@@ -20,7 +20,7 @@ Three layers populate `$HOME`, as upstream: `omarchy-settings` seeds `/etc/skel`
 
 ## The Apple Silicon gate
 
-`omarchy-hw-apple-silicon` is a tiny script: it succeeds when the machine is aarch64 and `/proc/device-tree/compatible` starts with `apple,`. About fifteen files in `bin/` and `install/` call it. Whatever is behind it never runs on x86 or on a non-Apple ARM machine, which is what lets the fork merge upstream without conflicts and lets upstream take fork changes without a Mac.
+`omarchy-hw-apple-silicon` is a tiny script: on aarch64 it looks for `apple,` in `/proc/device-tree/compatible`. An image build has no device tree to read, so it sets `OMARCHY_MAC_TARGET=generic-apple-silicon` and the script reports the generic Apple Silicon configuration instead. About fifteen files in `bin/` and `install/` call it. Whatever is behind it never runs on x86 or on a non-Apple ARM machine, which is what lets the fork merge upstream without conflicts and lets upstream take fork changes without a Mac.
 
 ## Hardware fixes
 
@@ -44,10 +44,12 @@ Each fix that changes an installed system also ships as a migration, so existing
 
 | Path | Meaning |
 | --- | --- |
-| `/var/lib/omarchy/apple-silicon-channel` | The lane this Mac follows |
+| `/var/lib/omarchy/apple-silicon-channel` | The channel and kernel this Mac is on, plus any hold |
+| `/var/lib/omarchy/apple-silicon-aurora-lane` | Which Aurora lane an Aurora Mac follows, and any lane change in flight |
 | `/usr/share/omarchy/apple-silicon-kernel` | `linux-asahi` or `linux-aurora` |
 | `/var/lib/omarchy/asahi-quattro-release` | The runtime release this Mac is on |
-| `/var/lib/omarchy/mac-first-boot/` | First-boot state and the encryption phase |
+| `/var/lib/omarchy/mac-first-boot/` | First-boot markers, the configuration it consumed and any errors |
+| `/boot/omarchy/encrypt.state` | The encryption phase and its recovery journal |
 | `/var/lib/omarchy/snapshot-restore.enabled` | Lab gate for snapshot restores |
 | `/var/lib/omarchy/limine.enabled` | Gate for the Limine boot path (next release) |
 

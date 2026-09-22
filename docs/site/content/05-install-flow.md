@@ -23,9 +23,9 @@ On launch the app:
 
 ## The engine
 
-The engine is the upstream [Asahi Linux installer](https://github.com/AsahiLinux/asahi-installer), repacked as a Python overlay and pinned by digest in the catalog. Omarchy MX Mac does not reimplement Apple's boot process: APFS resizing, partition creation, m1n1, the boot policy and recoveryOS are all the Asahi project's work, run unmodified.
+The engine is the upstream [Asahi Linux installer](https://github.com/AsahiLinux/asahi-installer), pinned by digest in the catalog and built from that checkout with one Omarchy patch and a Python overlay on top. Omarchy MX Mac does not reimplement Apple's boot process: APFS resizing, partition creation, m1n1, the boot policy and recoveryOS remain the Asahi project's work.
 
-The partition shape is the engine's three-partition layout: a 500 MB EFI system partition, a 2 GiB boot partition and a root partition that expands into the space the user chose. The engine writes `boot.img` and `root.img` from the Mac image payload, installs m1n1 and the device trees, and asks the user to finish the boot policy step in recoveryOS.
+The layout is the engine's four partitions: an APFS stub holding a stub macOS that owns the boot object, a 500 MiB EFI system partition, a 2 GiB boot partition and a root partition that expands into the space the user chose. The engine prepares the target, writes `boot.img` and `root.img` with m1n1 and the device trees, and only then asks the user to finish the boot policy step in recoveryOS. The disk is already written when that prompt appears.
 
 The bundled engine in the app only inspects the Mac. The engine that performs the install always comes from the catalog, so an engine fix can ship without a new app.
 

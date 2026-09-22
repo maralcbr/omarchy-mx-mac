@@ -4,7 +4,7 @@ description: How aarch64 packages are built, accepted, promoted and turned into 
 section: How it is built
 ---
 
-Every package Omarchy MX Mac ships is built on GitHub's arm64 runners from the `asahi-quattro` branch of omarchy-pkgs, signed, published as an immutable GitHub release and only then pointed at by a channel. Nothing is built on the test Macs and nothing reaches a user without passing the acceptance gates.
+Omarchy's own packages are built on GitHub's arm64 runners from the `asahi-quattro` branch of omarchy-pkgs, signed, published as immutable GitHub releases and only then pointed at by a channel. The rest of an installed system comes from Arch Linux ARM and the Asahi repositories, as it does upstream. Nothing is built on the test Macs, and no package of ours reaches a user without passing the acceptance gates.
 
 {{diagram:release-pipeline}}
 
@@ -29,7 +29,7 @@ Unchanged packages are carried forward byte for byte from the predecessor releas
 | --- | --- | --- |
 | Candidate build | GitHub Actions, environment `asahi-quattro-release` | Every package builds and signs; the descriptor lists each archive with its digest |
 | VM acceptance | KVM on a test Mac, because GitHub's arm64 runners have no KVM | A fresh install from the candidate boots, updates and passes its checks |
-| Hardware gate | A test Mac, cold boot | Required only when a boot-critical payload changed: `omarchy-mac-boot`, the Limine hook, U-Boot, a kernel |
+| Hardware gate | A test Mac, cold boot | Required when a boot package moves, meaning a kernel, m1n1, U-Boot, `asahi-fwextract`, `asahi-scripts`, the boot package, the Limine hook or a DKMS module, or when the qualified kernel pin changes. VM acceptance boots a generic kernel and cannot clear it. |
 | Image acceptance | KVM on a test Mac | The Mac image installs, boots plain and encrypted, and survives a second boot |
 | Catalog signature | The owner's Mac | The channel catalog is signed with the Keychain key |
 

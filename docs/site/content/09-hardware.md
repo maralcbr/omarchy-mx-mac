@@ -18,8 +18,8 @@ tr '\0' '\n' < /proc/device-tree/compatible
 ```
 
 The catalog admits 33 identifiers today, covering the M1, M1 Pro, M1 Max, M1 Ultra, M2, M2
-Pro, M2 Max and M2 Ultra MacBook Air, MacBook Pro, Mac mini, Mac Studio, Mac Pro and iMac,
-and the M3 machines the current engine handles. An identifier that is not in the catalog is
+Pro, M2 Max and M2 Ultra MacBook Air, MacBook Pro, Mac mini, Mac Studio and iMac, and the M3
+machines the current engine handles. The Mac Pro is not among them. An identifier that is not in the catalog is
 refused before anything on the disk is touched, which is the intended behaviour rather than
 a gap to work around.
 

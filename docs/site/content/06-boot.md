@@ -15,7 +15,7 @@ An Apple Silicon Mac has no UEFI of its own. Everything up to U-Boot comes from 
 | iBoot | Apple | Apple firmware. Enforces the boot policy set in recoveryOS and starts the chosen boot object. |
 | m1n1 | Asahi | Stage 1 is the boot object iBoot starts. Stage 2 initialises the hardware Apple firmware leaves alone and passes a Linux device tree on. |
 | U-Boot | Asahi, packaged as `uboot-asahi` | The only UEFI implementation on Apple Silicon. Loads the EFI boot loader from the EFI system partition. |
-| Boot loader | Omarchy | GRUB today. Limine from the next release, with GRUB kept as a recovery entry. |
+| Boot loader | Omarchy | GRUB today. Limine from the next image, which replaces GRUB rather than keeping it. |
 | Kernel and initramfs | omarchy-pkgs and `omarchy-mac-boot` | `linux-asahi` or `linux-aurora`, with a systemd initramfs built by mkinitcpio carrying the vendor firmware and Apple HID hooks. |
 | Root | Omarchy | A btrfs root with the `@` subvolume, snapper snapshots and, optionally, LUKS. |
 
@@ -28,7 +28,7 @@ The shipped releases boot through GRUB with a themed menu and `grub-btrfs` entri
 - U-Boot loads Limine from `BOOTAA64.EFI` on the EFI system partition.
 - `limine-mkinitcpio-hook` builds a unified kernel image (UKI) on every kernel or initramfs change. Kernel copies must live on the EFI system partition, so the hook keeps them there.
 - `limine-snapper-sync` lists snapper snapshots in the boot menu, and `limine-snapper-restore` restores one.
-- GRUB stays as the `GRUB (recovery)` chain-load entry until it is retired.
+- GRUB does not survive the switch. Activating Limine removes the experiment's `GRUB (recovery)` entry, so the menu is Omarchy's and its snapshots and nothing else.
 - U-Boot is made silent: no banner, no logo, no boot delay. The menu the user sees is Limine's.
 
 The Limine packages are in the `[omarchy]` repository and `main` now writes the `/var/lib/omarchy/limine.enabled` gate into every image it builds, so the next image carries Limine. No published channel does yet: both current images were built before that landed, so what installs today still boots through GRUB.
@@ -60,4 +60,14 @@ Encryption is chosen in the installer and performed on the first boot. The conve
 
 ## Snapshots
 
-The root is btrfs. `omarchy update` creates a snapper snapshot before the package sync and keeps the five most recent. `omarchy-snapshot restore <number>` reboots into a writable clone of a snapshot, the next boot verifies it, and `omarchy-snapshot prune-previous` drops the kept previous root. Because the kernel on the boot partition stays, only snapshots that carry the modules for the current kernel are accepted.
+The root is btrfs. `omarchy update` creates a snapper snapshot before the package sync and keeps the five most recent. Creating and listing snapshots needs nothing special.
+
+Restoring one is a different matter and is deliberately hard to reach. On a GRUB Mac, `omarchy-mac-snapshot-restore` swaps the root subvolume from the running system, and that rename pair is not crash-safe: losing power between the two renames leaves no root until it is repaired from a rescue system. So it refuses to run unless the machine has opted in:
+
+```bash
+sudo touch /var/lib/omarchy/snapshot-restore.enabled
+```
+
+It also refuses on a Mac that boots Limine, because restoring a root from before the Limine migration would put GRUB's defaults back underneath a Limine boot. Those Macs use `omarchy-snapshot restore` instead, which goes through `limine-snapper-restore`.
+
+Because the kernel on the boot partition stays where it is, only snapshots carrying the modules for the running kernel are accepted.

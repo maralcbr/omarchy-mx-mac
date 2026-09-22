@@ -26,8 +26,8 @@
 <g class="node tone-purple">
 <rect x="630" y="40" width="250" height="74"/>
 <text class="n-title" x="642" y="61">GRUB now, Limine next</text>
-<text class="n-sub" x="642" y="80">grub.cfg or limine.conf</text>
-<text class="n-sub" x="642" y="97">on the EFI partition</text>
+<text class="n-sub" x="642" y="80">grub.cfg on /boot,</text>
+<text class="n-sub" x="642" y="97">limine.conf on the ESP</text>
 </g>
 <g class="node tone-blue">
 <rect x="630" y="190" width="250" height="74"/>
