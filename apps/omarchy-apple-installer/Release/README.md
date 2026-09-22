@@ -10,14 +10,14 @@ Production packaging reads this directory and copies its contents into
 - `trust-root.ed25519.pub` — exactly 32 raw Ed25519 public-key bytes matching
   the descriptor fingerprint.
 
-Both files are the same for every build and change only when the signing key is
-rotated. The private key lives in the operator's login keychain under the
+Both files are the same for every build. The trust root changes only when the
+signing key is rotated; the descriptor also changes when the default channel
+does (it is `stable`, matching upstream Omarchy). The private key lives in the operator's login keychain under the
 service `omarchy-channel-signing-key` and must never appear here or anywhere
 else on disk; see
 [`docs/apple-silicon-distribution-channels.md`](../../../docs/apple-silicon-distribution-channels.md).
 
-The descriptor names all three channels even while only the stable channel is in
-use, because the app is signed once: a channel absent from the descriptor
+The descriptor names both channels because the app is signed once: a channel absent from the descriptor
 cannot be opened later without shipping another signed app.
 
 The app rejects missing, symlinked, group- or world-writable, oversized,

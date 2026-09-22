@@ -1,8 +1,8 @@
 #!/bin/bash
 # Write the app's release descriptor from a trust-root public key.
 #
-# The descriptor names all three channels and never changes between releases, so
-# this runs once per signing key rather than once per release.
+# The descriptor names both channels and rarely changes between releases: only
+# a new signing key or a new default channel needs a new one.
 set -euo pipefail
 
 usage() {
