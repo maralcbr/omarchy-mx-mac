@@ -32,7 +32,6 @@ printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-probe"
 printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-mkconfig"
 chmod +x "$stub_bin/omarchy-hw-apple-silicon" "$stub_bin/grub-probe" "$stub_bin/grub-mkconfig"
 ln -s "$ROOT/bin/omarchy-mac-limine-active" "$stub_bin/omarchy-mac-limine-active"
-ln -s "$ROOT/bin/omarchy-cmd-present" "$stub_bin/omarchy-cmd-present"
 ln -s "$ROOT/bin/omarchy-mac-limine-cmdline" "$stub_bin/omarchy-mac-limine-cmdline"
 
 printf 'GRUB_CMDLINE_LINUX="rd.luks.name=abc=root"\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash"\n' >"$grub_default"

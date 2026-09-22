@@ -48,7 +48,7 @@ if ! grep -q '^/+Omarchy' "$TEST_ESP/limine.conf"; then
 fi
 SH
 chmod +x "$stub_bin"/*
-for name in omarchy-mac-limine-cmdline omarchy-mac-limine-deploy omarchy-mac-limine-active omarchy-cmd-present; do
+for name in omarchy-mac-limine-cmdline omarchy-mac-limine-deploy omarchy-mac-limine-active; do
   ln -s "$ROOT/bin/$name" "$stub_bin/$name"
 done
 
