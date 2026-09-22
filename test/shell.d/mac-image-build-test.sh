@@ -118,9 +118,12 @@ OMARCHY_MAC_IMAGE_BUILD=1 \
   OMARCHY_PATH="$ROOT" \
   OMARCHY_INSTALL="$ROOT/install" \
   OMARCHY_MAC_DEFERRED_STEPS="$sandbox/deferred-steps" \
+  OMARCHY_LIMINE_GATE="$sandbox/var/lib/omarchy/limine.enabled" \
   PATH="$test_tmp/all-bin:$PATH" \
   source "$hardware_all"
-unset OMARCHY_MAC_TARGET OMARCHY_MAC_IMAGE_BUILD OMARCHY_MAC_DEFERRED_STEPS
+unset OMARCHY_MAC_TARGET OMARCHY_MAC_IMAGE_BUILD OMARCHY_MAC_DEFERRED_STEPS OMARCHY_LIMINE_GATE
+[[ -f $sandbox/var/lib/omarchy/limine.enabled ]] || fail "image-build hardware setup ships the Limine gate"
+grep -Fxq 'install/hardware/apple/limine-boot.sh' "$sandbox/deferred-steps" || fail "the Limine leaf is deferred to first boot"
 [[ $(cat "$test_tmp/run-logged") == *$ROOT/install/hardware/apple/fix-asahi-hid-race.sh*$'\n'*$ROOT/install/hardware/apple/fix-asahi-btrfs-race.sh ]] ||
   fail "image-build hardware setup applies the HID and btrfs drop-ins" "$(cat "$test_tmp/run-logged")"
 [[ -f $sandbox/etc/mkinitcpio.conf.d/apple_hid_modules.conf ]] ||
@@ -424,6 +427,14 @@ echo "update-grub $*" >>"$FRESH_TEST_LOG"
 printf '# generated\nlinux /vmlinuz-%s root=UUID=test\ninitrd /initramfs-%s.img\n' "$FRESH_TEST_KERNEL" "$FRESH_TEST_KERNEL" >"$FRESH_TEST_ROOT/boot/grub/grub.cfg"
 EOF
 
+# The fresh installer regenerates boot files through omarchy-mac-boot-update,
+# which on a GRUB Mac (no Limine defaults yet) is update-grub.
+ln -sf "$ROOT/bin/omarchy-mac-boot-update" "$stub_bin/omarchy-mac-boot-update"
+stub omarchy-mac-limine-active <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+
 stub lsinitcpio <<'EOF'
 #!/bin/bash
 [[ $1 == -l ]] && cat "$2"
@@ -722,6 +733,7 @@ cp "$sandbox/etc/pacman.conf" "$test_tmp/image-pacman.conf.orig"
 status=0
 run_installer image OMARCHY_MAC_IMAGE_BUILD=1 --deferred-user || status=$?
 [[ $status == 0 ]] || fail "an image-build deferred install completes without device-tree, swap or zswap" "$(cat "$test_tmp/image.out" "$test_tmp/image.err")"
+[[ -f $sandbox/var/lib/omarchy/limine.enabled ]] || fail "an image build ships the Limine gate for first boot"
 grep -Fq 'omarchy-apply-system --defer-provisioning --first-install' "$calls" ||
   fail "an image build still runs deferred-user system setup" "$(cat "$calls")"
 ! grep -Eq '^(useradd|passwd|runuser)' "$calls" || fail "an image build creates no account" "$(cat "$calls")"

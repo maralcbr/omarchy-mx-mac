@@ -7,7 +7,7 @@ unused file under `/boot/grub`.
 
 ## How it boots
 
-m1n1 → U-Boot (`uboot-omarchy`: the Asahi U-Boot with a silent console, no
+m1n1 → U-Boot (`uboot-asahi` from the [omarchy] repository: the Asahi U-Boot with a silent console, no
 banner, no logo, no boot delay) → `ESP:/EFI/BOOT/BOOTAA64.EFI`, which is
 Limine (Arch Linux ARM `limine`). Limine shows the Omarchy Bootloader menu
 for 3 s (`Omarchy › linux-aurora`, `Snapshots`) and chainloads the UKI that
@@ -47,7 +47,7 @@ snapshot from `Snapshots`.
 - `bin/omarchy-apple-silicon-boot-check`: on a Limine Mac verifies the UKI,
   the entry's root and LUKS mapping, and that the ESP carries the installed
   Limine; the grub.cfg checks apply to GRUB Macs only.
-- omarchy-pkgs `uboot-omarchy`: provides and conflicts with `uboot-asahi`.
+- omarchy-pkgs `uboot-asahi`: Asahi's package name with a higher pkgrel, so pacman installs it from [omarchy].
   An `uboot.env` on the ESP overrides the default environment, so it must
   carry `silent=1` or not exist.
 

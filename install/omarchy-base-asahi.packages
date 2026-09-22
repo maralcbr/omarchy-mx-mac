@@ -160,3 +160,12 @@ yay
 yt-dlp
 zbar
 zoxide
+
+# The Limine boot on Apple Silicon (install/hardware/apple/limine-boot.sh):
+# Limine in the U-Boot slot, the UKI and entries from limine-mkinitcpio-hook,
+# snapshot entries from limine-snapper-sync, and the silent Omarchy build of
+# U-Boot from the [omarchy] repository.
+limine
+limine-mkinitcpio-hook
+limine-snapper-sync
+uboot-asahi

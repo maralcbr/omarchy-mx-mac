@@ -5,6 +5,7 @@ if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} == 1 ]]; then
   run_logged "$OMARCHY_INSTALL/hardware/apple/fix-asahi-hid-race.sh"
   run_logged "$OMARCHY_INSTALL/hardware/apple/fix-asahi-btrfs-race.sh"
   omarchy_mac_record_deferred_hardware_steps
+  omarchy_mac_enable_limine
   return 0
 fi
 

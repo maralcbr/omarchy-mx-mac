@@ -41,11 +41,11 @@ if OMARCHY_PATH="$ROOT" "$verifier" "$test_tmp/changed-source-lock.json" >/dev/n
 fi
 pass "Apple platform contract binds the engine source lock"
 
-jq '.target.boot_backend = "limine"' "$contract" >"$test_tmp/limine.json"
-if OMARCHY_PATH="$ROOT" "$verifier" "$test_tmp/limine.json" >/dev/null 2>&1; then
-  fail "Apple platform contract rejects Limine"
+jq '.target.boot_backend = "asahi-grub"' "$contract" >"$test_tmp/grub.json"
+if OMARCHY_PATH="$ROOT" "$verifier" "$test_tmp/grub.json" >/dev/null 2>&1; then
+  fail "Apple platform contract rejects a GRUB boot backend"
 fi
-pass "Apple platform contract fixes the Asahi GRUB boot boundary"
+pass "Apple platform contract fixes the Limine boot boundary"
 
 jq '.components |= map(select(.id != "machine-firmware"))' "$contract" >"$test_tmp/missing.json"
 if OMARCHY_PATH="$ROOT" "$verifier" "$test_tmp/missing.json" >/dev/null 2>&1; then

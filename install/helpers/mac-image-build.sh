@@ -67,6 +67,13 @@ omarchy_mac_record_deferred_step() {
   mv "$tmp" "$file"
 }
 
+# The image ships the Limine gate: install/hardware/apple/limine-boot.sh,
+# deferred to first boot, activates Limine on every Mac installed from it.
+omarchy_mac_enable_limine() {
+  local gate=${OMARCHY_LIMINE_GATE:-/var/lib/omarchy/limine.enabled}
+  install -d -m 0755 "$(dirname "$gate")" && : >"$gate" && chmod 0644 "$gate"
+}
+
 omarchy_mac_record_deferred_hardware_steps() {
   local relative count=0 paths
 

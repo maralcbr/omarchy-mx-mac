@@ -48,7 +48,7 @@ jq -e --argjson required_ids "$required_ids" '
   .target == {
     architecture: "aarch64",
     platform: "apple-silicon",
-    boot_backend: "asahi-grub",
+    boot_backend: "limine",
     artifact_kind: "iso"
   } and
   .safety_invariants == [
@@ -56,7 +56,7 @@ jq -e --argjson required_ids "$required_ids" '
     "never-write-internal-esp-from-removable-media",
     "only-write-the-signed-handoff-extent",
     "preserve-the-asahi-paired-system-esp",
-    "never-install-limine-on-apple-silicon"
+    "limine-takes-the-u-boot-slot-only-after-its-menu-boots-the-kernel"
   ] and
   .engine_artifact == {
     source_lock: "apps/omarchy-apple-installer/Engine/source-lock.json",
