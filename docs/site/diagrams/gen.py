@@ -111,6 +111,15 @@ class Diagram:
             )
             if lane and n.y + n.h > lane.y + lane.h:
                 raise SystemExit(f"{self.name}: node {n.id} overflows the bottom of its lane")
+        for i, a in enumerate(self.nodes):
+            for b in self.nodes[i + 1 :]:
+                if (
+                    a.x < b.x + b.w
+                    and b.x < a.x + a.w
+                    and a.y < b.y + b.h
+                    and b.y < a.y + a.h
+                ):
+                    raise SystemExit(f"{self.name}: nodes {a.id} and {b.id} overlap")
 
     def render(self) -> str:
         self.check()
@@ -298,6 +307,39 @@ def release_pipeline() -> Diagram:
     return d
 
 
+def test_ladder() -> Diagram:
+    d = Diagram("test-ladder", 900, 620, "The testing ladder, and what each rung cannot prove")
+    d.lanes = [
+        Lane(16, 16, 520, 570, "What runs", "cheap and broad at the bottom, costly and narrow at the top"),
+        Lane(556, 16, 328, 570, "What it cannot prove", ""),
+    ]
+    W = 480
+    G = 300
+    d.nodes = [
+        Node("hw", 36, 62, "Hardware qualification", ["a person at a real Mac, cold booted:", "graphics, audio, suspend, displays"], w=W, tone="tone-brand"),
+        Node("hwx", 576, 62, "Every Mac", ["two machines in the lab"], w=G, tone="tone-ext"),
+        Node("gui", 36, 152, "Graphical acceptance", ["9 files in a live session,", "in a disposable virtual machine"], w=W, tone="tone-orange"),
+        Node("guix", 576, 152, "Apple hardware", ["and it is never run by CI"], w=G, tone="tone-ext"),
+        Node("img", 36, 242, "Image acceptance", ["boots the image plain, encrypted,", "then again. 7 checks"], w=W, tone="tone-orange"),
+        Node("imgx", 576, 242, "The real boot chain", ["Aurora cannot boot on QEMU,", "so a generic kernel stands in"], w=G, tone="tone-ext"),
+        Node("vm", 36, 332, "Fresh-install acceptance", ["a clean install in a VM: interrupt,", "resume, reboot, verify. 45 assertions"], w=W, tone="tone-orange"),
+        Node("vmx", 576, 332, "Anything about Apple", ["no GPU, Wi-Fi, audio or suspend"], w=G, tone="tone-ext"),
+        Node("pkg", 36, 422, "Package manifests", ["both architectures resolve,", "in matching containers"], w=W, tone="tone-blue"),
+        Node("pkgx", 576, 422, "That installing works", ["resolvability only"], w=G, tone="tone-ext"),
+        Node("src", 36, 512, "Source tests", ["316 shell files + 65 router", "assertions, 4 CI shards"], w=W, tone="tone-blue"),
+        Node("srcx", 576, 512, "An installed system", ["fixtures, not a real machine"], w=G, tone="tone-ext"),
+    ]
+    d.edges = [
+        Edge("src", "pkg", "", "top", "bottom"),
+        Edge("pkg", "vm", "", "top", "bottom"),
+        Edge("vm", "img", "", "top", "bottom"),
+        Edge("img", "gui", "", "top", "bottom"),
+        Edge("gui", "hw", "", "top", "bottom"),
+    ]
+    d.legend = [("tone-blue", "automated, every change"), ("tone-orange", "automated, every release"), ("tone-brand", "a person"), ("tone-ext", "the gap it leaves")]
+    return d
+
+
 def trust_chain() -> Diagram:
     d = Diagram("trust-chain", 900, 630, "What signs each artefact, and what checks the signature")
     d.lanes = [
@@ -329,7 +371,7 @@ def trust_chain() -> Diagram:
 
 
 def main() -> None:
-    for build in (repos, install_flow, boot_chain, release_pipeline, trust_chain):
+    for build in (repos, install_flow, boot_chain, release_pipeline, trust_chain, test_ladder):
         d = build()
         (OUT / f"{d.name}.svg").write_text(d.render())
         print(f"wrote {d.name}.svg")
