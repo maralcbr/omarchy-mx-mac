@@ -22,7 +22,7 @@ This is the expensive failure, and it is the least automated of the three.
 
 **The app is tested in simulation too.** The Swift package has three test targets over 38 files, covering the trust core that verifies catalogs and signatures, the installation lifecycle, and the interface.
 
-**Neither runs in continuous integration.** No workflow invokes `swift test` or the engine's test modules. They are run by hand.
+**Neither runs in continuous integration, but the engine's do gate its build.** Building the pinned engine runs the overlay's test modules first and stops if they fail, so an engine cannot be packaged with them broken. The Swift tests have no such gate and are run by hand. A handful of the shell tests do cover the app from outside, checking its branding, its channel publication and its daemon configuration.
 
 **No virtual machine test exercises the resize.** This is the important one. The image harness builds its own empty disk with `sgdisk`, three partitions on a blank file. There is no APFS container in it and no macOS, so it never performs the operation that could damage a real Mac. The fresh-install harness likewise installs into a blank generic virtual machine.
 
@@ -125,7 +125,7 @@ Hardware evidence is plain text: date, model, pass or fail or not-tested, the co
 
 - **Nothing automated resizes a real APFS container.** Both virtual-machine harnesses start from a blank disk, so the operation that could cost someone their macOS install is covered by simulation and by hand.
 - **No virtual machine boots the kernel you will boot.** The Aurora kernel cannot run under QEMU's virtual machine, so every automated boot test substitutes a generic one.
-- **The installer's own tests are not in CI.** The Swift and engine suites are run by hand.
+- **The installer's own tests are not in CI.** The engine's run when the engine is built, which is a real gate; the Swift tests are run by hand.
 - **Passphrase unlocking is not tested.** The encrypted boot test unlocks with a throwaway key file, not an owner passphrase.
 - **No automated test touches Apple hardware.** Graphics, Wi-Fi, audio, suspend and power are a person with a checklist, on two machines.
 - **Two Macs are not every Mac.** Other models rely on Asahi's support for that chip and on the installer refusing identifiers it does not know.
