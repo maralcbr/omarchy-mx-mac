@@ -33,7 +33,7 @@ There is a third Aurora lane, `edge`, which floats on the upstream branch head. 
 
 ## Picking a channel
 
-The installer offers `rc` by default. `stable` is in its **Release Channel** menu, or can be chosen beforehand:
+Choose explicitly in the installer's **Release Channel** menu before installing, rather than relying on what it shows first. Choosing saves the preference, which is what the download follows. The same preference can be set beforehand:
 
 ```bash
 defaults write com.omarchy.mx.installer ReleaseChannel stable
