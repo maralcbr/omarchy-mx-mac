@@ -115,6 +115,12 @@ cat >"$stub_bin/passwd" <<SH
 exit 0
 SH
 
+# A GRUB Mac until the Limine case below says otherwise. Without this the
+# first lookup finds the real command wherever PATH has one, bash remembers
+# that path, and the Limine case's stub is never run. Overwriting this same
+# file keeps the remembered path correct.
+printf '#!/bin/bash\nexit 1\n' >"$stub_bin/omarchy-mac-limine-active"
+
 chmod +x "$stub_bin"/*
 
 export PATH="$stub_bin:$PATH"
