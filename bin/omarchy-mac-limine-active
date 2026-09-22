@@ -12,6 +12,6 @@
 gate=${OMARCHY_LIMINE_GATE:-/var/lib/omarchy/limine.enabled}
 limine_default=${OMARCHY_LIMINE_DEFAULT:-/etc/default/limine}
 
-command -v omarchy-hw-apple-silicon >/dev/null 2>&1 && omarchy-hw-apple-silicon || exit 1
+omarchy-hw-apple-silicon || exit 1
 [[ -e $gate && -f $limine_default ]] || exit 1
-command -v limine-update >/dev/null 2>&1
+omarchy-cmd-present limine-update
