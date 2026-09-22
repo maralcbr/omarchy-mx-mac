@@ -65,6 +65,20 @@ PATH="$stub_bin:$PATH" run || fail "run with a device root row succeeds"
 grep -q 'root=UUID=mounted-root-uuid ' "$limine" || fail "without a UUID in fstab the mounted root's UUID is used" "$(cat "$limine")"
 pass "the mounted root is the fallback for the UUID"
 
+# A snapshot boot: no fstab row, an overlay root, the UUID from the cmdline.
+printf '# omarchy-mac-snapshot-overlay: UUID=x / btrfs subvol=@ 0 0\n' >"$fstab"
+printf '#!/bin/bash\nexit 1\n' >"$stub_bin/findmnt"
+printf 'root=UUID=booted-root rw rootflags=subvol=/@/.snapshots/8/snapshot quiet\n' >"$test_tmp/cmdline"
+OMARCHY_CMDLINE="$test_tmp/cmdline" PATH="$stub_bin:$PATH" run || fail "run in a snapshot boot succeeds"
+grep -q 'root=UUID=booted-root ' "$limine" || fail "a snapshot boot takes the UUID from the kernel command line" "$(cat "$limine")"
+pass "the booted root is the last fallback for the UUID"
+
+# No UUID anywhere: the file keeps its line and the run fails.
+cp "$limine" "$test_tmp/before"
+OMARCHY_CMDLINE=/dev/null PATH="$stub_bin:$PATH" run 2>/dev/null && fail "an unknown root UUID fails the derivation"
+cmp -s "$limine" "$test_tmp/before" || fail "an unknown root UUID changes nothing"
+pass "no UUID, no change, a failure"
+
 # Nothing to derive from: the file is left alone.
 cp "$limine" "$test_tmp/before"
 OMARCHY_GRUB_DEFAULT="$test_tmp/missing" OMARCHY_LIMINE_DEFAULT="$limine" OMARCHY_FSTAB="$fstab" bash "$cmdline" ||
