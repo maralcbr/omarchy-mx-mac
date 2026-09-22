@@ -556,8 +556,8 @@ run_installer named-interrupted FRESH_TEST_FAIL=omarchy-apply-system --user alic
 echo "# regenerated" >"$sandbox/boot/grub/grub.cfg"
 status=0
 run_installer named-grub-changed --user alice || status=$?
-expect_failure "$status" named-grub-changed "The GRUB configuration changed after the interrupted installation" \
-  "a named retry still refuses a changed GRUB"
+expect_failure "$status" named-grub-changed "The GRUB configuration does not boot linux-aurora" \
+  "a named retry still refuses a GRUB that no longer boots the kernel"
 status=0
 run_installer deferred-over-named --deferred-user || status=$?
 expect_failure "$status" deferred-over-named "belongs to a different release or user" "a deferred install cannot resume a named checkpoint"
