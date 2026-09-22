@@ -213,19 +213,28 @@ pass "current channel on Apple Silicon comes from the channel record, not the in
   fail "a dev checkout on Apple Silicon is still dev"
 pass "a dev checkout on Apple Silicon is still reported as dev"
 
-# On a Mac, stable, rc and edge are Aurora lanes: the switch is recorded under the
+# On a Mac, stable and rc are Aurora lanes: the switch is recorded under the
 # update lock, which is released before the update that applies it takes it again.
-for lane in edge rc stable; do
+for lane in rc stable; do
   OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=rc run_channel "$lane"
   [[ $(cat "$log_file") == "switch"$'\t'"$lane"$'\tupdate-lock=yes\nupdate\t-y\tOMARCHY_PATH=/usr/share/omarchy' ]] ||
     fail "$lane on Apple Silicon records the switch under the update lock, then updates" "$(cat "$log_file")"
 done
-pass "stable, rc and edge on Apple Silicon record the switch under the update lock and then run the update"
+pass "stable and rc on Apple Silicon record the switch under the update lock and then run the update"
 
-if OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_SWITCH_STATUS=2 run_channel edge 2>/dev/null; then
+# Edge is the Aurora testing lane, not a user channel: lab Macs move there with
+# omarchy-apple-silicon-channel switch, never from the menu.
+if OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=rc run_channel edge 2>"$test_tmp/refused.err"; then
+  fail "edge is refused on Apple Silicon"
+fi
+[[ ! -s $log_file ]] || fail "edge on Apple Silicon changes nothing" "$(cat "$log_file")"
+grep -Fq "The edge channel is not available on Apple Silicon" "$test_tmp/refused.err" || fail "edge on Apple Silicon is refused with the channel message" "$(cat "$test_tmp/refused.err")"
+pass "edge is not a Mac user channel"
+
+if OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_SWITCH_STATUS=2 run_channel rc 2>/dev/null; then
   fail "a refused switch fails omarchy-channel-set"
 fi
-[[ $(cat "$log_file") == "switch"$'\t'"edge"$'\tupdate-lock=yes' ]] || fail "a refused switch runs no update" "$(cat "$log_file")"
+[[ $(cat "$log_file") == "switch"$'\t'"rc"$'\tupdate-lock=yes' ]] || fail "a refused switch runs no update" "$(cat "$log_file")"
 if OMARCHY_TEST_APPLE_SILICON=1 OMARCHY_TEST_APPLE_CHANNEL=edge run_channel dev 2>"$test_tmp/refused.err"; then
   fail "dev is refused on Apple Silicon"
 fi

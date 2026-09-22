@@ -74,6 +74,11 @@ grep -Fx "Error: The dev channel is not available on Apple Silicon; this Mac fol
   fail "channel setup explains that dev is not available and names the channel this Mac follows" "$(cat "$test_tmp/error")"
 pass "channel setup rejects dev on Apple Silicon before checkout or package mutation"
 
+run_guarded "$ROOT/bin/omarchy-channel-set" edge
+grep -Fx "Error: The edge channel is not available on Apple Silicon; this Mac follows rc." "$test_tmp/error" >/dev/null ||
+  fail "channel setup refuses edge on a Mac (the testing kernel lane is not a user channel)" "$(cat "$test_tmp/error")"
+pass "channel setup rejects edge on Apple Silicon"
+
 run_guarded "$ROOT/bin/omarchy-setup-direct-boot"
 grep -F "Direct boot is not supported on Apple Silicon" "$test_tmp/error" >/dev/null ||
   fail "direct boot explains the Apple Silicon restriction"

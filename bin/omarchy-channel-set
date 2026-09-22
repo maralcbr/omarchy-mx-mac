@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Set the Omarchy package channel.
-# omarchy:args=<stable|rc|edge|dev>
+# omarchy:args=<stable|rc|edge|dev> (a Mac: stable|rc)
 # omarchy:requires-sudo=true
 
 set -euo pipefail
@@ -41,13 +41,14 @@ link_dev_checkout() {
 
 (( $# > 0 )) || { usage; exit 1; }
 
-# A Mac's channel is its kernel lane: stable, rc and edge are all linux-aurora,
-# pinned separately; the desktop package channel is unchanged. The switch is
-# recorded under the update lock, then the update moves the kernel and proves
-# it boots.
+# A Mac's channel is its kernel lane: stable and rc are both linux-aurora,
+# pinned separately; the desktop package channel is unchanged. Edge is the
+# Aurora testing lane, moved by omarchy-apple-silicon-channel switch on lab
+# Macs only, and dev is an upstream source checkout. The switch is recorded
+# under the update lock, then the update moves the kernel and proves it boots.
 if omarchy-hw-apple-silicon; then
   case "$1" in
-    stable | rc | edge) ;;
+    stable | rc) ;;
     *) fail "The $1 channel is not available on Apple Silicon; this Mac follows $(omarchy-apple-silicon-channel current)." ;;
   esac
   if omarchy-update-lock held; then
