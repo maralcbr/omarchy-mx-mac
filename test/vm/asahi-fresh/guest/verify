@@ -75,6 +75,12 @@ NetworkManager --print-config | grep -Fxq 'wifi.backend=iwd' || fail "iwd backen
 grep -Eqi '^[[:space:]]*LANG[[:space:]]*=[[:space:]]*"?[^"[:space:]#]*\.utf-?8(@[^"[:space:]#]+)?"?([[:space:]]*(#.*)?)?$' /etc/locale.conf || fail "system locale is not UTF-8"
 pacman-conf --repo-list | grep -Fxq asahi-alarm || fail "Asahi repository"
 [[ -f /boot/Image && -f /boot/vmlinuz-linux-asahi && -f /boot/grub/grub.cfg ]] || fail "boot payloads"
+# The VM boots its own kernel through this harness's configuration; the one
+# Omarchy generated during the install is kept beside it and must boot the
+# Asahi kernel and its initramfs.
+grep -Fq vmlinuz-linux-asahi /var/lib/omarchy/vm-omarchy-grub.cfg &&
+  grep -Fq initramfs-linux-asahi.img /var/lib/omarchy/vm-omarchy-grub.cfg ||
+  fail "the GRUB configuration Omarchy generated boots the Asahi kernel"
 (( $(swapon --show --noheadings | wc -l) == 0 )) || fail "swap disabled"
 [[ $(cat /sys/module/zswap/parameters/enabled 2>/dev/null || echo N) == "N" ]] || fail "zswap disabled"
 [[ -s /var/lib/omarchy/vm-adapter.log ]] || fail "VM adapter audit"
