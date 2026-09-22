@@ -1,0 +1,73 @@
+# The Omarchy MX Mac manual
+
+The public manual at <https://maralcbr.github.io/omarchy-mx-mac/>. It is a
+static site with no JavaScript framework and no Node toolchain: eleven Markdown
+pages, four generated SVG diagrams and one stylesheet.
+
+## Build it
+
+```bash
+pip install "markdown==3.7"
+python3 docs/site/diagrams/gen.py
+python3 docs/site/build.py
+python3 -m http.server 8877 --directory docs/site/dist
+```
+
+`dist/` is not committed. GitHub Actions builds and deploys it on every push to
+`main` that touches `docs/site/`, through `.github/workflows/pages.yml`.
+
+## Where things live
+
+| Path | What it is |
+| --- | --- |
+| `content/NN-slug.md` | One page. The number orders it in the chapter rail; the slug is the URL. |
+| `diagrams/gen.py` | Builds every SVG. Edit this, never the SVGs. |
+| `diagrams/*.svg` | Generated and committed. CI regenerates them and fails if they differ. |
+| `templates/page.html` | The page shell. |
+| `assets/site.css` | The whole stylesheet. |
+| `build.py` | Renders the Markdown and writes `dist/`. |
+
+## Writing a page
+
+Front matter sets the title, the page description search engines show, and
+the section heading in the rail:
+
+```markdown
+---
+title: Channels and updates
+description: What stable, rc and edge mean.
+section: Using it
+---
+```
+
+A page with no `section` continues under the heading above it, so only the
+first page of each group needs one.
+
+Place a diagram with `{{diagram:name}}` on its own line, where `name` matches a
+file in `diagrams/`. The builder fails on a name it cannot find, so a renamed
+diagram cannot leave a hole in a page.
+
+## Design
+
+The manual deliberately follows <https://omarchy.org/manual/>: Geist for
+headings, JetBrains Mono for body text, a 48rem measure, a 16rem chapter rail,
+square corners and the Tokyo Night palette from `omacom/omarchy`. Keep it that
+way, so a reader moving between the two manuals does not feel a seam. It is
+dark only, by choice.
+
+Diagrams carry no colours of their own. They use the `.diagram` classes in the
+stylesheet, so they follow the palette. `gen.py` refuses to emit a diagram whose
+text would overflow its box or whose nodes fall off the canvas.
+
+## Keeping it true
+
+The front page states the live release and installer versions. Those come from
+the published channels, not from the repository:
+
+```bash
+curl -s https://downloads.aicodelabs.com.au/channels/stable/channel.json
+curl -s https://downloads.aicodelabs.com.au/installer/stable/installer.json
+```
+
+Check them when a release ships. The repository's `version` file is what is
+being built, which is usually ahead of what a user can install.
