@@ -46,6 +46,14 @@ kernel through the EFI configuration table. GRUB stays on the ESP as
   An `uboot.env` on the ESP overrides the default environment, so it must
   carry `silent=1` or not exist.
 
+## Verified on the M1 Pro (2026-09-22)
+
+Activation leaf (idempotent, 10 s), boot check, snapshot entry written by
+the watcher, a snapshot booted from the Limine menu under the tmpfs
+overlay, `limine-snapper-restore` from inside it (root swapped, previous
+root kept as snapshot 9 with its own entry), reboot into the restored root
+with no failed units; `omarchy-mac-boot-sync` ran and found /boot current.
+
 ## Findings
 
 - `default_entry` counts every entry in the menu tree, directories
