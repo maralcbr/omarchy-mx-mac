@@ -235,7 +235,14 @@ verify_initramfs() {
 # A menu entry that actually boots the kernel: a linux directive naming the
 # kernel image and an initrd directive naming its initramfs, not a mention of
 # either name in a comment.
+# A Mac that boots Limine has no GRUB configuration to verify: its menu, UKI
+# and command line are checked by omarchy-apple-silicon-boot-check instead.
+limine_mac() {
+  command -v omarchy-mac-limine-active >/dev/null 2>&1 && omarchy-mac-limine-active
+}
+
 verify_grub_config() {
+  limine_mac && return 0
   grep -Eq "^[[:space:]]*linux(16|efi)?[[:space:]]+[^[:space:]]*vmlinuz-$kernel_package([[:space:]]|\$)" /boot/grub/grub.cfg &&
     grep -Eq "^[[:space:]]*initrd(16|efi)?[[:space:]]+[^[:space:]]*initramfs-$kernel_package\.img([[:space:]]|\$)" /boot/grub/grub.cfg ||
     fail "The GRUB configuration does not boot $kernel_package"
@@ -338,11 +345,17 @@ fi
 m1n1_package=m1n1
 [[ $kernel_package != linux-aurora ]] || m1n1_package=m1n1-aurora
 
-for package in "$kernel_package" "$kernel_package-headers" "$m1n1_package" grub; do
+# The boot loader of the image: GRUB, or Limine on an image that ships it.
+boot_loader_packages=(grub)
+if pacman -Q limine >/dev/null 2>&1 && [[ -f /boot/efi/limine.conf ]]; then
+  boot_loader_packages=(limine limine-mkinitcpio-hook)
+fi
+for package in "$kernel_package" "$kernel_package-headers" "$m1n1_package" "${boot_loader_packages[@]}"; do
   pacman -Q "$package" >/dev/null 2>&1 || fail "Required Asahi package is not installed: $package"
 done
 [[ -f /boot/vmlinuz-$kernel_package ]] || fail "/boot/vmlinuz-$kernel_package is unavailable"
-[[ -f /boot/grub/grub.cfg ]] || fail "The existing Asahi GRUB configuration is unavailable"
+[[ -f /boot/grub/grub.cfg || -f /boot/efi/limine.conf ]] ||
+  fail "The image has neither a GRUB configuration nor a Limine menu to boot from"
 for repository in asahi-alarm core extra alarm aur; do
   pacman-conf --repo-list | grep -Fxq "$repository" || fail "Required repository is unavailable: $repository"
 done
@@ -450,7 +463,7 @@ fi
 backup_dir="/var/lib/omarchy/backups/fresh-$(date +%Y%m%d%H%M%S)"
 install -d -m 0700 "$backup_dir"
 cp -a /etc/pacman.conf /etc/pacman.d /etc/NetworkManager "$backup_dir/" 2>/dev/null || true
-cp -a /boot/grub/grub.cfg "$backup_dir/grub.cfg"
+[[ ! -f /boot/grub/grub.cfg ]] || cp -a /boot/grub/grub.cfg "$backup_dir/grub.cfg"
 pacman -Q >"$backup_dir/installed-packages.txt"
 # The kernel image is protected by digest. GRUB's configuration is Omarchy's
 # own output once the console leaf has regenerated it during system setup:
@@ -462,11 +475,16 @@ if [[ -d $state_dir ]]; then
   # A deferred install regenerates its boot files and checks those instead.
   if (( ! deferred_user )); then
     sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed after the interrupted installation"
-    sha256sum --check --status <<<"$grub_sha256" || verify_grub_config
+    if [[ -n $grub_sha256 ]]; then
+      sha256sum --check --status <<<"$grub_sha256" || verify_grub_config
+    else
+      verify_grub_config
+    fi
   fi
 else
   asahi_kernel_sha256=$(sha256sum "/boot/vmlinuz-$kernel_package")
-  grub_sha256=$(sha256sum /boot/grub/grub.cfg)
+  grub_sha256=""
+  [[ ! -f /boot/grub/grub.cfg ]] || grub_sha256=$(sha256sum /boot/grub/grub.cfg)
   owner_token=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
   install -d -m 0755 /var/lib/omarchy
   checkpoint_tmp=$(mktemp -d /var/lib/omarchy/.fresh-install.XXXXXX)
@@ -639,6 +657,9 @@ if (( deferred_user )); then
 else
   sha256sum --check --status <<<"$asahi_kernel_sha256" || fail "The Asahi kernel changed unexpectedly"
   verify_grub_config
+  # A Limine Mac has no grub.cfg to compare; its menu, UKI, command line and
+  # the ESP's Limine are what make it bootable.
+  ! limine_mac || verify_boot_chain
 fi
 
 # The stock Alarm account is also a wheel administrator. Retire it only after

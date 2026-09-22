@@ -5,6 +5,9 @@ echo "Install grub-btrfs for bootable snapshots on Apple Silicon"
 # for whatever snapper already holds.
 
 omarchy-hw-apple-silicon || exit 0
+# A Limine Mac lists its snapshots in the Limine menu, written by
+# limine-snapper-sync; grub-btrfs has nothing to do there.
+! omarchy-mac-limine-active 2>/dev/null || exit 0
 
 omarchy-pkg-add grub-btrfs || {
   echo "grub-btrfs did not install; the snapshot menu migration will retry later." >&2

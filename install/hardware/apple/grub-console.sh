@@ -147,7 +147,9 @@ if [[ -f $linux_script ]] && ! grep -Fq 'Omarchy: no narration' "$linux_script";
   fi
 fi
 
-if (( grub_console_changed )); then
+# The command line above is what a Limine Mac derives its UKI from, so those
+# edits matter on every Mac; only the GRUB regeneration needs GRUB installed.
+if (( grub_console_changed )) && command -v "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1; then
   sudo mkdir -p "$(dirname "$pending")"
   sudo touch "$pending"
   echo "Regenerating GRUB for the Omarchy theme and the quiet boot"

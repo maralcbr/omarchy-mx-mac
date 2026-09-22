@@ -164,3 +164,17 @@ run || fail "the leaf runs after a Limine upgrade"
 [[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "LIMINE v2" ]] || fail "the ESP gets the new Limine"
 [[ ! -e $esp/EFI/BOOT/grub-aa64.efi ]] || fail "no GRUB image appears on the ESP after a Limine upgrade"
 pass "a Limine upgrade only replaces the U-Boot slot"
+
+# An image that never shipped GRUB: the leaf activates Limine with no
+# update-grub to retarget and no GRUB image anywhere.
+rm -f "$etc/update-grub" "$esp/limine.conf" "$test_tmp/boot/grub/grub-aa64.efi"
+printf 'GRUB image\n' >"$esp/EFI/BOOT/BOOTAA64.EFI"
+mv "$stub_bin/update-grub" "$test_tmp/update-grub.away"
+: >"$calls"
+run || fail "the leaf activates Limine without GRUB installed"
+[[ ! -e $etc/update-grub ]] || fail "nothing is retargeted when there is no update-grub"
+[[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "LIMINE v2" ]] || fail "Limine takes the U-Boot slot without GRUB"
+grep -q '^/+Omarchy$' "$esp/limine.conf" || fail "the menu is written without GRUB"
+! grep -q '^update-grub$' "$calls" || fail "no GRUB regeneration is attempted" "$(cat "$calls")"
+mv "$test_tmp/update-grub.away" "$stub_bin/update-grub"
+pass "an image without GRUB activates Limine on its own"

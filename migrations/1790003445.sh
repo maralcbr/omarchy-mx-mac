@@ -30,7 +30,9 @@ set_assignment GRUB_TIMEOUT 1
 set_assignment GRUB_TIMEOUT_STYLE hidden
 set_assignment GRUB_CMDLINE_LINUX_DEFAULT "$wanted_cmdline"
 
-if ! sudo "${OMARCHY_UPDATE_GRUB:-update-grub}"; then
+if ! command -v "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1; then
+  : # A Limine Mac has no GRUB to regenerate; the defaults above are what it reads.
+elif ! sudo "${OMARCHY_UPDATE_GRUB:-update-grub}"; then
   echo "update-grub failed; the quiet boot migration will retry later." >&2
   exit 1
 fi

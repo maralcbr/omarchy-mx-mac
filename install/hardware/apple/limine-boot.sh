@@ -76,13 +76,16 @@ trap limine_boot_trap ERR
 # 1. The Asahi update-grub keeps running on kernel updates; its EFI image
 # goes to a file under /boot instead of the U-Boot slot.
 sudo mkdir -p "$esp/EFI/BOOT"
-if ! grep -Fxq "TARGET=\"$grub_target\"" "$update_grub_default" 2>/dev/null; then
-  [[ ! -f $update_grub_default ]] || update_grub_default_before=$(<"$update_grub_default")
-  update_grub_default_changed=1
-  printf '# Written by Omarchy: Limine owns BOOTAA64.EFI; update-grub writes its image here, unused.\nTARGET="%s"\n' "$grub_target" |
-    sudo tee "$update_grub_default" >/dev/null
+# An image that never shipped GRUB has nothing to retarget.
+if command -v "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1; then
+  if ! grep -Fxq "TARGET=\"$grub_target\"" "$update_grub_default" 2>/dev/null; then
+    [[ ! -f $update_grub_default ]] || update_grub_default_before=$(<"$update_grub_default")
+    update_grub_default_changed=1
+    printf '# Written by Omarchy: Limine owns BOOTAA64.EFI; update-grub writes its image here, unused.\nTARGET="%s"\n' "$grub_target" |
+      sudo tee "$update_grub_default" >/dev/null
+  fi
+  sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null || { limine_boot_fail "update-grub failed with its new target"; return 0; }
 fi
-sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null || { limine_boot_fail "update-grub failed with its new target"; return 0; }
 sudo rm -f "$esp/EFI/BOOT/grub-aa64.efi"
 
 # 2. Limine's configuration: the static keys here, the kernel command line

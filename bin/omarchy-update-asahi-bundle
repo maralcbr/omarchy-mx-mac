@@ -267,7 +267,9 @@ kernel_package=$(omarchy-hw-apple-kernel)
 [[ -f $(root_path "/boot/vmlinuz-$kernel_package") ]] ||
   fail "/boot/vmlinuz-$kernel_package is missing"
 pacman -Qq "$kernel_package" >/dev/null 2>&1 || fail "$kernel_package is not installed"
-[[ -f $(root_path /boot/grub/grub.cfg) ]] || fail "GRUB configuration is missing"
+# A Limine Mac boots its menu and UKI on the ESP; a GRUB Mac its grub.cfg.
+[[ -f $(root_path /boot/grub/grub.cfg) || -f $(root_path /boot/efi/limine.conf) ]] ||
+  fail "neither a GRUB configuration nor a Limine menu is present"
 pacman_conf=$(root_path /etc/pacman.conf)
 for repository in asahi-alarm core extra alarm aur; do
   grep -Eq "^[[:space:]]*\[$repository\][[:space:]]*$" "$pacman_conf" || fail "required [$repository] repository is missing"
