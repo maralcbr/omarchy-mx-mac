@@ -116,7 +116,22 @@ sudo omarchy-mac-limine-cmdline || { limine_boot_fail "could not derive the kern
 sudo grep -q '^KERNEL_CMDLINE\[default\]="root=UUID=' "$limine_default" || { limine_boot_fail "no root= in the derived command line"; return 0; }
 
 # 3. Omarchy's Limine menu: the template once, then 3 s like x86.
-if ! sudo grep -Fq 'interface_branding: Omarchy Bootloader' "$esp/limine.conf" 2>/dev/null; then
+# limine-entry-tool keys its OS block by machine-id, so a menu written under
+# another identity (the image's, or the one before a factory reset) would
+# keep an entry pointing at a UKI this machine no longer has. That menu
+# starts over from the template, and the stale identity's history goes.
+machine_id=$(cat "${OMARCHY_MACHINE_ID:-/etc/machine-id}" 2>/dev/null || true)
+stale_ids=$(sudo grep -o 'machine-id=[0-9a-f]\{32\}' "$esp/limine.conf" 2>/dev/null | cut -d= -f2 | sort -u || true)
+menu_is_ours=0
+if sudo grep -Fq 'interface_branding: Omarchy Bootloader' "$esp/limine.conf" 2>/dev/null; then
+  menu_is_ours=1
+  for stale_id in $stale_ids; do
+    [[ $stale_id == "$machine_id" ]] && continue
+    menu_is_ours=0
+    sudo rm -rf "${esp:?}/$stale_id"
+  done
+fi
+if (( ! menu_is_ours )); then
   sudo install -m600 "$limine_conf_source" "$esp/limine.conf"
 fi
 sudo sed -i -E 's/^#?[[:space:]]*timeout:.*/timeout: 3/' "$esp/limine.conf"
@@ -168,7 +183,8 @@ sudo limine-snapper-sync || echo "limine-snapper-sync did not finish; snapshot e
 sudo systemctl enable --now limine-snapper-sync.service >/dev/null 2>&1 || true
 
 # Leftovers of the experiment: the hand-placed menu, the /boot resync unit.
-sudo rm -rf "$esp/limine" "$esp/omarchy"
+# /boot/efi/omarchy is the installer's staging directory and stays.
+sudo rm -rf "$esp/limine"
 if [[ -f $systemd_dir/omarchy-mac-boot-sync.service ]]; then
   sudo systemctl disable omarchy-mac-boot-sync.service >/dev/null 2>&1 || true
   sudo rm -f "$systemd_dir/omarchy-mac-boot-sync.service"

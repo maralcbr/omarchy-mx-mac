@@ -61,6 +61,7 @@ printf 'LIMINE v1\n' >"$test_tmp/share/limine/BOOTAA64.EFI"
 printf 'GRUB image\n' >"$esp/EFI/BOOT/BOOTAA64.EFI"
 printf 'GRUB_CMDLINE_LINUX=""\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash rootflags=x-systemd.device-timeout=0"\n' >"$etc/grub"
 printf 'UUID=root-uuid / btrfs subvol=@ 0 0\n' >"$etc/fstab"
+printf 'aaaabbbbccccddddeeeeffff00001111\n' >"$etc/machine-id"
 
 run() {
   TEST_CALLS="$calls" TEST_ESP="$esp" TEST_UPDATE_GRUB_DEFAULT="$etc/update-grub" TEST_LIMINE_DEFAULT="$etc/limine" \
@@ -69,6 +70,7 @@ run() {
   OMARCHY_GRUB_TARGET="$test_tmp/boot/grub/grub-aa64.efi" OMARCHY_LIMINE_BOOT_HOOKS_DIR="$etc/boot/hooks/pre.d" \
   OMARCHY_PACMAN_HOOKS_DIR="$etc/pacman.d/hooks" OMARCHY_SYSTEMD_DIR="$etc/systemd/system" \
   OMARCHY_LIMINE_GATE="$test_tmp/limine.enabled" OMARCHY_FSTAB="$etc/fstab" \
+  OMARCHY_MACHINE_ID="$etc/machine-id" \
   PATH="$stub_bin:$PATH" bash -c "source '$leaf'"
 }
 
@@ -169,6 +171,21 @@ run || fail "the leaf runs after a Limine upgrade"
 [[ $(cat "$esp/EFI/BOOT/BOOTAA64.EFI") == "LIMINE v2" ]] || fail "the ESP gets the new Limine"
 [[ ! -e $esp/EFI/BOOT/grub-aa64.efi ]] || fail "no GRUB image appears on the ESP after a Limine upgrade"
 pass "a Limine upgrade only replaces the U-Boot slot"
+
+# A menu another identity wrote (the image's, or the one before a factory
+# reset) starts over, and that identity's history goes with it. The staging
+# directory the installer writes install.conf into is never touched.
+mkdir -p "$esp/omarchy" "$esp/0123456789abcdef0123456789abcdef"
+sed -i.bak '1i\
+comment: machine-id=0123456789abcdef0123456789abcdef
+' "$esp/limine.conf"
+: >"$calls"
+run || fail "the leaf runs against a menu from another identity"
+! grep -q 'machine-id=0123456789abcdef' "$esp/limine.conf" || fail "the stale identity's entries are gone" "$(cat "$esp/limine.conf")"
+[[ ! -d $esp/0123456789abcdef0123456789abcdef ]] || fail "the stale identity's history is removed"
+[[ -d $esp/omarchy ]] || fail "the installer's staging directory survives"
+grep -q '^/+Omarchy$' "$esp/limine.conf" || fail "the menu is rebuilt"
+pass "a menu from another identity starts over"
 
 # An image that never shipped GRUB: the leaf activates Limine with no
 # update-grub to retarget and no GRUB image anywhere.
