@@ -13,6 +13,18 @@ enters the kernel directly, bypassing the EFI stub).
 Result: boots. `/proc/cmdline` is the Limine one, `efi: EFI v2.11 by Das
 U-Boot`, the initrd is handed over through the EFI table, no failed units.
 
+Second round with Omarchy's x86 tooling (`limine-mkinitcpio-hook`,
+`limine-snapper-sync`, built for aarch64 in omarchy-pkgs): `limine-update`
+builds a UKI with the aarch64 systemd-stub into `ESP:/EFI/Linux/`
+(`ESP_PATH=/boot/efi`), and Limine chainloads it (`protocol:
+efi_chainload`) under U-Boot: the M1 Pro booted the UKI, `bootctl` names
+Limine as the loader. `limine-install` exits 0 on aarch64 (no EFI
+deployment, no efibootmgr), and the entry tool refuses to write UKI entries
+(`Utility.isSystemAmd64()` in its Java source, buildable with a patch in
+omarchy-pkgs); the UKI entry was added by hand. `limine-snapper-sync`
+needs `TARGET_OS_NAME` and an existing OS entry. A hand generator
+(`limine-snapshots.sh`) produced a Snapshots submenu from snapper's list.
+
 What a real integration would need beyond this experiment:
 - keep the ESP copies in step with `/boot` on every kernel and initramfs
   rebuild (a pacman hook, or UKIs through `limine-mkinitcpio-hook` if
