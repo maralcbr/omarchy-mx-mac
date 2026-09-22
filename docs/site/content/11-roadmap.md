@@ -8,7 +8,7 @@ This manual describes what installs today. The items below are decided and being
 
 ## Limine boot loader
 
-Decided 2026-09-22. U-Boot loads Limine, `limine-mkinitcpio-hook` builds unified kernel images, snapshots come through `limine-snapper-sync`, and GRUB remains as a recovery entry. The packages are in the repository; the image and the first boot still need to enable them, gated by `/var/lib/omarchy/limine.enabled`. Affects [Boot chain and kernels]({{page:boot}}).
+Decided 2026-09-22, after comparing the two on hardware. U-Boot loads Limine, `limine-mkinitcpio-hook` builds unified kernel images, snapshots come through `limine-snapper-sync`, and GRUB stays as a recovery entry. The packages are published and `main` enables the gate on every image it builds, so the next image will boot through Limine. Neither published channel does, because both were built before it landed. Affects [Boot chain and kernels]({{page:boot}}).
 
 ## Aurora kernel in stable
 

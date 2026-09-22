@@ -24,15 +24,21 @@ Three layers populate `$HOME`, as upstream: `omarchy-settings` seeds `/etc/skel`
 
 ## Hardware fixes
 
-`install/hardware/apple/` holds one script per fix. The Apple Silicon ones today:
+`install/hardware/apple/` holds one script per fix. Each one starts by asking `omarchy-hw-apple-silicon` whether it is on the right machine, so the same directory also carries fixes for Intel Macs that never run here.
 
 | Fix | What it does |
 | --- | --- |
-| HID race | Early-loads `hid_apple` and `hid_magicmouse` so the keyboard and trackpad work at the greeter and the LUKS prompt |
-| btrfs race | Orders `kmod-static-nodes` before the root mount in the initramfs |
-| USB4 PD rebind | Rebinds the power delivery controller after a USB4 dock is unplugged so the port recovers |
+| `fix-asahi-hid-race` | Early-loads the Apple keyboard and trackpad drivers, so input works at the greeter and at the passphrase prompt |
+| `fix-asahi-btrfs-race` | Orders static device nodes before the root mount in the initramfs |
+| `fix-speaker-pop` | Suppresses the pop the speakers make on resume |
+| `fix-brcmfmac-supplicant` | Settles the Broadcom Wi-Fi supplicant |
+| `snapshots-subvolume` | Prepares the btrfs subvolume that snapper snapshots live in |
+| `grub-console` | Console settings for the GRUB boot path |
+| `limine-boot` | Installs the Limine boot path, behind its own gate |
 
-The remaining scripts in the directory are for Intel Macs and come from upstream. Each Apple Silicon fix that changes an installed system also ships as a migration, so existing Macs get it on the next `omarchy update`.
+An image build runs only the two that write initramfs drop-ins, because those must exist before mkinitcpio runs. The rest are recorded as deferred steps and run on the Mac's first boot.
+
+Each fix that changes an installed system also ships as a migration, so existing Macs get it on the next `omarchy update`.
 
 ## Channel state on disk
 

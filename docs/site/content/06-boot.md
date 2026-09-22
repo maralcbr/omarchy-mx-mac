@@ -31,7 +31,7 @@ The shipped releases boot through GRUB with a themed menu and `grub-btrfs` entri
 - GRUB stays as the `GRUB (recovery)` chain-load entry until it is retired.
 - U-Boot is made silent: no banner, no logo, no boot delay. The menu the user sees is Limine's.
 
-The Limine packages are already in the `[omarchy]` repository. Enabling them in the image and on first boot is the next release's work. Until then the GRUB path is what installs and updates.
+The Limine packages are in the `[omarchy]` repository and `main` now writes the `/var/lib/omarchy/limine.enabled` gate into every image it builds, so the next image carries Limine. No published channel does yet: both current images were built before that landed, so what installs today still boots through GRUB.
 
 ## Kernel lanes
 
