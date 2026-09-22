@@ -100,7 +100,13 @@ known-good baseline.
   `/boot/grub/grub-btrfs.cfg` lists the same snapshots under the "Omarchy
   snapshots" GRUB submenu (refreshed by `omarchy-mac-snapshot-menu`, never by
   a daemon); booting one gives a read-only snapshot under a tmpfs overlay,
-  with `/run/omarchy-snapshot-boot` naming the subvolume.
+  with `/run/omarchy-snapshot-boot` naming the subvolume. That is the GRUB
+  Mac. A Limine Mac (`omarchy-mac-limine-active`, every Mac from the Limine
+  image or after migration 1790055026) works as x86 does: the Limine menu's
+  `Snapshots` folder lists them (written by the `limine-snapper-sync`
+  watcher), `omarchy-snapshot restore` runs `limine-snapper-restore`, and
+  the boot check verifies the UKI on the ESP instead of `grub.cfg`. See
+  `docs/apple-silicon-limine.md`.
 
 ## Remote checks after a cold boot
 

@@ -172,8 +172,32 @@ rebuild_next_boot "$next"
 grep -F 'mkinitcpio -P' "$calls" >/dev/null || fail "reset rebuilds the initramfs" "$(cat "$calls")"
 grep -F 'update-grub' "$calls" >/dev/null || fail "reset regenerates grub.cfg" "$(cat "$calls")"
 grep -F 'update-m1n1' "$calls" >/dev/null || fail "reset regenerates m1n1" "$(cat "$calls")"
-! grep -F 'limine-update' "$calls" >/dev/null || fail "Apple reset does not call limine-update"
+! grep -F 'limine-update' "$calls" >/dev/null || fail "a GRUB Mac's reset does not call limine-update"
 [[ ! -e $boot_key ]] || fail "rebuilds still do not write the Boot-partition luks-key"
+
+# A Limine Mac: the ESP's menu starts over from the template, the previous
+# identity's history goes, and the factory root rebuilds Limine.
+mkdir -p "$next/usr/share/omarchy/default/limine" "$next/boot/efi/0123456789abcdef0123456789abcdef" "$next/usr/bin"
+printf 'timeout: 3\ndefault_entry: 2\n' >"$next/usr/share/omarchy/default/limine/limine.conf"
+printf 'timeout: 3\n/+Omarchy\ncomment: machine-id=0123456789abcdef0123456789abcdef\n' >"$next/boot/efi/limine.conf"
+echo fedcba9876543210fedcba9876543210 >"$next/etc/machine-id"
+cat >"$stub_bin/omarchy-mac-limine-active" <<'SH'
+#!/bin/bash
+exit 0
+SH
+cat >"$stub_bin/omarchy-mac-boot-update" <<SH
+#!/bin/bash
+printf 'omarchy-mac-boot-update\n' >>"$calls"
+SH
+cp "$stub_bin/omarchy-mac-boot-update" "$next/usr/bin/omarchy-mac-boot-update"
+chmod +x "$stub_bin/omarchy-mac-limine-active" "$stub_bin/omarchy-mac-boot-update" "$next/usr/bin/omarchy-mac-boot-update"
+: >"$calls"
+rebuild_next_boot "$next"
+grep -F 'omarchy-mac-boot-update' "$calls" >/dev/null || fail "a Limine Mac's reset rebuilds the boot loader through omarchy-mac-boot-update" "$(cat "$calls")"
+! grep -q 'machine-id=0123456789abcdef' "$next/boot/efi/limine.conf" || fail "the ESP's limine.conf starts over from the template" "$(cat "$next/boot/efi/limine.conf")"
+[[ ! -d $next/boot/efi/0123456789abcdef0123456789abcdef ]] || fail "the previous identity's Limine history is removed"
+rm -f "$stub_bin/omarchy-mac-limine-active" "$stub_bin/omarchy-mac-boot-update" "$next/usr/bin/omarchy-mac-boot-update"
+pass "a Limine Mac's reset resets Limine's menu and rebuilds it from the factory root"
 
 : >"$calls"
 stage_luks_rekey_apple_commit "$RESET_LUKS_DEVICE" "$RESET_THROWAY"

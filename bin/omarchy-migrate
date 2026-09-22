@@ -155,6 +155,7 @@ asahi_migration_disposition() {
     1790009252.sh) printf 'run\treviewed grub-btrfs enablement for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
     1790030337.sh) printf 'run\treviewed GRUB console font and root-device wait for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
     1790037110.sh) printf 'run\treviewed Omarchy GRUB theme and splash-only boot for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
+    1790055026.sh) printf 'run\treviewed Limine boot activation for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
     *) return 1 ;;
   esac
 }

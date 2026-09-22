@@ -361,7 +361,17 @@ rebuild_next_boot_apple() {
     fi
   done
 
-  log "Rebuilding initramfs, GRUB and m1n1 from the factory system (this can take a minute)"
+  # A Limine Mac: the ESP's menu starts over from the template, so the
+  # previous identity's entries (stale UKI hashes) do not survive the reset.
+  # A factory root that predates its own Limine activation (the image state)
+  # regenerates GRUB into the U-Boot slot below and activates Limine again on
+  # its first boot; one that carries the Limine defaults rebuilds the UKI and
+  # entries here.
+  if omarchy-mac-limine-active; then
+    reset_limine_config "$next" /boot/efi
+  fi
+
+  log "Rebuilding initramfs, the boot loader and m1n1 from the factory system (this can take a minute)"
   if ! chroot "$next" mkinitcpio -P </dev/null >>"$LOG_FILE" 2>&1; then
     fail "mkinitcpio failed in the factory root (see $LOG_FILE)"
   fi
@@ -369,6 +379,9 @@ rebuild_next_boot_apple() {
   if [[ -x $next/usr/bin/omarchy-mac-boot-update ]]; then
     if ! chroot "$next" omarchy-mac-boot-update >>"$LOG_FILE" 2>&1; then
       fail "omarchy-mac-boot-update failed in the factory root (see $LOG_FILE)"
+    fi
+    if chroot "$next" omarchy-mac-limine-active >/dev/null 2>&1; then
+      verify_limine_hashes "$next" /boot/efi
     fi
   elif ! chroot "$next" update-grub >>"$LOG_FILE" 2>&1; then
     fail "update-grub failed in the factory root (see $LOG_FILE)"

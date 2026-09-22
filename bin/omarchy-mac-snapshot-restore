@@ -147,6 +147,10 @@ fi
 [[ -n $number ]] || usage
 [[ $number =~ ^[1-9][0-9]*$ ]] || fail "snapshot number must be a positive integer"
 [[ -e $GATE ]] || fail "the Apple Silicon snapshot restore is experimental; enable it with: sudo touch $GATE"
+# A Limine Mac restores with limine-snapper-restore (omarchy-snapshot restore);
+# swapping in a root from before the Limine migration would put GRUB's
+# defaults back under a Limine boot.
+! omarchy-mac-limine-active || fail "this Mac boots Limine; restore with omarchy-snapshot restore"
 
 # Refusals: another staged root change, a half-provisioned system, swap
 # layouts this lane does not handle, or a root layout other than @ with a

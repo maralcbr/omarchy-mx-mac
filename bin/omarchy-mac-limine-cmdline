@@ -32,8 +32,10 @@ root_uuid=$(awk '$1 !~ /^#/ && $2 == "/" && $1 ~ /^UUID=/ { sub(/^UUID=/, "", $1
 [[ -n $root_uuid ]] || root_uuid=$(findmnt -no UUID / 2>/dev/null)
 [[ -n $root_uuid ]] || root_uuid=$(grep -Eo '(^|[[:space:]])root=UUID=[^[:space:]]+' "${OMARCHY_CMDLINE:-/proc/cmdline}" 2>/dev/null | tail -n 1 | sed 's/.*root=UUID=//')
 if [[ -z $root_uuid ]]; then
+  # 100 and above: the limine-entry-tool hook runner aborts the rebuild on
+  # it; anything lower is a warning it would build the UKI over.
   echo "omarchy-mac-limine-cmdline: cannot tell the root filesystem UUID; $limine_default keeps its command line" >&2
-  exit 1
+  exit 100
 fi
 
 rootflags=(subvol=@)

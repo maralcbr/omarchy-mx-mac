@@ -7,7 +7,6 @@ echo "Limine boot on Apple Silicon"
 
 omarchy-hw-apple-silicon || exit 0
 
-OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 leaf="$OMARCHY_PATH/install/hardware/apple/limine-boot.sh"
 [[ -f $leaf ]] || exit 0
 
