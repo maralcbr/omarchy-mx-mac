@@ -51,7 +51,7 @@ and out) is described [below](#the-edge-lane-on-an-installed-mac).
 | Channel | Kernel | How it moves |
 | --- | --- | --- |
 | `stable` | `linux-aurora`, **rc's hardware-qualified pin** (decided 2026-09-23, replacing the 2026-09-20 `aurora-stable` `77cb8f24` pin that lacked USB4 and the third and fourth displays). `default/aurora-stable-release` names rc's qualified `aurora-packages-3caea469`. The Asahi kernel stays only on Macs that still run it, as the legacy `stable:linux-asahi` record. | Moves only after rc has qualified a new pin on hardware: `bin/mac-aurora-pin stable` (omarchy-pkgs) promotes it into `linux-aurora-stable`, then `default/aurora-stable-release` moves to it. Stable keeps USB4 and every external display. |
-| `rc` | `linux-aurora` from `aurora-silicon/linux` branch `aurora-wip`, **pinned** to a commit qualified on real hardware | Moves only when a new pin passes hardware qualification. |
+| `rc` | `linux-aurora` from `aurora-silicon/linux` branch `aurora-rc`, **pinned** to a commit qualified on real hardware | Moves only when a new pin passes hardware qualification. |
 | `edge` | `linux-aurora` from `aurora-wip`, **floating** on the branch head | Follows each new build. |
 
 The rename happened on 2026-09-18:

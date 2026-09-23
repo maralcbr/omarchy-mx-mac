@@ -722,7 +722,9 @@ all its external displays. Two places hold it:
   into it; it no longer reads the `aurora-stable` branch.
 
 Promote only a pin rc has qualified on hardware, then move
-`default/aurora-stable-release` to it (rc's release or a stable build of it).
+`default/aurora-stable-release` to it (rc's release or a stable build of it). The stable recipe's
+pkgrel started at 9, above the rc packages (`-7`, `-8`) stable Macs already
+carry, so a stable build of the same source installs over them.
 
 ### Kernel builds run only on new inputs
 
