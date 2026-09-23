@@ -70,7 +70,9 @@ the selected channel each time you prepare an installation. Matching cached file
 reused instead of downloaded again. The existing installation screens remain the
 same, and the privileged worker runs only for the installation session.
 
-The owner confirmed an end-to-end installation on the M2 Max. The app also saves
+The owner confirmed an end-to-end installation on the M2 Max with an earlier
+installer and image. The current image, `os-v4.0.3-mac.5.20260923-rc`, passed VM
+acceptance but has not had a physical install recorded yet. The app also saves
 credential-free diagnostic logs across reboots in
 `~/Library/Logs/Omarchy MX Mac Installer/` and root-worker diagnostics in
 `/var/db/com.omarchy.mx.installer/diagnostics/`.
@@ -109,7 +111,8 @@ hardware integration, and updates for Apple Silicon:
 
 - Bootstrap from a fresh Asahi Arch Minimal installation into a complete
   Omarchy desktop and regular user account.
-- Native Arch Linux ARM and Asahi stack with `linux-asahi`, Asahi firmware,
+- Native Arch Linux ARM with the Aurora kernel (`linux-aurora`) on new installs,
+  `linux-asahi` on Macs installed from the earlier Asahi image, Asahi firmware,
   regional ARM mirrors, and the dedicated Asahi package repository.
 - Hardware-accelerated Apple GPU graphics through the Mesa `vulkan-asahi`
   driver.
@@ -120,12 +123,12 @@ hardware integration, and updates for Apple Silicon:
 - Optional Steam installation through the Asahi ARM64/FEX compatibility
   environment.
 - ARM64-native application paths and the Omarchy Quickshell desktop.
-- Asahi-aware updates that track `linux-asahi` changes and offer a reboot when
-  a new kernel is installed.
+- Kernel-aware updates that follow the Mac's lane and offer a reboot when a new
+  kernel is installed.
 
-Hardware support still depends on Asahi Linux. Omarchy Mac runs on M1 and M2
-systems, and on M3 systems with GPU limitations. External displays, speakers,
-cameras, suspend, and power management can vary by model.
+Hardware support depends on Asahi Linux and the Aurora kernel. The current image
+admits only the MacBook Pro 14" M1 Pro and 16" M2 Max; Macs installed from the
+earlier Asahi image cover more M1 and M2 models.
 
 ## Mac Screenshot Shortcuts
 
@@ -147,8 +150,8 @@ available.
 Both channels currently install signed image
 `os-v4.0.3-mac.5.20260923-rc` (Omarchy 4.0.3, Aurora, Limine), promoted from
 Release candidate to **Stable** on 2026-09-23. The rest of this section describes
-the earlier Stable image, `os-v4.0.3-mac.1.20260913` (Omarchy 4.0.3, Asahi), which
-Macs installed before then still run. The app follows the latest signed catalog for the channel you select;
+the earlier Stable image, `os-v4.0.3-mac.1.20260913` (Omarchy 4.0.3, Asahi); Macs
+installed from it keep the Asahi kernel. The app follows the latest signed catalog for the channel you select;
 cached files are reused only when their size and SHA-256 match that catalog.
 
 Omarchy 4.0.3 brings upstream security fixes and AI integrations, Apple Silicon

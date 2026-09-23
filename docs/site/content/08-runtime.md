@@ -51,7 +51,7 @@ Each fix that changes an installed system also ships as a migration, so existing
 | `/var/lib/omarchy/mac-first-boot/` | First-boot markers, the configuration it consumed and any errors |
 | `/boot/omarchy/encrypt.state` | The encryption phase and its recovery journal |
 | `/var/lib/omarchy/snapshot-restore.enabled` | Lab gate for snapshot restores |
-| `/var/lib/omarchy/limine.enabled` | Gate for the Limine boot path (next release) |
+| `/var/lib/omarchy/limine.enabled` | Gate for the Limine boot path, written by every current image |
 
 ## Screenshots on an Apple keyboard
 

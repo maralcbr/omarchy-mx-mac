@@ -4,7 +4,7 @@ description: Which Macs are supported, what works on each kernel lane, and the k
 section: Reference
 ---
 
-Hardware support is the Asahi Linux project's, plus what the Aurora kernel adds on the `rc` channel. The fork qualifies each release on real Macs and records the evidence with the release. Nothing below claims more than what has been exercised.
+Hardware support is the Asahi Linux project's, plus what the Aurora kernel adds. New installs on both channels get the Aurora kernel; Macs installed from the earlier Asahi stable image keep `linux-asahi`. The fork qualifies each release on real Macs and records the evidence with the release. Nothing below claims more than what has been exercised.
 
 ## Supported Macs
 
@@ -24,8 +24,7 @@ rollback but no longer offered. An identifier that is not in the catalog is
 refused before anything on the disk is touched, which is the intended behaviour rather than
 a gap to work around.
 
-M3 support is newer and is limited by what Asahi supports on that chip. The M4 generation is
-deliberately not admitted.
+The current image admits no M3 or M4 Mac.
 
 ## Reference machines
 
@@ -36,7 +35,7 @@ deliberately not admitted.
 
 ## What works
 
-<span class="status ok">works</span> in both lanes unless noted. <span class="status partial">rc only</span> needs the Aurora kernel. <span class="status wip">known issue</span> is tracked.
+<span class="status ok">works</span> on both kernels unless noted. <span class="status partial">Aurora only</span> needs the Aurora kernel, which every new install has; Macs on the legacy Asahi kernel lack it. <span class="status wip">known issue</span> is tracked.
 
 | Area | Status | Notes |
 | --- | --- | --- |
@@ -48,8 +47,8 @@ deliberately not admitted.
 | Suspend and resume | <span class="status ok">works</span> | Verified per release from a local session |
 | Battery, lid, power profiles | <span class="status ok">works</span> | Apple SMC through the fork's integration |
 | One external display | <span class="status ok">works</span> | HDMI on models that have it |
-| Several external displays, USB4 / DisplayPort alt-mode | <span class="status partial">rc only</span> | Aurora kernel. Five displays on the M2 Max. |
-| Variable refresh rate, camera (ISP), always-on processor | <span class="status partial">rc only</span> | Aurora kernel |
+| Several external displays, USB4 / DisplayPort alt-mode | <span class="status partial">Aurora only</span> | Aurora kernel. Five displays on the M2 Max. |
+| Variable refresh rate, camera (ISP), always-on processor | <span class="status partial">Aurora only</span> | Aurora kernel |
 | Fullscreen window on a very wide display | <span class="status wip">known issue</span> | Hyprland paints only a band of a fullscreen window on a 5120×1440 output next to a scaled internal display. Upstream Hyprland issue. |
 | Fourth external display after HDMI unplug | <span class="status wip">known issue</span> | A stale DisplayPort link on the M2 Max after unplugging HDMI; replug or reboot |
 | Text console between Plymouth and the greeter | <span class="status wip">known issue</span> | Cosmetic, a few seconds |

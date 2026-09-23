@@ -137,4 +137,4 @@ Hardware evidence is plain text: date, model, pass or fail or not-tested, the co
 - **The graphical suite never runs in CI**, so a desktop regression waits for someone to run it.
 - **Some suites run in no workflow at all.** In the package repository, 13 of 43 test scripts, including the one covering the encryption path.
 - **A green headless run can contain skips**, because the runtime probes pass when no compositor is present.
-- **Unified kernel images are not inspected** by the fresh-install harness, which will matter more as the Limine path lands.
+- **Unified kernel images are not inspected** by the fresh-install harness, which matters now that the current image boots through Limine.
