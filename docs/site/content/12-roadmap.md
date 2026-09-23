@@ -8,7 +8,7 @@ This manual describes what installs today. The items below are decided and being
 
 ## Limine boot loader
 
-Decided 2026-09-22, after comparing the two on hardware. U-Boot loads Limine, `limine-mkinitcpio-hook` builds unified kernel images, snapshots come through `limine-snapper-sync`, and GRUB stays as a recovery entry. The image both channels install since 2026-09-23 boots through Limine. Still to do: move Macs installed from earlier images off GRUB. Affects [Boot chain and kernels]({{page:boot}}).
+Decided 2026-09-22, after comparing the two on hardware. U-Boot loads Limine, `limine-mkinitcpio-hook` builds unified kernel images, snapshots come through `limine-snapper-sync`, and activating Limine removes GRUB. The image both channels install since 2026-09-23 boots through Limine. Still to do: move Macs installed from earlier images off GRUB. Affects [Boot chain and kernels]({{page:boot}}).
 
 ## Aurora kernel in stable
 
