@@ -96,7 +96,6 @@
     /// the same payload, so the download keeps going across it.
     private var prefetchID = UUID()
     private var isObservingPrefetch = false
-    private var prefetchDigest: String?
 
     public init(environment: any InstallerEnvironment) {
       self.environment = environment
@@ -250,10 +249,13 @@
             }
           lastPrepared = (plan, lastUpdate)
           phase = hold ? .planPrepared(plan, lastUpdate) : .planReview(plan, acknowledged: false)
-          if isReplanning && environment.plannedPayloadDigest != prefetchDigest {
-            // The catalog moved during the re-plan: drop the old watcher so
-            // none of its results can count for the new payload.
+          if isReplanning {
+            // The re-plan may have replaced or restarted the download. Watch it
+            // afresh so no result from the old watcher counts for this plan.
             forgetPrefetchWatcher()
+            if environment.payloadPrefetchRequired {
+              prefetchState = environment.payloadPrefetchState
+            }
           }
           startPrefetchIfNeeded()
         case .existingInstallChoice(let options):
@@ -643,7 +645,6 @@
       isObservingPrefetch = true
       let currentPrefetch = UUID()
       prefetchID = currentPrefetch
-      prefetchDigest = environment.plannedPayloadDigest
       Task { @MainActor in
         defer {
           if self.prefetchID == currentPrefetch { self.isObservingPrefetch = false }
@@ -651,7 +652,9 @@
         do {
           try await environment.prefetchPayload { [weak self] state in
             Task { @MainActor in
-              guard let self, self.prefetchID == currentPrefetch else { return }
+              // A progress hop queued behind completion must not undo it.
+              guard let self, self.prefetchID == currentPrefetch, self.isObservingPrefetch
+              else { return }
               self.prefetchState = state
             }
           }
@@ -667,7 +670,6 @@
     private func forgetPrefetchWatcher() {
       prefetchID = UUID()
       isObservingPrefetch = false
-      prefetchDigest = nil
       prefetchState = environment.payloadPrefetchRequired ? .idle : .verified
     }
 

@@ -415,8 +415,6 @@
     var helperStatus: HelperDisplay { get }
     var payloadPrefetchRequired: Bool { get }
     var payloadPrefetchState: PayloadPrefetchState { get }
-    /// Digest of the payload the latest prepared plan downloads.
-    var plannedPayloadDigest: String? { get }
 
     /// Asks macOS for a graceful shutdown (the Apple menu's Shut Down).
     /// Returns true when the machine is actually going down; the preview
@@ -435,7 +433,6 @@
     public func requestShutdown() -> Bool { false }
     public var payloadPrefetchRequired: Bool { false }
     public var payloadPrefetchState: PayloadPrefetchState { .verified }
-    public var plannedPayloadDigest: String? { nil }
     public func setEncryptLinuxDisk(_ encrypt: Bool) {}
     public func prefetchPayload(
       progress: @escaping @Sendable (PayloadPrefetchState) -> Void

@@ -26,7 +26,6 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private var releaseConfiguration: InstallerReleaseConfiguration?
   private var encryptLinuxDisk = true
   private var selectedLane = ReleaseChannel.stable.rawValue
-  private var payloadDigest: String?
   private let prefetch = PayloadPrefetchOrchestrator()
 
   var payloadPrefetchRequired: Bool { true }
@@ -34,11 +33,6 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   var payloadPrefetchState: PayloadPrefetchState {
     prefetch.currentState()
   }
-
-  var plannedPayloadDigest: String? {
-    lock.withLock { payloadDigest }
-  }
-
   // MARK: Fail-closed gates
 
   var installationBlocked: Bool {
@@ -164,7 +158,6 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     lock.withLock {
       reusableAssets = release.assets
       selectedLane = channel.rawValue
-      payloadDigest = release.assets.payload.artifact.expectedDigest
     }
     try catalogStore.store(release.assets.catalogIdentity)
 
