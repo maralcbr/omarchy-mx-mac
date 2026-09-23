@@ -202,8 +202,9 @@ The release command takes the full path whenever the candidate rebuilt a
 non-runtime package or its package set differs from the live one: a PKGBUILD,
 `pkgbuilds/asahi-repository-*` or the builder changed, or an unpromoted
 predecessor carried new packages. It runs
-steps 1–4. A new OS image (finalizer, pins, base system) also needs steps 5–7,
-which stay manual; the catalog signature in step 7 is the owner's. Every step
+steps 1–4. A new OS image goes through the
+[Mac image lane](#mac-image-lane-a-new-fresh-install-image); steps 5–7 below
+are the retired `omarchy-iso` path, kept for reference. Every step
 waits on the previous one.
 
 **By hand**: steps 1–4 are what the command does. Use them only when it
@@ -369,7 +370,7 @@ Approve the gate. The sequence must be exactly one above the highest
 published channel. The job's last step points the runtime channel pointer at
 the new channel.
 
-### 5. Repoint the image
+### 5. Repoint the image (retired `omarchy-iso` path)
 
 In `omarchy-iso`, all in one commit:
 
@@ -390,7 +391,7 @@ Also `test/prepare-alarm-container` here and, if the snapshot changed, the
 harness default in `test/vm/asahi-fresh/run` and the gate pin in both
 `release-asahi-package-*.yml` workflows.
 
-### 6. Build the payload (this Mac)
+### 6. Build the payload (retired `omarchy-iso` path)
 
 ```bash
 cd omarchy-iso
@@ -406,7 +407,7 @@ toolchain); qualification then restores the stages. Output lands in
 base image every run and compares it, so re-running it against an existing
 `checkpoints/base-images` fails — delete that directory first.
 
-### 7. Publish and promote
+### 7. Publish and promote (retired `omarchy-iso` path)
 
 In `apps/omarchy-apple-installer` of this repository:
 
@@ -458,6 +459,60 @@ R2 credentials come from the login Keychain (`omarchy-r2-access-key-id`,
 deliberate step, and prunes unreferenced release sets afterwards. The
 installer app has its own lane (`publish-channels app-publish`) and only
 changes when the app does; the README download link never changes.
+
+## Mac image lane: a new fresh-install image
+
+This is how the current image, `os-v4.0.3-mac.5.20260923-rc`, was built and
+published on 2026-09-23. It replaces full-lane steps 5–7 and the payload build
+under [The Aurora lane](#the-aurora-lane), which describe the retired
+`omarchy-iso` path.
+
+1. **Build.** In `omarchy-pkgs`, dispatch `Build Mac images`
+   (`release-mac-image.yml`), lanes `rc` (and `edge` if wanted). It resolves the
+   promoted `[omarchy]` set, the pinned runtime channel, the Aurora kernel lanes
+   and the dated ALARM snapshot once, builds with `bin/build-mac-image`, signs
+   each `IMAGE` behind the `asahi-quattro-release` approval and publishes the
+   immutable release `mac-image-<S>-<lane>-<input digest>-<builder commit>`.
+   `stable` builds need a real `default/aurora-stable-release`.
+2. **VM acceptance** on a test Mac with `/dev/kvm` (the M2 Max):
+
+   ```bash
+   test/vm/mac-image/run --release mac-image-<S>-rc-<digest12>-<sha8>
+   ```
+
+   All seven `ok` lines must pass: signature and provenance, unpacking, member
+   digests, the image's initramfs hooks, plain first boot, encrypted first boot,
+   second boot through `sd-encrypt`. The evidence is exported to
+   `~/vm-evidence/<run-id>/`. The VM boots a generic kernel, so it does not
+   qualify Aurora, m1n1 or the Apple boot chain.
+3. **Stage the release** (this Mac). Download the release assets, reassemble
+   the zip and check it against `PROVENANCE`. Write `inputs.json`: payload name,
+   engine fields (`engine_name`, `engine_version`, `asahi_installer_*`,
+   `downstream_revision`), `device_identifiers`, `evidence_revision` and the
+   `installer` minimum, latest and download URL. Then:
+
+   ```bash
+   scripts/publish-m1-release prepare --payload <zip> --engine <engine tar.gz> \
+     --metadata installer_data.json --tag os-v<version>.<date>-rc \
+     --repo maralcbr/omarchy-mx-mac --out-dir staged --no-split \
+     --base-url https://downloads.aicodelabs.com.au/releases/<tag>
+   python3 scripts/make-unsigned-catalog.py --base-url <same> \
+     --assets-dir staged --inputs inputs.json --output catalog/catalog.json
+   ```
+
+4. **Owner signs** `catalog/catalog.json` with `catalog-signing.swift
+   sign-keychain` (see [AGENTS.md](../AGENTS.md)). Then build the envelope:
+   `scripts/publish-channels envelope --catalog catalog/catalog.json
+   --signature catalog/catalog.json.sig --output catalog/catalog.signed.json`.
+5. **Publish and promote.** `scripts/publish-m1-release publish-r2 --dir staged
+   --tag <tag> --bucket omarchy-releases --endpoint <R2 endpoint> --base-url
+   <same> --catalog-dir catalog`, then `scripts/publish-channels os-promote --tag
+   <tag> --to rc`, the alias with `--to rc-aurora --no-prune`, and, once
+   qualified, `--to stable --no-prune`. `stable` without `--no-prune` deletes the
+   older releases.
+6. **Tag** `os-v<version>.<date>-rc` on the mx commit the installer was built
+   from, and name the Omarchy version the image carries: this image's tag says
+   4.0.3 but it carries the 4.0.4 runtime.
 
 ## The runtime channel pointer
 
@@ -595,7 +650,11 @@ never modified or pruned automatically.
 
 ## The Aurora lane
 
-The `RC (Aurora)` channel serves a second payload built from the Aurora Silicon
+The payload build and `RC (Aurora)` channel below are the retired `omarchy-iso`
+path; images now come from the [Mac image lane](#mac-image-lane-a-new-fresh-install-image).
+The kernel lanes, pins and edge sections still apply.
+
+The `RC (Aurora)` channel served a second payload built from the Aurora Silicon
 kernel (`aurora-silicon/linux`, branch `aurora-wip`): DisplayPort alt-mode and
 USB4 for external monitors, variable refresh rate, ISP and AOP. It is a whole
 kernel, not a module, so it is a whole payload.
@@ -650,7 +709,9 @@ Decided 2026-09-20 (owner): the `stable` kernel lane is pinned to
 recipe `pkgbuilds/linux-aurora-stable` in `omarchy-pkgs`). That base has no
 Thunderbolt/USB4 (`USB4_APPLE_SOC`, `RESET_APPLE_CIO`) and no `dcpext2`/`dcpext3`,
 so on the stable lane an M2 Max has **no USB4 devices and at most two external
-displays**. `rc` and `edge` carry them. A display-count check on a Mac running
+displays** once the first `aurora-stable-packages` release exists. Until then
+`default/aurora-stable-release` names rc's qualified kernel, and a stable Mac
+runs it. `rc` and `edge` carry them. A display-count check on a Mac running
 stable is expected to show that limit; it is not a regression. The pin tool
 `bin/mac-aurora-pin` (omarchy-pkgs) moves `stable` the day `aurora-stable`
 advances; the recipe and this note change together.

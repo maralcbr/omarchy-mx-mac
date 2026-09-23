@@ -4,13 +4,22 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
-## [4.0.4-mac.1] - Unreleased
+## [4.0.4-mac.1] - 2026-09-23
 
-- Integrate upstream 4.0.4 x86 kernel changes and migrations.
-- Skip both new kernel migrations on Apple Silicon; the Asahi or Aurora kernel
-  and GRUB boot setup stay unchanged.
-- Publication and physical qualification remain pending. See
-  [preparation notes](docs/releases/v4.0.4-mac.1.md).
+- Integrate upstream Omarchy 4.0.4; both new x86 kernel migrations are skipped
+  on Apple Silicon.
+- New installs on both installer channels get signed image
+  `os-v4.0.3-mac.5.20260923-rc`, which carries the 4.0.4 runtime despite its
+  tag: the Aurora kernel and the Limine boot menu, for the MacBook Pro 14" M1
+  Pro and 16" M2 Max. It was promoted from `rc` to `stable` on 2026-09-23.
+- Installer 2.0.9 opens on Stable at every launch and keeps downloading while a
+  new disk size is checked.
+- Optional LUKS2 root with a per-machine re-key, snapper update snapshots, and
+  update-path fixes for `sd-encrypt`, the Apple boot files and the keyring.
+- Package and image VM acceptance passed; a physical fresh install of the image
+  is not recorded yet.
+
+[Release notes](docs/releases/v4.0.4-mac.1.md) | [Full diff](https://github.com/maralcbr/omarchy-mx-mac/compare/v4.0.2-mac.1...v4.0.4-mac.1)
 
 ## [4.0.3-mac.1] - 2026-09-12
 
