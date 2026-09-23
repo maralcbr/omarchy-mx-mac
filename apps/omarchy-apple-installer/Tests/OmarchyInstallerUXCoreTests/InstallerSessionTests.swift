@@ -281,7 +281,9 @@
 
       await first.release()
       try await Task.sleep(for: .milliseconds(50))
-      XCTAssertNotEqual(session.prefetchState, .failed("retry"))
+      if case .failed = session.prefetchState {
+        XCTFail("A stale failure reached the session: \(session.prefetchState)")
+      }
 
       await second.release()
       await waitUntil { session.prefetchState == .verified }

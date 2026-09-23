@@ -299,6 +299,70 @@
         try Data(contentsOf: root.appendingPathComponent("second.bin")), Data("second.bin".utf8))
     }
 
+    func testLateProgressCannotReopenAFinishedDownload() async throws {
+      let controller = PayloadPrefetchController(
+        network: MockNetworkPath(
+          InstallerNetworkPathSnapshot(isSatisfied: true, isExpensive: false, isConstrained: false)),
+        freeSpace: MockFreeSpace(bytes: 8_000_000_000),
+        keepAwake: MockKeepAwake()
+      )
+      await controller.start(requiredBytes: 100, downloader: MockPrefetchDownloader())
+      try await controller.waitUntilVerified()
+
+      await controller.reportVerifying()
+      await controller.reportDownload(completed: 1, total: 2)
+
+      let state = await controller.currentState()
+      XCTAssertEqual(state, .verified)
+    }
+
+    func testAWatcherThatStopsLeavesTheDownloadRunning() async throws {
+      let payload = try pinnedPayload(Data("payload".utf8))
+      let release = DispatchSemaphore(value: 0)
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "prefetch-watch-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let orchestrator = PayloadPrefetchOrchestrator(
+        makeNetwork: {
+          MockNetworkPath(
+            InstallerNetworkPathSnapshot(
+              isSatisfied: true, isExpensive: false, isConstrained: false))
+        },
+        makeKeepAwake: { MockKeepAwake() },
+        makeFreeSpace: { _ in MockFreeSpace(bytes: 8_000_000_000) },
+        matchesPinned: { _, _ in false },
+        requiredFreeBytes: { VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: $0) },
+        stage: { artifact, directory, _ in
+          await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+              release.wait()
+              continuation.resume()
+            }
+          }
+          let file = directory.appendingPathComponent(artifact.fileName)
+          try Data("payload".utf8).write(to: file)
+          return StagedInstallerArtifact(artifact: artifact, fileURL: file, reusedExistingFile: false)
+        }
+      )
+      orchestrator.begin(
+        payload: StagedInstallerArtifact(
+          artifact: payload, fileURL: root.appendingPathComponent(payload.fileName),
+          reusedExistingFile: false))
+
+      let watcher = Task { try await orchestrator.waitUntilVerified { _ in } }
+      try await Task.sleep(for: .milliseconds(50))
+      watcher.cancel()
+      do {
+        try await watcher.value
+        XCTFail("A cancelled watcher must stop waiting")
+      } catch is CancellationError {}
+
+      release.signal()
+      try await orchestrator.waitUntilVerified { _ in }
+      XCTAssertEqual(orchestrator.currentState(), .verified)
+    }
+
     func testACancelledHashCannotPublishVerified() async throws {
       let payload = try pinnedPayload(Data("payload".utf8))
       let entered = DispatchSemaphore(value: 0)

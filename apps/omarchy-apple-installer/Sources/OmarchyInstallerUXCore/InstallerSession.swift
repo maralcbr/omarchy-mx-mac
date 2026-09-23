@@ -96,6 +96,7 @@
     /// the same payload, so the download keeps going across it.
     private var prefetchID = UUID()
     private var isObservingPrefetch = false
+    private var prefetchWatcher: Task<Void, Never>?
 
     public init(environment: any InstallerEnvironment) {
       self.environment = environment
@@ -645,7 +646,7 @@
       isObservingPrefetch = true
       let currentPrefetch = UUID()
       prefetchID = currentPrefetch
-      Task { @MainActor in
+      prefetchWatcher = Task { @MainActor in
         defer {
           if self.prefetchID == currentPrefetch { self.isObservingPrefetch = false }
         }
@@ -668,6 +669,8 @@
     }
 
     private func forgetPrefetchWatcher() {
+      prefetchWatcher?.cancel()
+      prefetchWatcher = nil
       prefetchID = UUID()
       isObservingPrefetch = false
       prefetchState = environment.payloadPrefetchRequired ? .idle : .verified
