@@ -96,6 +96,7 @@
     /// the same payload, so the download keeps going across it.
     private var prefetchID = UUID()
     private var isObservingPrefetch = false
+    private var prefetchDigest: String?
 
     public init(environment: any InstallerEnvironment) {
       self.environment = environment
@@ -249,9 +250,10 @@
             }
           lastPrepared = (plan, lastUpdate)
           phase = hold ? .planPrepared(plan, lastUpdate) : .planReview(plan, acknowledged: false)
-          if isReplanning && environment.payloadPrefetchRequired {
-            // The kept download may have been replaced if the catalog moved.
-            prefetchState = environment.payloadPrefetchState
+          if isReplanning && environment.plannedPayloadDigest != prefetchDigest {
+            // The catalog moved during the re-plan: drop the old watcher so
+            // none of its results can count for the new payload.
+            forgetPrefetchWatcher()
           }
           startPrefetchIfNeeded()
         case .existingInstallChoice(let options):
@@ -641,6 +643,7 @@
       isObservingPrefetch = true
       let currentPrefetch = UUID()
       prefetchID = currentPrefetch
+      prefetchDigest = environment.plannedPayloadDigest
       Task { @MainActor in
         defer {
           if self.prefetchID == currentPrefetch { self.isObservingPrefetch = false }
@@ -661,10 +664,15 @@
       }
     }
 
-    private func stopPrefetch() {
+    private func forgetPrefetchWatcher() {
       prefetchID = UUID()
       isObservingPrefetch = false
+      prefetchDigest = nil
       prefetchState = environment.payloadPrefetchRequired ? .idle : .verified
+    }
+
+    private func stopPrefetch() {
+      forgetPrefetchWatcher()
       environment.cancelPayloadPrefetch()
     }
 

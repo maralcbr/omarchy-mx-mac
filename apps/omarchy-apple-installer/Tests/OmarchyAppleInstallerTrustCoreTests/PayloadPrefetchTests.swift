@@ -299,6 +299,46 @@
         try Data(contentsOf: root.appendingPathComponent("second.bin")), Data("second.bin".utf8))
     }
 
+    func testACancelledHashCannotPublishVerified() async throws {
+      let payload = try pinnedPayload(Data("payload".utf8))
+      let entered = DispatchSemaphore(value: 0)
+      let release = DispatchSemaphore(value: 0)
+      let orchestrator = PayloadPrefetchOrchestrator(
+        makeNetwork: {
+          MockNetworkPath(
+            InstallerNetworkPathSnapshot(
+              isSatisfied: true, isExpensive: false, isConstrained: false))
+        },
+        makeKeepAwake: { MockKeepAwake() },
+        makeFreeSpace: { _ in MockFreeSpace(bytes: 8_000_000_000) },
+        matchesPinned: { _, _ in
+          entered.signal()
+          release.wait()
+          return true
+        },
+        requiredFreeBytes: { VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: $0) },
+        stage: { _, _, _ in throw CancellationError() }
+      )
+      orchestrator.begin(
+        payload: StagedInstallerArtifact(
+          artifact: payload,
+          fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(
+            "hash-race-\(UUID().uuidString).bin"),
+          reusedExistingFile: false))
+      await withCheckedContinuation { continuation in
+        DispatchQueue.global().async {
+          entered.wait()
+          continuation.resume()
+        }
+      }
+
+      orchestrator.cancel()
+      release.signal()
+      try await Task.sleep(for: .milliseconds(100))
+
+      XCTAssertEqual(orchestrator.currentState(), .idle)
+    }
+
     private func pinnedPayload(_ data: Data, fileName: String = "os.bin") throws
       -> PinnedInstallerArtifact
     {

@@ -217,12 +217,41 @@
       session.continueToPlanReview()
       let second = OperationGate()
       environment.prefetchGate = second
-      environment.payloadPrefetchState = .idle
+      environment.plannedPayloadDigest = "payload-b"
       await session.replan(omarchyBytes: 200_000_000_000)
 
       await second.waitUntilEntered()
       XCTAssertNotEqual(session.prefetchState, .verified)
       XCTAssertEqual(environment.prefetchStartCount, 2)
+      session.setAcknowledged(true)
+      session.approve()
+      XCTAssertFalse(session.canStartInstallation)
+
+      await second.release()
+      await waitUntil { session.prefetchState == .verified }
+      XCTAssertTrue(session.canStartInstallation)
+    }
+
+    func testTheOldDownloadCannotVerifyAPayloadTheCatalogReplaced() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.payloadPrefetchRequired = true
+      let first = OperationGate()
+      environment.prefetchGate = first
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      await first.waitUntilEntered()
+      session.continueToPlanReview()
+
+      let second = OperationGate()
+      environment.prefetchGate = second
+      environment.plannedPayloadDigest = "payload-b"
+      await session.replan(omarchyBytes: 200_000_000_000)
+      await second.waitUntilEntered()
+
+      await first.release()
+      try await Task.sleep(for: .milliseconds(50))
+      XCTAssertNotEqual(session.prefetchState, .verified)
       session.setAcknowledged(true)
       session.approve()
       XCTAssertFalse(session.canStartInstallation)
@@ -882,6 +911,7 @@
     private(set) var prefetchStartCount = 0
     private(set) var prefetchCancelCount = 0
     var payloadPrefetchState: PayloadPrefetchState = .idle
+    var plannedPayloadDigest: String? = "payload-a"
 
     func preparePlan(
       omarchyBytes: UInt64?,
