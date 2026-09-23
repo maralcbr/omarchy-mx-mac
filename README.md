@@ -15,26 +15,22 @@ Omarchy 4 (Quattro) is the maintained release.
 
 | What you have | What to do |
 | --- | --- |
-| A Mac with no Omarchy on it | Download the app below, choose **Stable** in *Release Channel*, and install. Run `omarchy update` afterwards. |
-| A Mac you want on the Aurora kernel | Same app, choose **RC** in *Release Channel*. |
+| A MacBook Pro 14" M1 Pro or 16" M2 Max with no Omarchy on it | Download the app below and install; it opens on **Stable**. Run `omarchy update` afterwards. |
+| Any other Mac | Not admitted by the current image; the app refuses it before touching the disk. |
 | An existing Omarchy 4 install | Run `omarchy update`. |
 | An existing Omarchy 3 install | Run `omarchy update`. It moves you to Omarchy 4. |
 
 > [!NOTE]
-> **Stable vs RC is a kernel choice, not a quality ladder.** Stable installs the
-> Asahi Linux kernel; its package candidate passed a native ARM64 VM
-> installation, recovery, reboot, all 23 optional application installs, and
-> completed-installer rerun checks. Hardware support follows Asahi Linux support
-> for each model.
+> **Stable and RC install the same image today.** On 2026-09-23 the RC image
+> (`os-v4.0.3-mac.5.20260923-rc`: Aurora kernel, Limine boot menu) was promoted
+> to Stable. The channels now differ only in the kernel lane the Mac follows
+> afterwards. The Aurora kernel (`aurora-silicon/linux`) is pinned to a commit
+> qualified on the 14-inch M1 Pro and the 16-inch M2 Max, and the image admits
+> only those two models.
 >
-> RC installs the Aurora kernel (`aurora-silicon/linux`), pinned to a commit
-> qualified on real hardware. That qualification was done on the 14-inch M1 Pro
-> and the 16-inch M2 Max; other models are untested rather than excluded, so try
-> RC on yours and report what you find.
->
-> A Mac keeps the kernel family it was installed with: an Asahi Mac stays on
-> Asahi, and an Aurora Mac can move only between the Aurora Stable and RC lanes.
-> Pick the channel at install time.
+> A Mac keeps the kernel family it was installed with: a Mac installed from the
+> earlier Asahi stable image stays on Asahi, and an Aurora Mac can move only
+> between the Aurora Stable and RC lanes.
 
 <details>
 <summary>Version numbers</summary>
@@ -44,14 +40,14 @@ Two things carry versions here, and they do not move together:
 - **Packages** — the current stable version is `4.0.4-mac.1`. This is what
   `omarchy update` gives you, and it advances with every release.
 - **Fresh-install images** — what the macOS app writes to disk. Currently
-  `4.0.3-mac.1` (Stable, Asahi kernel) and `4.0.3-mac.4` (RC, Aurora kernel).
+  `4.0.3-mac.5` on both channels (Aurora kernel, Limine).
   Each image is rebuilt and re-qualified only when it needs to be, so images
   trail the package version. The first `omarchy update` after an install closes
   the gap.
 
 The `-mac.N` suffix counts Mac image builds of one upstream release; it does not
-name a channel or a kernel. `-mac.1` (Stable) and `-mac.4` (RC) are both
-upstream Omarchy 4.0.3. A higher suffix is a later Mac build, not a newer
+name a channel or a kernel. `-mac.1` (the earlier Asahi Stable image) and
+`-mac.5` are both upstream Omarchy 4.0.3. A higher suffix is a later Mac build, not a newer
 Omarchy.
 
 Omarchy `3.8.4-mac.4` is the last Omarchy 3 release. It is no longer developed;
@@ -66,9 +62,10 @@ from Applications.
 
 **[Download Omarchy MX Mac Installer for macOS](https://downloads.aicodelabs.com.au/installer/stable/Omarchy-MX-Mac-Installer.pkg)**
 
-That link always serves the current installer (2.0.7 today), signed with
-Developer ID, notarized by Apple, and stapled. Choose **Stable** or **Release
-candidate** from *Release Channel* in the menu bar before installing. It fetches the latest signed release from
+That link always serves the current installer (2.0.9 today), signed with
+Developer ID, notarized by Apple, and stapled. It opens on **Stable** at every
+launch; choose **Release candidate** from *Release Channel* in the menu bar
+before installing to follow the RC kernel lane instead. It fetches the latest signed release from
 the selected channel each time you prepare an installation. Matching cached files are verified and
 reused instead of downloaded again. The existing installation screens remain the
 same, and the privileged worker runs only for the installation session.
@@ -147,10 +144,11 @@ available.
 
 ## Release Details
 
-The **Release candidate** channel currently installs signed image
-`os-v4.0.3-mac.4.20260921-rc` (Omarchy 4.0.3, Aurora); **Stable** installs
-`os-v4.0.3-mac.1.20260913` (Omarchy 4.0.3, Asahi), which the rest of this section
-describes. The app follows the latest signed catalog for the channel you select;
+Both channels currently install signed image
+`os-v4.0.3-mac.5.20260923-rc` (Omarchy 4.0.3, Aurora, Limine), promoted from
+Release candidate to **Stable** on 2026-09-23. The rest of this section describes
+the earlier Stable image, `os-v4.0.3-mac.1.20260913` (Omarchy 4.0.3, Asahi), which
+Macs installed before then still run. The app follows the latest signed catalog for the channel you select;
 cached files are reused only when their size and SHA-256 match that catalog.
 
 Omarchy 4.0.3 brings upstream security fixes and AI integrations, Apple Silicon

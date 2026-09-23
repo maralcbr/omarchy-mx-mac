@@ -17,9 +17,10 @@ cat /proc/device-tree/model
 tr '\0' '\n' < /proc/device-tree/compatible
 ```
 
-The catalog admits 33 identifiers today, covering the M1, M1 Pro, M1 Max, M1 Ultra, M2, M2
-Pro, M2 Max and M2 Ultra MacBook Air, MacBook Pro, Mac mini, Mac Studio and iMac, and the M3
-machines the current engine handles. The Mac Pro is not among them. An identifier that is not in the catalog is
+The catalog on both channels admits two identifiers today: the MacBook Pro 14" M1 Pro
+(`apple,j314s`) and the MacBook Pro 16" M2 Max (`apple,j416c`), the two Macs the Aurora
+kernel was qualified on. The earlier Asahi stable image admitted 22; it is kept for
+rollback but no longer offered. An identifier that is not in the catalog is
 refused before anything on the disk is touched, which is the intended behaviour rather than
 a gap to work around.
 

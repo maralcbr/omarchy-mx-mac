@@ -20,14 +20,15 @@ It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). E
 | --- | --- |
 | Omarchy release | 4.0.3, on both channels |
 | Installer app | 2.0.9 (opens on Stable at every launch; choose RC from the Release Channel menu) |
-| Stable channel | `os-v4.0.3-mac.1.20260913`, Asahi kernel |
-| Release candidate channel | `os-v4.0.3-mac.5.20260923-rc`, Aurora kernel, Limine boot menu |
+| Stable channel | `os-v4.0.3-mac.5.20260923-rc`, Aurora kernel, Limine boot menu (promoted from `rc` on 2026-09-23) |
+| Release candidate channel | `os-v4.0.3-mac.5.20260923-rc`, the same image |
+| Macs a new install admits | MacBook Pro 14" M1 Pro (`apple,j314s`) and 16" M2 Max (`apple,j416c`) |
 | Reference Mac | MacBook Pro 14" 2021, M1 Pro (`apple,j314s`) |
 | Also exercised | MacBook Pro 16" 2023, M2 Max (`apple,j416c`), five displays |
 
-Apple Silicon support depends on the Asahi Linux project and, for the `rc` channel, on the Aurora kernel. See [Hardware support]({{page:hardware}}) before installing.
+Apple Silicon support depends on the Asahi Linux project and the Aurora kernel. See [Hardware support]({{page:hardware}}) before installing.
 
-The two channels are at different points in the fork's history: `rc` comes from the current image pipeline, `stable` from an older one. This manual describes what each channel installs today and says so where they differ. Work that is decided but not yet in either channel is on [Decided, not yet shipped]({{page:roadmap}}), never stated here as if it shipped.
+Both channels install the same image today. Macs installed from the earlier Asahi stable image keep the Asahi kernel, and this manual says so where that differs. Work that is decided but not yet in either channel is on [Decided, not yet shipped]({{page:roadmap}}), never stated here as if it shipped.
 
 ## Where to start
 

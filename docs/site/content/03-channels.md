@@ -8,11 +8,11 @@ A channel decides two things: which signed image a new install writes, and which
 
 | Channel | What a new install gets today | Who it is for |
 | --- | --- | --- |
-| `stable` | `os-v4.0.3-mac.1.20260913`, the Asahi kernel | Daily drivers that do not need more than one external display |
-| `rc` | `os-v4.0.3-mac.4.20260921-rc`, the Aurora kernel | Macs that need external displays over USB4, the camera or newer hardware support |
+| `stable` | `os-v4.0.3-mac.5.20260923-rc`, the Aurora kernel on the stable lane | Daily drivers |
+| `rc` | `os-v4.0.3-mac.5.20260923-rc`, the Aurora kernel on the release-candidate pin | Macs that should take new Aurora kernels first |
 
 <div class="note" markdown="1">
-The two channels are at different points in the fork's history. `rc` is built by the current image pipeline. `stable` is the older payload from September 13 and predates several of the packages described in [How an install works]({{page:install-flow}}). A stable Mac picks those up on its first `omarchy update`, not during the install.
+On 2026-09-23 the `rc` image was promoted to `stable`, so both channels write the same image and differ only in the kernel lane the Mac follows afterwards. The image admits two Macs, the 14-inch M1 Pro (`apple,j314s`) and the 16-inch M2 Max (`apple,j416c`); the installer refuses any other model before touching the disk. The earlier Asahi stable image, `os-v4.0.3-mac.1.20260913`, is kept for rollback but is no longer offered.
 </div>
 
 ## Kernels
@@ -23,8 +23,8 @@ An installed Mac is therefore in one of three states, and the updater refuses an
 
 | Channel | Kernel | Meaning |
 | --- | --- | --- |
-| `stable` | `linux-asahi` | A legacy Asahi Mac, including everything installed from the current stable image |
-| `stable` | `linux-aurora` | An Aurora Mac on the pinned stable lane |
+| `stable` | `linux-asahi` | A legacy Asahi Mac, installed from the stable image before 2026-09-23 |
+| `stable` | `linux-aurora` | An Aurora Mac on the pinned stable lane, including new Stable installs |
 | `rc` | `linux-aurora` | An Aurora Mac on the release-candidate pin |
 
 The fork is moving the stable channel onto Aurora and retiring the Asahi kernel once Aurora has had enough hardware time. Existing Macs are migrated rather than stranded. Until that finishes, "stable" describes a channel, not a single kernel.
@@ -33,11 +33,7 @@ There is a third Aurora lane, `edge`, which floats on the upstream branch head. 
 
 ## Picking a channel
 
-Choose explicitly in the installer's **Release Channel** menu before installing, rather than relying on what it shows first. Choosing saves the preference, which is what the download follows. The same preference can be set beforehand:
-
-```bash
-defaults write com.omarchy.mx.installer ReleaseChannel stable
-```
+The installer opens on **Stable** at every launch. To install on `rc`, choose it in the **Release Channel** menu before the download starts; the choice lasts until the app quits.
 
 **Choose at install time, because the kernel family stays.** A Mac installed on the Asahi kernel stays on it, and the switch command refuses: moving between kernel families is not available. A Mac on the Aurora kernel can move between the Aurora lanes, `stable` and `rc`, with the ordinary Omarchy command, which records the request, takes the update lock and runs an update that moves the kernel and proves it boots:
 

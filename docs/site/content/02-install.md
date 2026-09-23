@@ -36,7 +36,7 @@ Installers older than 2.0.0 were pinned to a single Omarchy release and stop wor
 
 1. Open the `.pkg`. It installs **Omarchy MX Mac Installer** into `/Applications` together with a privileged helper that performs the disk work.
 2. Open the app. It fetches the signed catalog for the selected channel and checks the catalog signature, the sequence number and the SHA-256 of every file it downloads.
-3. Choose a channel explicitly in the **Release Channel** menu, even if the banner already names the one you want: `rc` for the Aurora kernel and its external-display support, `stable` for the Asahi kernel. Choosing saves it, and the kernel family is fixed at install. See [Channels and updates]({{page:channels}}).
+3. The app opens on **Stable**. Both channels write the same Aurora image today; choose **RC** in the **Release Channel** menu only if the Mac should follow the release-candidate kernel pin. The choice lasts until the app quits. See [Channels and updates]({{page:channels}}).
 4. Choose how much space to give Omarchy. The APFS container is shrunk and three partitions are created: an EFI system partition, a boot partition and a root partition that grows into the free space.
 5. Choose whether to encrypt the root file system. Encryption is set up on the first Linux boot and asks for a passphrase on every boot afterwards.
 6. Follow the prompt to complete the boot policy step in recoveryOS. This is Apple's own step and requires your macOS password.

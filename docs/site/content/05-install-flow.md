@@ -37,7 +37,7 @@ Before it can reach a channel, the image is installed and booted in KVM on a tes
 
 ## First boot
 
-`omarchy-mac-boot` is the package that owns everything Apple-specific about booting. It is in the `rc` image. The current `stable` image predates it and carries its two predecessors, `omarchy-apple-boot` and `omarchy-first-boot`, which it replaces on the Mac's first `omarchy update`.
+`omarchy-mac-boot` is the package that owns everything Apple-specific about booting. It is in the image both channels install. Macs installed from the earlier Asahi stable image carry its two predecessors, `omarchy-apple-boot` and `omarchy-first-boot`, which it replaces on the Mac's first `omarchy update`.
 
 On the first boot it:
 

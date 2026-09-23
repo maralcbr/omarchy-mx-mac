@@ -12,7 +12,7 @@ Decided 2026-09-22, after comparing the two on hardware. U-Boot loads Limine, `l
 
 ## Aurora kernel in stable
 
-`rc` carries the pinned Aurora kernel today. Once it has enough hardware time, the Aurora lane is promoted into `stable` and the Asahi lane retired. Existing Macs are migrated, not stranded. Affects [Channels and updates]({{page:channels}}).
+New installs on both channels get the Aurora kernel since the 2026-09-23 promotion. Still to do: migrate Macs installed from the earlier Asahi stable image and retire the Asahi lane. Existing Macs are migrated, not stranded. Affects [Channels and updates]({{page:channels}}).
 
 ## Portable installer
 
