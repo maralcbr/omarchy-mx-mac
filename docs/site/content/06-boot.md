@@ -4,7 +4,7 @@ description: From Apple firmware to the Omarchy root, and the three kernel lanes
 section: How it is built
 ---
 
-An Apple Silicon Mac has no UEFI of its own. Everything up to U-Boot comes from the Asahi Linux project, and the fork keeps it exactly as Asahi ships it. Omarchy's part starts at the boot loader.
+An Apple Silicon Mac has no UEFI of its own. Everything up to U-Boot comes from the Asahi Linux project. The fork uses it as Asahi ships it, except that U-Boot is built with a silent console. Omarchy's part starts at the boot loader, Limine.
 
 {{diagram:boot-chain}}
 
