@@ -1,6 +1,7 @@
 # Omarchy core package list for Apple Silicon systems running Asahi Linux.
 # Derived from the default package set with the Asahi platform requirements.
 
+alsa-ucm-conf-asahi
 asahi-desktop-meta
 asahi-fwextract
 linux-aurora
