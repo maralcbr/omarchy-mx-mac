@@ -24,7 +24,7 @@ An installed Mac is therefore in one of three states, and the updater refuses an
 | Channel | Kernel | Meaning |
 | --- | --- | --- |
 | `stable` | `linux-asahi` | A legacy Asahi Mac, installed from the stable image before 2026-09-23 |
-| `stable` | `linux-aurora` | An Aurora Mac on the pinned stable lane, including new Stable installs |
+| `stable` | `linux-aurora` | An Aurora Mac on the stable lane, which carries rc's hardware-qualified kernel; includes new Stable installs |
 | `rc` | `linux-aurora` | An Aurora Mac on the release-candidate pin |
 
 The fork is moving the stable channel onto Aurora and retiring the Asahi kernel once Aurora has had enough hardware time. Existing Macs are migrated rather than stranded. Until that finishes, "stable" describes a channel, not a single kernel.

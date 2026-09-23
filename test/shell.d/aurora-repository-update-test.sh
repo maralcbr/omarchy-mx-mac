@@ -34,8 +34,8 @@ grep -Exq 'descriptor_sha256=[0-9a-f]{64}' "$shipped_stable_pin" || fail "the ru
 grep -Exq "predecessors=($stable_ere( $stable_ere)*)?" "$shipped_stable_pin" || fail "the runtime lists the releases the stable pin replaces"
 (( $(grep -c '^tag=' "$shipped_stable_pin") == 1 && $(grep -c '^descriptor_sha256=' "$shipped_stable_pin") == 1 )) ||
   fail "the runtime pins exactly one stable Aurora release"
-grep -Fq 'Placeholder until an aurora-stable build exists' "$shipped_stable_pin" ||
-  fail "the stable pin is commented as a placeholder until a stable build exists"
+grep -Fq "Stable follows rc's hardware-qualified kernel" "$shipped_stable_pin" ||
+  fail "the stable pin is commented as following rc's qualified kernel"
 pass "the stable Aurora release is pinned in the runtime"
 
 test_tmp=$(mktemp -d)

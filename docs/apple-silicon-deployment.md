@@ -707,20 +707,22 @@ product produces the same bytes it did before this lane existed.
 
 Steps 2 through 4 need the owner's authorization, like every other publication.
 
-### The stable lane and what it lacks
+### The stable lane follows rc's qualified kernel
 
-Decided 2026-09-20 (owner): the `stable` kernel lane is pinned to
-`aurora-silicon/linux` `aurora-stable` at `77cb8f24` (a 7.1.9 Asahi base;
-recipe `pkgbuilds/linux-aurora-stable` in `omarchy-pkgs`). That base has no
-Thunderbolt/USB4 (`USB4_APPLE_SOC`, `RESET_APPLE_CIO`) and no `dcpext2`/`dcpext3`,
-so on the stable lane an M2 Max has **no USB4 devices and at most two external
-displays** once the first `aurora-stable-packages` release exists. Until then
-`default/aurora-stable-release` names rc's qualified kernel, and a stable Mac
-runs it. `rc` and `edge` carry them. Once the stable build lands, a
-display-count check on a stable Mac is expected to show that limit; it is not a
-regression. The pin tool
-`bin/mac-aurora-pin` (omarchy-pkgs) moves `stable` the day `aurora-stable`
-advances; the recipe and this note change together.
+Decided 2026-09-23 (owner), replacing the 2026-09-20 pin on `aurora-stable`
+`77cb8f24`, a 7.1.9 base without USB4 or `dcpext2`/`dcpext3`: the `stable` kernel
+lane carries rc's hardware-qualified kernel, so a stable M2 Max keeps USB4 and
+all its external displays. Two places hold it:
+
+- `default/aurora-stable-release` (this repository) names the release stable
+  Macs install, today rc's qualified `aurora-packages-3caea469`
+  (`7.1.12.aurora2-7`, aurora-silicon/linux `2439016d`).
+- `pkgbuilds/linux-aurora-stable` (omarchy-pkgs) builds the same commit, config
+  and Rust toolchain. `bin/mac-aurora-pin stable` promotes the rc recipe's pin
+  into it; it no longer reads the `aurora-stable` branch.
+
+Promote only a pin rc has qualified on hardware, then move
+`default/aurora-stable-release` to it (rc's release or a stable build of it).
 
 ### Kernel builds run only on new inputs
 

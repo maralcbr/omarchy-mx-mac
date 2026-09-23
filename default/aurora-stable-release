@@ -1,6 +1,8 @@
-# Placeholder until an aurora-stable build exists. This is today's qualified rc
-# tag and AURORA descriptor digest; a real stable pin uses
-# aurora-stable-packages-<commit>. Lane switches select that repository; they
+# Stable follows rc's hardware-qualified kernel (owner decision 2026-09-23), so it
+# keeps USB4 and every external display. This names rc's qualified release and
+# its AURORA descriptor digest. A stable build of the same promoted pin
+# (linux-aurora-stable in omarchy-pkgs) publishes aurora-stable-packages-<commit>;
+# both forms are accepted. Lane switches select that repository; they
 # do not compare pacman versions across lanes. See INTERFACES §2.
 tag=aurora-packages-3caea4693df7c472d57809b5c6b05b07579c1f7a
 descriptor_sha256=ad4fc6018dc2d366705d9205090d9598a4cd517cfd5c0c83a79436c4e6616898
