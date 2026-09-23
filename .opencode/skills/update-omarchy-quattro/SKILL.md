@@ -29,12 +29,16 @@ restore the former dual-track `main` plus alpha `quattro` workflow.
 
 Do not proceed past a failed invariant.
 
-- Target only validated `aarch64` Apple hardware, currently `apple,j314s`.
-- Preserve `linux-asahi`, GRUB, `/boot/vmlinuz-linux-asahi`, `[asahi-alarm]`,
-  `[core]`, `[extra]`, `[alarm]`, `[aur]`, NetworkManager with `wifi.backend=iwd`,
+- Target only validated `aarch64` Apple hardware, currently `apple,j314s` and
+  `apple,j416c`.
+- Preserve each Mac's own kernel and boot loader: `linux-aurora` with Limine
+  (owned by `omarchy-mac-boot`) on current installs, `linux-asahi` with GRUB and
+  `/boot/vmlinuz-linux-asahi` on legacy Asahi Macs. Preserve `[omarchy-aurora]`,
+  `[asahi-alarm]`, `[core]`, `[extra]`, `[alarm]`, `[aur]`, NetworkManager with
+  `wifi.backend=iwd`,
   no disk swap, and disabled zswap. Omarchy's swap on zram and its reclaim
   sysctls are allowed; they only configure memory.
-- Never activate x86 kernels, Limine, mkinitcpio boot policy, NVIDIA/Intel GPU
+- Never activate x86 kernels, upstream's x86 Limine boot policy, mkinitcpio boot policy, NVIDIA/Intel GPU
   policy, multilib, zswap, systemd-oomd tuning, or USB autosuspend on Asahi.
 - Review every new migration and explicitly mark its Asahi disposition as
   `run`, `handled`, or `skipped`; unknown migrations fail closed.

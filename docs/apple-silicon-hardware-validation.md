@@ -33,10 +33,11 @@ known-good baseline.
 
 - Confirm `uname -m` reports `aarch64`.
 - Confirm `/proc/device-tree/compatible` identifies an Apple platform.
-- Record `uname -r`, the installed `linux-asahi`, `linux-asahi-headers`, and
-  `m1n1` versions, and `/var/lib/omarchy/asahi-quattro-release`.
+- Record `uname -r`, the installed kernel package and its headers
+  (`linux-aurora` on current installs, `linux-asahi` on legacy Asahi Macs), the
+  `m1n1` version, and `/var/lib/omarchy/asahi-quattro-release`.
 - Confirm the configured repositories include `asahi-alarm`, `core`, `extra`,
-  `alarm`, and `aur`.
+  `alarm`, and `aur`, plus `omarchy-aurora` on an Aurora Mac.
 - Compare the installed database with every non-comment entry in
   `install/omarchy-base-asahi.packages` and
   `install/omarchy-asahi-source.packages`; record any missing package exactly.
@@ -84,8 +85,10 @@ known-good baseline.
 - Run the Apple Silicon bundle updater in check-only mode and record its exact
   exit status and proposed release, if any.
 - Confirm no pending Omarchy migrations remain.
-- Record SHA-256 hashes for `/boot/vmlinuz-linux-asahi` and
-  `/boot/grub/grub.cfg` before a separately approved update test.
+- Record SHA-256 hashes of the kernel image and the boot loader configuration
+  before a separately approved update test: `/boot/vmlinuz-linux-asahi` and
+  `/boot/grub/grub.cfg` on a legacy GRUB Mac; the unified kernel image under the
+  ESP's `EFI/Linux/` and `limine.conf` on a Limine Mac.
 - If an update is later approved, verify the signed release identity, reboot,
   repeat this checklist, and explain every protected boot/package change.
 - **Snapshots:** `snapper list` shows a numbered snapshot for the update just
@@ -114,8 +117,9 @@ Most of the checklist can be run over SSH once the owner has logged in at the
 greeter. Run these after every boot that follows a kernel or boot-file change:
 
 - **Kernel and boot chain:** `uname -r` matches the installed kernel package, and
-  `sudo omarchy-apple-silicon-boot-check` passes (kernel image, initramfs, GRUB
-  entry, and m1n1 stage 2 rebuilt and compared byte for byte, read-only).
+  `sudo omarchy-apple-silicon-boot-check` passes (kernel image, initramfs, the
+  GRUB entry or Limine unified kernel image, and m1n1 stage 2 rebuilt and
+  compared byte for byte, read-only).
 - **Services:** `systemctl --failed` is empty; `omarchy-vendor-firmware.service`
   finished in this boot.
 - **Displays:** read them from the user's session, not from the SSH session:

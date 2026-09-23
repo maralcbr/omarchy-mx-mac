@@ -11,10 +11,13 @@ Linux/x86 workflow (`.github/workflows/release.yml`) keeps its existing
 
 ## Two identities
 
-| | Value | Where it is set |
+Values are examples from the first release under this scheme; the current
+installer is 2.0.9 (build 26) and the current OS tag `os-v4.0.3-mac.5.20260923-rc`.
+
+| | Example | Where it is set |
 | --- | --- | --- |
 | Installer version | `2.0.0` | `CFBundleShortVersionString` via `OMARCHY_APP_VERSION`, and `pkgbuild --version` |
-| Installer build | integer, keeps counting (next `20`) | `CFBundleVersion` via `OMARCHY_APP_BUILD_NUMBER` |
+| Installer build | integer, keeps counting | `CFBundleVersion` via `OMARCHY_APP_BUILD_NUMBER` |
 | Installer tag | `installer-v2.0.0` | git tag, matching `^installer-v[0-9]+\.[0-9]+\.[0-9]+$` |
 | OS release tag | `os-v4.0.2-mac.1.20260902[.N]` | git tag and the R2 prefix `releases/<tag>/` |
 | Catalog `evidenceRevision` | the OS tag without `os-v` | `evidence_revision` in the release inputs |

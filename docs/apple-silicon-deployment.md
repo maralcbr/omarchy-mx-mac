@@ -15,8 +15,8 @@ This document is the sequence of commands.
 | Repository | Ships | Pinned by |
 | --- | --- | --- |
 | `omarchy-mx-mac` (this) | the runtime pair `omarchy-dev` / `omarchy-settings-dev`, the installer app, the acceptance harness, release tooling | `omarchy-pkgs/pkgbuilds/omarchy-source.conf` names the runtime source commit |
-| `omarchy-pkgs` (branch `asahi-quattro`) | the 63-package `[omarchy]` repository and the 6-package runtime bundle, as immutable GitHub releases and signed release channels | `omarchy-iso/builder/arm-package-snapshots.conf`, `configs/airootfs/…/pacman-online-installed-arm.conf` |
-| `omarchy-iso` | the OS payload (`omarchy-<date>-aarch64-apple-silicon-asahi-os-package.zip`) | `apps/omarchy-apple-installer/scripts/release-inputs.template.json`, `Engine/installer_data.json` |
+| `omarchy-pkgs` (branch `asahi-quattro`) | the `[omarchy]` repository, the runtime bundle and the Aurora kernel lanes as immutable GitHub releases and signed channels; the fresh-install image as `mac-image-*` releases (`release-mac-image.yml`) | the promoted package set and runtime channel the image build resolves |
+| `omarchy-iso` | retired: the OS payload of images before 2026-09-22 | — |
 
 Artifacts, in the order they are produced:
 
@@ -33,8 +33,9 @@ Artifacts, in the order they are produced:
 | channel `channels/rc` or `channels/stable` | R2, mutable | `publish-channels os-promote` |
 | installer `installer/<version>/` and `installer/rc|stable/` | R2 | `publish-channels app-publish` |
 
-Machines: **this Mac (M4)** runs the release command, builds the payload and
-publishes to R2; **GitHub** builds candidates and publishes the channels;
+Machines: **this Mac (M4)** runs the release command, stages the image release
+and publishes to R2; **GitHub** builds candidates, the Mac images and the
+channels;
 **the M1 Pro** runs VM acceptance and the package promotion (acceptance needs
 KVM, which GitHub's ARM runners lack) — grant yourself access with the
 LAN-only helper described in the workspace `AGENTS.md`. Anything with `bash`,
@@ -84,7 +85,8 @@ git worktree add --detach ../pkgs-release origin/asahi-quattro && cd ../pkgs-rel
 
 It approves the `asahi-quattro-release` gates itself, only on its own runs and
 only after checking what each will publish, then prints one report. It does
-not build the OS payload or touch the installer catalog (full-lane steps 5–7).
+not build the OS image or touch the installer catalog (the
+[Mac image lane](#mac-image-lane-a-new-fresh-install-image)).
 
 After a full path, commit the acceptance record it wrote (`acceptance.txt`,
 beside the evidence it copied to `~/vm-evidence/<candidate tag>/<run-id>/`) to
@@ -483,12 +485,13 @@ under [The Aurora lane](#the-aurora-lane), which describe the retired
    All seven `ok` lines must pass: signature and provenance, unpacking, member
    digests, the image's initramfs hooks, plain first boot, encrypted first boot,
    second boot through `sd-encrypt`. The evidence is exported to
-   `~/vm-evidence/<run-id>/`. The VM boots a generic kernel, so it does not
+   `~/vm-evidence/mac-image-<run-id>/`. The VM boots a generic kernel, so it does not
    qualify Aurora, m1n1 or the Apple boot chain.
-3. **Stage the release** (this Mac). Download the release assets, reassemble
+3. **Stage the release** (this Mac, from `apps/omarchy-apple-installer`; the
+   commands below are relative to it). Download the release assets, reassemble
    the zip and check it against `PROVENANCE`. Write `inputs.json`: payload name,
-   engine fields (`engine_name`, `engine_version`, `asahi_installer_*`,
-   `downstream_revision`), `device_identifiers`, `evidence_revision` and the
+   `metadata_name`, engine fields (`engine_name`, `engine_version`,
+   `asahi_installer_*`, `downstream_revision`), `device_identifiers`, `evidence_revision` and the
    `installer` minimum, latest and download URL. Then:
 
    ```bash
@@ -500,19 +503,21 @@ under [The Aurora lane](#the-aurora-lane), which describe the retired
      --assets-dir staged --inputs inputs.json --output catalog/catalog.json
    ```
 
-4. **Owner signs** `catalog/catalog.json` with `catalog-signing.swift
+4. **Tag** `os-v<version>.<date>-rc` on the mx commit the installer was built
+   from and push it; `publish-r2` refuses an unpushed tag. Name the Omarchy
+   version the image carries: this image's tag says 4.0.3 but it carries the
+   4.0.4 runtime.
+5. **Owner signs** `catalog/catalog.json` with `catalog-signing.swift
    sign-keychain` (see [AGENTS.md](../AGENTS.md)). Then build the envelope:
    `scripts/publish-channels envelope --catalog catalog/catalog.json
    --signature catalog/catalog.json.sig --output catalog/catalog.signed.json`.
-5. **Publish and promote.** `scripts/publish-m1-release publish-r2 --dir staged
+6. **Publish and promote.** `scripts/publish-m1-release publish-r2 --dir staged
    --tag <tag> --bucket omarchy-releases --endpoint <R2 endpoint> --base-url
    <same> --catalog-dir catalog`, then `scripts/publish-channels os-promote --tag
    <tag> --to rc`, the alias with `--to rc-aurora --no-prune`, and, once
-   qualified, `--to stable --no-prune`. `stable` without `--no-prune` deletes the
-   older releases.
-6. **Tag** `os-v<version>.<date>-rc` on the mx commit the installer was built
-   from, and name the Omarchy version the image carries: this image's tag says
-   4.0.3 but it carries the 4.0.4 runtime.
+   qualified, `--to stable --no-prune`. Without `--no-prune`, a stable promotion
+   removes the release sets nothing references any more; referenced sets and the
+   previous stable tag stay.
 
 ## The runtime channel pointer
 
@@ -711,8 +716,9 @@ Thunderbolt/USB4 (`USB4_APPLE_SOC`, `RESET_APPLE_CIO`) and no `dcpext2`/`dcpext3
 so on the stable lane an M2 Max has **no USB4 devices and at most two external
 displays** once the first `aurora-stable-packages` release exists. Until then
 `default/aurora-stable-release` names rc's qualified kernel, and a stable Mac
-runs it. `rc` and `edge` carry them. A display-count check on a Mac running
-stable is expected to show that limit; it is not a regression. The pin tool
+runs it. `rc` and `edge` carry them. Once the stable build lands, a
+display-count check on a stable Mac is expected to show that limit; it is not a
+regression. The pin tool
 `bin/mac-aurora-pin` (omarchy-pkgs) moves `stable` the day `aurora-stable`
 advances; the recipe and this note change together.
 

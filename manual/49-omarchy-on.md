@@ -2,7 +2,9 @@
 
 ### Apple M1/M2 chips
 
-[Asahi Alarm](https://asahi-alarm.org/) is a version of Arch for Apple M1/M2 computers built on top of [Asahi Linux](https://asahilinux.org/). You can get Omarchy running on top of that with some effort. See [the user-driven guide](https://codeberg.org/malik-na/omarchy-mac).
+Omarchy MX Mac installs from macOS with a signed installer: see [the Omarchy MX Mac manual](https://maralcbr.github.io/omarchy-mx-mac/). The current image supports the MacBook Pro 14" M1 Pro and 16" M2 Max.
+
+[Asahi Alarm](https://asahi-alarm.org/) is a version of Arch for Apple M1/M2 computers built on top of [Asahi Linux](https://asahilinux.org/). For other models you can get Omarchy running on top of that with some effort. See [the user-driven guide](https://codeberg.org/malik-na/omarchy-mac).
 
 ### Apple Virtual Machine
 

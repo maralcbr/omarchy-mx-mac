@@ -66,8 +66,8 @@ Developer ID, notarized by Apple, and stapled. It opens on **Stable** at every
 launch; choose **Release candidate** from *Release Channel* in the menu bar
 before installing to follow the RC kernel lane instead. It fetches the latest signed release from
 the selected channel each time you prepare an installation. Matching cached files are verified and
-reused instead of downloaded again. The existing installation screens remain the
-same, and the privileged worker runs only for the installation session.
+reused instead of downloaded again. The package also installs the app's
+privileged helper, which performs the disk work.
 
 The owner confirmed an end-to-end installation on the M2 Max with an earlier
 installer and image. The current image, `os-v4.0.3-mac.5.20260923-rc`, passed VM
@@ -76,11 +76,11 @@ credential-free diagnostic logs across reboots in
 `~/Library/Logs/Omarchy MX Mac Installer/` and root-worker diagnostics in
 `/var/db/com.omarchy.mx.installer/diagnostics/`.
 
-After extracting the ZIP, you can verify the app with:
+You can verify the downloaded package before opening it with:
 
 ```bash
-codesign --verify --deep --strict ~/Downloads/"Omarchy MX Mac Installer.app"
-spctl -a -vv -t execute ~/Downloads/"Omarchy MX Mac Installer.app"
+pkgutil --check-signature ~/Downloads/Omarchy-MX-Mac-Installer.pkg
+spctl -a -vv -t install ~/Downloads/Omarchy-MX-Mac-Installer.pkg
 ```
 
 Gatekeeper should report `Notarized Developer ID`. The signing identity is
@@ -205,7 +205,8 @@ complete output and open a verified bug report with the commands above.
 
 - [Omarchy MX Mac manual](https://maralcbr.github.io/omarchy-mx-mac/)
 - [Latest product release and validation notes](https://github.com/maralcbr/omarchy-mx-mac/releases/latest)
-- [Current signed installer and package channel](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-35)
+- [Installer download (Stable)](https://downloads.aicodelabs.com.au/installer/stable/Omarchy-MX-Mac-Installer.pkg)
+- [Current runtime channel 56](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-56) and [package channel 13](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-channel-13)
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
 

@@ -11,7 +11,7 @@ The fork's rule is that a change lives as close to upstream as it can. Every lay
 | Desktop runtime | [omacom/omarchy](https://github.com/omacom/omarchy) | Fork merges upstream regularly. General fixes are sent upstream; Apple-specific code stays behind `omarchy-hw-apple-silicon`. |
 | Packages | [omacom/omarchy-pkgs](https://github.com/omacom/omarchy-pkgs) | aarch64 PKGBUILDs are contributed directly, as plain recipes with `arch=(aarch64)`. The fork's lanes, planner and image builder stay in the fork. |
 | Kernel | [aurora-silicon/linux](https://github.com/aurora-silicon/linux), branch `aurora-wip` | Pull requests from the fork's kernel tree. The first two, a display crossbar selector fix and a stale DisplayPort link fix, are merged. |
-| Boot, firmware, engine | [Asahi Linux](https://asahilinux.org) | Used unmodified: m1n1, U-Boot, the installer engine, `asahi-scripts`. |
+| Boot, firmware, engine | [Asahi Linux](https://asahilinux.org) | m1n1 and `asahi-scripts` used unmodified. U-Boot is built with a silent console. The installer engine is Asahi's installer repackaged with downstream patches (`v0.9.2-omarchy.17`). |
 | Compositor | [hyprwm/Hyprland](https://github.com/hyprwm/Hyprland), [hyprwm/aquamarine](https://github.com/hyprwm/aquamarine) | Issues and patches filed by the maintainer. |
 
 ## What stays in the fork

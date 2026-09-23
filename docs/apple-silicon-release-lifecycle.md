@@ -27,7 +27,7 @@ strings have not been retargeted yet. Retarget exactly these:
 `apps/omarchy-apple-installer/scripts/cutover-wizard`
 
 - `PAYLOAD_SOURCE="$REPO_DIR/../omarchy-iso/release/$PAYLOAD"` — replace
-  `../omarchy-iso/release/` with the `omarchy-mac-image` release artifact
+  `../omarchy-iso/release/` with the `mac-image-*` release artifact
   directory from `omarchy-pkgs`.
 
 `install/apple-silicon-platform-stack.json`
@@ -101,7 +101,7 @@ these are true:
 4. recovery, rollback, removal, and known-limitations text has been reviewed;
 5. the public object set has been fetched back and every hash/signature checked.
 
-Publish to the beta channel first (`publish-channels os-promote --to beta`),
+Publish to the rc channel first (`publish-channels os-promote --to rc`),
 and promote to stable only after the evidence above is complete. The top-level
 README already documents the macOS Omarchy installer → Asahi bridge → verified
 Apple media flow as the only supported installation path; at this gate it must

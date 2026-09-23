@@ -37,7 +37,7 @@ A candidate that passes is promoted byte-identically to `asahi-packages-stable-<
 
 ## One release command
 
-`bin/asahi-release` in omarchy-pkgs runs the whole path: plan, candidate, wait for acceptance, promote, runtime channel, image, stop at any gate that needs a human, and resume with the evidence. It refuses to publish an older build over a newer one, and the publisher checks the asset set before it marks a release complete.
+`bin/asahi-release` in omarchy-pkgs runs the package path: plan, candidate, wait for acceptance, promote and runtime channel, stopping at any gate that needs a human and resuming with the evidence. The fresh-install image is a separate lane: built by `release-mac-image.yml`, VM-accepted, then staged, signed by the owner and promoted by hand. It refuses to publish an older build over a newer one, and the publisher checks the asset set before it marks a release complete.
 
 There is a fast path too. It needs two things at once: the candidate rebuilt only runtime packages, and its package set is exactly what the live package channel already publishes, name, version and archive hash for every package. Then a new runtime channel is published in about fifteen minutes and nothing else moves. Anything else takes the full path, including a candidate whose set matches but which rebuilt a non-runtime package.
 

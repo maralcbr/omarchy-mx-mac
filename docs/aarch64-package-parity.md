@@ -1,5 +1,13 @@
 # x86_64 → aarch64 default package parity
 
+> Snapshot from the 2026-09-04 parity work, when every Apple Silicon Mac ran
+> `linux-asahi` and GRUB. Since 2026-09-23 new installs run `linux-aurora` from
+> `[omarchy-aurora]` and boot through Limine with snapper, so the kernel rows,
+> the repository order and the "Limine + snapper x86-only" group describe
+> legacy Asahi Macs only. See
+> [Channels and updates](site/content/03-channels.md) and
+> [Boot chain and kernels](site/content/06-boot.md).
+
 Every package in Omarchy's default install on x86_64, its aarch64 counterpart,
 which repository each side comes from, and why anything unusual is unusual.
 
