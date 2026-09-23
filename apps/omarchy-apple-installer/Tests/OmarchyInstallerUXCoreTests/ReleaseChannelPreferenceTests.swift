@@ -96,9 +96,11 @@
       let download = try String(
         contentsOf: app.appendingPathComponent("LiveInstallerEnvironment.swift"), encoding: .utf8)
       // Wiring guard only; the resolver's behaviour is tested above.
-      XCTAssertTrue(
-        scene.contains(
-          "@State private var channel = ReleaseChannelPreference().resolveFromMainBundle()\n"))
+      let reset = try XCTUnwrap(scene.range(of: "ReleaseChannelPreference().select(nil)\n"))
+      let initial = try XCTUnwrap(
+        scene.range(
+          of: "_channel = State(initialValue: ReleaseChannelPreference().resolveFromMainBundle())\n"))
+      XCTAssertLessThan(reset.lowerBound, initial.lowerBound, "a saved pick must not outlive a launch")
       XCTAssertTrue(
         scene.contains("environment: InstallerEnvironmentFactory.make(), channel: channel,"))
       XCTAssertFalse(scene.contains("channel = ."))

@@ -2,7 +2,7 @@
   import Foundation
   import OmarchyAppleInstallerTrustCore
 
-  /// Remembers which release channel this Mac reads.
+  /// Holds which release channel this run reads; the app clears it at launch.
   ///
   /// The preference only chooses between the two URLs already baked into the
   /// signed app bundle, so it can never introduce a source the app was not
