@@ -40,15 +40,14 @@ Two things carry versions here, and they do not move together:
 - **Packages** — the current stable version is `4.0.4-mac.1`. This is what
   `omarchy update` gives you, and it advances with every release.
 - **Fresh-install images** — what the macOS app writes to disk. Currently
-  `4.0.3-mac.5` on both channels (Aurora kernel, Limine).
-  Each image is rebuilt and re-qualified only when it needs to be, so images
-  trail the package version. The first `omarchy update` after an install closes
-  the gap.
+  `os-v4.0.3-mac.5.20260923-rc` on both channels (Aurora kernel, Limine). It
+  already carries Omarchy 4.0.4 (`4.0.4.r7069.g59ee15f-1`); the `4.0.3` in its
+  tag is a naming slip in the signed catalog, not the version inside. Images are
+  rebuilt only when they need to be, and the first `omarchy update` after an
+  install brings the Mac to the current packages.
 
-The `-mac.N` suffix counts Mac image builds of one upstream release; it does not
-name a channel or a kernel. `-mac.1` (the earlier Asahi Stable image) and
-`-mac.5` are both upstream Omarchy 4.0.3. A higher suffix is a later Mac build, not a newer
-Omarchy.
+The `-mac.N` suffix counts Mac builds of one upstream release; it does not name a
+channel or a kernel. A higher suffix is a later Mac build, not a newer Omarchy.
 
 Omarchy `3.8.4-mac.4` is the last Omarchy 3 release. It is no longer developed;
 existing installations update to Omarchy 4 in place.
@@ -147,26 +146,21 @@ available.
 
 ## Release Details
 
-Both channels currently install signed image
-`os-v4.0.3-mac.5.20260923-rc` (Omarchy 4.0.3, Aurora, Limine), promoted from
-Release candidate to **Stable** on 2026-09-23. The rest of this section describes
-the earlier Stable image, `os-v4.0.3-mac.1.20260913` (Omarchy 4.0.3, Asahi); Macs
-installed from it keep the Asahi kernel. The app follows the latest signed catalog for the channel you select;
-cached files are reused only when their size and SHA-256 match that catalog.
+The current release is **Omarchy MX Mac 4.0.4-mac.1**, based on upstream
+Omarchy 4.0.4. Both installer channels write signed image
+`os-v4.0.3-mac.5.20260923-rc` (Aurora kernel, Limine boot menu), which carries
+the 4.0.4 runtime; it was promoted from Release candidate to **Stable** on
+2026-09-23. Existing Macs receive 4.0.4 through `omarchy update`. Macs installed
+from the earlier Asahi Stable image, `os-v4.0.3-mac.1.20260913`, keep the Asahi
+kernel.
 
-Omarchy 4.0.3 brings upstream security fixes and AI integrations, Apple Silicon
-migration support, and ARM OpenClaw/Perplexity integration while retaining Mac
-boot, package, and network protections. The signed runtime and packages are now
-published to the shared Stable update feed. Existing Omarchy Macs receive them
-through `omarchy update`.
+[Stable packages](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-2949b88ccfc303e3c423106eafa68c9088ab6eea)
+and [runtime channel 56](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-56)
+carry the `4.0.4.r7069.g59ee15f-1` runtime and settings embedded in the image.
+The app follows the latest signed catalog for the channel you select; cached
+files are reused only when their size and SHA-256 match that catalog.
 
-[Stable packages](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-83973903b7deb9b56ce75f02b432fba0561d6293)
-and [runtime channel 32](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-32)
-carry the accepted `4.0.3.r6962.ga67d7f7-1` runtime/settings pair embedded in
-the Stable image. The release includes greeter password masking and focus fixes,
-Apple DRM readiness handling, and the initramfs static-device race fix.
-
-See [4.0.3 release notes](docs/releases/v4.0.3-mac.1.md).
+See [4.0.4-mac.1 release notes](docs/releases/v4.0.4-mac.1.md).
 
 ## Troubleshooting
 

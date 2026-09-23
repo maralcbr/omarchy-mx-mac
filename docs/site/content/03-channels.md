@@ -12,7 +12,7 @@ A channel decides two things: which signed image a new install writes, and which
 | `rc` | `os-v4.0.3-mac.5.20260923-rc`, the Aurora kernel on the release-candidate pin | Macs that should take new Aurora kernels first |
 
 <div class="note" markdown="1">
-On 2026-09-23 the `rc` image was promoted to `stable`, so both channels write the same image and differ only in the kernel lane the Mac follows afterwards. The image admits two Macs, the 14-inch M1 Pro (`apple,j314s`) and the 16-inch M2 Max (`apple,j416c`); the installer refuses any other model before touching the disk. The earlier Asahi stable image, `os-v4.0.3-mac.1.20260913`, is kept for rollback but is no longer offered.
+On 2026-09-23 the `rc` image was promoted to `stable`, so both channels write the same image and differ only in the kernel lane the Mac follows afterwards. The image carries Omarchy 4.0.4; the `4.0.3` in its tag is a naming slip in the signed catalog. The image admits two Macs, the 14-inch M1 Pro (`apple,j314s`) and the 16-inch M2 Max (`apple,j416c`); the installer refuses any other model before touching the disk. The earlier Asahi stable image, `os-v4.0.3-mac.1.20260913`, is kept for rollback but is no longer offered.
 </div>
 
 ## Kernels

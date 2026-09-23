@@ -18,7 +18,7 @@ It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). E
 
 | | |
 | --- | --- |
-| Omarchy release | 4.0.3, on both channels |
+| Omarchy release | 4.0.4 (`4.0.4-mac.1`), on both channels |
 | Installer app | 2.0.9 (opens on Stable at every launch; choose RC from the Release Channel menu) |
 | Stable channel | `os-v4.0.3-mac.5.20260923-rc`, Aurora kernel, Limine boot menu (promoted from `rc` on 2026-09-23) |
 | Release candidate channel | `os-v4.0.3-mac.5.20260923-rc`, the same image |

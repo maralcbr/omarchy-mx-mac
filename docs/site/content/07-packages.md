@@ -50,6 +50,6 @@ Image builds and VM acceptance read a dated Arch Linux ARM snapshot on R2 (`mirr
 Two version lines, separate since 2026-09-04:
 
 - **Installer**: `installer-vX.Y.Z` tags plus an integer build number. The catalog carries `installer.minimum_version`, so a too-old app stops before downloading.
-- **OS**: `os-v4.0.3-mac.4.20260921-rc`: the Omarchy version, a Mac release counter, the build date and the lane.
+- **OS**: `os-v4.0.3-mac.5.20260923-rc`: the Omarchy version, a Mac release counter, the build date and the lane. The tag should name the Omarchy version inside; this one carries 4.0.4 despite its name.
 
 The runtime version string, `4.0.4-mac.1` today, is what `omarchy --version` and the greeter show.
