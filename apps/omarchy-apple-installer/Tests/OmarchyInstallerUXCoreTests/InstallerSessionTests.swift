@@ -176,7 +176,33 @@
       XCTAssertEqual(environment.approveCount, 0)
     }
 
-    func testReplanResetsPrefetchSoInstallWaitsForTheSelectedPayload() async throws {
+    func testReplanKeepsTheRunningDownload() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.payloadPrefetchRequired = true
+      let gate = OperationGate()
+      environment.prefetchGate = gate
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      await gate.waitUntilEntered()
+      session.continueToPlanReview()
+      let cancelsBefore = environment.prefetchCancelCount
+
+      await session.replan(omarchyBytes: 200_000_000_000)
+
+      XCTAssertEqual(environment.prefetchCancelCount, cancelsBefore)
+      XCTAssertEqual(environment.prefetchStartCount, 1)
+      XCTAssertNotEqual(session.prefetchState, .verified)
+      session.setAcknowledged(true)
+      session.approve()
+      XCTAssertFalse(session.canStartInstallation)
+
+      await gate.release()
+      await waitUntil { session.prefetchState == .verified }
+      XCTAssertTrue(session.canStartInstallation)
+    }
+
+    func testReplanWaitsForAPayloadTheCatalogReplaced() async throws {
       let environment = MockInstallerEnvironment()
       environment.payloadPrefetchRequired = true
       let first = OperationGate()
@@ -185,16 +211,15 @@
       await session.inspect()
       await session.continueToPlan()
       await first.waitUntilEntered()
-      XCTAssertNotEqual(session.prefetchState, .verified)
       await first.release()
       await waitUntil { session.prefetchState == .verified }
 
       session.continueToPlanReview()
       let second = OperationGate()
       environment.prefetchGate = second
+      environment.payloadPrefetchState = .idle
       await session.replan(omarchyBytes: 200_000_000_000)
 
-      XCTAssertGreaterThanOrEqual(environment.prefetchCancelCount, 1)
       await second.waitUntilEntered()
       XCTAssertNotEqual(session.prefetchState, .verified)
       XCTAssertEqual(environment.prefetchStartCount, 2)

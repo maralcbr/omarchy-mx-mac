@@ -105,13 +105,7 @@ struct OmarchyAppleInstallerApp: App {
       onSessionAvailable: { liveSession = $0 })
   }
 
-  @State private var channel: ReleaseChannel?
-
-  init() {
-    // Every launch opens on the bundled default (stable); an RC pick lasts until quit.
-    ReleaseChannelPreference().select(nil)
-    _channel = State(initialValue: ReleaseChannelPreference().resolveFromMainBundle())
-  }
+  @State private var channel = ReleaseChannelPreference().resolveFromMainBundle()
 
   var body: some Scene {
     WindowGroup(PlainLanguage.windowTitle) {
