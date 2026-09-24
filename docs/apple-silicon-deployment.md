@@ -1041,7 +1041,7 @@ byte for byte, which is how to check it.
   pinned `releases/<tag>` URL, and `OMARCHY_PUBLISH_ASSUME_YES=<exact tag>`
   when there is no terminal.
 - A package rebuilt at the same version (a full rebuild does this) keeps its
-  file name. Reinstalling it with `pacman -S` from the new repository fails
+  file name but can have different bytes. Reinstalling it with `pacman -S` from the new repository fails
   with `signature ... is invalid` while the old same-name file is still in
   `/var/cache/pacman/pkg`: pacman checks the new signature against the cached
   file. Remove the cached file first.

@@ -52,8 +52,8 @@ Three boot packages were rebuilt at the versions installed Macs already have:
   and replaces `obsidian-appimage` and `hyprland-preview-share-picker-git` with
   the `[omarchy]` packages. The runtime bundle may downgrade a bundle package
   only when that repository's sync database proves it built it. A cleanup that
-  cannot finish is retried on the next update. Other Macs are unaffected
-  (#260, refs #238).
+  cannot finish is retried on the next update. A Mac with neither the
+  repository nor those two packages is unaffected (#260, refs #238).
 - **Manual.** The testing page lists every VM acceptance check, and the VM
   harness now fails a run when a resumed install asks "Install anyway?"
   (#258).

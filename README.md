@@ -74,8 +74,9 @@ installer and image. The previous image, `os-v4.0.3-mac.5.20260923-rc`, passed V
 acceptance. The current image, `os-v4.0.4-mac.1.20260924-rc`, comes from the same
 image lane but has had no VM acceptance or physical install recorded of its own. The app also saves
 credential-free diagnostic logs across reboots in
-`~/Library/Logs/Omarchy MX Mac Installer/` and root-worker diagnostics in
-`/var/db/com.omarchy.mx.installer/diagnostics/`.
+`~/Library/Logs/Omarchy MX Mac Installer/`. Installer builds after 2.0.9 also keep
+root-worker diagnostics of engine errors in
+`/var/db/com.omarchy.mx.installer/diagnostics/`; 2.0.9 does not.
 
 You can verify the downloaded package before opening it with:
 
