@@ -343,11 +343,12 @@ kernel_marker=${OMARCHY_APPLE_KERNEL_FILE:-/usr/share/omarchy/apple-silicon-kern
 # exact names count, since linux-aurora provides linux-asahi. An M3 (t8122,
 # t603x) never boots Aurora, which does not support it.
 m3_mac=0
-if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]] &&
-  tr '\0' '\n' <"${OMARCHY_DEVICE_TREE_COMPATIBLE:-/proc/device-tree/compatible}" 2>/dev/null | grep -Eqx 'apple,(t8122|t6030|t6031|t6034)'; then
+compatible=${OMARCHY_DEVICE_TREE_COMPATIBLE:-/proc/device-tree/compatible}
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 && -r $compatible ]] &&
+  tr '\0' '\n' <"$compatible" | grep -Eqx 'apple,(t8122|t6030|t6031|t6034)'; then
   m3_mac=1
 fi
-installed_packages=$(pacman -Qq 2>/dev/null) || fail "Could not list the installed packages"
+installed_packages=$(pacman -Q | awk '{ print $1 }') || fail "Could not list the installed packages"
 kernel_package=linux-asahi
 if [[ -f $kernel_marker && ! -L $kernel_marker ]]; then
   read -r kernel_package <"$kernel_marker" || true

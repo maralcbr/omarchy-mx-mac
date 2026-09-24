@@ -15,7 +15,7 @@ grep -q 'the Apple Silicon kernel this install uses' "$test_tmp/choice" || fail 
 printf 'echo "kernel=$kernel_package"\n' >>"$test_tmp/choice"
 
 mkdir -p "$test_tmp/bin"
-printf '#!/bin/bash\n[[ $1 == -Qq ]] && cat "$TEST_INSTALLED"\n' >"$test_tmp/bin/pacman"
+printf '#!/bin/bash\n(( $# == 1 )) && [[ $1 == -Q ]] && sed "s/$/ 1/" "$TEST_INSTALLED"\n' >"$test_tmp/bin/pacman"
 chmod +x "$test_tmp/bin/pacman"
 
 choose() {
