@@ -626,3 +626,60 @@ cmp -s "$test_tmp/expected-lane" "$root/var/lib/omarchy/apple-silicon-aurora-lan
   fail "a pending reboot does not clear the switch journal" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
 unset OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT
 pass "after reboot a matching uname promotes the journal and a mismatch fails"
+
+# A Limine Mac: the menu, UKI and Limine binary live on the ESP that
+# /etc/default/limine names, /boot/efi or on older installs /boot, and the
+# entry's rootflags follow the root filesystem.
+limine_system() {
+  local limine_esp=$1 fstab_row=$2 cmdline=$3
+  system linux-asahi
+  mkdir -p "$root/var/lib/omarchy" "$root/etc" "$root/usr/share/limine" "$root$limine_esp/EFI/Linux" "$root$limine_esp/EFI/BOOT"
+  : >"$root/var/lib/omarchy/limine.enabled"
+  printf 'ESP_PATH="%s"\nENABLE_UKI=yes\n' "$limine_esp" >"$root/etc/default/limine"
+  [[ -z $fstab_row ]] || printf '%s\n' "$fstab_row" >"$root/etc/fstab"
+  printf 'LIMINE\n' >"$root/usr/share/limine/BOOTAA64.EFI"
+  cp "$root/usr/share/limine/BOOTAA64.EFI" "$root$limine_esp/EFI/BOOT/BOOTAA64.EFI"
+  printf 'UKI\n' >"$root$limine_esp/EFI/Linux/omarchy_linux-asahi.efi"
+  printf '/+Omarchy\n  //linux-asahi\n    protocol: efi\n    path: boot():/EFI/Linux/omarchy_linux-asahi.efi\n    cmdline: %s\n' "$cmdline" >"$root$limine_esp/limine.conf"
+  # GRUB is not part of a Limine Mac's boot.
+  rm -f "$root/boot/grub/grub.cfg"
+}
+
+limine_system /boot/efi 'UUID=r / btrfs rw,subvol=/@ 0 0' 'root=UUID=r rw rootflags=subvol=@,x-systemd.device-timeout=0 quiet'
+run_check
+expect_pass "a Limine Mac with its ESP at /boot/efi"
+limine_system /boot 'UUID=r / btrfs rw,subvol=/@ 0 0' 'root=UUID=r rw rootflags=subvol=@ quiet'
+run_check
+expect_pass "a Limine Mac with its ESP at /boot"
+rm "$root/boot/EFI/Linux/omarchy_linux-asahi.efi"
+run_check
+expect_fail "a Limine Mac missing its UKI on the /boot ESP" "/boot/EFI/Linux/omarchy_linux-asahi.efi (the Limine UKI) is missing"
+pass "the Limine files are checked on the ESP /etc/default/limine names"
+
+limine_system /boot/efi 'UUID=r / ext4 rw,relatime 0 1' 'root=UUID=r rw quiet'
+run_check
+expect_pass "an ext4 root with no subvolume flag"
+limine_system /boot/efi 'UUID=r / ext4 rw,relatime 0 1' 'root=UUID=r rw rootflags=subvol=@ quiet'
+run_check
+expect_fail "an ext4 root given subvol=" "selects rootflags=subvol=@, but the root filesystem is ext4"
+limine_system /boot/efi 'UUID=r / btrfs rw,subvol=@root 0 0' 'root=UUID=r rw rootflags=subvol=@ quiet'
+run_check
+expect_fail "a btrfs root booted from another subvolume" "does not select rootflags=subvol=@root"
+limine_system /boot/efi 'UUID=r / btrfs rw,subvol=@root 0 0' 'root=UUID=r rw rootflags=subvol=@root quiet'
+run_check
+expect_pass "a btrfs root booted from its own subvolume"
+limine_system /boot/efi '' 'root=UUID=r rw quiet'
+run_check
+expect_fail "no fstab row (Omarchy's btrfs @) and no subvolume flag" "does not select rootflags=subvol=@"
+pass "the Limine entry's rootflags follow the root filesystem"
+
+limine_system /boot/efi 'UUID=r / btrfs rw,subvolid=256 0 0' 'root=UUID=r rw rootflags=subvolid=256 quiet'
+run_check
+expect_pass "a btrfs root selected by subvolid"
+limine_system /boot/efi 'UUID=r / btrfs rw,subvolid=256 0 0' 'root=UUID=r rw quiet'
+run_check
+expect_fail "a subvolid root booted without it" "does not select rootflags=subvolid=256"
+limine_system /boot/efi 'UUID=r / btrfs rw 0 0' 'root=UUID=r rw rootflags=subvol=@ quiet'
+run_check
+expect_fail "a default-subvolume root given subvol=" "fstab mounts the btrfs root's default subvolume"
+pass "subvolid= and a default subvolume are checked too"

@@ -28,10 +28,16 @@ snapshot from `Snapshots`.
   `update-grub` is retargeted, Limine's defaults and menu written, the UKI
   and entries built, and only then is Limine copied into the U-Boot slot.
   A failed activation restores GRUB's target and regenerates GRUB.
+  Limine goes on the system ESP `bin/omarchy-mac-esp` finds: the partition
+  the device tree names, mounted at `/boot/efi` or, on older installs, at
+  `/boot`; `ESP_PATH` in `/etc/default/limine` records it for the tooling,
+  the deploy and the boot check. A Mac with neither keeps GRUB, and
+  migration `1790055026` settles instead of failing every update.
 - `bin/omarchy-mac-limine-cmdline`: `/etc/default/grub` stays the one file
   the encrypt flow, the re-key and the console leaf write the kernel
   command line to; this derives `KERNEL_CMDLINE[default]` from it
-  (root=UUID of the root filesystem, one `rootflags=` with `subvol=@`) and
+  (root=UUID of the root filesystem, one `rootflags=` carrying the
+  subvolume fstab mounts on a btrfs root and no `subvol=` on ext4) and
   runs before every UKI rebuild as
   `/etc/boot/hooks/pre.d/20-omarchy-mac-cmdline`.
 - `bin/omarchy-mac-boot-update`: on a Limine Mac `limine-update` and the

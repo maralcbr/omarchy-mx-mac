@@ -66,7 +66,6 @@ grep -Fq '/var/lib/sddm/state.conf' "$installer" || fail "fresh installer seeds 
 grep -Fq 'Session=omarchy.desktop' "$installer" || fail "fresh installer records the Omarchy session as last"
 pass "fresh installer runs the Quattro system and user finalizers"
 
-grep -Fq 'kernel_package=linux-aurora' "$installer" || fail "fresh installer defaults to the Aurora kernel"
 grep -Fq 'asahi_kernel_sha256=$(sha256sum "/boot/vmlinuz-$kernel_package")' "$installer" || fail "fresh installer protects the selected kernel"
 grep -Fq '/boot/grub/grub.cfg' "$installer" || fail "fresh installer protects GRUB"
 grep -Fq 'sha256sum --check --status <<<"$asahi_kernel_sha256"' "$installer" || fail "fresh installer verifies the Asahi kernel hash"

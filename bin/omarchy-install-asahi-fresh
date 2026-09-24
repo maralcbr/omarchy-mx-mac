@@ -336,14 +336,29 @@ if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]]; then
   grep -aq 'apple,' /proc/device-tree/compatible || fail "Apple Silicon device tree not found"
 fi
 
-kernel_marker=/usr/share/omarchy/apple-silicon-kernel
-# Aurora is the kernel this installer picks. linux-asahi remains only if the
-# image's kernel marker already names it; the installer never selects it.
-kernel_package=linux-aurora
+kernel_marker=${OMARCHY_APPLE_KERNEL_FILE:-/usr/share/omarchy/apple-silicon-kernel}
+# The image's kernel marker names the kernel. Without one (a manual install on
+# Asahi's own image) the installed kernel decides, as install-asahi-quattro
+# decides it: linux-aurora when it is the only one, else linux-asahi. Only
+# exact names count, since linux-aurora provides linux-asahi. An M3 (t8122,
+# t603x) never boots Aurora, which does not support it.
+m3_mac=0
+if [[ ${OMARCHY_MAC_IMAGE_BUILD:-} != 1 ]] &&
+  tr '\0' '\n' <"${OMARCHY_DEVICE_TREE_COMPATIBLE:-/proc/device-tree/compatible}" 2>/dev/null | grep -Eqx 'apple,(t8122|t6030|t6031|t6034)'; then
+  m3_mac=1
+fi
+installed_packages=$(pacman -Qq 2>/dev/null) || fail "Could not list the installed packages"
+kernel_package=linux-asahi
 if [[ -f $kernel_marker && ! -L $kernel_marker ]]; then
   read -r kernel_package <"$kernel_marker" || true
+elif grep -Fxq linux-aurora <<<"$installed_packages" && ! grep -Fxq linux-asahi <<<"$installed_packages"; then
+  kernel_package=linux-aurora
 fi
 [[ $kernel_package =~ ^linux-[a-z0-9]+$ ]] || fail "Unreadable kernel package name"
+(( ! m3_mac )) || [[ $kernel_package != linux-aurora ]] ||
+  fail "This M3 Mac cannot boot linux-aurora; install linux-asahi and remove linux-aurora"
+grep -Fxq -- "$kernel_package" <<<"$installed_packages" ||
+  fail "Required Asahi package is not installed: $kernel_package (the Apple Silicon kernel this install uses)"
 # The Aurora kernel boots through its own m1n1 build, which replaces m1n1.
 m1n1_package=m1n1
 [[ $kernel_package != linux-aurora ]] || m1n1_package=m1n1-aurora

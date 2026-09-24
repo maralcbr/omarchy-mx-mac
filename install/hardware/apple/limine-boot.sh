@@ -4,7 +4,8 @@
 # Limine there. The Asahi update-grub (run by the asahi-scripts pacman hook on
 # every kernel update) is retargeted to a file under /boot/grub so it never
 # writes over Limine; GRUB itself is no longer part of the boot. Limine's
-# configuration is Omarchy's (an ESP at /boot/efi, the kernel command line
+# configuration is Omarchy's (the system ESP, at /boot/efi or on older
+# installs at /boot, as omarchy-mac-esp finds it; the kernel command line
 # derived from GRUB's defaults file by omarchy-mac-limine-cmdline before every
 # rebuild), and the x86 tooling does the rest: limine-update builds the UKI
 # with the aarch64 systemd-stub and writes the entries, limine-snapper-sync
@@ -19,7 +20,7 @@ omarchy-hw-apple-silicon || return 0
 gate=${OMARCHY_LIMINE_GATE:-/var/lib/omarchy/limine.enabled}
 [[ -e $gate ]] || return 0
 
-esp=${OMARCHY_ESP:-/boot/efi}
+esp=${OMARCHY_ESP:-$(omarchy-mac-esp 2>/dev/null || true)}
 limine_efi=${OMARCHY_LIMINE_EFI:-/usr/share/limine/BOOTAA64.EFI}
 limine_conf_source=${OMARCHY_LIMINE_CONF_SOURCE:-${OMARCHY_PATH:-/usr/share/omarchy}/default/limine/limine.conf}
 grub_default=${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}
@@ -37,6 +38,7 @@ if [[ ! -f $limine_efi ]]; then
 fi
 [[ -f $grub_default ]] || { echo "No $grub_default; cannot derive the kernel command line" >&2; return 0; }
 [[ -f $limine_conf_source ]] || { echo "No $limine_conf_source; leaving GRUB in place" >&2; return 0; }
+[[ -n $esp ]] || { echo "The system ESP is not mounted at /boot/efi or /boot; leaving GRUB in place" >&2; return 0; }
 findmnt -no TARGET "$esp" >/dev/null 2>&1 || { echo "The ESP is not mounted at $esp; leaving GRUB in place" >&2; return 0; }
 
 # A failed activation puts everything back: GRUB's update target (and a
@@ -98,7 +100,7 @@ sudo rm -f "$esp/EFI/BOOT/grub-aa64.efi"
 # 2. Limine's configuration: the static keys here, the kernel command line
 # from GRUB's defaults, re-derived before every UKI rebuild.
 [[ -f $limine_default ]] || limine_default_created=1
-# omarchy:heredoc-expands paths=none -- esp resolves to the root-owned /boot/efi; its OMARCHY_ESP override is trusted caller input, and production callers require root or sudo; kernel is pattern-checked by omarchy-hw-apple-kernel
+# omarchy:heredoc-expands paths=none -- esp resolves to the root-owned /boot/efi or /boot (omarchy-mac-esp); its OMARCHY_ESP override is trusted caller input, and production callers require root or sudo; kernel is pattern-checked by omarchy-hw-apple-kernel
 sudo tee "$limine_default" >/dev/null <<CONF
 # Written by Omarchy (install/hardware/apple/limine-boot.sh). KERNEL_CMDLINE
 # is derived from /etc/default/grub by omarchy-mac-limine-cmdline; edit GRUB's
@@ -184,7 +186,7 @@ sudo limine-snapper-sync || echo "limine-snapper-sync did not finish; snapshot e
 sudo systemctl enable --now limine-snapper-sync.service >/dev/null 2>&1 || true
 
 # Leftovers of the experiment: the hand-placed menu, the /boot resync unit.
-# /boot/efi/omarchy is the installer's staging directory and stays.
+# ESP:/omarchy is the installer's staging directory and stays.
 sudo rm -rf "$esp/limine"
 if [[ -f $systemd_dir/omarchy-mac-boot-sync.service ]]; then
   sudo systemctl disable omarchy-mac-boot-sync.service >/dev/null 2>&1 || true

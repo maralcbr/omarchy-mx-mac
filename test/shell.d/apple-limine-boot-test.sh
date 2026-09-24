@@ -187,6 +187,40 @@ run || fail "the leaf runs against a menu from another identity"
 grep -q '^/+Omarchy$' "$esp/limine.conf" || fail "the menu is rebuilt"
 pass "a menu from another identity starts over"
 
+# Without an override the ESP is the one omarchy-mac-esp finds: /boot on an
+# older install, whose kernels share the filesystem with it. Limine's defaults
+# name it, and the menu, UKI and Limine binary go there.
+boot_esp="$test_tmp/boot-esp"
+mkdir -p "$boot_esp/EFI/BOOT"
+printf 'GRUB image\n' >"$boot_esp/EFI/BOOT/BOOTAA64.EFI"
+printf '#!/bin/bash\n[[ -n ${TEST_FOUND_ESP:-} ]] || exit 1\necho "$TEST_FOUND_ESP"\n' >"$stub_bin/omarchy-mac-esp"
+chmod +x "$stub_bin/omarchy-mac-esp"
+run_found_esp() {
+  TEST_CALLS="$calls" TEST_ESP="$boot_esp" TEST_UPDATE_GRUB_DEFAULT="$etc/update-grub" TEST_LIMINE_DEFAULT="$etc/limine" \
+  OMARCHY_PATH="$ROOT" OMARCHY_LIMINE_EFI="$test_tmp/share/limine/BOOTAA64.EFI" \
+  OMARCHY_GRUB_DEFAULT="$etc/grub" OMARCHY_UPDATE_GRUB_DEFAULT="$etc/update-grub" OMARCHY_LIMINE_DEFAULT="$etc/limine" \
+  OMARCHY_GRUB_TARGET="$test_tmp/boot/grub/grub-aa64.efi" OMARCHY_LIMINE_BOOT_HOOKS_DIR="$etc/boot/hooks/pre.d" \
+  OMARCHY_PACMAN_HOOKS_DIR="$etc/pacman.d/hooks" OMARCHY_SYSTEMD_DIR="$etc/systemd/system" \
+  OMARCHY_LIMINE_GATE="$test_tmp/limine.enabled" OMARCHY_FSTAB="$etc/fstab" \
+  OMARCHY_MACHINE_ID="$etc/machine-id" \
+  PATH="$stub_bin:$PATH" bash -euo pipefail -c "source '$leaf'"
+}
+cp "$etc/limine" "$test_tmp/limine-before"
+rm -f "$etc/limine"
+: >"$calls"
+run_found_esp 2>"$test_tmp/err" || fail "the leaf returns cleanly without a system ESP" "$(cat "$test_tmp/err")"
+grep -q 'The system ESP is not mounted at /boot/efi or /boot; leaving GRUB in place' "$test_tmp/err" ||
+  fail "a Mac without a system ESP is told why GRUB stays" "$(cat "$test_tmp/err")"
+[[ ! -s $calls && ! -e $etc/limine ]] || fail "without a system ESP nothing changes" "$(cat "$calls")"
+: >"$calls"
+TEST_FOUND_ESP="$boot_esp" run_found_esp || fail "the leaf activates Limine on an ESP at /boot"
+grep -Fxq "ESP_PATH=\"$boot_esp\"" "$etc/limine" || fail "Limine's defaults name the ESP that was found" "$(cat "$etc/limine")"
+[[ $(cat "$boot_esp/EFI/BOOT/BOOTAA64.EFI") == "LIMINE v2" ]] || fail "Limine takes the U-Boot slot on the ESP that was found"
+[[ -f $boot_esp/EFI/Linux/omarchy_linux-aurora.efi ]] && grep -q '^/+Omarchy$' "$boot_esp/limine.conf" ||
+  fail "the UKI and menu go on the ESP that was found"
+cp "$test_tmp/limine-before" "$etc/limine"
+pass "the ESP is found where the install mounts it, and a Mac without one keeps GRUB"
+
 # An image that never shipped GRUB: the leaf activates Limine with no
 # update-grub to retarget and no GRUB image anywhere.
 rm -f "$etc/update-grub" "$esp/limine.conf" "$test_tmp/boot/grub/grub-aa64.efi"
