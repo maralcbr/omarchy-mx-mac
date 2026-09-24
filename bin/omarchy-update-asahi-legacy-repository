@@ -13,8 +13,10 @@
 # and the replacement is available. Nothing is done on a Mac without either.
 #
 # Exit 0 when there was nothing to do or everything was done, 1 when a step
-# could not finish. Every step leaves the Mac as it found it on failure, and
-# omarchy update runs this again each time, so a caller carries on.
+# could not finish. A step that fails leaves what it has not finished in
+# place for the next run to find: the section when pacman.conf could not be
+# rewritten or synced, the legacy package until its own files are gone.
+# omarchy update runs this before every package upgrade, so a caller carries on.
 
 set -euo pipefail
 
@@ -41,6 +43,12 @@ legacy_replacements=(
   "obsidian-appimage obsidian"
   "hyprland-preview-share-picker-git hyprland-preview-share-picker"
 )
+
+owned_only_by() {
+  local owners
+  owners=$(pacman -Qoq "$2" 2>/dev/null) || return 1
+  [[ $owners == "$1" ]]
+}
 
 status=0
 for pair in "${legacy_replacements[@]}"; do
@@ -75,23 +83,26 @@ for pair in "${legacy_replacements[@]}"; do
   fi
   pacman -Q "$legacy" &>/dev/null || continue
 
-  # The shared files now belong to the replacement, so removing the legacy
-  # package normally would delete them. Drop its database entry, then the
-  # files and emptied directories only it owned.
-  if ! sudo pacman -Rdd --dbonly --noconfirm "$legacy"; then
-    echo "$replacement is installed, but $legacy could not be removed from the package database." >&2
-    status=1
-    continue
-  fi
+  # The shared files now belong to the replacement too, so removing the
+  # legacy package normally would delete them. The files and emptied
+  # directories only it owns go first, while it is still installed, so a
+  # failure here is retried on the next run; then its database entry goes.
+  cleaned=1
   for file in "${legacy_files[@]}"; do
     [[ -e $file || -L $file ]] && [[ ! -d $file ]] || continue
-    pacman -Qoq "$file" &>/dev/null && continue
-    sudo rm -f -- "$file"
+    owned_only_by "$legacy" "$file" || continue
+    sudo rm -f -- "$file" || { cleaned=0; break; }
   done
-  for dir in "${legacy_dirs[@]}"; do
-    [[ -d $dir ]] && ! pacman -Qoq "$dir" &>/dev/null || continue
-    sudo rmdir --ignore-fail-on-non-empty -- "$dir"
-  done
+  if (( cleaned )); then
+    for dir in "${legacy_dirs[@]}"; do
+      [[ -d $dir ]] && owned_only_by "$legacy" "$dir" || continue
+      sudo rmdir --ignore-fail-on-non-empty -- "$dir" || { cleaned=0; break; }
+    done
+  fi
+  if (( ! cleaned )) || ! sudo pacman -Rdd --dbonly --noconfirm "$legacy"; then
+    echo "$replacement is installed, but $legacy could not be removed; the next run tries again." >&2
+    status=1
+  fi
 done
 
 exit "$status"

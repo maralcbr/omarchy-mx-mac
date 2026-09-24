@@ -150,7 +150,14 @@ if omarchy-hw-apple-silicon; then
       # and its signature are always fetched together for the tag now pinned.
       rm -f "${db_path:-/var/lib/pacman}/sync/omarchy.db" "${db_path:-/var/lib/pacman}/sync/omarchy.db.sig"
     fi
-    [[ ${OMARCHY_ASAHI_OFFLINE:-} == 1 ]] || pacman -Sy --noconfirm
+    if [[ ${OMARCHY_ASAHI_OFFLINE:-} != 1 ]] && ! pacman -Sy --noconfirm; then
+      # Put a retired section back, so the cleanup that removed it runs again.
+      if (( legacy_blocks )); then
+        cp -a "$legacy_backup" "$pacman_conf"
+        echo "pacman could not sync the repositories; restored $pacman_conf from $legacy_backup" >&2
+      fi
+      return 1
+    fi
   fi
 fi
 

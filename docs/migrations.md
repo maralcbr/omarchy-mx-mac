@@ -131,6 +131,11 @@ New migration format:
 - Use `$OMARCHY_PATH` to reference the Omarchy directory.
 - Be idempotent. Check existing state before changing it.
 - Migrations are strictly ordered and synchronous. A migration that cannot finish must exit non-zero, remain pending, and stop the queue; never mark later migrations complete against state an earlier migration has not established.
+  The exception is a repair that `omarchy update` also runs on its own before
+  every package upgrade, such as the legacy `[omarchy-aarch64]` cleanup
+  (`omarchy-update-asahi-legacy-repository`, migration `1790256699`): its
+  migration reports a failure and exits 0, because the update retries the
+  repair and no later migration depends on it having finished.
 - Use helper commands such as `omarchy-cmd-present`, `omarchy-cmd-missing`,
   `omarchy-pkg-add`, `omarchy-pkg-drop`, `omarchy-pkg-present`, and
   `omarchy-pkg-missing` when appropriate.

@@ -53,6 +53,7 @@ SH
 cat >"$mock_bin/sudo" <<'SH'
 #!/bin/bash
 printf 'sudo %s\n' "$*" >>"$TEST_CALLS"
+[[ ${TEST_RM_FAIL:-0} != 1 || $1 != rm ]] || exit 1
 "$@"
 SH
 
@@ -67,12 +68,12 @@ cat >"$mock_bin/pacman" <<'SH'
 printf 'pacman %s\n' "$*" >>"$TEST_CALLS"
 s=$TEST_STATE
 owner() {
-  local file=$1 pkg
+  local file=$1 pkg found=1
   for pkg in "$s"/files/*; do
     [[ -e $pkg ]] || continue
-    grep -Fxq -- "$file" "$pkg" && { basename "$pkg"; return 0; }
+    grep -Fxq -- "$file" "$pkg" && { basename "$pkg"; found=0; }
   done
-  return 1
+  return "$found"
 }
 conflicts() { [[ -f $s/conflicts/$1 ]] && grep -Fxq -- "$2" "$s/conflicts/$1"; }
 case "$1" in
@@ -81,7 +82,7 @@ case "$1" in
   -Si) [[ -f $s/available/$2 ]] ;;
   -Qlq) cat "$s/files/$2" ;;
   -Qoq) owner "$2" ;;
-  -Sy) exit 0 ;;
+  -Sy) exit "${TEST_SY_STATUS:-0}" ;;
   -S)
     shift
     ask=0 patterns=() target=""
@@ -105,7 +106,8 @@ case "$1" in
       fi
     done
     while IFS= read -r file; do
-      holder=$(owner "$file") || continue
+      holder=$(owner "$file" | head -1) || continue
+      [[ -n $holder ]] || continue
       [[ $holder != "$target" ]] || continue
       [[ " ${remove[*]} " != *" $holder "* ]] || continue
       matched=0
@@ -142,6 +144,8 @@ run_command() {
   TEST_APPLE="${TEST_APPLE:-0}" \
     TEST_CALLS="$calls" \
     TEST_STATE="$state" \
+    TEST_RM_FAIL="${TEST_RM_FAIL:-0}" \
+    TEST_SY_STATUS="${TEST_SY_STATUS:-0}" \
     OMARCHY_PATH="$ROOT" \
     OMARCHY_PACMAN_CONF="$pacman_conf" \
     OMARCHY_ASAHI_PACKAGE_KEY_FILE="$key_file" \
@@ -262,6 +266,20 @@ set -e
 grep -Fq 'Could not remove [omarchy-aarch64]' "$test_tmp/err" || fail "a refused repository cleanup is not explained"
 pass "a repository cleanup that cannot run leaves pacman.conf untouched and says so"
 
+reset
+{ printf '[options]\nDBPath = %s\n\n' "$db_path"; legacy_section stable; alarm_repositories; } >"$pacman_conf"
+original=$(cat "$pacman_conf")
+set +e
+TEST_APPLE=0 TEST_SY_STATUS=1 run_command
+status=$?
+set -e
+(( status == 1 )) && [[ $(cat "$pacman_conf") == "$original" ]] ||
+  fail "a sync failure after the rewrite leaves the legacy section gone" "$(cat "$pacman_conf")"
+grep -Fq 'restored' "$test_tmp/err" || fail "a restored pacman.conf is not reported"
+TEST_APPLE=0 run_command || fail "the cleanup is not retried after a sync failure" "$(cat "$test_tmp/err")"
+! grep -q 'omarchy-aarch64' "$pacman_conf" || fail "the retried cleanup keeps the legacy section"
+pass "a sync failure restores the legacy section so the next run retries the cleanup"
+
 # The two conflicting packages. obsidian-appimage declares its conflict with
 # obsidian; the AUR hyprland-preview-share-picker-git declares none and shares
 # the binary path with the [omarchy] package.
@@ -352,6 +370,25 @@ mv "$mock_bin/pacman.real" "$mock_bin/pacman"
   fail "a failed replacement leaves the legacy package in place and reports it"
 grep -Fq 'Could not install obsidian; obsidian-appimage stays installed.' "$test_tmp/err" || fail "a failed replacement is not explained"
 pass "a failed replacement keeps the legacy package and reports the failure"
+
+# Removing a file only the legacy package owned fails: the package stays
+# recorded, so the next run finds it and finishes.
+reset
+{ printf '[options]\nDBPath = %s\n\n' "$db_path"; alarm_repositories; } >"$pacman_conf"
+legacy_mac_packages
+set +e
+TEST_APPLE=0 TEST_RM_FAIL=1 run_command
+status=$?
+set -e
+(( status == 1 )) && [[ -f $state/installed/hyprland-preview-share-picker-git && -f $state/installed/hyprland-preview-share-picker ]] ||
+  fail "a failed leftover removal drops the legacy package record"
+grep -Fq 'hyprland-preview-share-picker-git could not be removed; the next run tries again' "$test_tmp/err" ||
+  fail "a failed leftover removal is not explained"
+TEST_APPLE=0 run_command || fail "the leftover removal is not retried" "$(cat "$test_tmp/err")"
+[[ ! -f $state/installed/hyprland-preview-share-picker-git && ! -e $fs/usr/share/licenses/hyprland-preview-share-picker-git ]] &&
+  [[ $(cat "$fs/usr/bin/hyprland-preview-share-picker") == hyprland-preview-share-picker ]] ||
+  fail "the retried leftover removal does not finish"
+pass "a failed leftover removal keeps the legacy package so the next run finishes it"
 
 # A Mac that never had the legacy repository, and a machine that is not a Mac.
 reset
@@ -456,10 +493,32 @@ SH
 cat >"$bundle_bin/pacman" <<'SH'
 #!/bin/bash
 case "$1" in
-  -Q) version=$(awk -v p="$2" '$1 == p { print $2 }' "$TEST_INSTALLED"); [[ -n $version ]] && echo "$2 $version" ;;
+  -Q)
+    [[ -n ${2:-} ]] || { cat "$TEST_INSTALLED"; exit 0; }
+    version=$(awk -v p="$2" '$1 == p { print $2 }' "$TEST_INSTALLED")
+    [[ -n $version ]] && echo "$2 $version"
+    ;;
   -Qq) [[ $2 == linux-asahi ]] ;;
+  -U)
+    for archive in "$@"; do
+      [[ $archive == *.pkg.tar* ]] || continue
+      info=$(bsdtar -xOf "$archive" .PKGINFO)
+      name=$(sed -n 's/^pkgname = //p' <<<"$info")
+      version=$(sed -n 's/^pkgver = //p' <<<"$info")
+      grep -v "^$name " "$TEST_INSTALLED" >"$TEST_INSTALLED.new" || true
+      echo "$name $version" >>"$TEST_INSTALLED.new"
+      mv "$TEST_INSTALLED.new" "$TEST_INSTALLED"
+    done
+    ;;
   *) exit 1 ;;
 esac
+SH
+# Backups and state go to /var/lib/omarchy on a real Mac; only the package
+# transaction runs here.
+cat >"$bundle_bin/sudo" <<'SH'
+#!/bin/bash
+printf 'sudo %s\n' "$*" >>"$TEST_BUNDLE_CALLS"
+[[ $1 != env ]] || "$@"
 SH
 chmod +x "$bundle_bin"/*
 
@@ -517,19 +576,30 @@ write_legacy_db() {
 run_bundle() {
   TEST_ASSETS="$assets" \
     TEST_INSTALLED="$test_tmp/installed" \
+    TEST_BUNDLE_CALLS="$test_tmp/bundle-calls" \
     OMARCHY_ASAHI_ROOT="$root" \
     OMARCHY_ASAHI_BUNDLE_STATE="$test_tmp/bundle-state" \
     OMARCHY_ASAHI_CHANNEL_URL="https://example.test/asahi-quattro-channel" \
     OMARCHY_ASAHI_KEY_FILE="$test_tmp/release.gpg" \
     OMARCHY_ASAHI_PACKAGE_KEY_FILE="$test_tmp/package.asc" \
     PATH="$bundle_bin:$PATH" \
-    bash "$bundle" >"$test_tmp/bundle.out" 2>"$test_tmp/bundle.err"
+    bash "$bundle" "$@" >"$test_tmp/bundle.out" 2>"$test_tmp/bundle.err"
 }
 
 write_legacy_db "$root/var/lib/pacman/sync/omarchy-aarch64.db" 1789000000
 run_bundle || fail "the bundle refuses a package the retired repository built" "$(cat "$test_tmp/bundle.err")"
 grep -Fq "omarchy-nvim $legacy_version came from the retired [omarchy-aarch64] repository; replacing it with the signed 2026.8.1-3" "$test_tmp/bundle.out" ||
   fail "the legacy downgrade is not reported" "$(cat "$test_tmp/bundle.out")"
+cp "$test_tmp/installed" "$test_tmp/installed.legacy"
+: >"$test_tmp/bundle-calls"
+run_bundle --yes || fail "the bundle does not install over a legacy package" "$(cat "$test_tmp/bundle.out" "$test_tmp/bundle.err" "$test_tmp/bundle-calls")"
+grep -q '^sudo env OMARCHY_UPDATE_PACMAN=1 pacman -U --noconfirm -- .*/omarchy-nvim-2026.8.1-3-any.pkg.tar.gz' "$test_tmp/bundle-calls" ||
+  fail "the signed bundle is not installed in one transaction" "$(cat "$test_tmp/bundle-calls")"
+grep -Fxq 'omarchy-nvim 2026.8.1-3' "$test_tmp/installed" ||
+  fail "the legacy omarchy-nvim is not replaced by the signed version" "$(cat "$test_tmp/installed")"
+grep -Fq 'Installed Apple Silicon Quattro bundle asahi-quattro-test' "$test_tmp/bundle.out" ||
+  fail "the bundle install does not finish" "$(cat "$test_tmp/bundle.out")"
+mv "$test_tmp/installed.legacy" "$test_tmp/installed"
 pass "a bundle package the configured legacy repository built newer is downgraded"
 
 rm -f "$root/var/lib/pacman/sync/omarchy-aarch64.db"
