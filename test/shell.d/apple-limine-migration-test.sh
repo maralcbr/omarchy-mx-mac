@@ -192,6 +192,13 @@ for assignment in 'export default_options="-c /etc/mkinitcpio-busybox.conf"' 'de
   run_migration
   expect_wait "a preset with $assignment" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
 done
+# Arch's own preset settings: no options, empty ones, the fallback's -S autodetect.
+for assignment in 'default_options=""' 'default_options=()' "default_options=('')" 'fallback_options=(-S autodetect)'; do
+  ready
+  printf '%s\n' "$assignment" >>"$preset_dir/linux-asahi.preset"
+  run_migration
+  (( status == 0 )) && [[ -e $gate && ! -e $pending ]] || fail "a preset with $assignment activates Limine" "$(cat "$test_tmp/err")"
+done
 # A drop-in the check cannot read (it runs as root; this one fails for anyone).
 ready
 printf 'HOOKS=(base udev block encrypt filesystems)\n' >"$mkinitcpio_conf.d/95-local.conf"

@@ -111,14 +111,14 @@ preset_uses_global() {
     for name in "${PRESETS[@]}"; do
       config=${name}_config options=${name}_options
       [[ -z ${!config:-} ]] || exit 1
-      if [[ $(declare -p "$options" 2>/dev/null) == "declare -"*a* ]]; then
+      if [[ $(declare -p "$options" 2>/dev/null) =~ ^declare\ -[[:alpha:]]*a ]]; then
         declare -n list=$options
         words=("${list[@]}")
         unset -n list
       else
         read -ra words <<<"${!options:-}"
       fi
-      [[ ${#words[@]} -eq 0 || ${words[*]} == "-S autodetect" ]] || exit 1
+      [[ -z ${words[*]} || ${words[*]} == "-S autodetect" ]] || exit 1
     done
   ' _ "$1"
 }
