@@ -122,7 +122,9 @@ sed -i \
   -e '/^[[:space:]]*\[\[ -r \/proc\/device-tree\/compatible \]\] || fail /c\true # VM-only hardware boundary' \
   -e "/^[[:space:]]*grep -aq 'apple,' \/proc\/device-tree\/compatible || fail /c\\true # VM-only hardware boundary" \
   "$fresh_installer"
-if grep -q '/proc/device-tree/compatible' "$fresh_installer"; then
+# Only a check that fails without a device tree is a hardware boundary; a read
+# guarded by -r (the M3 kernel choice) passes in the VM as it is.
+if grep -Eq "(/proc/device-tree/compatible|'apple,' /proc/device-tree).*\|\| *fail" "$fresh_installer"; then
   echo "the candidate installer's device-tree check was not patched out for the VM" >&2
   exit 1
 fi
