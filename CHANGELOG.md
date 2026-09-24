@@ -14,9 +14,9 @@ An update within 4.0.4-mac.1 for installed Macs; the version is unchanged.
   a stock Arch `~/.bashrc`, installs Tensaku where it is missing, and uses the
   prebuilt `voxtype-bin` for new dictation installs.
 - Limine migration survives a pending kernel reboot, an ESP at `/boot` and an
-  ext4 root; GRUB Macs with busybox `encrypt` keep booting; on encrypted Macs
-  with a non-US Latin layout the boot check verifies the layout in the boot
-  image.
+  ext4 root; GRUB Macs with busybox `encrypt` keep booting; the boot check can
+  verify the keyboard layout in an encrypted Mac's boot image (prerequisites
+  and exceptions in the release notes).
 - VM acceptance on the M2 Max and a LUKS2 Limine cold boot on the M2 Max. The
   #235 non-US layout lockout is not proven fixed yet.
 
