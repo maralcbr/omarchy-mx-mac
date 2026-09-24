@@ -41,7 +41,7 @@ get_assignment() {
 
 # Replace the defaults file in one rename: a failure leaves the old one whole.
 install_defaults() {
-  sudo install -m 644 "$1" "$grub_default.omarchy-new"
+  sudo install -m 644 "$1" "$grub_default.omarchy-new" || { sudo rm -f "$grub_default.omarchy-new"; return 1; }
   sudo mv -f "$grub_default.omarchy-new" "$grub_default"
 }
 
@@ -143,19 +143,19 @@ trap 'restore "a repair step failed"' ERR
 set_assignment GRUB_CMDLINE_LINUX "${kept[*]}"
 sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null || restore "update-grub failed"
 
-# Every kernel entry of this root (root= its filesystem UUID or device;
-# another installation's entries are not ours to judge) now carries one
-# rootflags= (with subvol= when the root is a subvolume, as 10_linux writes
-# it), no device wait, and the cryptdevice=.
+# Every kernel entry 10_linux wrote for this system (os-prober's entries for
+# other installations, even on the same filesystem, sit in their own
+# section) now carries one rootflags= (with subvol= when the root is a
+# subvolume, as 10_linux writes it), no device wait, and the cryptdevice=.
 fsroot=$(findmnt -no FSROOT / 2>/dev/null || true)
-fs_uuid=$(findmnt -no UUID / 2>/dev/null || true)
-entries=$(sudo cat "$grub_cfg" 2>/dev/null | grep -E '^[[:space:]]*linux[[:space:]]' || true)
+entries=$(sudo cat "$grub_cfg" 2>/dev/null | awk '
+  /^### BEGIN \/etc\/grub\.d\/10_linux ###$/ { inside = 1; next }
+  /^### END \/etc\/grub\.d\/10_linux ###$/ { inside = 0; next }
+  inside && /^[[:space:]]*linux[[:space:]]/ { print }
+' || true)
 ours=0
 while read -r entry; do
   [[ -n $entry ]] || continue
-  if [[ ! ( -n $fs_uuid && " $entry " == *" root=UUID=$fs_uuid "* ) && " $entry " != *" root=$root_source "* ]]; then
-    continue
-  fi
   ours=$((ours + 1))
   rootflags=$({ grep -Eo '(^|[[:space:]])rootflags=[^[:space:]]*' <<<"$entry" || true; } | wc -l)
   if [[ -n $fsroot && $fsroot != / ]]; then
@@ -168,6 +168,6 @@ while read -r entry; do
   [[ " $entry " != *" $device_wait "* ]] || restore "a kernel entry still waits through a second rootflags="
   [[ -z $cryptdevice || " $entry " == *" $cryptdevice "* ]] || restore "a kernel entry does not carry $cryptdevice"
 done <<<"$entries"
-(( ours > 0 )) || restore "$grub_cfg has no kernel entry for this root"
+(( ours > 0 )) || restore "$grub_cfg has no 10_linux kernel entry"
 trap - ERR
 rm -rf "$work"

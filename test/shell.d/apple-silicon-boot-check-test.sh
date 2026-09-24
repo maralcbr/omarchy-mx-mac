@@ -364,6 +364,9 @@ expect_fail "a busybox encrypt root whose cryptdevice= names another partition" 
 printf 'linux /vmlinuz-linux-asahi root=UUID=x rw rootflags=subvol=@\nlinux /vmlinuz-linux-asahi root=UUID=x rw rootflags=subvol=@ cryptdevice=UUID=0422663f-9969-4953-900f-b342703b7e84:root single\ninitrd /initramfs-linux-asahi.img\n' >"$root/boot/grub/grub.cfg"
 run_check
 expect_fail "a busybox encrypt entry without cryptdevice= beside one with it" "does not set cryptdevice="
+printf '#linux /vmlinuz-linux-asahi root=UUID=x rw rootflags=subvol=@\n#initrd /initramfs-linux-asahi.img\n' >"$root/boot/grub/grub.cfg"
+run_check
+expect_fail "a busybox encrypt root with only commented kernel lines" "has no linux entry for vmlinuz-linux-asahi"
 # An image with the encrypt hook and a systemd init runs systemd: the
 # sd-encrypt and crypttab checks still apply.
 printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\nusr/bin/init\ninit_functions\nhooks/encrypt\nusr/lib/systemd/systemd\n' "$kver" >"$test_tmp/initramfs"

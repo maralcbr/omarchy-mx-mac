@@ -250,9 +250,11 @@ if (( ! limine_mac )) && root_on_luks && busybox_encrypt_in_initramfs; then
   luks_part=$(lsblk -nsrpo NAME,FSTYPE "$(root_block_device)" 2>/dev/null | awk '$2=="crypto_LUKS"{print $1; exit}' || true)
   luks_uuid=""
   [[ -z $luks_part ]] || luks_uuid=$(lsblk -ndo UUID "$luks_part" 2>/dev/null || true)
-  # Each entry that boots this kernel is checked on its own.
+  # Each entry that boots this kernel is checked on its own; there must be one.
+  kernel_entries=0
   while read -r kernel_line; do
     [[ -n $kernel_line ]] || continue
+    kernel_entries=$((kernel_entries + 1))
     cryptdevice_arg=$(grep -Eo '(^|[[:space:]])cryptdevice=[^[:space:]]+' <<<"$kernel_line" | tail -n 1 || true)
     cryptdevice_arg=${cryptdevice_arg#"${cryptdevice_arg%%[![:space:]]*}"}
     [[ -n $cryptdevice_arg ]] ||
@@ -264,6 +266,7 @@ if (( ! limine_mac )) && root_on_luks && busybox_encrypt_in_initramfs; then
     (( $(grep -Eo '(^|[[:space:]])rootflags=' <<<"$kernel_line" | wc -l) <= 1 )) ||
       fail "/boot/grub/grub.cfg passes more than one rootflags=, and the busybox initramfs keeps only the last"
   done < <(sudo grep -E '^[[:space:]]*linux[[:space:]]' "$grub_cfg" | grep -F "vmlinuz-$kernel" || true)
+  (( kernel_entries > 0 )) || fail "/boot/grub/grub.cfg has no linux entry for vmlinuz-$kernel"
 fi
 
 crypttab=$(path /etc/crypttab)

@@ -26,7 +26,16 @@ mkdir -p "$tmp/bin" "$tmp/conf.d"
 export CALL_LOG="$tmp/calls"
 export PATH="$tmp/bin:$ROOT/bin:$PATH"
 printf '#!/bin/bash\nexit "${APPLE:-0}"\n' >"$tmp/bin/omarchy-hw-apple-silicon"
-printf '#!/bin/bash\n[[ ${TEST_MV_FAIL:-0} == 1 && $1 == mv ]] && exit 1\nexec "$@"\n' >"$tmp/bin/sudo"
+cat >"$tmp/bin/sudo" <<'SH'
+#!/bin/bash
+[[ ${TEST_MV_FAIL:-0} == 1 && $1 == mv ]] && exit 1
+# A rollback copy that fails half way leaves a partial staging file behind.
+if [[ $1 == install && -e $OMARCHY_GRUB_CFG.fail-install ]]; then
+  printf 'PARTIAL\n' >"${@: -1}"
+  exit 1
+fi
+exec "$@"
+SH
 printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/grub-probe"
 printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/grub-mkconfig"
 # update-grub renders the entries the way 10_linux does: rootflags=subvol=
@@ -40,12 +49,23 @@ line=$GRUB_CMDLINE_LINUX
 [[ ${TEST_FSROOT:-/} == / ]] || line="rootflags=subvol=${TEST_FSROOT#/} $line"
 [[ -z ${TEST_EXTRA_ROOTFLAGS:-} ]] || line="$line $TEST_EXTRA_ROOTFLAGS"
 # Another installation's entry (os-prober) is not this root's to judge.
-[[ -z ${TEST_FOREIGN:-} ]] || printf "menuentry 'Other Linux' {\n\tlinux\t/Image root=UUID=0ther000-0000-4000-8000-000000000002 rw rootflags=subvol=@ rootflags=noatime\n}\n" >>"$OMARCHY_GRUB_CFG.foreign"
+# A second installation on the same filesystem (another subvolume) comes
+# from os-prober, in its own section.
 {
+  printf '### BEGIN /etc/grub.d/10_linux ###\n'
   printf "menuentry 'Arch Linux' {\n\tlinux\t/vmlinuz-linux-asahi root=UUID=5e1c0d3a-0000-4000-8000-000000000001 rw %s %s\n\tinitrd\t/initramfs-linux-asahi.img\n}\n" "$line" "$GRUB_CMDLINE_LINUX_DEFAULT"
   printf "menuentry 'Arch Linux (fallback)' {\n\tlinux\t/vmlinuz-linux-asahi root=UUID=5e1c0d3a-0000-4000-8000-000000000001 rw %s single\n}\n" "$line"
+  printf '### END /etc/grub.d/10_linux ###\n'
+  if [[ -n ${TEST_FOREIGN:-} ]]; then
+    printf '### BEGIN /etc/grub.d/30_os-prober ###\n'
+    printf "menuentry 'Other Linux' {\n\tlinux\t/@other/boot/Image root=UUID=5e1c0d3a-0000-4000-8000-000000000001 rw rootflags=subvol=@other rootflags=x-systemd.device-timeout=0\n}\n"
+    printf '### END /etc/grub.d/30_os-prober ###\n'
+  fi
 } >"$OMARCHY_GRUB_CFG"
-[[ ! -f $OMARCHY_GRUB_CFG.foreign ]] || { cat "$OMARCHY_GRUB_CFG.foreign" >>"$OMARCHY_GRUB_CFG"; rm "$OMARCHY_GRUB_CFG.foreign"; }
+if [[ ${TEST_RESTORE_INSTALL_FAIL:-0} == 1 ]]; then
+  : >"$OMARCHY_GRUB_CFG.fail-install"
+  exit 1
+fi
 SH
 cat >"$tmp/bin/findmnt" <<'SH'
 #!/bin/bash
@@ -152,12 +172,23 @@ cmp -s "$damaged" "$tmp/grub" || fail "a failed rename leaves the defaults whole
 grep -Fq 'will retry later' "$tmp/out" || fail "the failed step is reported: $(<"$tmp/out")"
 pass "any failure after the first edit rolls back"
 
-# Another installation's entry in grub.cfg does not fail the verification.
+# A rollback whose own copy fails never renames a partial file into place.
+cp "$damaged" "$tmp/grub"
+rm -f "$tmp/grub.cfg.fail-install"
+if TEST_RESTORE_INSTALL_FAIL=1 run; then fail "a failed regeneration fails the repair"; fi
+grep -Fxq "GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luks_uuid:root\"" "$tmp/grub" && ! grep -Fq PARTIAL "$tmp/grub" ||
+  fail "a failed rollback copy leaves the last whole defaults: $(<"$tmp/grub")"
+grep -Fq "Could not restore" "$tmp/out" || fail "a failed rollback names the backup: $(<"$tmp/out")"
+rm -f "$tmp/grub.cfg.fail-install"
+pass "a rollback copy that fails leaves the defaults whole"
+
+# Another installation's entry in grub.cfg, even on the same filesystem,
+# does not fail the verification.
 cp "$damaged" "$tmp/grub"
 TEST_FOREIGN=1 run || fail "a foreign entry does not fail the repair: $(<"$tmp/out")"
 grep -Fq 'Other Linux' "$tmp/grub.cfg" && grep -Fxq "GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luks_uuid:root\"" "$tmp/grub" ||
   fail "the repair lands beside a foreign entry: $(<"$tmp/grub")"
-pass "only this root's kernel entries are verified"
+pass "only the entries 10_linux writes for this system are verified"
 
 # A busybox Mac without encryption: only the wait comes off.
 printf 'HOOKS=(base asahi udev autodetect modconf kms keyboard block filesystems fsck)\n' >"$tmp/plain.conf"
@@ -187,6 +218,19 @@ mkdir -p "$tmp/presets"
 printf 'PRESETS=(default)\ndefault_config=%s\n' "$systemd" >"$tmp/presets/linux-asahi.preset"
 run || fail "a preset systemd Mac runs: $(<"$tmp/out")"
 cmp -s "$damaged" "$tmp/grub" && [[ ! -s $CALL_LOG ]] || fail "the preset's configuration decides"
+# default_options are appended after the configuration: a -c there wins,
+# and -S/-A change the hooks.
+printf 'PRESETS=(default)\ndefault_config=%s\ndefault_options=(-c %s)\n' "$busybox" "$systemd" >"$tmp/presets/linux-asahi.preset"
+run || fail "a preset -c option runs: $(<"$tmp/out")"
+cmp -s "$damaged" "$tmp/grub" && [[ ! -s $CALL_LOG ]] || fail "a -c in default_options decides the configuration"
+printf 'PRESETS=(default)\ndefault_options="-A systemd"\n' >"$tmp/presets/linux-asahi.preset"
+run || fail "a preset -A option runs: $(<"$tmp/out")"
+cmp -s "$damaged" "$tmp/grub" && [[ ! -s $CALL_LOG ]] || fail "a -A systemd in default_options makes the initramfs systemd"
+printf 'PRESETS=(default)\ndefault_config=%s\ndefault_options=(--skiphooks=systemd,sd-encrypt -A encrypt)\n' "$systemd" >"$tmp/presets/linux-asahi.preset"
+OMARCHY_MKINITCPIO_KERNEL=linux-asahi OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" omarchy-hw-apple-initramfs-hooks >"$tmp/hooks" ||
+  fail "the helper resolves skipped hooks"
+[[ $(<"$tmp/hooks") == "base asahi autodetect microcode modconf kms keyboard sd-vconsole block filesystems fsck encrypt" ]] ||
+  fail "-S drops and -A appends hooks: $(<"$tmp/hooks")"
 rm -rf "$tmp/presets"
 MKINITCPIO_CONF="$tmp/missing.conf" run || fail "an unreadable configuration runs: $(<"$tmp/out")"
 cmp -s "$damaged" "$tmp/grub" && [[ ! -s $CALL_LOG ]] || fail "an unreadable configuration proves nothing"

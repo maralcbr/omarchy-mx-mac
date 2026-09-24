@@ -5,7 +5,8 @@
 
 # Resolves the configuration the way mkinitcpio -P does for the kernel's
 # default preset: a default_config or ALL_config in the preset is passed as
-# -c and disables the drop-ins; otherwise /etc/mkinitcpio.conf is joined by
+# -c and disables the drop-ins, as does a -c in default_options, whose -A
+# and -S add and skip hooks; otherwise /etc/mkinitcpio.conf is joined by
 # every /etc/mkinitcpio.conf.d/*.conf in version order (LC_ALL=C.UTF-8
 # sort -V, as mkinitcpio sorts them) and sourced as one file. Prints HOOKS on
 # one line and exits 0, or exits 1 when the configuration cannot be read or
@@ -19,26 +20,57 @@ preset_dir=${OMARCHY_MKINITCPIO_PRESET_DIR:-/etc/mkinitcpio.d}
 kernel=${OMARCHY_MKINITCPIO_KERNEL:-$(omarchy-hw-apple-kernel 2>/dev/null || echo linux-asahi)}
 
 drop_ins=1
+add_hooks=() skip_hooks=()
 preset="$preset_dir/$kernel.preset"
 if [[ -r $preset ]]; then
-  explicit=$(bash -c '. "$1" >/dev/null 2>&1 || exit 1; printf "%s" "${default_config:-${ALL_config:-}}"' _ "$preset") || exit 1
-  if [[ -n $explicit ]]; then
-    conf=$explicit
+  # The default preset's configuration, then its options as mkinitcpio
+  # appends them: a later -c wins, -A and -S add and skip hooks.
+  preset_out=$(bash -c '. "$1" >/dev/null 2>&1 || exit 1
+    printf "%s\n" "${default_config:-${ALL_config:-}}"
+    if [[ "${default_options@a}" == *a* ]]; then printf "%s\n" "${default_options[@]}"
+    elif [[ -n ${default_options:-} ]]; then printf "%s\n" $default_options; fi' _ "$preset") || exit 1
+  mapfile -t preset_args <<<"$preset_out"
+  if [[ -n ${preset_args[0]:-} ]]; then
+    conf=${preset_args[0]}
     drop_ins=0
   fi
+  set -- "${preset_args[@]:1}"
+  while (( $# )); do
+    case $1 in
+      -c | --config) (( $# > 1 )) || exit 1; conf=$2; drop_ins=0; shift ;;
+      --config=*) conf=${1#*=}; drop_ins=0 ;;
+      -c?*) conf=${1#-c}; drop_ins=0 ;;
+      -A | --addhooks) (( $# > 1 )) || exit 1; IFS=, read -ra hooks_arg <<<"$2"; add_hooks+=("${hooks_arg[@]}"); shift ;;
+      --addhooks=*) IFS=, read -ra hooks_arg <<<"${1#*=}"; add_hooks+=("${hooks_arg[@]}") ;;
+      -A?*) IFS=, read -ra hooks_arg <<<"${1#-A}"; add_hooks+=("${hooks_arg[@]}") ;;
+      -S | --skiphooks) (( $# > 1 )) || exit 1; IFS=, read -ra hooks_arg <<<"$2"; skip_hooks+=("${hooks_arg[@]}"); shift ;;
+      --skiphooks=*) IFS=, read -ra hooks_arg <<<"${1#*=}"; skip_hooks+=("${hooks_arg[@]}") ;;
+      -S?*) IFS=, read -ra hooks_arg <<<"${1#-S}"; skip_hooks+=("${hooks_arg[@]}") ;;
+    esac
+    shift
+  done
 fi
 [[ -r $conf ]] || exit 1
 
 files=("$conf")
 if (( drop_ins )) && [[ -d $conf_dir ]]; then
   while IFS= read -r -d '' name; do
-    [[ -r $conf_dir/$name ]] && files+=("$conf_dir/$name")
+    if [[ -r $conf_dir/$name ]]; then
+      files+=("$conf_dir/$name")
+    fi
   done < <(LC_ALL=C.UTF-8 find "$conf_dir" -maxdepth 1 -xtype f -name '*.conf' -print0 | sed -z 's/.*\///' | LC_ALL=C.UTF-8 sort -zVu)
 fi
 
 joined=$(mktemp)
 trap 'rm -f "$joined"' EXIT
 cat -- "${files[@]}" >"$joined"
-hooks=$(bash -c 'HOOKS=(); . "$1" >/dev/null 2>&1 || exit 1; printf "%s" "${HOOKS[*]}"' _ "$joined") || exit 1
-[[ -n $hooks ]] || exit 1
-printf '%s\n' "$hooks"
+hooks_out=$(bash -c 'HOOKS=(); . "$1" >/dev/null 2>&1 || exit 1; printf "%s\n" "${HOOKS[@]}"' _ "$joined") || exit 1
+mapfile -t hooks <<<"$hooks_out"
+effective=()
+for hook in "${hooks[@]}" "${add_hooks[@]}"; do
+  if [[ -n $hook && " ${skip_hooks[*]} " != *" $hook "* ]]; then
+    effective+=("$hook")
+  fi
+done
+(( ${#effective[@]} )) || exit 1
+printf '%s\n' "${effective[*]}"
