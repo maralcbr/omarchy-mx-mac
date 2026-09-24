@@ -7,7 +7,7 @@ Run Omarchy on Apple Silicon through Arch Linux ARM and Asahi Linux.
 [![License](https://img.shields.io/github/license/maralcbr/omarchy-mx-mac)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/maralcbr/omarchy-mx-mac?style=social)](https://github.com/maralcbr/omarchy-mx-mac/stargazers)
 
-Read the **[Omarchy MX Mac manual](https://maralcbr.github.io/omarchy-mx-mac/)** for
+Read the **[Omarchy MX Mac manual](https://omarchy-mx-mac.org/)** for
 installation, channels, the architecture of the fork and how it is tested. See
 the [changelog](CHANGELOG.md) for release history and validation notes.
 
@@ -205,7 +205,7 @@ complete output and open a verified bug report with the commands above.
 
 ## Releases And Support
 
-- [Omarchy MX Mac manual](https://maralcbr.github.io/omarchy-mx-mac/)
+- [Omarchy MX Mac manual](https://omarchy-mx-mac.org/)
 - [Latest product release and validation notes](https://github.com/maralcbr/omarchy-mx-mac/releases/latest)
 - [Installer download (Stable)](https://downloads.aicodelabs.com.au/installer/stable/Omarchy-MX-Mac-Installer.pkg)
 - [Current runtime channel 57](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-57) and [package channel 13](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-channel-13)

@@ -1,6 +1,6 @@
 # The Omarchy MX Mac manual
 
-The public manual at <https://maralcbr.github.io/omarchy-mx-mac/>. It is a
+The public manual at <https://omarchy-mx-mac.org/>. It is a
 static site with no JavaScript framework and no Node toolchain: eleven Markdown
 pages, four generated SVG diagrams and one stylesheet.
 
@@ -15,6 +15,15 @@ python3 -m http.server 8877 --directory docs/site/dist
 
 `dist/` is not committed. GitHub Actions builds and deploys it on every push to
 `main` that touches `docs/site/`, through `.github/workflows/pages.yml`.
+
+## Domain
+
+`omarchy-mx-mac.org` is registered at Porkbun. Its DNS points at GitHub Pages:
+four `A` and four `AAAA` records on the apex (GitHub's published Pages
+addresses) and `www` as a `CNAME` to `maralcbr.github.io`. The repository's
+Pages settings hold the custom domain and enforce HTTPS (an Actions deploy ignores a
+`CNAME` file); `build.py` uses the domain for canonical links and the sitemap. The old
+`maralcbr.github.io/omarchy-mx-mac/` address redirects here.
 
 ## Where things live
 

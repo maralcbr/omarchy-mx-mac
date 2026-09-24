@@ -25,7 +25,7 @@ TEMPLATE = ROOT / "templates" / "page.html"
 DIST = ROOT / "dist"
 
 SITE_TITLE = "Omarchy MX Mac"
-SITE_URL = "https://maralcbr.github.io/omarchy-mx-mac"
+SITE_URL = "https://omarchy-mx-mac.org"
 REPO_URL = "https://github.com/maralcbr/omarchy-mx-mac"
 DOWNLOAD_URL = (
     "https://downloads.aicodelabs.com.au/installer/stable/Omarchy-MX-Mac-Installer.pkg"
