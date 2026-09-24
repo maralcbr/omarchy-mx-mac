@@ -154,6 +154,10 @@ if omarchy-hw-apple-silicon; then
       # Put a retired section back, so the cleanup that removed it runs again.
       if (( legacy_blocks )); then
         cp -a "$legacy_backup" "$pacman_conf"
+        # A sync that fetched the new Server's database before failing left it
+        # under the name the restored Server reads.
+        [[ $current_server == "$release_server" ]] ||
+          rm -f "${db_path:-/var/lib/pacman}/sync/omarchy.db" "${db_path:-/var/lib/pacman}/sync/omarchy.db.sig"
         echo "pacman could not sync the repositories; restored $pacman_conf from $legacy_backup" >&2
       fi
       return 1

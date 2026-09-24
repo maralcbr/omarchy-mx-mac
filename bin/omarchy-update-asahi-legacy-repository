@@ -44,12 +44,6 @@ legacy_replacements=(
   "hyprland-preview-share-picker-git hyprland-preview-share-picker"
 )
 
-owned_only_by() {
-  local owners
-  owners=$(pacman -Qoq "$2" 2>/dev/null) || return 1
-  [[ $owners == "$1" ]]
-}
-
 status=0
 for pair in "${legacy_replacements[@]}"; do
   read -r legacy replacement <<<"$pair"
@@ -85,20 +79,30 @@ for pair in "${legacy_replacements[@]}"; do
 
   # The shared files now belong to the replacement too, so removing the
   # legacy package normally would delete them. The files and emptied
-  # directories only it owns go first, while it is still installed, so a
-  # failure here is retried on the next run; then its database entry goes.
+  # directories no other package owns go first, while it is still installed,
+  # so a failure here is retried on the next run; then its database entry
+  # goes. pacman -Qo names only the first owner, so ownership comes from the
+  # full file list of every other package.
   cleaned=1
-  for file in "${legacy_files[@]}"; do
-    [[ -e $file || -L $file ]] && [[ ! -d $file ]] || continue
-    owned_only_by "$legacy" "$file" || continue
-    sudo rm -f -- "$file" || { cleaned=0; break; }
-  done
-  if (( cleaned )); then
-    for dir in "${legacy_dirs[@]}"; do
-      [[ -d $dir ]] && owned_only_by "$legacy" "$dir" || continue
-      sudo rmdir --ignore-fail-on-non-empty -- "$dir" || { cleaned=0; break; }
+  others=$(mktemp)
+  if pacman -Ql >"$others.all"; then
+    awk -v legacy="$legacy" '$1 != legacy { sub(/^[^ ]+ /, ""); print }' "$others.all" >"$others"
+    for file in "${legacy_files[@]}"; do
+      [[ -e $file || -L $file ]] && [[ ! -d $file ]] || continue
+      grep -Fxq -- "$file" "$others" && continue
+      sudo rm -f -- "$file" || { cleaned=0; break; }
     done
+    if (( cleaned )); then
+      for dir in "${legacy_dirs[@]}"; do
+        [[ -d $dir ]] || continue
+        grep -Fxq -- "$dir" "$others" && continue
+        sudo rmdir --ignore-fail-on-non-empty -- "$dir" || { cleaned=0; break; }
+      done
+    fi
+  else
+    cleaned=0
   fi
+  rm -f "$others" "$others.all"
   if (( ! cleaned )) || ! sudo pacman -Rdd --dbonly --noconfirm "$legacy"; then
     echo "$replacement is installed, but $legacy could not be removed; the next run tries again." >&2
     status=1

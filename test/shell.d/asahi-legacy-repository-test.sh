@@ -82,7 +82,18 @@ case "$1" in
   -Si) [[ -f $s/available/$2 ]] ;;
   -Qlq) cat "$s/files/$2" ;;
   -Qoq) owner "$2" ;;
-  -Sy) exit "${TEST_SY_STATUS:-0}" ;;
+  -Sy)
+    # A partial sync: the new [omarchy] database arrives, another fails.
+    (( ${TEST_SY_STATUS:-0} == 0 )) || printf 'new-server-database\n' >"$TEST_DB_PATH/sync/omarchy.db"
+    exit "${TEST_SY_STATUS:-0}"
+    ;;
+  -Ql)
+    [[ ${TEST_QL_FAIL:-0} != 1 ]] || exit 1
+    for pkg in "$s"/files/*; do
+      [[ -e $pkg ]] || continue
+      while IFS= read -r file; do echo "$(basename "$pkg") $file"; done <"$pkg"
+    done
+    ;;
   -S)
     shift
     ask=0 patterns=() target=""
@@ -146,6 +157,8 @@ run_command() {
     TEST_STATE="$state" \
     TEST_RM_FAIL="${TEST_RM_FAIL:-0}" \
     TEST_SY_STATUS="${TEST_SY_STATUS:-0}" \
+    TEST_QL_FAIL="${TEST_QL_FAIL:-0}" \
+    TEST_DB_PATH="$db_path" \
     OMARCHY_PATH="$ROOT" \
     OMARCHY_PACMAN_CONF="$pacman_conf" \
     OMARCHY_ASAHI_PACKAGE_KEY_FILE="$key_file" \
@@ -276,6 +289,7 @@ set -e
 (( status == 1 )) && [[ $(cat "$pacman_conf") == "$original" ]] ||
   fail "a sync failure after the rewrite leaves the legacy section gone" "$(cat "$pacman_conf")"
 grep -Fq 'restored' "$test_tmp/err" || fail "a restored pacman.conf is not reported"
+[[ ! -e $db_path/sync/omarchy.db ]] || fail "a restored pacman.conf keeps the new Server's cached database"
 TEST_APPLE=0 run_command || fail "the cleanup is not retried after a sync failure" "$(cat "$test_tmp/err")"
 ! grep -q 'omarchy-aarch64' "$pacman_conf" || fail "the retried cleanup keeps the legacy section"
 pass "a sync failure restores the legacy section so the next run retries the cleanup"
@@ -389,6 +403,28 @@ TEST_APPLE=0 run_command || fail "the leftover removal is not retried" "$(cat "$
   [[ $(cat "$fs/usr/bin/hyprland-preview-share-picker") == hyprland-preview-share-picker ]] ||
   fail "the retried leftover removal does not finish"
 pass "a failed leftover removal keeps the legacy package so the next run finishes it"
+
+# pacman -Qo names only the first owner. A file the legacy picker shares with
+# a package that sorts after it must survive.
+reset
+{ printf '[options]\nDBPath = %s\n\n' "$db_path"; alarm_repositories; } >"$pacman_conf"
+legacy_mac_packages
+install_package z-shared-license-owner "$fs/usr/share/licenses/hyprland-preview-share-picker-git/LICENSE"
+TEST_APPLE=0 run_command || fail "a legacy file shared with another package fails the cleanup" "$(cat "$test_tmp/err")"
+[[ -e $fs/usr/share/licenses/hyprland-preview-share-picker-git/LICENSE && ! -f $state/installed/hyprland-preview-share-picker-git ]] ||
+  fail "a legacy file another package also owns is deleted"
+pass "a legacy file another package also owns is kept"
+
+reset
+{ printf '[options]\nDBPath = %s\n\n' "$db_path"; alarm_repositories; } >"$pacman_conf"
+legacy_mac_packages
+set +e
+TEST_APPLE=0 TEST_QL_FAIL=1 run_command
+status=$?
+set -e
+(( status == 1 )) && [[ -f $state/installed/hyprland-preview-share-picker-git && -e $fs/usr/share/licenses/hyprland-preview-share-picker-git/LICENSE ]] ||
+  fail "an ownership query that fails drops the legacy package record"
+pass "an ownership query that fails keeps the legacy package for the next run"
 
 # A Mac that never had the legacy repository, and a machine that is not a Mac.
 reset
