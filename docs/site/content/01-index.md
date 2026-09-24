@@ -20,9 +20,9 @@ It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). E
 | --- | --- |
 | Omarchy release | 4.0.4 (`4.0.4-mac.1`), on both channels |
 | Installer app | 2.0.9 (opens on Stable at every launch; choose RC from the Release Channel menu) |
-| Stable channel | `os-v4.0.3-mac.5.20260923-rc`, Aurora kernel, Limine boot menu (promoted from `rc` on 2026-09-23) |
-| Release candidate channel | `os-v4.0.3-mac.5.20260923-rc`, the same image |
-| Macs a new install admits | MacBook Pro 14" M1 Pro (`apple,j314s`) and 16" M2 Max (`apple,j416c`) |
+| Stable channel | `os-v4.0.4-mac.1.20260924-rc`, Aurora kernel, Limine boot menu (since 2026-09-24) |
+| Release candidate channel | `os-v4.0.4-mac.1.20260924-rc`, the same image |
+| Macs a new install admits | The 22 M1 and M2 models; hardware-qualified on the MacBook Pro 14" M1 Pro (`apple,j314s`) and 16" M2 Max (`apple,j416c`) |
 | Reference Mac | MacBook Pro 14" 2021, M1 Pro (`apple,j314s`) |
 | Also exercised | MacBook Pro 16" 2023, M2 Max (`apple,j416c`), five displays |
 

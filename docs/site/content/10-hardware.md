@@ -17,12 +17,13 @@ cat /proc/device-tree/model
 tr '\0' '\n' < /proc/device-tree/compatible
 ```
 
-The catalog on both channels admits two identifiers today: the MacBook Pro 14" M1 Pro
-(`apple,j314s`) and the MacBook Pro 16" M2 Max (`apple,j416c`), the two Macs the Aurora
-kernel was qualified on. The earlier Asahi stable image admitted 22; it is kept for
-rollback but no longer offered. An identifier that is not in the catalog is
-refused before anything on the disk is touched, which is the intended behaviour rather than
-a gap to work around.
+The catalog on both channels admits 22 identifiers today, every M1 and M2 model the
+earlier Asahi image admitted: `apple,j274`, `j293`, `j313`, `j314s`, `j314c`, `j316s`,
+`j316c`, `j375c`, `j375d`, `j413`, `j414s`, `j414c`, `j415`, `j416s`, `j416c`, `j456`,
+`j457`, `j473`, `j474s`, `j475c`, `j475d` and `j493`. The Aurora kernel was qualified on
+two of them, the MacBook Pro 14" M1 Pro (`apple,j314s`) and the MacBook Pro 16" M2 Max
+(`apple,j416c`); the other 20 are admitted without their own hardware qualification. An
+identifier that is not in the catalog is refused before anything on the disk is touched.
 
 The current image admits no M3 or M4 Mac.
 

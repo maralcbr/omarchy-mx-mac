@@ -75,6 +75,13 @@ stays on R2 for rollback. All three channels serve one catalog. The image
 carries the 4.0.4 runtime; the `4.0.3` in its tag is a naming slip. Installer
 2.0.9 is the download on both `installer/stable` and `installer/rc`.
 
+On 2026-09-24 `os-v4.0.4-mac.1.20260924-rc` (the 4.0.4 image built from runtime
+`asahi-quattro-ca187b0a`, catalog sequence 1790210231) went to `rc` and `stable`
+with `--no-prune`. Its catalog admits the 22 M1 and M2 identifiers of the old
+Asahi catalog, not only the two qualified Macs, and names installer 2.0.9 as
+latest with 2.0.8 as the minimum. `os-v4.0.3-mac.5.20260923-rc` and
+`os-v4.0.3-mac.1.20260913` stay on R2 for rollback.
+
 Installed Macs are unaffected. Each one records its channel and its kernel
 (`stable:linux-aurora` or `rc:linux-aurora` by lane; `stable:linux-asahi` is the
 legacy record of a Mac still on the Asahi kernel, see

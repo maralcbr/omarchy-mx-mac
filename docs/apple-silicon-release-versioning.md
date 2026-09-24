@@ -12,7 +12,7 @@ Linux/x86 workflow (`.github/workflows/release.yml`) keeps its existing
 ## Two identities
 
 Values are examples from the first release under this scheme; the current
-installer is 2.0.9 (build 26) and the current OS tag `os-v4.0.3-mac.5.20260923-rc`.
+installer is 2.0.9 (build 26) and the current OS tag `os-v4.0.4-mac.1.20260924-rc`.
 
 | | Example | Where it is set |
 | --- | --- | --- |

@@ -31,7 +31,7 @@ Earlier releases boot through GRUB with a themed menu and `grub-btrfs` entries f
 - GRUB does not survive the switch. Activating Limine removes the experiment's `GRUB (recovery)` entry, so the menu is Omarchy's and its snapshots and nothing else.
 - U-Boot is made silent: no banner, no logo, no boot delay. The menu the user sees is Limine's.
 
-The Limine packages are in the `[omarchy]` repository and every image built from `main` writes the `/var/lib/omarchy/limine.enabled` gate. The image both channels install today, `os-v4.0.3-mac.5.20260923-rc`, boots through Limine. It passed VM acceptance; a physical install has not been recorded yet. Macs installed from earlier images still boot through GRUB.
+The Limine packages are in the `[omarchy]` repository and every image built from `main` writes the `/var/lib/omarchy/limine.enabled` gate. The image both channels install today, `os-v4.0.4-mac.1.20260924-rc`, boots through Limine. Its predecessor from the same lane, `os-v4.0.3-mac.5.20260923-rc`, passed VM acceptance; neither has a physical install recorded yet. Macs installed from earlier images still boot through GRUB.
 
 ## Kernel lanes
 

@@ -464,8 +464,9 @@ changes when the app does; the README download link never changes.
 
 ## Mac image lane: a new fresh-install image
 
-This is how the current image, `os-v4.0.3-mac.5.20260923-rc`, was built and
-published on 2026-09-23. It replaces full-lane steps 5–7 and the payload build
+This is how `os-v4.0.3-mac.5.20260923-rc` was built and published on
+2026-09-23; the current image, `os-v4.0.4-mac.1.20260924-rc`, followed the same
+steps on 2026-09-24 with the 22 M1 and M2 identifiers in `device_identifiers`. It replaces full-lane steps 5–7 and the payload build
 under [The Aurora lane](#the-aurora-lane), which describe the retired
 `omarchy-iso` path.
 
