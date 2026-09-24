@@ -66,6 +66,70 @@ retry() {
   done
 }
 
+# An interrupted install resumes only with the user and release that started
+# it. Name each checkpoint field that differs from this run, with both values,
+# and how to resume. The checkpoint holds only the user name and the public
+# release identifiers.
+checkpoint_mismatch() {
+  local recorded="$1" expected="$2" side line key value
+  local -A fields=()
+  local -a differences=()
+  local -a keys=(user sequence tag source_commit package_source_commit)
+  local -A labels=(
+    [user]="user"
+    [sequence]="release sequence"
+    [tag]="release tag"
+    [source_commit]="release source commit"
+    [package_source_commit]="package source commit"
+  )
+
+  for side in recorded expected; do
+    while IFS= read -r line; do
+      [[ $line == *=* ]] || continue
+      key=${line%%=*}
+      value=${line#*=}
+      if [[ $key == identity && $value == deferred ]]; then
+        key=user
+        value="none (--deferred-user)"
+      fi
+      [[ -n $key && -n ${labels[$key]-} ]] || continue
+      fields[$side.$key]=${value//[^[:print:]]/?}
+    done <<<"${!side}"
+  done
+
+  local release_differs=0 names=""
+  for key in "${keys[@]}"; do
+    [[ ${fields[recorded.$key]-} == "${fields[expected.$key]-}" ]] && continue
+    differences+=("$key")
+    names+="${names:+, }${labels[$key]}"
+    [[ $key == user ]] || release_differs=1
+  done
+
+  {
+    if (( ${#differences[@]} == 0 )); then
+      echo "Error: The incomplete installation checkpoint does not match this run"
+    else
+      echo "Error: An incomplete installation was started with a different $names"
+    fi
+    for key in "${differences[@]}"; do
+      printf '  %s: recorded %s, this run %s\n' "${labels[$key]}" \
+        "${fields[recorded.$key]:-(missing)}" "${fields[expected.$key]:-(missing)}"
+    done
+    if [[ ${fields[recorded.user]-} != "${fields[expected.user]-}" ]]; then
+      if [[ ${fields[recorded.user]-} == "none (--deferred-user)" ]]; then
+        echo "To resume it, run the installer again with --deferred-user."
+      elif [[ ${fields[recorded.user]-} =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+        echo "To resume it, run the installer again with --user ${fields[recorded.user]}."
+      fi
+    fi
+    if (( release_differs )) && [[ ${fields[recorded.tag]-} =~ ^asahi-quattro-[0-9A-Za-z._-]+$ ]]; then
+      echo "To resume it, run the installer again with --release-tag ${fields[recorded.tag]}, the release that started it."
+    fi
+    echo "To install a different release or user instead, start again from a freshly installed Asahi system."
+  } >&2
+  exit 1
+}
+
 record_target_home_owner() {
   printf '%s\n' "$owner_token" | install -Dm600 /dev/stdin "$target_home/.omarchy-fresh-install-owner.tmp"
   mv "$target_home/.omarchy-fresh-install-owner.tmp" "$target_home/.omarchy-fresh-install-owner"
@@ -416,7 +480,7 @@ flock -n "$install_lock" || fail "Another fresh installation is already running"
 if [[ -e $state_dir ]]; then
   [[ -d $state_dir && -f $state_dir/release && -f $state_dir/asahi-kernel.sha256 && -f $state_dir/grub.sha256 && -f $state_dir/owner-token ]] ||
     fail "The incomplete installation checkpoint is invalid"
-  [[ $(<"$state_dir/release") == "$expected_state" ]] || fail "An incomplete installation belongs to a different release or user"
+  [[ $(<"$state_dir/release") == "$expected_state" ]] || checkpoint_mismatch "$(<"$state_dir/release")" "$expected_state"
   owner_token=$(<"$state_dir/owner-token")
   [[ $owner_token =~ ^[0-9a-f]{64}$ ]] || fail "The incomplete installation owner token is invalid"
   if [[ -f $state_dir/completing ]]; then

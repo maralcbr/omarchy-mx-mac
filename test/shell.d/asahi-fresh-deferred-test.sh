@@ -387,8 +387,19 @@ run_installer interrupted FRESH_TEST_FAIL=omarchy-apply-system --deferred-user |
 
 status=0
 run_installer named-over-deferred --user deferred || status=$?
-expect_failure "$status" named-over-deferred "belongs to a different release or user" \
+expect_failure "$status" named-over-deferred "user: recorded none (--deferred-user), this run deferred" \
   "a named install, even of a user called deferred, cannot resume a deferred checkpoint"
+expect_failure "$status" named-over-deferred "run the installer again with --deferred-user" \
+  "a named install over a deferred checkpoint is told how to resume"
+
+status=0
+run_installer moved-release OMARCHY_ASAHI_RELEASE_SEQUENCE=8 OMARCHY_ASAHI_RELEASE_TAG=asahi-quattro-2afd2ef2 --deferred-user || status=$?
+expect_failure "$status" moved-release "release tag: recorded asahi-quattro-fe8d2bf8, this run asahi-quattro-2afd2ef2" \
+  "a retry from a newer release names the recorded and current release"
+expect_failure "$status" moved-release "run the installer again with --release-tag asahi-quattro-fe8d2bf8" \
+  "a retry from a newer release is told which release resumes the install"
+! grep -Fq "  user:" "$test_tmp/moved-release.err" ||
+  fail "a retry from a newer release by the same user does not blame the user" "$(cat "$test_tmp/moved-release.err")"
 
 # What the first attempt left behind or the builder shipped is not what this
 # attempt must keep: a new kernel image and a regenerated GRUB.
@@ -560,5 +571,6 @@ expect_failure "$status" named-grub-changed "The GRUB configuration does not boo
   "a named retry still refuses a GRUB that no longer boots the kernel"
 status=0
 run_installer deferred-over-named --deferred-user || status=$?
-expect_failure "$status" deferred-over-named "belongs to a different release or user" "a deferred install cannot resume a named checkpoint"
+expect_failure "$status" deferred-over-named "user: recorded alice, this run none (--deferred-user)" "a deferred install cannot resume a named checkpoint"
+expect_failure "$status" deferred-over-named "run the installer again with --user alice" "a deferred install over a named checkpoint is told how to resume"
 pass "a named install still needs a terminal and unchanged boot files across retries"
