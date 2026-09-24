@@ -52,6 +52,26 @@ for name in omarchy-mac-limine-cmdline omarchy-mac-limine-deploy omarchy-mac-lim
   ln -s "$ROOT/bin/$name" "$stub_bin/$name"
 done
 
+# The stubs decide whether GRUB's tools exist, so a runner that has them
+# installed must not supply them: each PATH directory holding one is replaced
+# by a copy of it without them. Empty entries and the order are kept.
+kept_entries=()
+shadow_count=0
+IFS=: read -ra path_entries <<<"$PATH:"
+for entry in "${path_entries[@]}"; do
+  if [[ -n $entry && ( -e $entry/grub-probe || -e $entry/grub-mkconfig ) ]]; then
+    shadow="$test_tmp/path$((shadow_count++))"
+    mkdir "$shadow"
+    for tool in "$entry"/*; do
+      [[ ${tool##*/} == grub-probe || ${tool##*/} == grub-mkconfig ]] || ln -s "$tool" "$shadow/"
+    done
+    entry=$shadow
+  fi
+  kept_entries+=("$entry")
+done
+host_path=$(IFS=:; printf '%s' "${kept_entries[*]}")
+unset path_entries kept_entries entry shadow shadow_count tool
+
 # A Mac from today's image: GRUB and its tools are installed.
 printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-probe"
 printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-mkconfig"
@@ -71,7 +91,7 @@ run() {
   OMARCHY_PACMAN_HOOKS_DIR="$etc/pacman.d/hooks" OMARCHY_SYSTEMD_DIR="$etc/systemd/system" \
   OMARCHY_LIMINE_GATE="$test_tmp/limine.enabled" OMARCHY_FSTAB="$etc/fstab" \
   OMARCHY_MACHINE_ID="$etc/machine-id" \
-  PATH="$stub_bin:$PATH" bash -c "source '$leaf'"
+  PATH="$stub_bin:$host_path" bash -c "source '$leaf'"
 }
 
 # No gate: a GRUB Mac stays one.
@@ -112,7 +132,7 @@ TEST_CALLS="$calls" TEST_ESP="$esp" TEST_UPDATE_GRUB_DEFAULT="$etc/update-grub" 
   OMARCHY_GRUB_TARGET="$test_tmp/boot/grub/grub-aa64.efi" OMARCHY_LIMINE_BOOT_HOOKS_DIR="$etc/boot/hooks/pre.d" \
   OMARCHY_PACMAN_HOOKS_DIR="$etc/pacman.d/hooks" OMARCHY_SYSTEMD_DIR="$etc/systemd/system" \
   OMARCHY_LIMINE_GATE="$test_tmp/limine.enabled" OMARCHY_FSTAB="$etc/fstab" \
-  PATH="$stub_bin:$PATH" bash -eE -c "source '$leaf'" 2>"$test_tmp/err" || status=$?
+  PATH="$stub_bin:$host_path" bash -eE -c "source '$leaf'" 2>"$test_tmp/err" || status=$?
 rm -f "$stub_bin/install"
 (( status != 0 )) || fail "an unguarded failure fails the leaf" "$(cat "$test_tmp/err")"
 grep -q 'a step failed with status' "$test_tmp/err" || fail "the unguarded failure is reported" "$(cat "$test_tmp/err")"
@@ -203,7 +223,7 @@ run_found_esp() {
   OMARCHY_PACMAN_HOOKS_DIR="$etc/pacman.d/hooks" OMARCHY_SYSTEMD_DIR="$etc/systemd/system" \
   OMARCHY_LIMINE_GATE="$test_tmp/limine.enabled" OMARCHY_FSTAB="$etc/fstab" \
   OMARCHY_MACHINE_ID="$etc/machine-id" \
-  PATH="$stub_bin:$PATH" bash -euo pipefail -c "source '$leaf'"
+  PATH="$stub_bin:$host_path" bash -euo pipefail -c "source '$leaf'"
 }
 cp "$etc/limine" "$test_tmp/limine-before"
 rm -f "$etc/limine"
@@ -227,9 +247,6 @@ rm -f "$etc/update-grub" "$esp/limine.conf" "$test_tmp/boot/grub/grub-aa64.efi"
 printf 'GRUB image\n' >"$esp/EFI/BOOT/BOOTAA64.EFI"
 # asahi-scripts keeps update-grub for update-m1n1 even where GRUB is gone, and
 # it fails without grub-probe: the leaf must read GRUB's own tools.
-printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-probe"
-printf '#!/bin/bash\nexit 0\n' >"$stub_bin/grub-mkconfig"
-chmod +x "$stub_bin/grub-probe" "$stub_bin/grub-mkconfig"
 rm -f "$stub_bin/grub-probe" "$stub_bin/grub-mkconfig"
 : >"$calls"
 run || fail "the leaf activates Limine without GRUB installed"
