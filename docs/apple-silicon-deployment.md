@@ -1040,6 +1040,11 @@ byte for byte, which is how to check it.
 - `publish-r2` needs the tag pushed to `origin`, `--base-url` equal to the
   pinned `releases/<tag>` URL, and `OMARCHY_PUBLISH_ASSUME_YES=<exact tag>`
   when there is no terminal.
+- A package rebuilt at the same version (a full rebuild does this) keeps its
+  file name. Reinstalling it with `pacman -S` from the new repository fails
+  with `signature ... is invalid` while the old same-name file is still in
+  `/var/cache/pacman/pkg`: pacman checks the new signature against the cached
+  file. Remove the cached file first.
 - Over ssh, `pkill -f omarchy-update` matches the ssh shell's own command
   line; exclude `$$` and `$PPID`.
 - The acceptance guest and the gate need Arch Linux ARM in a state consistent

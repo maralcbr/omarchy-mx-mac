@@ -4,6 +4,25 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
+## Runtime channel 59 - 2026-09-25
+
+An update within 4.0.4-mac.1 for installed Macs; the version is unchanged.
+
+- Runtime `4.0.4.r7099.gb8ed395-1` from `omarchy-mx-mac` `b8ed3951`, on package
+  channel 15 (`asahi-packages-stable-7e2f6cfe`), a full rebuild.
+- Ghostty and ChatGPT (`openai-codex-desktop`) can be installed on Apple
+  Silicon from the Install menu.
+- Macs that came from omarchy-mac lose the unsigned `[omarchy-aarch64]`
+  repository; its conflicting packages are replaced and bundle packages it
+  built may be downgraded to the signed ones.
+- Installer error details (#259) ship with the next signed installer build,
+  not with this runtime; the edge kernel's headset-button patch is not
+  published and does not reach rc or stable.
+- VM acceptance and a LUKS2 Limine cold boot on the M2 Max; the M1 Pro was
+  offline.
+
+[Release notes](docs/releases/asahi-quattro-channel-59.md) | [Full diff](https://github.com/maralcbr/omarchy-mx-mac/compare/16eaa2fb...b8ed3951)
+
 ## Runtime channel 58 - 2026-09-24
 
 An update within 4.0.4-mac.1 for installed Macs; the version is unchanged.
