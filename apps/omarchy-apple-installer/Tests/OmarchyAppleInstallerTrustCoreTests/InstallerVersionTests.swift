@@ -35,6 +35,11 @@ final class InstallerVersionTests: XCTestCase {
     )
   }
 
+  func testPatchRolloverOrdersNumerically() {
+    XCTAssertTrue(InstallerVersion("2.0.10")! > InstallerVersion("2.0.9")!)
+    XCTAssertTrue(InstallerVersion("2.0.100")! > InstallerVersion("2.0.99")!)
+  }
+
   func testEqualVersionsCompareEqual() {
     XCTAssertEqual(InstallerVersion("2.0.0"), InstallerVersion("2.0.0"))
     XCTAssertTrue(InstallerVersion("2.0.0")! >= InstallerVersion("2.0.0")!)
