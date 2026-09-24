@@ -15,7 +15,7 @@ An Apple Silicon Mac has no UEFI of its own. Everything up to U-Boot comes from 
 | iBoot | Apple | Apple firmware. Enforces the boot policy set in recoveryOS and starts the chosen boot object. |
 | m1n1 | Asahi | Stage 1 is the boot object iBoot starts. Stage 2 initialises the hardware Apple firmware leaves alone and passes a Linux device tree on. |
 | U-Boot | Asahi, packaged as `uboot-asahi` | The only UEFI implementation on Apple Silicon. Loads the EFI boot loader from the EFI system partition. |
-| Boot loader | Omarchy | Limine on new installs from both channels. Macs installed from earlier images boot through GRUB. |
+| Boot loader | Omarchy | Limine on new installs from both channels. Macs installed from pre-Limine images boot through GRUB. |
 | Kernel and initramfs | omarchy-pkgs and `omarchy-mac-boot` | `linux-asahi` or `linux-aurora`, with a systemd initramfs built by mkinitcpio carrying the vendor firmware and Apple HID hooks. |
 | Root | Omarchy | A btrfs root with the `@` subvolume, snapper snapshots and, optionally, LUKS. |
 
