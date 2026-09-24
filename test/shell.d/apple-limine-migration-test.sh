@@ -4,6 +4,8 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
+require_command vercmp
+
 migration="$ROOT/migrations/1790055026.sh"
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
@@ -11,6 +13,8 @@ trap 'rm -rf "$test_tmp"' EXIT
 stub_bin="$test_tmp/bin"
 calls="$test_tmp/calls"
 omarchy="$test_tmp/omarchy"
+versions="$test_tmp/versions"
+repository="$test_tmp/repository"
 mkdir -p "$stub_bin" "$omarchy/install/hardware/apple" "$test_tmp/etc"
 
 cat >"$stub_bin/sudo" <<'SH'
@@ -26,12 +30,28 @@ cat >"$stub_bin/omarchy-mac-esp" <<'SH'
 [[ -n ${TEST_FOUND_ESP:-} ]] || { echo "omarchy-mac-esp: not found" >&2; exit 1; }
 echo "$TEST_FOUND_ESP"
 SH
+# pacman: installed versions in $TEST_VERSIONS, the repository's in
+# $TEST_REPOSITORY; -S installs the repository's version.
 cat >"$stub_bin/pacman" <<'SH'
 #!/bin/bash
 echo "pacman $*" >>"$TEST_CALLS"
 case "$1" in
-  -S) exit 0 ;;
-  -Q) echo "limine-mkinitcpio-hook 1.36.0-3" ;;
+  -Q) cat "$TEST_VERSIONS" ;;
+  -Si)
+    version=$(awk -v name="$2" '$1 == name { print $2 }' "$TEST_REPOSITORY")
+    [[ -n $version ]] || exit 1
+    printf 'Repository      : omarchy\nName            : %s\nVersion         : %s\n' "$2" "$version"
+    ;;
+  -S)
+    [[ -z ${TEST_INSTALL_FAILS:-} ]] || exit 1
+    shift
+    for arg; do
+      [[ $arg == -* ]] && continue
+      version=$(awk -v name="$arg" '$1 == name { print $2 }' "$TEST_REPOSITORY")
+      sed -i "/^$arg /d" "$TEST_VERSIONS"
+      echo "$arg ${version:-1-1}" >>"$TEST_VERSIONS"
+    done
+    ;;
   -Qlq) printf '/usr/\n/usr/lib/modules/7.1.13-3-2-ARCH/vmlinuz\n/usr/lib/modules/7.1.13-3-2-ARCH/pkgbase\n' ;;
 esac
 SH
@@ -58,10 +78,7 @@ cat >"$stub_bin/omarchy-apple-silicon-boot-check" <<'SH'
 echo "boot-check $* pending=${OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT:-0}" >>"$TEST_CALLS"
 [[ -z ${TEST_CHECK_FAILS:-} ]] || { echo "Apple Silicon boot check: /boot/limine.conf is missing on a Limine Mac" >&2; exit 1; }
 if [[ -n ${TEST_NEW_KERNEL:-} ]]; then
-  if [[ ${OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT:-0} != 1 ]]; then
-    echo "Apple Silicon boot check: running kernel is 7.1.13-1-1-ARCH, not the installed linux-asahi 7.1.13-3-2-ARCH" >&2
-    exit 1
-  fi
+  [[ ${OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT:-0} == 1 ]] || exit 1
   echo "Apple Silicon boot check: running kernel is 7.1.13-1-1-ARCH; linux-asahi 7.1.13-3-2-ARCH is installed from the installed linux-asahi, reboot pending"
   exit 0
 fi
@@ -69,66 +86,136 @@ echo "Apple Silicon boot check: running linux-asahi 7.1.13-3-2-ARCH from the ins
 SH
 chmod +x "$stub_bin"/*
 ln -s "$ROOT/bin/omarchy-mac-limine-active" "$stub_bin/omarchy-mac-limine-active"
+ln -s "$ROOT/bin/omarchy-mac-limine-enable" "$stub_bin/omarchy-mac-limine-enable"
+ln -s "$ROOT/bin/omarchy-cmd-present" "$stub_bin/omarchy-cmd-present"
 
 gate="$test_tmp/limine.enabled"
 limine_default="$test_tmp/etc/limine"
+pending="$test_tmp/limine-activation.pending"
+mkinitcpio_conf="$test_tmp/etc/mkinitcpio.conf"
+mkdir -p "$mkinitcpio_conf.d"
+
+# A Mac ready for Limine: an sd-encrypt initramfs, today's packages in the
+# repository, the old limine-mkinitcpio-hook installed.
+ready() {
+  printf 'HOOKS=(base udev autodetect)\n' >"$mkinitcpio_conf"
+  printf 'HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)\n' >"$mkinitcpio_conf.d/90-omarchy-mac.conf"
+  printf 'omarchy-mac-boot 20260921-10\nlimine-mkinitcpio-hook 1.36.0-3\nlinux-asahi 7.1.13.asahi3-2\n' >"$versions"
+  printf 'limine-mkinitcpio-hook 1.36.0-4\nlimine 12.9.0-1\nlimine-snapper-sync 1.30.1-1\nuboot-asahi 2026.07.asahi2-1\n' >"$repository"
+  rm -f "$pending"
+}
 
 run_migration() {
   : >"$calls"
   rm -f "$gate" "$limine_default"
   status=0
-  TEST_CALLS="$calls" OMARCHY_PATH="$omarchy" OMARCHY_LIMINE_GATE="$gate" OMARCHY_LIMINE_DEFAULT="$limine_default" \
-    OMARCHY_MKINITCPIO_ALPM="$stub_bin/mkinitcpio-alpm" PATH="$stub_bin:$PATH" bash -euo pipefail "$migration" >"$test_tmp/out" 2>"$test_tmp/err" || status=$?
+  TEST_CALLS="$calls" TEST_VERSIONS="$versions" TEST_REPOSITORY="$repository" OMARCHY_PATH="$omarchy" \
+    OMARCHY_LIMINE_GATE="$gate" OMARCHY_LIMINE_DEFAULT="$limine_default" OMARCHY_LIMINE_PENDING="$pending" \
+    OMARCHY_MKINITCPIO_CONF="$mkinitcpio_conf" OMARCHY_MKINITCPIO_ALPM="$stub_bin/mkinitcpio-alpm" \
+    PATH="$stub_bin:$PATH" bash -euo pipefail "$migration" >"$test_tmp/out" 2>"$test_tmp/err" || status=$?
 }
 
-# Issue #238: an ESP neither at /boot/efi nor at /boot. The Mac keeps GRUB, and
-# the migration settles instead of failing every update and blocking the
-# migrations after it.
+# Every case where the Mac is not ready: GRUB stays, the migration succeeds so
+# the ones after it run, and the marker makes omarchy update try again.
+expect_wait() {
+  local description=$1 reason=$2
+  (( status == 0 )) || fail "$description does not fail the migration" "$(cat "$test_tmp/err")"
+  grep -Fq "Limine waits: $reason" "$test_tmp/err" || fail "$description says why Limine waits" "$(cat "$test_tmp/err")"
+  [[ -e $pending ]] || fail "$description leaves the activation to retry"
+}
+expect_untouched() {
+  [[ ! -e $gate ]] && ! grep -q '^pacman -S \|^leaf' "$calls" ||
+    fail "$1 installs nothing and writes no gate" "$(cat "$calls")"
+}
+
+# Issue #238: an ESP neither at /boot/efi nor at /boot.
+ready
 run_migration
-(( status == 0 )) || fail "a Mac without a system ESP settles the migration" "$(cat "$test_tmp/err")"
-grep -Fq 'this Mac keeps booting GRUB' "$test_tmp/err" || fail "the Mac is told GRUB stays" "$(cat "$test_tmp/err")"
-[[ ! -e $gate ]] && ! grep -q '^pacman -S\|^leaf' "$calls" ||
-  fail "without a system ESP nothing is installed and no gate is written" "$(cat "$calls")"
-pass "a Mac without a system ESP keeps GRUB and the migration settles"
+expect_wait "a Mac without a system ESP" "the system ESP is not mounted"
+expect_untouched "a Mac without a system ESP"
+pass "a Mac without a system ESP keeps GRUB and waits"
 
 export TEST_FOUND_ESP="$test_tmp/boot"
+
+# A busybox initramfs unlocks the disk with encrypt; Limine's UKI needs sd-encrypt.
+ready
+printf 'HOOKS=(base udev autodetect modconf block keyboard keymap encrypt filesystems fsck)\n' >"$mkinitcpio_conf.d/90-omarchy-mac.conf"
+run_migration
+expect_wait "a busybox encrypt initramfs" "the encrypted disk is unlocked by a busybox initramfs"
+expect_untouched "a busybox encrypt initramfs"
+ready
+rm -f "$mkinitcpio_conf" "$mkinitcpio_conf.d"/*
+run_migration
+expect_wait "unreadable initramfs HOOKS" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
+expect_untouched "unreadable initramfs HOOKS"
+pass "a busybox encrypt Mac keeps GRUB, and unknown HOOKS wait too"
+
+# Packages: the repository must carry limine-mkinitcpio-hook 1.36.0-4 (which
+# leaves mkinitcpio's kernel hook in place) and omarchy-mac-boot
+# 20260921-10 must be installed, by exact name.
+ready
+printf 'limine-mkinitcpio-hook 1.36.0-3\n' >"$repository"
+run_migration
+expect_wait "an old limine-mkinitcpio-hook in the repository" "the package repository has no limine-mkinitcpio-hook 1.36.0-4"
+expect_untouched "an old limine-mkinitcpio-hook in the repository"
+ready
+sed -i 's/^omarchy-mac-boot .*/omarchy-mac-boot 20260921-9/' "$versions"
+run_migration
+expect_wait "an old omarchy-mac-boot" "omarchy-mac-boot 20260921-10 or newer is not installed (20260921-9)"
+expect_untouched "an old omarchy-mac-boot"
+ready
+sed -i 's/^omarchy-mac-boot .*/omarchy-apple-boot 20260921-10/' "$versions"
+run_migration
+expect_wait "a package that is not omarchy-mac-boot" "omarchy-mac-boot 20260921-10 or newer is not installed (none)"
+ready
+TEST_INSTALL_FAILS=1 run_migration
+expect_wait "a failed package install" "the Limine packages did not install"
+[[ ! -e $gate ]] || fail "a failed package install writes no gate"
+pass "Limine waits for limine-mkinitcpio-hook 1.36.0-4 and omarchy-mac-boot 20260921-10"
+
+ready
 run_migration
 (( status == 0 )) || fail "the migration activates Limine" "$(cat "$test_tmp/err")"
-[[ -e $gate ]] || fail "the migration writes the gate"
-grep -q '^leaf$' "$calls" || fail "the migration runs the leaf" "$(cat "$calls")"
-pass "an ESP at /boot activates Limine"
+[[ -e $gate ]] && grep -q '^leaf$' "$calls" || fail "the migration writes the gate and runs the leaf" "$(cat "$calls")"
+grep -Fxq 'limine-mkinitcpio-hook 1.36.0-4' "$versions" || fail "limine-mkinitcpio-hook is upgraded to 1.36.0-4"
+[[ ! -e $pending ]] || fail "an activated, verified Mac has nothing left to retry"
+pass "a ready Mac with its ESP at /boot activates Limine"
 
 # Issue #235: the same update installed a new kernel. The Limine files are
-# verified; the running kernel follows at the reboot.
+# verified; the next update verifies again after the reboot.
+ready
 TEST_NEW_KERNEL=1 run_migration
 (( status == 0 )) || fail "a kernel waiting for the reboot does not fail the migration" "$(cat "$test_tmp/err")"
 grep -Fq 'boot-check linux-asahi pending=1' "$calls" || fail "the boot check allows the pending reboot" "$(cat "$calls")"
 grep -Fq 'reboot to start the new kernel' "$test_tmp/out" || fail "the owner is told to reboot" "$(cat "$test_tmp/out")"
+[[ -e $pending ]] || fail "the next update verifies again once the new kernel runs"
 pass "a new kernel waiting for the reboot is not a failed migration"
 
 # A kernel updated while the old limine-mkinitcpio-hook shadowed mkinitcpio's
 # hook never reached /boot; mkinitcpio's hook script installs it before the
 # check.
+ready
 TEST_STALE_BOOT=1 run_migration
 (( status == 0 )) || fail "a stale /boot kernel is installed again" "$(cat "$test_tmp/err")"
 grep -Fxq 'mkinitcpio-alpm install cwd=/ targets=usr/lib/modules/7.1.13-3-2-ARCH/vmlinuz' "$calls" ||
   fail "mkinitcpio's hook script gets the kernel image, from /" "$(cat "$calls")"
 [[ $(grep -n '^mkinitcpio-alpm' "$calls" | cut -d: -f1) -lt $(grep -n '^boot-check' "$calls" | cut -d: -f1) ]] ||
   fail "the kernel is installed before the boot check" "$(cat "$calls")"
+ready
 run_migration
-! grep -q 'mkinitcpio-alpm' "$calls" || fail "a current /boot kernel is left alone" "$(cat "$calls")"
+! grep -q '^mkinitcpio-alpm' "$calls" || fail "a current /boot kernel is left alone" "$(cat "$calls")"
+ready
 TEST_STALE_BOOT=1 TEST_MKINITCPIO_FAILS=1 run_migration
-(( status == 1 )) && grep -Fq 'could not be installed under /boot' "$test_tmp/err" ||
-  fail "a failed kernel install leaves the migration to retry" "$(cat "$test_tmp/err")"
+expect_wait "a failed kernel install" "the linux-asahi kernel could not be installed under /boot"
 pass "a kernel the old hook kept from /boot is installed before the check"
 
+ready
 TEST_CHECK_FAILS=1 run_migration
-(( status == 1 )) || fail "boot files that do not verify fail the migration"
-grep -Fq 'will retry later' "$test_tmp/err" || fail "the failure says the migration retries" "$(cat "$test_tmp/err")"
+expect_wait "boot files that do not verify" "the Limine boot files did not verify"
+ready
 TEST_LEAF_DECLINES=1 run_migration
-(( status == 1 )) && grep -Fq 'Limine was not activated' "$test_tmp/err" ||
-  fail "a leaf that declines leaves the migration to retry" "$(cat "$test_tmp/err")"
-pass "real failures still leave the migration to retry"
+expect_wait "a leaf that declines" "Limine was not activated"
+pass "failures never stop the migrations after this one, and the activation retries"
 unset TEST_FOUND_ESP
 
 # omarchy-mac-esp: the device tree's ESP where it is mounted whole, /boot/efi

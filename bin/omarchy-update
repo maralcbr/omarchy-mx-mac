@@ -82,7 +82,16 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   omarchy-update-system-pkgs || packages_status=$?
   if (( packages_status == 3 )); then trap - ERR; fi
   (( packages_status == 0 )) || (exit "$packages_status")
+  # A Mac whose Limine activation (migration 1790055026) is still waiting
+  # tries again after the migrations; one that starts waiting in them does not
+  # try twice in the same update.
+  limine_pending=${OMARCHY_LIMINE_PENDING:-/var/lib/omarchy/limine-activation.pending}
+  limine_retry=0
+  [[ ! -e $limine_pending ]] || limine_retry=1
   omarchy-migrate
+  if (( limine_retry )) && omarchy-hw-apple-silicon; then
+    omarchy-mac-limine-enable || echo "The Limine activation stopped; the next update tries again." >&2
+  fi
   # Completion before migrations can fail on leftover linux-asahi-headers; that
   # failure is swallowed so this migrate can swap them. Prove the switch again
   # now so the same update can finish.

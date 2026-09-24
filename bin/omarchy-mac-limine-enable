@@ -1,0 +1,131 @@
+#!/bin/bash
+
+# omarchy:summary=Activate Limine on an Apple Silicon Mac installed before it, once the Mac is ready
+# omarchy:requires-sudo=true
+# omarchy:hidden=true
+
+# Macs installed from a Limine image activate Limine at first boot through
+# install/hardware/apple/limine-boot.sh; Macs installed before it get the
+# packages, the gate and the same leaf here, from migration 1790055026. The
+# U-Boot slot changes only once the Limine menu is verified to boot the
+# kernel; until then GRUB boots.
+#
+# Nothing here stops an update. A Mac that is not ready yet (no system ESP,
+# a busybox encrypt initramfs, packages older than Limine needs, a step that
+# failed, a kernel waiting for its reboot) keeps
+# /var/lib/omarchy/limine-activation.pending, exits 0, and omarchy update runs
+# this again after its migrations until Limine is active and verified.
+
+set -uo pipefail
+
+leaf=${OMARCHY_LIMINE_LEAF:-$OMARCHY_PATH/install/hardware/apple/limine-boot.sh}
+gate=${OMARCHY_LIMINE_GATE:-/var/lib/omarchy/limine.enabled}
+pending=${OMARCHY_LIMINE_PENDING:-/var/lib/omarchy/limine-activation.pending}
+mkinitcpio_conf=${OMARCHY_MKINITCPIO_CONF:-/etc/mkinitcpio.conf}
+mkinitcpio_alpm=${OMARCHY_MKINITCPIO_ALPM:-/usr/share/libalpm/scripts/mkinitcpio}
+
+# limine-mkinitcpio-hook 1.36.0-4 leaves mkinitcpio's own kernel hook in
+# place, so kernel updates keep reaching /boot; omarchy-mac-boot 20260921-10
+# builds the keyboard layout into the initramfs the UKI carries.
+declare -A minimum=([limine-mkinitcpio-hook]=1.36.0-4 [omarchy-mac-boot]=20260921-10)
+
+finish() {
+  sudo rm -f "$pending"
+  exit 0
+}
+
+wait_for() {
+  echo "Limine waits: $*. GRUB keeps booting this Mac; omarchy update tries again." >&2
+  sudo install -d -m 0755 "$(dirname "$pending")" && sudo touch "$pending"
+  exit 0
+}
+
+# The installed or repository version of an exact package name (pacman -Q and
+# -Si would also answer for a package that only provides the name).
+installed_version() {
+  pacman -Q | awk -v name="$1" '$1 == name { print $2; exit }'
+}
+repository_version() {
+  pacman -Si "$1" 2>/dev/null |
+    awk -v name="$1" '/^Name[[:space:]]*:/ { sub(/^[^:]*:[[:space:]]*/, ""); found = ($0 == name) }
+      found && /^Version[[:space:]]*:/ { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }'
+}
+new_enough() {
+  [[ -n $1 ]] && (( $(vercmp "$1" "$2") >= 0 ))
+}
+
+# The mkinitcpio HOOKS the kernel's initramfs is built with, as
+# omarchy-hw-apple-initramfs-hooks resolves them where it exists, else from
+# mkinitcpio.conf and its drop-ins.
+initramfs_hooks() {
+  if omarchy-cmd-present omarchy-hw-apple-initramfs-hooks; then
+    omarchy-hw-apple-initramfs-hooks
+    return
+  fi
+  [[ -r $mkinitcpio_conf ]] || return 1
+  bash -c '
+    HOOKS=()
+    source "$1" >/dev/null 2>&1 || exit 1
+    for drop_in in "$1".d/*.conf; do
+      [[ -f $drop_in ]] && { source "$drop_in" >/dev/null 2>&1 || exit 1; }
+    done
+    (( ${#HOOKS[@]} )) || exit 1
+    printf "%s\n" "${HOOKS[*]}"
+  ' _ "$mkinitcpio_conf"
+}
+
+omarchy-hw-apple-silicon || finish
+[[ -f $leaf ]] || finish
+
+# Limine goes on the system ESP, at /boot/efi or, on older installs, /boot.
+omarchy-mac-esp >/dev/null 2>&1 || wait_for "the system ESP is not mounted at /boot/efi or /boot"
+
+# A busybox initramfs unlocks the disk with its encrypt hook and the
+# cryptdevice= GRUB passes; Limine's UKI boots the sd-encrypt initramfs only.
+hooks=$(initramfs_hooks) || wait_for "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
+if [[ " $hooks " == *" encrypt "* ]]; then
+  wait_for "the encrypted disk is unlocked by a busybox initramfs, and Limine needs an sd-encrypt one"
+fi
+
+# Nothing is installed until the repository carries what Limine needs.
+for package in "${!minimum[@]}"; do
+  version=$(installed_version "$package")
+  new_enough "$version" "${minimum[$package]}" && continue
+  [[ $package == limine-mkinitcpio-hook ]] || wait_for "$package ${minimum[$package]} or newer is not installed (${version:-none})"
+  new_enough "$(repository_version "$package")" "${minimum[$package]}" ||
+    wait_for "the package repository has no $package ${minimum[$package]} or newer yet"
+done
+
+# uboot-asahi from [omarchy] (silent console) replaces Asahi's build of the
+# same name.
+sudo pacman -S --needed --noconfirm limine limine-mkinitcpio-hook limine-snapper-sync uboot-asahi ||
+  wait_for "the Limine packages did not install"
+new_enough "$(installed_version limine-mkinitcpio-hook)" "${minimum[limine-mkinitcpio-hook]}" ||
+  wait_for "limine-mkinitcpio-hook ${minimum[limine-mkinitcpio-hook]} or newer did not install"
+
+sudo install -d -m 0755 "$(dirname "$gate")"
+sudo touch "$gate"
+bash -euo pipefail -c 'source "$1"' _ "$leaf" || wait_for "the activation did not finish"
+sudo omarchy-mac-limine-active || wait_for "Limine was not activated"
+
+# limine-mkinitcpio-hook before 1.36.0-4 took mkinitcpio's own kernel hook
+# over, so a kernel updated in between never reached /boot. mkinitcpio's hook
+# script installs it again, run from / as pacman runs it.
+kernel=$(omarchy-hw-apple-kernel)
+while IFS= read -r image; do
+  sudo cmp -s "$image" "/boot/vmlinuz-$kernel" && continue
+  echo "Installing the $kernel kernel under /boot"
+  (cd / && printf '%s\n' "${image#/}" | sudo "$mkinitcpio_alpm" install) ||
+    wait_for "the $kernel kernel could not be installed under /boot"
+done < <(pacman -Qlq "$kernel" | grep -E '^/usr/lib/modules/[^/]+/vmlinuz$')
+
+# The Limine files are what this verifies. A kernel the same update installed
+# boots after the reboot; the next update verifies it again.
+check=$(sudo env OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1 omarchy-apple-silicon-boot-check "$kernel") ||
+  wait_for "the Limine boot files did not verify"
+if [[ $check == *"reboot pending"* ]]; then
+  echo "Limine boots this Mac from now on; reboot to start the new kernel."
+  sudo touch "$pending"
+  exit 0
+fi
+finish

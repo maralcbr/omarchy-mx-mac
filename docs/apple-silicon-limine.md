@@ -31,8 +31,14 @@ snapshot from `Snapshots`.
   Limine goes on the system ESP `bin/omarchy-mac-esp` finds: the partition
   the device tree names, mounted at `/boot/efi` or, on older installs, at
   `/boot`; `ESP_PATH` in `/etc/default/limine` records it for the tooling,
-  the deploy and the boot check. A Mac with neither keeps GRUB, and
-  migration `1790055026` settles instead of failing every update.
+  the deploy and the boot check.
+- `bin/omarchy-mac-limine-enable` (migration `1790055026`): activates Limine
+  on Macs installed before it, only once the Mac is ready: a system ESP, no
+  busybox `encrypt` initramfs, `limine-mkinitcpio-hook` 1.36.0-4 in the
+  repository and `omarchy-mac-boot` 20260921-10 installed. A Mac that is not
+  ready, or whose activation fails, keeps GRUB and
+  `/var/lib/omarchy/limine-activation.pending`; the migration still
+  succeeds, and `omarchy update` tries again after its migrations.
 - `bin/omarchy-mac-limine-cmdline`: `/etc/default/grub` stays the one file
   the encrypt flow, the re-key and the console leaf write the kernel
   command line to; this derives `KERNEL_CMDLINE[default]` from it

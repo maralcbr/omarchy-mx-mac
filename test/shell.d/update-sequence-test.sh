@@ -123,6 +123,28 @@ for step in omarchy-migrate omarchy-update-aurora-repository omarchy-hook omarch
 done
 pass "a blocked package upgrade stops the update before it migrates"
 
+# A Mac whose Limine activation is waiting (omarchy-mac-limine-enable keeps
+# the marker) tries again after the migrations, and a failed try never fails
+# the update. A Mac that starts waiting in this update's migrations does not
+# try twice.
+cat >"$stub_bin/omarchy-mac-limine-enable" <<'STUB'
+#!/bin/bash
+printf '%s unattended=%s\n' "${0##*/}" "${OMARCHY_UPDATE_UNATTENDED:-}" >>"$STEP_LOG"
+exit "${LIMINE_ENABLE_STATUS:-0}"
+STUB
+chmod +x "$stub_bin/omarchy-mac-limine-enable"
+limine_marker="$test_tmp/limine-activation.pending"
+: >"$limine_marker"
+OMARCHY_LIMINE_PENDING="$limine_marker" APPLE_SILICON=1 LIMINE_ENABLE_STATUS=1 run_update -y ||
+  fail "a failed Limine retry fails the update" "$(cat "$test_tmp/err")"
+[[ $(steps_run | grep -A1 '^omarchy-migrate$' | tail -n 1) == omarchy-mac-limine-enable ]] ||
+  fail "a waiting Limine activation is retried right after the migrations" "$(steps_run)"
+grep -q '^omarchy-update-restart ' "$test_tmp/steps" || fail "the update finishes after a failed Limine retry"
+rm -f "$limine_marker"
+OMARCHY_LIMINE_PENDING="$limine_marker" APPLE_SILICON=1 run_update -y || fail "an Apple Silicon update without a waiting Limine fails"
+! grep -q '^omarchy-mac-limine-enable ' "$test_tmp/steps" || fail "a Mac with no waiting Limine activation retries it"
+pass "a waiting Limine activation is retried after the migrations and never fails the update"
+
 set +e
 FAILING_STEP=omarchy-update-system-pkgs CLEANUP_FAIL=1 run_update -y
 update_status=$?
