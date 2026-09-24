@@ -203,6 +203,15 @@ complete output and open a verified bug report with the commands above.
 - Check `/var/log/pacman.log` and the backup path printed by the installer.
 - Open a verified bug report with hardware and package information.
 
+## Documentation
+
+- [Package map: x86, Omacom aarch64, MX Mac and Omarchy Mac](docs/omarchy-variant-package-map.md)
+- [Deployment and release runbook](docs/apple-silicon-deployment.md)
+- [Distribution channels](docs/apple-silicon-distribution-channels.md)
+- [Hardware validation](docs/apple-silicon-hardware-validation.md)
+- [x86 parity gaps](docs/apple-silicon-x86-parity-gaps.md)
+- [Update process](docs/update-process.md)
+
 ## Releases And Support
 
 - [Omarchy MX Mac manual](https://maralcbr.github.io/omarchy-mx-mac/)
