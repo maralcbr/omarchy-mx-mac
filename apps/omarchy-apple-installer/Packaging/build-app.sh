@@ -29,8 +29,8 @@ build_jobs="${OMARCHY_BUILD_JOBS:-10}"
   || fail "OMARCHY_BUILD_JOBS must be a positive integer"
 export CARGO_BUILD_JOBS="$build_jobs"
 
-marketing_version="${OMARCHY_APP_VERSION:-2.0.9}"
-build_number="${OMARCHY_APP_BUILD_NUMBER:-26}"
+marketing_version="${OMARCHY_APP_VERSION:-2.0.10}"
+build_number="${OMARCHY_APP_BUILD_NUMBER:-27}"
 signing_identity="${OMARCHY_APP_SIGNING_IDENTITY:--}"
 team_identifier="${OMARCHY_TEAM_ID:-}"
 
