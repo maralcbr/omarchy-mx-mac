@@ -171,7 +171,8 @@ cmp -s "$damaged" "$tmp/grub" || fail "a failed verification restores the defaul
 [[ $(grep -c update-grub "$CALL_LOG") == 2 ]] || fail "the restored defaults are regenerated: $(<"$CALL_LOG")"
 grep -Fq 'a kernel entry does not carry exactly one rootflags= with subvol=' "$tmp/out" &&
   grep -Fq 'Warning: the GRUB repair could not verify its result' "$tmp/out" &&
-  grep -Fq "add cryptdevice=UUID=$luks_uuid:root" "$tmp/out" && grep -Fq 'migrations/1790226002.sh' "$tmp/out" ||
+  grep -Fq "add cryptdevice=UUID=$luks_uuid:root" "$tmp/out" && grep -Fq 'before rebooting' "$tmp/out" &&
+  grep -Fq 'bash -euo pipefail "' "$tmp/out" && grep -Fq '/migrations/1790226002.sh"' "$tmp/out" ||
   fail "the warning names what failed, the fix by hand and the retry: $(<"$tmp/out")"
 [[ -e $tmp/repair.pending ]] || fail "a rolled-back repair keeps its pending marker"
 run || fail "the retry runs: $(<"$tmp/out")"

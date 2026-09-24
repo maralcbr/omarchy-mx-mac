@@ -146,8 +146,9 @@ backup="$backup_dir/grub.pre-cmdline-repair"
 [[ -e $backup ]] || sudo cp "$grub_default" "$backup"
 
 # From the first edit on, any failure puts the defaults and grub.cfg back.
-# A rollback that lands leaves the Mac on the configuration it booted with:
-# the repair warns, keeps its pending marker and lets the migrations go on.
+# A rollback that lands leaves the Mac as it was before the repair: the
+# repair warns (the damage may remain, to fix by hand before rebooting),
+# keeps its pending marker and lets the migrations go on.
 # Only a rollback that fails stops the update, as the Mac may not boot.
 restore() {
   trap - ERR
@@ -167,11 +168,12 @@ restore() {
   fi
   cat >&2 <<WARN
 Warning: the GRUB repair could not verify its result, so $grub_default and
-grub.cfg are back as this Mac booted with them. To fix it by hand: in
-GRUB_CMDLINE_LINUX drop $device_wait${cryptdevice:+ and add $cryptdevice},
-run sudo update-grub, and check that every linux line in $grub_cfg carries
-one rootflags= (with subvol=@)${cryptdevice:+ and the cryptdevice=}. To retry the repair:
-bash ${OMARCHY_PATH:-/usr/share/omarchy}/migrations/1790226002.sh
+grub.cfg are back as they were before the repair. The damage it was fixing
+may remain: fix it by hand before rebooting. In GRUB_CMDLINE_LINUX drop
+$device_wait${cryptdevice:+ and add $cryptdevice}, run sudo update-grub, and check
+that every linux line in $grub_cfg carries one rootflags= (with subvol=@)${cryptdevice:+ and
+the cryptdevice=}. To retry the repair:
+bash -euo pipefail "${OMARCHY_PATH:-/usr/share/omarchy}/migrations/1790226002.sh"
 WARN
   exit 0
 }
