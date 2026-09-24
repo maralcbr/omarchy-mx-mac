@@ -51,6 +51,23 @@ cat >"$test_bin/omarchy-pkg-aur-accessible" <<'EOF'
 exit "${AUR_ACCESSIBLE:-0}"
 EOF
 
+# PREBUILT_AVAILABLE says whether the repositories carry voxtype-bin;
+# INSTALLED lists the Voxtype packages already installed.
+cat >"$test_bin/omarchy-pkg-available" <<'EOF'
+#!/bin/bash
+echo "omarchy-pkg-available:$*" >>"$TEST_LOG"
+[[ $* == voxtype-bin ]] && exit "${PREBUILT_AVAILABLE:-1}"
+exit 1
+EOF
+
+cat >"$test_bin/omarchy-pkg-present" <<'EOF'
+#!/bin/bash
+for pkg in "$@"; do
+  [[ " ${INSTALLED:-} " == *" $pkg "* ]] || exit 1
+done
+exit 0
+EOF
+
 cat >"$test_bin/omarchy-hw-vulkan" <<'EOF'
 #!/bin/bash
 exit 1
@@ -91,28 +108,52 @@ run_install x86_64 "yes"
 assert_status 0 "an x86_64 install succeeds"
 grep -qx 'omarchy-pkg-add:wtype voxtype-bin' "$log_file" || fail "x86_64 installs the prebuilt voxtype-bin"
 grep -q '^omarchy-pkg-aur-add:' "$log_file" && fail "x86_64 does not build from the AUR"
+grep -q '^omarchy-pkg-available:' "$log_file" && fail "x86_64 installs voxtype-bin without an availability probe"
 grep -q '^omarchy-notification-send:' "$log_file" || fail "x86_64 install sends the ready notification"
 pass "x86_64 installs the prebuilt voxtype-bin"
 
+PREBUILT_AVAILABLE=0 run_install aarch64 "yes"
+assert_status 0 "an aarch64 prebuilt install succeeds"
+grep -qx 'omarchy-pkg-add:wtype voxtype-bin' "$log_file" || fail "aarch64 installs voxtype-bin from the [omarchy] repository"
+grep -q '^omarchy-pkg-aur-add:' "$log_file" && fail "aarch64 with voxtype-bin available does not build from the AUR"
+[[ $(grep -c '^confirm:' "$log_file") == 1 ]] || fail "aarch64 with voxtype-bin available asks nothing about a source build"
+grep -qx 'voxtype:setup systemd' "$log_file" || fail "aarch64 prebuilt install finishes Voxtype setup"
+pass "aarch64 installs the prebuilt voxtype-bin when the repositories carry it"
+
+INSTALLED="voxtype" PREBUILT_AVAILABLE=0 run_install aarch64 "yes"
+assert_status 0 "an aarch64 install over a source build succeeds"
+grep -qx 'omarchy-pkg-add:wtype' "$log_file" || fail "a Mac with a source-built voxtype only adds wtype"
+grep -q 'voxtype-bin' "$log_file" && fail "a source-built voxtype is not replaced by the conflicting voxtype-bin"
+grep -q '^omarchy-pkg-aur-add:' "$log_file" && fail "a source-built voxtype is not rebuilt"
+grep -qx 'voxtype:setup systemd' "$log_file" || fail "a source-built voxtype still gets set up"
+pass "aarch64 keeps a voxtype already built from source"
+
+INSTALLED="voxtype voxtype-bin" run_install aarch64 "yes"
+assert_status 0 "an aarch64 reinstall of voxtype-bin succeeds"
+grep -qx 'omarchy-pkg-add:wtype voxtype-bin' "$log_file" || fail "an installed voxtype-bin is kept"
+grep -q '^omarchy-pkg-aur-add:' "$log_file" && fail "an installed voxtype-bin is not replaced by a source build"
+pass "aarch64 keeps an installed voxtype-bin"
+
 run_install aarch64 "yes yes"
 assert_status 0 "an aarch64 source build succeeds"
+grep -qx 'omarchy-pkg-available:voxtype-bin' "$log_file" || fail "aarch64 checks the repositories for voxtype-bin first"
 grep -qxF 'confirm:Build Voxtype from source instead? This can take 10-20 minutes.' "$log_file" ||
   fail "aarch64 asks before starting the source build"
 grep -qx 'omarchy-pkg-add:wtype' "$log_file" || fail "aarch64 installs wtype from the repositories"
 grep -qx 'omarchy-pkg-aur-add:voxtype' "$log_file" || fail "aarch64 builds voxtype from the AUR"
-grep -q 'voxtype-bin' "$log_file" && fail "aarch64 never requests the x86_64-only voxtype-bin"
+grep -q '^omarchy-pkg-add:.*voxtype-bin' "$log_file" && fail "aarch64 without voxtype-bin in its repositories never requests it"
 grep -qx 'voxtype:setup systemd' "$log_file" || fail "aarch64 install finishes Voxtype setup"
-pass "aarch64 builds voxtype from the AUR instead of voxtype-bin"
+pass "aarch64 without voxtype-bin in its repositories builds voxtype from the AUR"
 
 run_install aarch64 "yes no"
 assert_status 0 "declining the source build is not an error"
-grep -q '^omarchy-pkg-' "$log_file" && fail "declining the source build installs nothing"
+grep -Eq '^omarchy-pkg-(add|aur-add):' "$log_file" && fail "declining the source build installs nothing"
 grep -q '^voxtype:' "$log_file" && fail "declining the source build runs no Voxtype setup"
 pass "declining the aarch64 source build installs nothing"
 
 run_install aarch64 "yes yes" 1
 assert_status 1 "an unreachable AUR fails the install"
-grep -q '^omarchy-pkg-' "$log_file" && fail "an unreachable AUR installs nothing"
+grep -Eq '^omarchy-pkg-(add|aur-add):' "$log_file" && fail "an unreachable AUR installs nothing"
 pass "an unreachable AUR stops the aarch64 install before any package change"
 
 run_install aarch64 "yes yes" 0 1
@@ -125,5 +166,5 @@ pass "a failed aarch64 source build stops before wtype and Voxtype setup"
 run_install aarch64 "no"
 assert_status 0 "declining the install is not an error"
 [[ $(grep -c '^confirm:' "$log_file") == 1 ]] || fail "declining the install asks nothing further"
-grep -q '^omarchy-pkg-' "$log_file" && fail "declining the install installs nothing"
+grep -Eq '^omarchy-pkg-(add|aur-add):' "$log_file" && fail "declining the install installs nothing"
 pass "declining the install changes nothing"

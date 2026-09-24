@@ -66,11 +66,9 @@ for arch in x86_64 aarch64; do
   check 1 omarchy-pkg-available missing
   check 0 omarchy-install-available install.editor.zed
   MISSING=omazed check 1 omarchy-install-available install.editor.zed
-  # voxtype-bin is x86_64-only; elsewhere dictation builds voxtype from the AUR.
-  prebuilt_expected=1
-  [[ $arch == x86_64 ]] || prebuilt_expected=0
+  # voxtype-bin is prebuilt on both architectures; dictation needs it.
   check 0 omarchy-install-available install.ai.dictation
-  MISSING=voxtype-bin check "$prebuilt_expected" omarchy-install-available install.ai.dictation
+  MISSING=voxtype-bin check 1 omarchy-install-available install.ai.dictation
   MISSING=wtype check 1 omarchy-install-available install.ai.dictation
   for apple in 0 1; do
     export APPLE=$apple

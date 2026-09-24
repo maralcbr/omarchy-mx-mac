@@ -8,9 +8,15 @@ set -e
 # Install voxtype and configure it for use.
 
 if gum confirm "Install Voxtype + AI model (~150MB) to enable dictation?"; then
-  # voxtype-bin is built for x86_64 only. On any other architecture, such as
-  # Apple Silicon, the AUR source package is the only Voxtype that installs.
+  # voxtype-bin is prebuilt for x86_64, and for aarch64 in the [omarchy]
+  # repository. voxtype-bin conflicts with the AUR voxtype, so a Mac that
+  # already built voxtype from source keeps it. Without either, the AUR
+  # source package is the only Voxtype that installs.
   if [[ $(uname -m) == "x86_64" ]]; then
+    omarchy-pkg-add wtype voxtype-bin
+  elif omarchy-pkg-present voxtype && ! omarchy-pkg-present voxtype-bin; then
+    omarchy-pkg-add wtype
+  elif omarchy-pkg-present voxtype-bin || omarchy-pkg-available voxtype-bin; then
     omarchy-pkg-add wtype voxtype-bin
   else
     gum style --foreground 3 "There's no prebuilt Voxtype binary for your CPU architecture."
