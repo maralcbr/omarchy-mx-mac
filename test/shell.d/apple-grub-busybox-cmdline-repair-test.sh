@@ -105,6 +105,7 @@ run() {
   : >"$CALL_LOG"
   OMARCHY_GRUB_DEFAULT="$tmp/grub" OMARCHY_GRUB_CFG="$tmp/grub.cfg" OMARCHY_GRUB_BACKUP_DIR="$tmp/backups" \
   OMARCHY_PROC_CMDLINE="$tmp/cmdline" OMARCHY_MKINITCPIO_CONF="${MKINITCPIO_CONF:-$busybox}" \
+  OMARCHY_GRUB_REPAIR_PENDING="$tmp/repair.pending" \
   OMARCHY_MKINITCPIO_CONF_DIR="$tmp/conf.d" OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" \
   OMARCHY_MKINITCPIO_KERNEL=linux-asahi \
   OMARCHY_LIMINE_GATE="$tmp/limine.enabled" OMARCHY_LIMINE_DEFAULT="$tmp/limine" \
@@ -180,7 +181,20 @@ grep -Fxq "GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luks_uuid:root\"" "$tmp/grub" 
   fail "a failed rollback copy leaves the last whole defaults: $(<"$tmp/grub")"
 grep -Fq "Could not restore" "$tmp/out" || fail "a failed rollback names the backup: $(<"$tmp/out")"
 rm -f "$tmp/grub.cfg.fail-install"
+[[ -e $tmp/repair.pending ]] || fail "an unfinished repair is left pending"
 pass "a rollback copy that fails leaves the defaults whole"
+
+# The next run finishes it although the defaults already read as repaired.
+cp "$tmp/grub" "$tmp/half"
+run || fail "a pending repair finishes: $(<"$tmp/out")"
+[[ $(<"$CALL_LOG") == update-grub ]] || fail "a pending repair regenerates grub.cfg: $(<"$CALL_LOG")"
+cmp -s "$tmp/half" "$tmp/grub" || fail "a pending repair does not edit repaired defaults again"
+[[ $(kernel_lines | grep -c "cryptdevice=UUID=$luks_uuid:root") == 2 ]] && ! grep -Fq 'x-systemd.device-timeout' "$tmp/grub.cfg" ||
+  fail "a pending repair verifies the regenerated entries: $(<"$tmp/grub.cfg")"
+[[ ! -e $tmp/repair.pending ]] || fail "a verified repair clears the pending marker"
+run || fail "a finished repair runs again"
+[[ ! -s $CALL_LOG ]] || fail "a finished repair is not redone"
+pass "a repair that could not finish or roll back is finished on the next run"
 
 # Another installation's entry in grub.cfg, even on the same filesystem,
 # does not fail the verification.
@@ -231,6 +245,20 @@ OMARCHY_MKINITCPIO_KERNEL=linux-asahi OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/preset
   fail "the helper resolves skipped hooks"
 [[ $(<"$tmp/hooks") == "base asahi autodetect microcode modconf kms keyboard sd-vconsole block filesystems fsck encrypt" ]] ||
   fail "-S drops and -A appends hooks: $(<"$tmp/hooks")"
+# mkinitcpio splits a scalar HOOKS and parses bundled short options.
+printf 'HOOKS="base systemd block sd-encrypt filesystems"\n' >"$tmp/scalar.conf"
+printf 'PRESETS=(default)\ndefault_config=%s\ndefault_options=(-vS systemd,sd-encrypt -Audev,encrypt)\n' "$tmp/scalar.conf" >"$tmp/presets/linux-asahi.preset"
+OMARCHY_MKINITCPIO_KERNEL=linux-asahi OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" omarchy-hw-apple-initramfs-hooks >"$tmp/hooks" ||
+  fail "the helper resolves a scalar HOOKS with bundled options"
+[[ $(<"$tmp/hooks") == "base block filesystems udev encrypt" ]] || fail "scalar HOOKS and bundled -vS resolve as mkinitcpio does: $(<"$tmp/hooks")"
+printf 'PRESETS=(default)\ndefault_options="--skip systemd"\n' >"$tmp/presets/linux-asahi.preset"
+OMARCHY_MKINITCPIO_KERNEL=linux-asahi OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" OMARCHY_MKINITCPIO_CONF="$systemd" \
+  omarchy-hw-apple-initramfs-hooks >"$tmp/hooks" || fail "a unique long prefix resolves"
+[[ " $(<"$tmp/hooks") " != *" systemd "* ]] || fail "--skip is --skiphooks: $(<"$tmp/hooks")"
+printf 'PRESETS=(default)\ndefault_options="-x"\n' >"$tmp/presets/linux-asahi.preset"
+if OMARCHY_MKINITCPIO_KERNEL=linux-asahi OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" omarchy-hw-apple-initramfs-hooks >/dev/null; then
+  fail "an option mkinitcpio does not know leaves the hooks unknown"
+fi
 rm -rf "$tmp/presets"
 MKINITCPIO_CONF="$tmp/missing.conf" run || fail "an unreadable configuration runs: $(<"$tmp/out")"
 cmp -s "$damaged" "$tmp/grub" && [[ ! -s $CALL_LOG ]] || fail "an unreadable configuration proves nothing"

@@ -20,6 +20,10 @@ grub_default=${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}
 grub_cfg=${OMARCHY_GRUB_CFG:-/boot/grub/grub.cfg}
 backup_dir=${OMARCHY_GRUB_BACKUP_DIR:-/var/lib/omarchy/backups}
 proc_cmdline=${OMARCHY_PROC_CMDLINE:-/proc/cmdline}
+# Set before the first edit, cleared once grub.cfg verifies: a run that
+# could not finish (nor roll back) regenerates and verifies next time even
+# when the defaults already read as repaired.
+pending=${OMARCHY_GRUB_REPAIR_PENDING:-/var/lib/omarchy/grub-cmdline-repair.pending}
 device_wait='rootflags=x-systemd.device-timeout=0'
 
 [[ -f $grub_default ]] || exit 0
@@ -119,9 +123,15 @@ if [[ " $hooks " == *" encrypt "* && " $cmdline $cmdline_default " != *" cryptde
   fi
 fi
 
-(( changed )) || exit 0
+(( changed )) || [[ -e $pending ]] || exit 0
 
-echo "Restoring the busybox initramfs kernel line: ${cryptdevice:-no cryptdevice= needed}, no second rootflags="
+if (( changed )); then
+  echo "Restoring the busybox initramfs kernel line: ${cryptdevice:-no cryptdevice= needed}, no second rootflags="
+else
+  echo "Finishing the busybox initramfs kernel line repair left pending"
+fi
+sudo mkdir -p "$(dirname "$pending")"
+sudo touch "$pending"
 work=$(mktemp -d)
 cp "$grub_default" "$work/before"
 sudo mkdir -p "$backup_dir"
@@ -140,8 +150,17 @@ restore() {
 set -E
 trap 'restore "a repair step failed"' ERR
 
-set_assignment GRUB_CMDLINE_LINUX "${kept[*]}"
+(( ! changed )) || set_assignment GRUB_CMDLINE_LINUX "${kept[*]}"
 sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null || restore "update-grub failed"
+
+# The cryptdevice= the line now carries, restored here or on an earlier run.
+unlock=""
+read -ra final_words <<<"$(get_assignment GRUB_CMDLINE_LINUX)"
+for word in "${final_words[@]}"; do
+  if [[ $word == cryptdevice=* ]]; then
+    unlock=$word
+  fi
+done
 
 # Every kernel entry 10_linux wrote for this system (os-prober's entries for
 # other installations, even on the same filesystem, sit in their own
@@ -166,8 +185,9 @@ while read -r entry; do
     restore "a kernel entry carries more than one rootflags="
   fi
   [[ " $entry " != *" $device_wait "* ]] || restore "a kernel entry still waits through a second rootflags="
-  [[ -z $cryptdevice || " $entry " == *" $cryptdevice "* ]] || restore "a kernel entry does not carry $cryptdevice"
+  [[ -z $unlock || " $entry " == *" $unlock "* ]] || restore "a kernel entry does not carry $unlock"
 done <<<"$entries"
 (( ours > 0 )) || restore "$grub_cfg has no 10_linux kernel entry"
 trap - ERR
+sudo rm -f "$pending"
 rm -rf "$work"
