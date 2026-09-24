@@ -46,12 +46,12 @@ Target homes:
 | `install/hardware/apple/fix-asahi-hid-race.sh` | On Apple Silicon, writes `/etc/mkinitcpio.conf.d/apple_hid_modules.conf` so `hid_apple` and `hid_magicmouse` are in the initramfs before `dockchannel-hid` registers devices. | Same path, byte-identical. Plan puts HID early-load **outside** package 1. `quattro-upstream` `install/hardware/all.sh` still runs the leaf. | No (not in package 1) | `omarchy-mac-boot (ours)` |
 | `install/hardware/apple/fix-asahi-btrfs-race.sh` | On Apple Silicon, writes a `kmod-static-nodes.service` drop-in so `/dev/btrfs-control` exists in the systemd initramfs. | Absent | — | `omarchy-mac-boot (ours)` |
 | `install/hardware/apple/fix-brcmfmac-supplicant.sh` | Intel/T2 Broadcom: disable firmware WPA offload. MX adds `omarchy-hw-apple-silicon && return 0` because that offload is what works on Asahi. | Same path; same Apple Silicon skip, slightly longer comment. Package 1 owns **iwd** (`vendor/NetworkManager/conf.d/20-omarchy-mac-wifi.conf`), not this modprobe. | Skip: yes in spirit (package 1 is iwd). This file: no | `omacom/omarchy quattro` (AS skip is the later PR; quattro still lacks the detector so it cannot take the skip as-is) |
-| `install/hardware/apple/fix-speaker-pop.sh` | Copies WirePlumber no-suspend drop-in and the `software-dsp.lua` overlay to system paths. | No no-suspend file. Closest: `install/hardware/apple/audio.sh` (installs `speakersafetyd` / `asahi-audio`) and package 1 `share/wireplumber/wireplumber.conf.d/asahi-headset-mic.conf` (headset priority, different file). | No | `omarchy-mac-boot (ours)` until Scott's package carries no-suspend |
+| `install/hardware/apple/fix-speaker-pop.sh` | Copies the WirePlumber no-suspend drop-in to `/etc`. (The `software-dsp.lua` overlay it once installed hung WirePlumber on J293; migration `1790225826.sh` removes it.) | No no-suspend file. Closest: `install/hardware/apple/audio.sh` (installs `speakersafetyd` / `asahi-audio`) and package 1 `share/wireplumber/wireplumber.conf.d/asahi-headset-mic.conf` (headset priority, different file). | No | `omarchy-mac-boot (ours)` until Scott's package carries no-suspend |
 | `install/hardware/apple/fix-spi-keyboard.sh` | Intel MacBook SPI keyboard modules + mkinitcpio. MX only hardens missing DMI. | Same path (product and distilled). | n/a (not Apple Silicon) | `omacom/omarchy quattro` |
 | `install/hardware/apple/fix-suspend-nvme.sh` | Intel MacBook NVMe D3cold. Identical to quattro. | Same path, identical | n/a | `omacom/omarchy quattro` |
 | `install/hardware/apple/fix-t2.sh` | T2 kernel, firmware, Limine cmdline. Identical to quattro. | Same path, identical | n/a | `omacom/omarchy quattro` |
 
-`install/user/hardware/apple/fix-speaker-pop.sh` — per-user copy of the same no-suspend + DSP overlay. Scott: `install/user/hardware/apple/mic.sh` is only `omarchy-setup-mac --user` (validated compatibility leaf). Home: `omarchy-mac-boot (ours)` until Scott carries no-suspend.
+`install/user/hardware/apple/fix-speaker-pop.sh` — per-user copy of the same no-suspend drop-in. Scott: `install/user/hardware/apple/mic.sh` is only `omarchy-setup-mac --user` (validated compatibility leaf). Home: `omarchy-mac-boot (ours)` until Scott carries no-suspend.
 
 ### 1.2 `install/*asahi*` and platform contract
 
@@ -75,7 +75,6 @@ No Apple-specific files. `config/hypr/input.lua` is the user override template (
 | `default/hypr/input.lua` (Apple lines only) | `hl.device` tap-to-click off for `apple-mtp-multi-touch` and `apple-spi-trackpad`. Rest of the file is generic; quattro lacks those two device lines. | `install/user/hardware/apple/touchpad.sh` appends `natural_scroll = true` / `tap_to_click = false` to the **user** override. Different mechanism, overlapping policy. | No | `omarchy-mac-boot (ours)` until Scott carries trackpad |
 | `default/libalpm/hooks/01-omarchy-aurora-verify.hook` | PreTransaction abort unless Aurora db matches the staged descriptor. | Absent | — | `mx runtime` |
 | `default/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf` | `session.suspend-timeout-seconds = 0` on AppleJ ALSA devices. | Package 1: `packages/omarchy-mac/share/wireplumber/wireplumber.conf.d/asahi-headset-mic.conf` (headset source priority). Same `conf.d`, different file. | Headset: yes. No-suspend: no | `omarchy-mac-boot (ours)` until Scott carries no-suspend |
-| `default/wireplumber/scripts/node/software-dsp.lua` | Asahi speaker DSP overlay: keep convolvers from pausing. Absent from quattro. | Absent | — | `omarchy-mac-boot (ours)` until Scott carries no-suspend |
 | `default/systemd/zram-generator.conf.d/90-omarchy.conf` | `zram-size = ram`, zstd, priority 100. **Identical** to quattro and to `quattro-upstream`. | Same path, identical. Distilled `enable-services.sh` says Apple Silicon currently ships neither oomd drop-ins nor this zram tuning in settings. | Not as an Apple package | `omarchy-mac-boot (ours)` until Scott carries zram layout |
 
 `etc/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf` is the settings-package copy of the same drop-in. Same home as the `default/` file.
@@ -112,7 +111,7 @@ One-shot migrators stay in `mx runtime` even when the payload they once wrote mo
 | --- | --- | --- | --- | --- |
 | `migrations/1787497040.sh` | Re-run HID early-load + rebuild initramfs. | `migrations/1788200001.sh` (same job) | No | `mx runtime` (historical); payload → `omarchy-mac-boot (ours)` |
 | `migrations/1789107528.sh` | Re-run btrfs static-nodes drop-in + mkinitcpio. | Absent | — | `mx runtime`; payload → `omarchy-mac-boot (ours)` |
-| `migrations/1788345489.sh` | Speaker no-suspend / DSP overlay. | `1789136142.sh` / `1789136143.sh` (audio stack + mic map, not no-suspend) | Audio stack: package 1 mic yes; speakersafetyd desktop leftover | `mx runtime`; payload → `omarchy-mac-boot (ours)` until Scott |
+| `migrations/1788345489.sh` | Speaker no-suspend drop-in. | `1789136142.sh` / `1789136143.sh` (audio stack + mic map, not no-suspend) | Audio stack: package 1 mic yes; speakersafetyd desktop leftover | `mx runtime`; payload → `omarchy-mac-boot (ours)` until Scott |
 | `migrations/1787552067.sh` | Install `rtkit` on Apple Silicon. | `1788200002.sh` + `audio.sh` | Partial (audio packages on trial) | `omarchy-mac (Scott)` (audio.sh leftover; should join package 1 later) |
 | `migrations/1789172112.sh` | Remove Intel `brcmfmac` workaround from Apple Silicon. | Absent (distilled leaf already skips AS) | — | `mx runtime` |
 | `migrations/1788486400.sh` | Install packages missing from an older Asahi set. | Absent | — | `mx runtime` |
@@ -147,7 +146,7 @@ Tests follow the production file they cover.
 | --- | --- | --- | --- |
 | `apple-hid-race-test.sh` | HID mkinitcpio leaf | Same name, same leaf | `omarchy-mac-boot (ours)` |
 | `asahi-btrfs-race-test.sh` | btrfs static-nodes leaf | Absent | `omarchy-mac-boot (ours)` |
-| `apple-speaker-pop-test.sh` | no-suspend / DSP copy | Absent (`asahi-audio-install-test.sh` covers package install) | `omarchy-mac-boot (ours)` until Scott |
+| `apple-speaker-pop-test.sh` | no-suspend copy | Absent (`asahi-audio-install-test.sh` covers package install) | `omarchy-mac-boot (ours)` until Scott |
 | `apple-brcmfmac-cleanup-test.sh` | AS skip of Intel workaround | Distilled has this test | `omacom/omarchy quattro` |
 | `apple-legacy-hardware-probe-test.sh` | SPI leaf with missing DMI | Absent | `omacom/omarchy quattro` |
 | `apple-silicon-test.sh` | detector | Distilled `apple-silicon-test.sh` + `bin/omarchy-hw-apple` | `mx runtime` |
@@ -251,7 +250,7 @@ T3 replaces the existing `omarchy-apple-boot` package (payload hashes in `bin/om
 | Encryption step | Fresh installer + `omarchy-provision-owner` `rekey_luks` | Package may ship Asahi-safe cryptsetup/initramfs drop-ins (no Limine UKI auto-unlock). Must not fork `rekey_luks`. |
 | Recovery keyslot | `rekey_luks` in `omarchy-provision-owner` (add user key, kill other slots). No separate recovery-key UX in this tree. | If T3 adds a recovery slot, it hooks **after** owner rekey via the existing provisioning dir; do not add a second slot killer. |
 | Drive-password parity | `bin/omarchy-drive-password` (already generic quattro) | Keep the command in desktop. Package only if Asahi needs a different `cryptsetup` invocation; otherwise a guard in the command is enough. |
-| WirePlumber no-suspend + DSP overlay | `default/` + `etc/` drop-ins; `install/hardware/apple/fix-speaker-pop.sh`; `install/user/hardware/apple/fix-speaker-pop.sh`; migration `1788345489.sh` | Package-present guard on both leaves. Do not write `$HOME/.config/wireplumber` if the vendor file is in `/usr/share/wireplumber`. |
+| WirePlumber no-suspend | `default/` + `etc/` drop-ins; `install/hardware/apple/fix-speaker-pop.sh`; `install/user/hardware/apple/fix-speaker-pop.sh`; migration `1788345489.sh` | Package-present guard on both leaves. Do not write `$HOME/.config/wireplumber` if the vendor file is in `/usr/share/wireplumber`. |
 | speakersafetyd | MX: enabled indirectly via Asahi packages + `omarchy-debug-apple`. Distilled: `install/hardware/apple/audio.sh` | If T3 enables the unit, MX must not, and Scott's `audio.sh` must guard. Prefer Scott taking this into package 1. |
 | zram layout | `default/systemd/zram-generator.conf.d/90-omarchy.conf` (also quattro settings) | Shipping this in `omarchy-mac-boot` **and** `omarchy-settings` is a file-ownership clash. T3 should vendor an Apple-only drop-in name (`90-omarchy-mac.conf`) or wait for Scott. |
 | Trackpad / bindings | `default/hypr/input.lua` device lines; `default/hypr/apple.lua` | Package-owned Hypr snippet. `all.sh` / user finalize must not append a second `omarchy-apple-touchpad` block (Scott's `touchpad.sh` already no-ops if keys exist). |
@@ -282,7 +281,7 @@ Each path below is counted once. Tests are listed with the code they cover.
 
 **omarchy-mac-boot (ours) — 19**
 
-`install/hardware/apple/fix-asahi-hid-race.sh`, `fix-asahi-btrfs-race.sh`, `fix-speaker-pop.sh`; `install/user/hardware/apple/fix-speaker-pop.sh`; `default/hypr/apple.lua`; Apple device lines in `default/hypr/input.lua`; `default/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf`; `default/wireplumber/scripts/node/software-dsp.lua`; `etc/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf`; `default/systemd/zram-generator.conf.d/90-omarchy.conf`; `bin/omarchy-install-asahi-fresh`; tests `apple-hid-race-test.sh`, `asahi-btrfs-race-test.sh`, `apple-speaker-pop-test.sh`, `hyprland-apple-cursor-test.sh`, `asahi-fresh-install-test.sh`, `asahi-fresh-deferred-test.sh`, `asahi-fresh-offline-test.sh`, `asahi-fresh-vm-run-test.sh`.
+`install/hardware/apple/fix-asahi-hid-race.sh`, `fix-asahi-btrfs-race.sh`, `fix-speaker-pop.sh`; `install/user/hardware/apple/fix-speaker-pop.sh`; `default/hypr/apple.lua`; Apple device lines in `default/hypr/input.lua`; `default/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf`; `etc/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf`; `default/systemd/zram-generator.conf.d/90-omarchy.conf`; `bin/omarchy-install-asahi-fresh`; tests `apple-hid-race-test.sh`, `asahi-btrfs-race-test.sh`, `apple-speaker-pop-test.sh`, `hyprland-apple-cursor-test.sh`, `asahi-fresh-install-test.sh`, `asahi-fresh-deferred-test.sh`, `asahi-fresh-offline-test.sh`, `asahi-fresh-vm-run-test.sh`.
 
 Image payload not in this git tree (`90-omarchy-asahi.conf`, vendorfw, `apple-image-finalize`) is also this home; not in the 19.
 
@@ -310,7 +309,7 @@ Section 2 adds 11 package-1 paths already at `omarchy-mac (Scott)`, plus about 1
 
 These are the places Scott's add-on (or a leftover leaf that `quattro-upstream` still runs) and `omarchy-mac-boot` would both try to own:
 
-1. **WirePlumber `conf.d`** — Scott validated `asahi-headset-mic.conf`; MX `asahi-audio-no-suspend.conf` plus DSP overlay. Same directory, two policies. T3 may ship no-suspend only until Scott takes it; never a second headset file.
+1. **WirePlumber `conf.d`** — Scott validated `asahi-headset-mic.conf`; MX `asahi-audio-no-suspend.conf`. Same directory, two policies. T3 may ship no-suspend only until Scott takes it; never a second headset file.
 2. **speakersafetyd** — Distilled `install/hardware/apple/audio.sh` enables the daemon; MX health checks and Asahi package lists assume it; T3 holding "speakersafetyd until Scott" double-enables.
 3. **zram layout** — Identical `90-omarchy.conf` already in quattro settings. A boot-package copy is a pacman file conflict with `omarchy-settings`.
 4. **Trackpad / Hyprland input** — Distilled `touchpad.sh` appends user `input.lua`; MX ships device lines in `default/hypr/input.lua` plus `apple.lua` cursor. Two writers.

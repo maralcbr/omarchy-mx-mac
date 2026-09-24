@@ -11,7 +11,6 @@ hardware_all="$ROOT/install/hardware/all.sh"
 migration="$ROOT/migrations/1788345489.sh"
 dropin="$ROOT/default/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf"
 etc_dropin="$ROOT/etc/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf"
-dsp_src="$ROOT/default/wireplumber/scripts/node/software-dsp.lua"
 
 grep -q 'apple/fix-speaker-pop.sh' "$user_all" ||
   fail "the speaker pop fix runs during per-user setup"
@@ -34,15 +33,13 @@ grep -Fq 'session.suspend-timeout-seconds = 0' "$dropin" ||
   fail "the drop-in disables the idle suspend that powers the amplifiers down" "$(cat "$dropin")"
 pass "the drop-in keeps the Apple Silicon outputs from suspending"
 
-# The DSP overlay is session-wide: any current or future PipeWire/Pulse client
-# that closes its stream would otherwise pause the asahi-audio convolver.
-grep -Fq 'keep_speaker_dsp_alive' "$dsp_src" ||
-  fail "the DSP overlay keeps speaker graphs from pausing" "$(cat "$dsp_src")"
-grep -Fq 'session.suspend-timeout-seconds' "$dsp_src" ||
-  fail "the DSP overlay pins the convolver suspend timeout" "$(cat "$dsp_src")"
-grep -Fq 'node.pause-on-idle' "$dsp_src" ||
-  fail "the DSP overlay disables pause-on-idle on speaker graphs" "$(cat "$dsp_src")"
-pass "the DSP overlay keeps the speaker convolver from pausing"
+# The software-dsp.lua overlay left WirePlumber spinning on a J293 (#173), so
+# Omarchy no longer ships or installs it.
+[[ ! -e $ROOT/default/wireplumber/scripts ]] ||
+  fail "Omarchy ships no WirePlumber script overlay" "$(ls -R "$ROOT/default/wireplumber/scripts")"
+! grep -Fq 'wireplumber/scripts' "$user_leaf" "$hardware_leaf" "$migration" ||
+  fail "no setup path installs the software-dsp.lua overlay"
+pass "Omarchy no longer ships the software-dsp.lua overlay"
 
 test_tmp=$(mktemp -d)
 trap 'rm -rf "$test_tmp"' EXIT
@@ -112,22 +109,18 @@ run_user_leaf >/dev/null
   fail "an Apple Silicon Mac gets the drop-in" "$(ls -R "$home" 2>&1)"
 cmp -s "$conf" "$dropin" ||
   fail "the installed drop-in is the shipped one" "$(diff "$dropin" "$conf")"
-[[ -f $dsp ]] ||
-  fail "an Apple Silicon Mac gets the DSP overlay" "$(ls -R "$home" 2>&1)"
-cmp -s "$dsp" "$dsp_src" ||
-  fail "the installed DSP overlay is the shipped one" "$(diff "$dsp_src" "$dsp")"
-pass "an Apple Silicon Mac gets the drop-in and DSP overlay"
+[[ ! -e $dsp ]] ||
+  fail "an Apple Silicon Mac does not get the DSP overlay" "$(ls -R "$home" 2>&1)"
+pass "an Apple Silicon Mac gets the drop-in and no DSP overlay"
 
 run_hardware_leaf >/dev/null
 [[ -f $sys_conf ]] ||
   fail "an Apple Silicon Mac gets the machine-wide drop-in" "$(ls -R "$test_tmp/etc" 2>&1)"
 cmp -s "$sys_conf" "$dropin" ||
   fail "the machine-wide drop-in is the shipped one" "$(diff "$dropin" "$sys_conf")"
-[[ -f $sys_dsp ]] ||
-  fail "an Apple Silicon Mac gets the machine-wide DSP overlay" "$(ls -R "$test_tmp/usr" 2>&1)"
-cmp -s "$sys_dsp" "$dsp_src" ||
-  fail "the machine-wide DSP overlay is the shipped one" "$(diff "$dsp_src" "$sys_dsp")"
-pass "an Apple Silicon Mac gets the machine-wide drop-in and DSP overlay"
+[[ ! -e $sys_dsp && ! -e $test_tmp/usr ]] ||
+  fail "an Apple Silicon Mac does not get the machine-wide DSP overlay" "$(ls -R "$test_tmp/usr" 2>&1)"
+pass "an Apple Silicon Mac gets the machine-wide drop-in and no DSP overlay"
 
 # Intel and T2 Macs have a different audio path with no amplifier to keep awake.
 run_user_leaf 0 >/dev/null
@@ -161,7 +154,7 @@ run_migration() {
 rm -rf "$home" "$test_tmp/etc" "$test_tmp/usr"
 mkdir -p "$home"
 run_migration >/dev/null
-[[ -f $conf && -f $dsp && -f $sys_conf && -f $sys_dsp ]] ||
+[[ -f $conf && -f $sys_conf && ! -e $dsp && ! -e $sys_dsp ]] ||
   fail "the migration fixes an install that never ran the leaf" "$(ls -R "$home" "$test_tmp/etc" "$test_tmp/usr" 2>&1)"
 grep -Fq $'systemctl\t--user\trestart\twireplumber.service' "$calls" ||
   fail "the migration restarts WirePlumber so the fix applies without a logout" "$(cat "$calls")"
@@ -172,17 +165,17 @@ run_migration >/dev/null
   fail "a repaired install is left untouched" "$(cat "$calls")"
 pass "the migration is idempotent"
 
-# An ALSA-only copy from the first revision must still pick up the DSP overlay
-# and the machine-wide files.
+# A user-only copy from the first revision must still pick up the machine-wide
+# drop-in.
 rm -rf "$home" "$test_tmp/etc" "$test_tmp/usr"
 mkdir -p "$(dirname "$conf")"
 cp "$dropin" "$conf"
 run_migration >/dev/null
-[[ -f $dsp && -f $sys_conf && -f $sys_dsp ]] ||
-  fail "the migration adds the DSP overlay to an ALSA-only install" "$(ls -R "$home" "$test_tmp/etc" "$test_tmp/usr" 2>&1)"
+[[ -f $sys_conf && ! -e $dsp && ! -e $sys_dsp ]] ||
+  fail "the migration adds the machine-wide drop-in to a user-only install" "$(ls -R "$home" "$test_tmp/etc" "$test_tmp/usr" 2>&1)"
 grep -Fq $'systemctl\t--user\trestart\twireplumber.service' "$calls" ||
-  fail "the migration restarts WirePlumber after adding the DSP overlay" "$(cat "$calls")"
-pass "the migration adds the DSP overlay to an ALSA-only install"
+  fail "the migration restarts WirePlumber after adding the machine-wide drop-in" "$(cat "$calls")"
+pass "the migration adds the machine-wide drop-in to a user-only install"
 
 rm -rf "$home" "$test_tmp/etc" "$test_tmp/usr"
 mkdir -p "$home"
