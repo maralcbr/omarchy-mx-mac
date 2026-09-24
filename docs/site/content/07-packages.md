@@ -15,6 +15,8 @@ Omarchy's own packages are built on GitHub's arm64 runners from the `asahi-quatt
 - **Kernels**: `linux-aurora-rc`, `linux-aurora-stable` and `linux-aurora-edge`, all with `pkgbase` `linux-aurora`. `linux-asahi` is not packaged here; it comes from `[asahi-alarm]`.
 - **Default set**: about 60 packages that Omarchy's default install needs but Arch Linux ARM does not carry, from Hyprland and aquamarine to Obsidian, 1Password and the libretro cores. The list is `pkgbuilds/asahi-repository-packages`.
 
+How each x86 default package lands on the Omacom aarch64 repos, this fork and Omarchy Mac, and which are missing, is in the [package map]({{page:package-map}}).
+
 Recipes that are useful to every aarch64 Omarchy user are contributed to omacom/omarchy-pkgs as plain PKGBUILDs.
 
 ## Incremental builds

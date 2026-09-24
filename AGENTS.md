@@ -133,8 +133,10 @@ or release is not finished until the docs describe what now ships.
 - Every release: add or update the release notes under `docs/releases/`, the
   `README.md` links under "Releases And Support" (current channel tag), and
   `docs/apple-silicon-deployment.md` when the release process changed.
+- The manual at <https://maralcbr.github.io/omarchy-mx-mac/> is built from
+  `docs/site/` (see `docs/site/README.md`). User-facing changes update its pages.
 - Package map: run `scripts/package-map` and commit the regenerated
-  `docs/omarchy-variant-package-map.md` whenever `install/omarchy-*-asahi.packages`
+  `docs/site/content/13-package-map.md` whenever `install/omarchy-*-asahi.packages`
   change, a package enters or leaves a channel, or a release is cut. Run
   `scripts/package-map --check` before a release; it fails when the page is stale.
   Never edit that page by hand; change the knowledge tables at the top of the script.

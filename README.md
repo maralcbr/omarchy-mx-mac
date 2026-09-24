@@ -205,7 +205,7 @@ complete output and open a verified bug report with the commands above.
 
 ## Documentation
 
-- [Package map: x86, Omacom aarch64, MX Mac and Omarchy Mac](docs/omarchy-variant-package-map.md)
+- [Manual](https://maralcbr.github.io/omarchy-mx-mac/), including the [package map](https://maralcbr.github.io/omarchy-mx-mac/package-map/) (x86, Omacom aarch64, MX Mac and Omarchy Mac)
 - [Deployment and release runbook](docs/apple-silicon-deployment.md)
 - [Distribution channels](docs/apple-silicon-distribution-channels.md)
 - [Hardware validation](docs/apple-silicon-hardware-validation.md)
