@@ -40,7 +40,11 @@ case "$1" in
   -Si)
     version=$(awk -v name="$2" '$1 == name { print $2 }' "$TEST_REPOSITORY")
     [[ -n $version ]] || exit 1
-    printf 'Repository      : omarchy\nName            : %s\nVersion         : %s\n' "$2" "$version"
+    if [[ ${LC_ALL:-} == C ]]; then
+      printf 'Repository      : omarchy\nName            : %s\nVersion         : %s\n' "$2" "$version"
+    else
+      printf 'Repositório     : omarchy\nNome            : %s\nVersão          : %s\n' "$2" "$version"
+    fi
     ;;
   -S)
     [[ -z ${TEST_INSTALL_FAILS:-} ]] || exit 1
@@ -93,7 +97,9 @@ gate="$test_tmp/limine.enabled"
 limine_default="$test_tmp/etc/limine"
 pending="$test_tmp/limine-activation.pending"
 mkinitcpio_conf="$test_tmp/etc/mkinitcpio.conf"
-mkdir -p "$mkinitcpio_conf.d"
+preset_dir="$test_tmp/etc/mkinitcpio.d"
+reboot_blocked="$test_tmp/reboot-blocked"
+mkdir -p "$mkinitcpio_conf.d" "$preset_dir"
 
 # A Mac ready for Limine: an sd-encrypt initramfs, today's packages in the
 # repository, the old limine-mkinitcpio-hook installed.
@@ -102,7 +108,8 @@ ready() {
   printf 'HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)\n' >"$mkinitcpio_conf.d/90-omarchy-mac.conf"
   printf 'omarchy-mac-boot 20260921-10\nlimine-mkinitcpio-hook 1.36.0-3\nlinux-asahi 7.1.13.asahi3-2\n' >"$versions"
   printf 'limine-mkinitcpio-hook 1.36.0-4\nlimine 12.9.0-1\nlimine-snapper-sync 1.30.1-1\nuboot-asahi 2026.07.asahi2-1\n' >"$repository"
-  rm -f "$pending"
+  printf 'ALL_kver="/boot/vmlinuz-linux-asahi"\nPRESETS=(default fallback)\nfallback_options="-S autodetect"\n' >"$preset_dir/linux-asahi.preset"
+  rm -f "$pending" "$reboot_blocked" "$stub_bin/omarchy-hw-apple-initramfs-hooks"
 }
 
 run_migration() {
@@ -112,6 +119,17 @@ run_migration() {
   TEST_CALLS="$calls" TEST_VERSIONS="$versions" TEST_REPOSITORY="$repository" OMARCHY_PATH="$omarchy" \
     OMARCHY_LIMINE_GATE="$gate" OMARCHY_LIMINE_DEFAULT="$limine_default" OMARCHY_LIMINE_PENDING="$pending" \
     OMARCHY_MKINITCPIO_CONF="$mkinitcpio_conf" OMARCHY_MKINITCPIO_ALPM="$stub_bin/mkinitcpio-alpm" \
+    OMARCHY_MKINITCPIO_PRESET_DIR="$preset_dir" OMARCHY_REBOOT_BLOCKED="$reboot_blocked" \
+    PATH="$stub_bin:$PATH" bash -euo pipefail "$migration" >"$test_tmp/out" 2>"$test_tmp/err" || status=$?
+}
+
+run_migration_keeping_block() {
+  : >"$calls"
+  status=0
+  TEST_CALLS="$calls" TEST_VERSIONS="$versions" TEST_REPOSITORY="$repository" OMARCHY_PATH="$omarchy" \
+    OMARCHY_LIMINE_GATE="$gate" OMARCHY_LIMINE_DEFAULT="$limine_default" OMARCHY_LIMINE_PENDING="$pending" \
+    OMARCHY_MKINITCPIO_CONF="$mkinitcpio_conf" OMARCHY_MKINITCPIO_ALPM="$stub_bin/mkinitcpio-alpm" \
+    OMARCHY_MKINITCPIO_PRESET_DIR="$preset_dir" OMARCHY_REBOOT_BLOCKED="$reboot_blocked" \
     PATH="$stub_bin:$PATH" bash -euo pipefail "$migration" >"$test_tmp/out" 2>"$test_tmp/err" || status=$?
 }
 
@@ -148,6 +166,29 @@ rm -f "$mkinitcpio_conf" "$mkinitcpio_conf.d"/*
 run_migration
 expect_wait "unreadable initramfs HOOKS" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
 expect_untouched "unreadable initramfs HOOKS"
+# Limine's UKI takes mkinitcpio.conf's HOOKS, GRUB's initramfs the preset's:
+# encrypt in either waits, and a preset that adds hooks or names its own
+# configuration cannot be read without omarchy-hw-apple-initramfs-hooks.
+ready
+printf 'default_options="-A encrypt"\n' >>"$preset_dir/linux-asahi.preset"
+run_migration
+expect_wait "a preset that adds hooks" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
+ready
+printf 'default_config="/etc/mkinitcpio-busybox.conf"\n' >>"$preset_dir/linux-asahi.preset"
+run_migration
+expect_wait "a preset with its own configuration" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
+ready
+printf '#!/bin/bash\necho "base udev block encrypt filesystems"\n' >"$stub_bin/omarchy-hw-apple-initramfs-hooks"
+chmod +x "$stub_bin/omarchy-hw-apple-initramfs-hooks"
+run_migration
+expect_wait "a busybox encrypt preset" "the encrypted disk is unlocked by a busybox initramfs"
+expect_untouched "a busybox encrypt preset"
+ready
+printf '#!/bin/bash\necho "base systemd block sd-encrypt filesystems"\n' >"$stub_bin/omarchy-hw-apple-initramfs-hooks"
+chmod +x "$stub_bin/omarchy-hw-apple-initramfs-hooks"
+printf 'HOOKS=(base udev block encrypt filesystems)\n' >"$mkinitcpio_conf.d/90-omarchy-mac.conf"
+run_migration
+expect_wait "a busybox encrypt mkinitcpio.conf under an sd-encrypt preset" "the encrypted disk is unlocked by a busybox initramfs"
 pass "a busybox encrypt Mac keeps GRUB, and unknown HOOKS wait too"
 
 # Packages: the repository must carry limine-mkinitcpio-hook 1.36.0-4 (which
@@ -171,6 +212,15 @@ ready
 TEST_INSTALL_FAILS=1 run_migration
 expect_wait "a failed package install" "the Limine packages did not install"
 [[ ! -e $gate ]] || fail "a failed package install writes no gate"
+# An installed 1.36.0-4 stays out of the transaction, so a repository pinned
+# to an older snapshot cannot downgrade it.
+ready
+sed -i 's/^limine-mkinitcpio-hook .*/limine-mkinitcpio-hook 1.36.0-4/' "$versions"
+printf 'limine-mkinitcpio-hook 1.36.0-3\nlimine 12.9.0-1\n' >"$repository"
+run_migration
+(( status == 0 )) && [[ -e $gate && ! -e $pending ]] || fail "an installed 1.36.0-4 activates Limine" "$(cat "$test_tmp/err")"
+grep -q '^pacman -S .*limine-mkinitcpio-hook' "$calls" && fail "an installed 1.36.0-4 is not reinstalled" "$(cat "$calls")"
+grep -Fxq 'limine-mkinitcpio-hook 1.36.0-4' "$versions" || fail "limine-mkinitcpio-hook is never downgraded"
 pass "Limine waits for limine-mkinitcpio-hook 1.36.0-4 and omarchy-mac-boot 20260921-10"
 
 ready
@@ -206,12 +256,26 @@ run_migration
 ! grep -q '^mkinitcpio-alpm' "$calls" || fail "a current /boot kernel is left alone" "$(cat "$calls")"
 ready
 TEST_STALE_BOOT=1 TEST_MKINITCPIO_FAILS=1 run_migration
-expect_wait "a failed kernel install" "the linux-asahi kernel could not be installed under /boot"
+(( status == 0 )) && [[ -e $pending ]] && grep -Fxq 'Limine boots this Mac but is not verified: the linux-asahi kernel could not be installed under /boot' "$reboot_blocked" ||
+  fail "a failed kernel install after deployment blocks the reboot and retries" "$(cat "$test_tmp/err")"
 pass "a kernel the old hook kept from /boot is installed before the check"
 
+# Past the leaf's point of no return the U-Boot slot holds Limine: a failure
+# there blocks the reboot until an update verifies it.
 ready
 TEST_CHECK_FAILS=1 run_migration
-expect_wait "boot files that do not verify" "the Limine boot files did not verify"
+(( status == 0 )) && [[ -e $pending ]] || fail "boot files that do not verify do not fail the migration"
+grep -Fq 'Limine boots this Mac but is not verified: the Limine boot files did not verify. Do not reboot' "$test_tmp/err" ||
+  fail "a deployed Limine that does not verify says not to reboot" "$(cat "$test_tmp/err")"
+grep -Fxq 'Limine boots this Mac but is not verified: the Limine boot files did not verify' "$reboot_blocked" ||
+  fail "a deployed Limine that does not verify blocks the reboot"
+cp "$reboot_blocked" "$test_tmp/blocked-before"
+run_migration_keeping_block
+(( status == 0 )) && [[ ! -e $reboot_blocked && ! -e $pending ]] || fail "a verified retry lifts its reboot block" "$(cat "$test_tmp/err")"
+ready
+printf 'the Aurora kernel switch could not be verified\n' >"$reboot_blocked"
+run_migration_keeping_block
+grep -q 'Aurora' "$reboot_blocked" || fail "another step's reboot block is left alone"
 ready
 TEST_LEAF_DECLINES=1 run_migration
 expect_wait "a leaf that declines" "Limine was not activated"
