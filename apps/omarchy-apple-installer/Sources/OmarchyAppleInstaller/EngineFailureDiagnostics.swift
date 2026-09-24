@@ -145,9 +145,10 @@
       truncated: Bool,
       secrets: [Data]
     ) -> String {
+      let replacement = Data(redaction.utf8)
       var bytes = captured
       for secret in secrets where !secret.isEmpty {
-        bytes = replacingOccurrences(of: secret, in: bytes, with: Data(redaction.utf8))
+        bytes = replacingOccurrences(of: secret, in: bytes, with: replacement)
       }
       var text = String(decoding: bytes, as: UTF8.self)
       if truncated, let newline = text.firstIndex(of: "\n") {
@@ -156,15 +157,32 @@
         text = ""
       }
       text = removingTerminalEscapes(text)
+      // Escape removal can join a password that escapes had split, so the
+      // exact-secret pass runs again on the cleaned text, for the secret as
+      // given and as the same cleaning would leave it.
+      for secret in secrets where !secret.isEmpty {
+        let raw = String(decoding: secret, as: UTF8.self)
+        for form in Set([raw, removingTerminalEscapes(raw)]) where !form.isEmpty {
+          text = text.replacingOccurrences(of: form, with: redaction)
+        }
+      }
       text = text.replacingOccurrences(
         of: #"\bb(['"])(?:\\.|(?!\1).)*\1"#,
         with: "b'\(redaction)'",
         options: .regularExpression
       )
+      // A credential-named key followed by `=` or `:` loses everything after
+      // the separator to the end of the line, so multiword values
+      // (`Authorization: Bearer x`) and escaped quotes cannot leave a tail.
       text = text.replacingOccurrences(
         of:
-          #"(?i)\b([A-Za-z0-9_-]*(?:password|passwd|passphrase|secret|token|credential|api[_-]?key|authorization)[A-Za-z0-9_-]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)"#,
-        with: "$1$2\(redaction)",
+          #"(?im)\b([A-Za-z0-9_-]*(?:password|passwd|passphrase|secret|token|credential|api[_-]?key|authorization|bearer|cookie)[A-Za-z0-9_-]*)(\s*[=:]).*$"#,
+        with: "$1$2 \(redaction)",
+        options: .regularExpression
+      )
+      text = text.replacingOccurrences(
+        of: #"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}"#,
+        with: "$1 \(redaction)",
         options: .regularExpression
       )
       if text.count > maximumTailCharacters {
@@ -243,8 +261,11 @@
     }
   }
 
-  /// Keeps only the last `limit` bytes read from a pipe, draining it on a
-  /// background queue so the engine can never block on a full pipe.
+  /// Keeps only the last `limit` bytes read from a pipe. A dispatch read
+  /// source drains its own duplicate of the descriptor without blocking, so
+  /// the engine can never stall on a full pipe, and a stray child that keeps
+  /// stderr open past the deadline is handled by cancelling the source, which
+  /// closes the descriptor: no thread or descriptor outlives `finish`.
   final class BoundedStandardErrorCollector: @unchecked Sendable {
     static let defaultLimit = 65_536
 
@@ -252,28 +273,57 @@
     private let limit: Int
     private var buffer = Data()
     private var truncated = false
-    private let group = DispatchGroup()
+    private var source: (any DispatchSourceRead)?
+    private let drained = DispatchSemaphore(value: 0)
+    private let queue = DispatchQueue(label: "com.omarchy.mx.installer.engine-stderr")
 
     init(limit: Int = BoundedStandardErrorCollector.defaultLimit) {
       self.limit = limit
     }
 
     func start(reading handle: FileHandle) {
-      group.enter()
-      DispatchQueue.global(qos: .utility).async { [self] in
-        defer { group.leave() }
+      let descriptor = dup(handle.fileDescriptor)
+      guard descriptor >= 0 else { return }
+      _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+      let flags = fcntl(descriptor, F_GETFL)
+      _ = fcntl(descriptor, F_SETFL, flags | O_NONBLOCK)
+      let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
+      source.setEventHandler { [weak self, weak source] in
+        var chunk = [UInt8](repeating: 0, count: 16_384)
         while true {
-          let chunk = handle.availableData
-          if chunk.isEmpty { break }
-          append(chunk)
+          let count = chunk.withUnsafeMutableBytes {
+            Darwin.read(descriptor, $0.baseAddress, $0.count)
+          }
+          if count > 0 {
+            self?.append(Data(chunk[0..<count]))
+          } else if count < 0 && errno == EINTR {
+            continue
+          } else if count < 0 && errno == EAGAIN {
+            return
+          } else {
+            source?.cancel()
+            return
+          }
         }
       }
+      source.setCancelHandler { [drained] in
+        Darwin.close(descriptor)
+        drained.signal()
+      }
+      lock.withLock { self.source = source }
+      source.resume()
     }
 
-    /// Waits for EOF, bounded so a stray child holding stderr open cannot
-    /// hold the helper forever, then returns the retained tail.
+    /// Waits for EOF until the deadline, then cancels the reader, and returns
+    /// the retained tail.
     func finish(timeout: DispatchTime = .now() + 5) -> (data: Data, truncated: Bool) {
-      _ = group.wait(timeout: timeout)
+      if let source = lock.withLock({ self.source }) {
+        if drained.wait(timeout: timeout) == .timedOut {
+          source.cancel()
+          drained.wait()
+        }
+        lock.withLock { self.source = nil }
+      }
       return lock.withLock { (buffer, truncated) }
     }
 

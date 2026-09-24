@@ -337,7 +337,7 @@
 
     public static let replanAction = "Check available space"
     public static let engineDiagnosticsLocation =
-      "Details were saved in ~/Library/Logs/Omarchy MX Mac Installer."
+      "Use Copy error details to keep them. A copy is normally saved in ~/Library/Logs/Omarchy MX Mac Installer."
 
     /// Plain wording for a typed engine failure. The disk-unchanged sentence
     /// appears only when the helper proved it from the installation journal.
@@ -355,7 +355,7 @@
         return FailureDisplay(
           headline: "The space available for Omarchy changed",
           plainDetail:
-            "macOS can now give up less space than the plan you approved, so the installer stopped before using it. \(diskState)",
+            "The size you approved no longer fits the space this Mac can provide now, so the installer stopped before using it. \(diskState)",
           technicalDetail: technicalDetail,
           remedy: unchanged
             ? "Choose \(replanAction) to prepare a new plan with the space available now, then review and approve it."

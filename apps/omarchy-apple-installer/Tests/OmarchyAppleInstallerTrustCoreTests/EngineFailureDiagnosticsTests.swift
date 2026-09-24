@@ -19,18 +19,46 @@
     func testCredentialKeyValuesAndBytesLiteralsAreRedacted() {
       let raw = Data(
         """
-        password=abc123 Token: xyz API_KEY = "k e y" secret:'s' ok=1
+        password=abc123 Token: xyz
+        API_KEY = "k e y" and more
+        secret:'s'
+        Authorization: Bearer TOPSECRET1
+        token="prefix\\"TOPSECRET2"
+        curl -H 'Bearer abcdefgh12345678'
+        ok=1
         value b'\\x00secret-bytes' and b"other"
         AsahiAdapterError: machine owner password is invalid
 
         """.utf8)
       let redacted = EngineStandardErrorRedactor.redact(raw, truncated: false, secrets: [])
-      for leaked in ["abc123", "xyz", "k e y", "'s'", "secret-bytes", "other"] {
+      for leaked in [
+        "abc123", "xyz", "k e y", "and more", "'s'", "secret-bytes", "other", "TOPSECRET",
+        "abcdefgh12345678",
+      ] {
         XCTAssertFalse(redacted.contains(leaked), leaked)
       }
       XCTAssertTrue(redacted.contains("ok=1"))
       // Plain messages that only mention a credential stay readable.
       XCTAssertTrue(redacted.contains("machine owner password is invalid"))
+    }
+
+    func testPasswordSplitByTerminalEscapesIsStillRemoved() {
+      let raw = Data("x correct\u{1B}[0m horse y\n".utf8)
+      let redacted = EngineStandardErrorRedactor.redact(
+        raw, truncated: false, secrets: [password])
+      XCTAssertEqual(redacted, "x [redacted] y\n")
+    }
+
+    func testCollectorGivesUpOnAStderrHeldOpenAndClosesItsDescriptor() throws {
+      let pipe = Pipe()
+      let collector = BoundedStandardErrorCollector()
+      collector.start(reading: pipe.fileHandleForReading)
+      try pipe.fileHandleForWriting.write(contentsOf: Data("partial".utf8))
+      let started = Date()
+      let result = collector.finish(timeout: .now() + 0.3)
+      XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+      XCTAssertEqual(String(decoding: result.data, as: UTF8.self), "partial")
+      try pipe.fileHandleForWriting.close()
     }
 
     func testTruncatedTailDropsItsPartialFirstLine() {

@@ -128,10 +128,17 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       return nil
     }
     let channel = ReleaseChannelPreference().resolve(configuration: configuration)
-    let previouslyAccepted = try? AcceptedCatalogIdentityStore(
-      directory: workspace.state,
-      channel: channel
-    ).load()
+    // Unreadable or unsafe rollback state shows no list rather than skipping
+    // the rollback check.
+    let previouslyAccepted: AcceptedCatalogIdentity?
+    do {
+      previouslyAccepted = try AcceptedCatalogIdentityStore(
+        directory: workspace.state,
+        channel: channel
+      ).load()
+    } catch {
+      return nil
+    }
     return try? await InstallerReleaseAssetCoordinator().supportedDeviceIdentifiers(
       configuration: configuration,
       channel: channel,
