@@ -102,7 +102,7 @@ A person at a real Mac, following a checklist that covers platform identity, des
 
 After any boot following a kernel or boot-file change, a cold boot and further remote checks are required: the boot check, no failed units, the vendor firmware service finished, the monitors the session really has, and a tone played through the speakers and captured on the microphone to prove audio end to end. The checklist also lists known harmless messages, so noise is not read as regression.
 
-Two Macs carry this: a 14-inch MacBook Pro with M1 Pro for the full regression, and a 16-inch MacBook Pro with M2 Max for multi-display work. The current catalog admits exactly these two; the earlier Asahi stable image admitted 22.
+Two Macs carry this: a 14-inch MacBook Pro with M1 Pro for the full regression, and a 16-inch MacBook Pro with M2 Max for multi-display work. The current catalog admits 22 M1 and M2 models; these two are the only ones qualified on hardware.
 
 ## What the release gates actually enforce
 

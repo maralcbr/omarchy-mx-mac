@@ -15,8 +15,8 @@ Omarchy 4 (Quattro) is the maintained release.
 
 | What you have | What to do |
 | --- | --- |
-| An M1 or M2 Mac with no Omarchy on it | Download the app below and install; it opens on **Stable**. Run `omarchy update` afterwards. |
-| An M3 or M4 Mac | Not admitted by the current image; the app refuses it before touching the disk. |
+| One of the 22 admitted M1 or M2 models with no Omarchy on it | Download the app below and install; it opens on **Stable**. Run `omarchy update` afterwards. |
+| Any other Mac, including every M3 and M4 | Not admitted by the current image; the app refuses it before touching the disk. |
 | An existing Omarchy 4 install | Run `omarchy update`. |
 | An existing Omarchy 3 install | Run `omarchy update`. It moves you to Omarchy 4. |
 
@@ -156,8 +156,8 @@ from the earlier Asahi Stable image, `os-v4.0.3-mac.1.20260913`, keep the Asahi
 kernel.
 
 [Stable packages](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-2949b88ccfc303e3c423106eafa68c9088ab6eea)
-and [runtime channel 56](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-56)
-carry the `4.0.4.r7069.g59ee15f-1` runtime and settings embedded in the image.
+and [runtime channel 57](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-57)
+carry the `4.0.4.r7081.gca187b0-1` runtime and settings embedded in the image.
 The app follows the latest signed catalog for the channel you select; cached
 files are reused only when their size and SHA-256 match that catalog.
 

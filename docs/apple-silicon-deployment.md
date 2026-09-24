@@ -465,8 +465,9 @@ changes when the app does; the README download link never changes.
 ## Mac image lane: a new fresh-install image
 
 This is how `os-v4.0.3-mac.5.20260923-rc` was built and published on
-2026-09-23; the current image, `os-v4.0.4-mac.1.20260924-rc`, followed the same
-steps on 2026-09-24 with the 22 M1 and M2 identifiers in `device_identifiers`. It replaces full-lane steps 5–7 and the payload build
+2026-09-23; the current image, `os-v4.0.4-mac.1.20260924-rc`, went through the same
+build and publication steps on 2026-09-24 with the 22 M1 and M2 identifiers in
+`device_identifiers`, but without VM acceptance of its own. It replaces full-lane steps 5–7 and the payload build
 under [The Aurora lane](#the-aurora-lane), which describe the retired
 `omarchy-iso` path.
 
@@ -506,8 +507,9 @@ under [The Aurora lane](#the-aurora-lane), which describe the retired
 
 4. **Tag** `os-v<version>.<date>-rc` on the mx commit the installer was built
    from and push it; `publish-r2` refuses an unpushed tag. Name the Omarchy
-   version the image carries: this image's tag says 4.0.3 but it carries the
-   4.0.4 runtime.
+   version the image carries: the tag of its predecessor,
+   `os-v4.0.3-mac.5.20260923-rc`, says 4.0.3 but that image carries the 4.0.4
+   runtime.
 5. **Owner signs** `catalog/catalog.json` with `catalog-signing.swift
    sign-keychain` (see [AGENTS.md](../AGENTS.md)). Then build the envelope:
    `scripts/publish-channels envelope --catalog catalog/catalog.json
