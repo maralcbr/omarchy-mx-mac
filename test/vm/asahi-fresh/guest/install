@@ -384,7 +384,11 @@ rm -f /usr/local/bin/usermod
 [[ " $(id -nG alarm) " != *" wheel "* ]]
 [[ $(passwd -S alarm | awk '{ print $2 }') == "L" ]]
 
-! grep -Fq 'Install anyway?' "$work/resumed-install.log"
+# A bare `! cmd` never trips set -e, so this check has to exit on its own.
+if grep -Fq 'Install anyway?' "$work/resumed-install.log"; then
+  echo "the resumed install asked 'Install anyway?'" >&2
+  exit 1
+fi
 pacman -Q linux-asahi linux-asahi-headers m1n1 >protected-packages.after
 cmp protected-packages.before protected-packages.after
 cp --preserve=all omarchy-hw-apple-silicon.original /usr/share/omarchy/bin/omarchy-hw-apple-silicon

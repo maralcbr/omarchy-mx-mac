@@ -211,11 +211,10 @@ Without a pinned runtime, the install checks the published channel instead:
 | Before the target-replacement run and each resume attempt, the dated snapshot is restored; for a candidate run, the candidate tag and key fingerprint are well formed, the candidate repository is restored, its key trusted again and the databases sync | Every resume of a candidate run installs from the candidate | `guest/install` |
 | The installer is killed a second time, inside the completion step, then run again, up to three attempts in all, until it exits cleanly with no checkpoint left; the second kill must have happened | An install killed while finishing completes on a later run | `guest/install` |
 | The checkpoint and the owner marker are gone, the account's temporary comment is cleared, and `alarm` is out of `wheel` and locked | A completed install leaves no recovery state, and the stock account cannot log in | `guest/install` |
+| The resumed install's log has no `Install anyway?` prompt | Resuming needs no manual override | `guest/install` |
 | `linux-asahi`, its headers and `m1n1` keep their versions, and the VM kernel and the Asahi kernel are byte-identical to before | The install did not replace the kernels | `guest/install` |
 | The `grub.cfg` Omarchy generated boots `vmlinuz-linux-asahi` with `initramfs-linux-asahi.img` | Omarchy's boot configuration names the Asahi kernel. It is kept for verification, and the VM's own configuration is put back for the reboot | `guest/install` |
 | The SSH firewall rule is added, or is already there | The VM stays reachable after the reboot | `guest/install` |
-
-Not enforced: the script looks for an `Install anyway?` prompt in the resumed install's log, but as written a match does not stop the run.
 
 ### Reboot
 
