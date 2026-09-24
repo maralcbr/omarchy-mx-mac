@@ -184,6 +184,11 @@ rm -f "$tmp/grub.cfg.fail-install"
 [[ -e $tmp/repair.pending ]] || fail "an unfinished repair is left pending"
 pass "a rollback copy that fails leaves the defaults whole"
 
+# A configuration that cannot be read keeps a pending repair pending.
+if MKINITCPIO_CONF="$tmp/missing.conf" run; then fail "a pending repair with unreadable HOOKS stays pending"; fi
+[[ -e $tmp/repair.pending && ! -s $CALL_LOG ]] || fail "unreadable HOOKS neither finish nor clear a pending repair"
+grep -Fq 'will retry later' "$tmp/out" || fail "the wait is explained: $(<"$tmp/out")"
+
 # The next run finishes it although the defaults already read as repaired.
 cp "$tmp/grub" "$tmp/half"
 run || fail "a pending repair finishes: $(<"$tmp/out")"
@@ -255,6 +260,14 @@ printf 'PRESETS=(default)\ndefault_options="--skip systemd"\n' >"$tmp/presets/li
 OMARCHY_MKINITCPIO_KERNEL=linux-asahi OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" OMARCHY_MKINITCPIO_CONF="$systemd" \
   omarchy-hw-apple-initramfs-hooks >"$tmp/hooks" || fail "a unique long prefix resolves"
 [[ " $(<"$tmp/hooks") " != *" systemd "* ]] || fail "--skip is --skiphooks: $(<"$tmp/hooks")"
+# -c in each form mkinitcpio accepts.
+for options in "(-c $busybox)" "(-c$busybox)" "\"-c $busybox\"" "(--config=$busybox)" "(--conf $busybox)"; do
+  printf 'PRESETS=(default)\ndefault_config=%s\ndefault_options=%s\n' "$systemd" "$options" >"$tmp/presets/linux-asahi.preset"
+  OMARCHY_MKINITCPIO_KERNEL=linux-asahi OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" omarchy-hw-apple-initramfs-hooks >"$tmp/hooks" ||
+    fail "default_options=$options resolves"
+  [[ $(<"$tmp/hooks") == "base asahi udev autodetect microcode modconf kms keyboard keymap consolefont block encrypt filesystems fsck" ]] ||
+    fail "default_options=$options selects the busybox configuration: $(<"$tmp/hooks")"
+done
 printf 'PRESETS=(default)\ndefault_options="-x"\n' >"$tmp/presets/linux-asahi.preset"
 if OMARCHY_MKINITCPIO_KERNEL=linux-asahi OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" omarchy-hw-apple-initramfs-hooks >/dev/null; then
   fail "an option mkinitcpio does not know leaves the hooks unknown"

@@ -24,7 +24,7 @@ add_hooks=() skip_hooks=()
 
 # mkinitcpio's own option table (its _opt_short and _opt_long): options that
 # take a value, and the ones that decide the hooks.
-short_with_value='ACDIgHkprStUdz'
+short_with_value='AcDIgHkprStUdz'
 short_flags='hnLMPRsVv'
 long_options=(add: addhooks: include: config: generate: hookdir: hookhelp: help kernel: listhooks automods
   moduleroot: nocolor nopost allpresets preset: remove skiphooks: save generatedir: builddir: version verbose

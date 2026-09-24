@@ -34,8 +34,15 @@ command -v "${OMARCHY_GRUB_PROBE:-grub-probe}" >/dev/null 2>&1 &&
   command -v "${OMARCHY_GRUB_MKCONFIG:-grub-mkconfig}" >/dev/null 2>&1 || exit 0
 
 # The HOOKS mkinitcpio builds with (preset, mkinitcpio.conf, drop-ins); a
-# configuration that cannot be read proves nothing.
-hooks=$(omarchy-hw-apple-initramfs-hooks 2>/dev/null) || exit 0
+# configuration that cannot be read proves nothing, unless a repair is left
+# pending: that one waits for a readable configuration to finish.
+if ! hooks=$(omarchy-hw-apple-initramfs-hooks 2>/dev/null); then
+  if [[ -e $pending ]]; then
+    echo "The mkinitcpio configuration cannot be read; the pending GRUB repair migration will retry later." >&2
+    exit 1
+  fi
+  exit 0
+fi
 [[ " $hooks " != *" systemd "* ]] || exit 0
 
 # The value GRUB would use: the last active assignment, quotes stripped.
