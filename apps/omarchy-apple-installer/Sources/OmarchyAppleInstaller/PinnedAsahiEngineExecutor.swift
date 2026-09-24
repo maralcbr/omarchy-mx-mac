@@ -225,8 +225,14 @@
       process.standardError = errorPipe
       let errorCollector = BoundedStandardErrorCollector()
       do {
+        try errorCollector.start(reading: errorPipe.fileHandleForReading)
+      } catch {
+        throw PinnedAsahiEngineExecutionError.launchFailed
+      }
+      // Every exit from here, including a failed stdin write, stops the reader.
+      defer { errorCollector.cancel() }
+      do {
         try process.run()
-        errorCollector.start(reading: errorPipe.fileHandleForReading)
         if let standardInput, let inputPipe {
           try inputPipe.fileHandleForWriting.write(contentsOf: standardInput)
           try inputPipe.fileHandleForWriting.close()
@@ -281,7 +287,9 @@
           reason: reason,
           exitStatus: exitStatus,
           diskUnchanged: journal.map(journalProvesNoMutation) ?? false,
-          summary: final?.line ?? ""
+          summary: final.map {
+            EngineStandardErrorRedactor.summary(from: $0.line, secrets: secrets)
+          } ?? ""
         ),
         redactedStandardErrorTail: redacted
       )

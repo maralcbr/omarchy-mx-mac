@@ -52,13 +52,52 @@
     func testCollectorGivesUpOnAStderrHeldOpenAndClosesItsDescriptor() throws {
       let pipe = Pipe()
       let collector = BoundedStandardErrorCollector()
-      collector.start(reading: pipe.fileHandleForReading)
+      try collector.start(reading: pipe.fileHandleForReading)
       try pipe.fileHandleForWriting.write(contentsOf: Data("partial".utf8))
       let started = Date()
       let result = collector.finish(timeout: .now() + 0.3)
       XCTAssertLessThan(Date().timeIntervalSince(started), 2)
       XCTAssertEqual(String(decoding: result.data, as: UTF8.self), "partial")
       try pipe.fileHandleForWriting.close()
+    }
+
+    func testCollectorStopsAWriterThatNeverStops() throws {
+      // A separate process, like a stray engine descendant, writes forever.
+      let pipe = Pipe()
+      let collector = BoundedStandardErrorCollector(limit: 1_024)
+      try collector.start(reading: pipe.fileHandleForReading)
+      let writer = Process()
+      writer.executableURL = URL(fileURLWithPath: "/usr/bin/yes")
+      writer.standardOutput = pipe
+      writer.standardError = FileHandle.nullDevice
+      try writer.run()
+      defer {
+        if writer.isRunning { writer.terminate() }
+        writer.waitUntilExit()
+      }
+      let started = Date()
+      let result = collector.finish(timeout: .now() + 0.3)
+      XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+      XCTAssertLessThanOrEqual(result.data.count, 1_024)
+      XCTAssertTrue(result.truncated)
+    }
+
+    func testSummaryIsRedactedAfterItsOwnNormalization() {
+      let secret = Data("alpha-S3cret!".utf8)
+      let line = "omarchy_asahi.AsahiAdapterError: alpha-\u{202E}S3cret! and alpha-\u{E9}S3cret!"
+      let summary = EngineStandardErrorRedactor.summary(from: line, secrets: [secret])
+      XCTAssertFalse(summary.contains("S3cret"), summary)
+      let tail = EngineStandardErrorRedactor.redact(
+        Data(line.utf8), truncated: false, secrets: [secret])
+      XCTAssertFalse(tail.contains("alpha-S3cret!"), tail)
+      XCTAssertFalse(tail.contains("\u{202E}"))
+    }
+
+    func testShortAuthorizationTokensAreRedacted() {
+      let redacted = EngineStandardErrorRedactor.redact(
+        Data("curl Basic dTpw then bearer abc123\n".utf8), truncated: false, secrets: [])
+      XCTAssertFalse(redacted.contains("dTpw"))
+      XCTAssertFalse(redacted.contains("abc123"))
     }
 
     func testTruncatedTailDropsItsPartialFirstLine() {

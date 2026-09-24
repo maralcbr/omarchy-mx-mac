@@ -181,7 +181,7 @@
         options: .regularExpression
       )
       text = text.replacingOccurrences(
-        of: #"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}"#,
+        of: #"\b((?i:bearer)|Basic)\s+[A-Za-z0-9._~+/=-]+"#,
         with: "$1 \(redaction)",
         options: .regularExpression
       )
@@ -192,6 +192,21 @@
         }
       }
       return text
+    }
+
+    /// The one line that may leave the helper. It is normalized to the
+    /// summary's printable-ASCII form first and redacted after that, so the
+    /// normalization cannot rejoin a secret that other characters had split.
+    public static func summary(from line: String, secrets: [Data]) -> String {
+      var text = EngineFailureNotice.sanitizedSummary(line)
+      for secret in secrets where !secret.isEmpty {
+        let raw = String(decoding: secret, as: UTF8.self)
+        for form in Set([raw, EngineFailureNotice.sanitizedSummary(raw)]) where !form.isEmpty {
+          text = text.replacingOccurrences(of: form, with: redaction)
+        }
+      }
+      text = redact(Data(text.utf8), truncated: false, secrets: [])
+      return EngineFailureNotice.sanitizedSummary(text)
     }
 
     /// The last Python exception line (`module.Name: message`) of an already
@@ -230,7 +245,11 @@
       )
       var result = String.UnicodeScalarView()
       for scalar in withoutEscapes.unicodeScalars
-      where scalar == "\n" || scalar == "\t" || (scalar.value >= 0x20 && scalar.value != 0x7F) {
+      where scalar == "\n" || scalar == "\t"
+        || (scalar.value >= 0x20 && scalar.value != 0x7F
+          && !(0x80...0x9F).contains(scalar.value)
+          && scalar.properties.generalCategory != .format)
+      {
         result.append(scalar)
       }
       return String(result)
@@ -263,11 +282,15 @@
 
   /// Keeps only the last `limit` bytes read from a pipe. A dispatch read
   /// source drains its own duplicate of the descriptor without blocking, so
-  /// the engine can never stall on a full pipe, and a stray child that keeps
-  /// stderr open past the deadline is handled by cancelling the source, which
-  /// closes the descriptor: no thread or descriptor outlives `finish`.
+  /// the engine can never stall on a full pipe. Each callback reads a bounded
+  /// amount and stops once cancelled, and cancelling closes the descriptor,
+  /// so a stray child holding stderr open, even one that keeps writing,
+  /// cannot keep a thread or descriptor alive past `finish` or `cancel`.
   final class BoundedStandardErrorCollector: @unchecked Sendable {
     static let defaultLimit = 65_536
+    static let maximumBytesPerCallback = 262_144
+
+    enum SetupError: Error { case descriptorUnavailable }
 
     private let lock = NSLock()
     private let limit: Int
@@ -281,20 +304,33 @@
       self.limit = limit
     }
 
-    func start(reading handle: FileHandle) {
+    deinit {
+      source?.cancel()
+    }
+
+    /// Call before launching the engine: a failure here must stop the launch
+    /// rather than leave a running engine with nobody draining its stderr.
+    func start(reading handle: FileHandle) throws {
       let descriptor = dup(handle.fileDescriptor)
-      guard descriptor >= 0 else { return }
-      _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+      guard descriptor >= 0 else { throw SetupError.descriptorUnavailable }
       let flags = fcntl(descriptor, F_GETFL)
-      _ = fcntl(descriptor, F_SETFL, flags | O_NONBLOCK)
+      guard fcntl(descriptor, F_SETFD, FD_CLOEXEC) == 0,
+        flags >= 0,
+        fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0
+      else {
+        Darwin.close(descriptor)
+        throw SetupError.descriptorUnavailable
+      }
       let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
       source.setEventHandler { [weak self, weak source] in
         var chunk = [UInt8](repeating: 0, count: 16_384)
-        while true {
+        var consumed = 0
+        while consumed < Self.maximumBytesPerCallback, source?.isCancelled == false {
           let count = chunk.withUnsafeMutableBytes {
             Darwin.read(descriptor, $0.baseAddress, $0.count)
           }
           if count > 0 {
+            consumed += count
             self?.append(Data(chunk[0..<count]))
           } else if count < 0 && errno == EINTR {
             continue
@@ -325,6 +361,11 @@
         lock.withLock { self.source = nil }
       }
       return lock.withLock { (buffer, truncated) }
+    }
+
+    /// Stops reading now; safe to call more than once.
+    func cancel() {
+      _ = finish(timeout: .now())
     }
 
     func append(_ chunk: Data) {
