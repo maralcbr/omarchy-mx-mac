@@ -11,10 +11,12 @@ An update within 4.0.4-mac.1 for installed Macs; the version is unchanged.
 - Runtime `4.0.4.r7094.g16eaa2f-1` from `omarchy-mx-mac` `16eaa2fb`, on package
   channel 14 (`asahi-packages-stable-a7b2a50a`).
 - Drops the `software-dsp.lua` overlay that hung WirePlumber on a J293, replaces
-  a stock Arch `~/.bashrc`, installs Tensaku and the prebuilt `voxtype-bin`.
+  a stock Arch `~/.bashrc`, installs Tensaku where it is missing, and uses the
+  prebuilt `voxtype-bin` for new dictation installs.
 - Limine migration survives a pending kernel reboot, an ESP at `/boot` and an
-  ext4 root; GRUB Macs with busybox `encrypt` keep booting; the boot check
-  verifies the keyboard layout in the boot image.
+  ext4 root; GRUB Macs with busybox `encrypt` keep booting; on encrypted Macs
+  with a non-US Latin layout the boot check verifies the layout in the boot
+  image.
 - VM acceptance on the M2 Max and a LUKS2 Limine cold boot on the M2 Max. The
   #235 non-US layout lockout is not proven fixed yet.
 

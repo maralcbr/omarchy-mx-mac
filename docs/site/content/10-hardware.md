@@ -31,7 +31,7 @@ The current image admits no M3 or M4 Mac.
 
 | Machine | Role |
 | --- | --- |
-| MacBook Pro 14" 2021, M1 Pro, `apple,j314s` | Full regression on every release. Aurora kernel, Limine integration testing. |
+| MacBook Pro 14" 2021, M1 Pro, `apple,j314s` | Full regression on every release; when it is offline the M2 Max stands in, as for runtime channel 58. Aurora kernel, Limine integration testing. |
 | MacBook Pro 16" 2023, M2 Max, `apple,j416c` | Multi-display work: five displays through HDMI and USB4. VM acceptance host for packages and images (images are built on GitHub). |
 
 ## What works

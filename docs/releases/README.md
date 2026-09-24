@@ -23,6 +23,9 @@ has its own notes file:
   compatibility, validation.
 - `os-v<omarchy version>.<YYYYMMDD>.md` — an Omarchy package published to a
   release channel. Same shape as the earlier `vX.Y.Z-mac.N.MMDDYY` notes.
+- `asahi-quattro-channel-<N>.md` — a runtime channel published for installed
+  Macs within a Mac release, with no new version or tag. Sections: install,
+  what was published, changes, validation, known limitations.
 
 `v4.0.2-mac.1.19.090426` was the last release to carry both identities in one
 tag. See
