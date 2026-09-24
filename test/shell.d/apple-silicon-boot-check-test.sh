@@ -41,6 +41,11 @@ case "$*" in
   "-Qkk "*)
     # pacman prints warnings on stderr and the summary on stdout.
     [[ ${LC_ALL:-} == C ]] || { echo "pacman -Qkk without LC_ALL=C" >&2; exit 3; }
+    if [[ -f $TEST_FILES/qkk-$2 ]]; then
+      cat "$TEST_FILES/qkk-$2" >&2
+      echo "$2: 2353 total files, 1 altered files"
+      exit "$(cat "$TEST_FILES/qkk-status" 2>/dev/null || echo 1)"
+    fi
     case ${TEST_QKK_FAIL:-} in
       "$2")
         printf 'warning: %s: /usr/lib/modules/6.17.0-aurora1-ARCH/vmlinuz (Size mismatch)\n' "$2" >&2
@@ -553,7 +558,7 @@ TEST_QKK_DEPMOD=linux-aurora run_check
 expect_pass "depmod-rewritten modules.* files with only their modification time changed"
 unset TEST_QKK_DEPMOD
 TEST_QKK_FAIL=linux-aurora:modules-size run_check
-expect_fail "a modules.* file of another size" "linux-aurora files do not match the package mtree"
+expect_pass "a regenerated modules.dep of another size"
 TEST_QKK_FAIL=linux-aurora:missing run_check
 expect_fail "a missing modules.* file" "linux-aurora files do not match the package mtree"
 TEST_QKK_FAIL=linux-aurora:silent run_check
@@ -626,3 +631,172 @@ cmp -s "$test_tmp/expected-lane" "$root/var/lib/omarchy/apple-silicon-aurora-lan
   fail "a pending reboot does not clear the switch journal" "$(cat "$root/var/lib/omarchy/apple-silicon-aurora-lane")"
 unset OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT
 pass "after reboot a matching uname promotes the journal and a mismatch fails"
+
+# Real archive hashes, DKMS links and module bytes; only the external package
+# and module metadata queries are stubbed. No host DKMS state is consulted.
+cat >"$stub_bin/pacman-conf" <<'STUB'
+#!/bin/bash
+[[ $* == DBPath ]] || exit 1
+cat "$TEST_FILES/dbpath"
+STUB
+cat >"$stub_bin/dkms" <<'STUB'
+#!/bin/bash
+[[ $* == "$(cat "$TEST_FILES/dkms-args")" ]] || exit 1
+cat "$TEST_FILES/dkms-status"
+STUB
+cat >"$stub_bin/modinfo" <<'STUB'
+#!/bin/bash
+if [[ $* == "$(cat "$TEST_FILES/modinfo-args")" ]]; then
+  cat "$TEST_FILES/selected"
+elif [[ $* == "-F vermagic $(realpath -e "$(cat "$TEST_FILES/selected")")" ]]; then
+  cat "$TEST_FILES/vermagic"
+else
+  exit 1
+fi
+STUB
+chmod +x "$stub_bin/"{pacman-conf,dkms,modinfo}
+
+write_warning() {
+  printf 'warning: %s: %s (%s)\n' "$kernel" "$1" "$2" >"$test_tmp/files/qkk-$kernel"
+}
+
+for kernel in linux-asahi linux-aurora; do
+  system "$kernel"
+  for index in alias alias.bin dep dep.bin symbols symbols.bin softdep weakdep devname builtin.bin builtin.alias.bin; do
+    for reason in 'Modification time' Size 'SHA256 checksum'; do
+      write_warning "/usr/lib/modules/$kver/modules.$index" "$reason mismatch"
+      # These cases stop at the next known-bad boot image, proving the package
+      # check accepted the warning without repeating the full ESP fixture.
+      printf 'stale kernel\n' >"$root/boot/vmlinuz-$kernel"
+      run_check
+      expect_fail "regenerated modules.$index $reason on $kernel" "is not the $kver kernel"
+    done
+  done
+  for name in modules.order modules.builtin modules.builtin.modinfo vmlinuz dtbs/t6000-j314s.dtb; do
+    write_warning "/usr/lib/modules/$kver/$name" 'SHA256 checksum mismatch'
+    run_check
+    expect_fail "changed $name on $kernel" 'files do not match the package mtree'
+  done
+  for reason in 'No such file or directory' 'UID mismatch' 'GID mismatch' 'Permissions mismatch'; do
+    write_warning "/usr/lib/modules/$kver/modules.dep" "$reason"
+    run_check
+    expect_fail "generated index $reason" 'files do not match the package mtree'
+  done
+  write_warning '/usr/lib/modules/another-kernel/modules.dep' 'SHA256 checksum mismatch'
+  run_check
+  expect_fail 'generated index from another release' 'files do not match the package mtree'
+  write_warning "/usr/lib/modules/$kver/modules.dep" 'Size mismatch'
+  echo 2 >"$test_tmp/files/qkk-status"
+  run_check
+  expect_fail 'pacman error alongside an otherwise allowed warning' "pacman -Qkk $kernel failed"
+  : >"$test_tmp/files/qkk-$kernel"
+  echo 1 >"$test_tmp/files/qkk-status"
+  run_check
+  expect_fail 'pacman failure with only a summary' "pacman -Qkk $kernel failed"
+done
+pass 'only depmod indexes for the installed kernel allow generated metadata changes'
+
+write_dkms() {
+  local original_suffix=${1:-} replacement_suffix=${2:-} destination=${3:-updates/dkms}
+  system "$kernel"
+  arch=$(uname -m)
+  family="$root/var/lib/dkms/test-driver"
+  build="$family/1.0/$kver/$arch"
+  backup="$family/original_module/$kver/$arch/driver.ko$original_suffix"
+  missing="/usr/lib/modules/$kver/kernel/drivers/net/driver.ko$original_suffix"
+  replacement="$modules/$destination/driver.ko$replacement_suffix"
+  mkdir -p "$build/module" "${backup%/*}" "${replacement%/*}" "$root/var/lib/pacman/local/$kernel-$pkgver"
+  ln -s "1.0/$kver/$arch" "$family/kernel-$kver-$arch"
+  printf 'stock module\n' >"$test_tmp/original"
+  printf 'replacement module\n' >"$test_tmp/replacement"
+  case $original_suffix in
+    '') cp "$test_tmp/original" "$backup" ;;
+    .gz) gzip -c "$test_tmp/original" >"$backup" ;;
+    .xz) xz -c "$test_tmp/original" >"$backup" ;;
+    .zst) zstd -qc "$test_tmp/original" >"$backup" ;;
+  esac
+  case $replacement_suffix in
+    '') cp "$test_tmp/replacement" "$replacement" ;;
+    .gz) gzip -c "$test_tmp/replacement" >"$replacement" ;;
+    .xz) xz -c "$test_tmp/replacement" >"$replacement" ;;
+    .zst) zstd -qc "$test_tmp/replacement" >"$replacement" ;;
+  esac
+  cp "$replacement" "$build/module/${replacement##*/}"
+  printf '%s\n' "$missing" >"$backup.origin"
+  printf '.%s type=file sha256digest=%s\n' "$missing" "$(sha256sum "$backup" | cut -d' ' -f1)" |
+    gzip >"$root/var/lib/pacman/local/$kernel-$pkgver/mtree"
+  printf '/var/lib/pacman/\n' >"$test_tmp/files/dbpath"
+  printf 'status -m test-driver -v 1.0 -k %s -a %s\n' "$kver" "$arch" >"$test_tmp/files/dkms-args"
+  printf 'test-driver/1.0, %s, %s: installed (Original modules exist)\n' "$kver" "$arch" >"$test_tmp/files/dkms-status"
+  printf '%s\n' "-b $root -k $kver -n driver" >"$test_tmp/files/modinfo-args"
+  printf '%s\n' "$replacement" >"$test_tmp/files/selected"
+  printf '%s SMP preempt mod_unload %s\n' "$kver" "$arch" >"$test_tmp/files/vermagic"
+  write_warning "$missing" 'No such file or directory'
+}
+
+require_command xz
+require_command zstd
+for kernel in linux-asahi linux-aurora; do
+  for suffix in '' .gz .xz .zst; do
+    write_dkms "$suffix" "$suffix"
+    run_check
+    expect_pass "$kernel DKMS replacement with ${suffix:-uncompressed} modules"
+  done
+  write_dkms .xz .zst extra
+  # /lib spellings in the origin and modinfo output normalize to /usr/lib.
+  printf '%s\n' "${missing/#\/usr\/lib\//\/lib\/}" >"$backup.origin"
+  printf '%s\n' "${replacement/\/usr\/lib\//\/lib\/}" >"$test_tmp/files/selected"
+  run_check
+  expect_pass "$kernel compressed replacement in extra with /lib aliases"
+  # Honor the configured package database, rather than hard-coding its path.
+  mv "$root/var/lib/pacman" "$root/var/lib/custom-pacman"
+  echo /var/lib/custom-pacman >"$test_tmp/files/dbpath"
+  run_check
+  expect_pass "$kernel custom pacman DBPath"
+done
+pass 'verified DKMS replacements work for both kernels, all compression suffixes and alternate install paths'
+
+kernel=linux-asahi
+for damage in archive origin missing-origin missing-archive missing-mtree wrong-mtree database-query \
+  inactive foreign-link missing-build changed-build missing-replacement changed-replacement \
+  outside-kernel wrong-vermagic built-only unknown-warning checksum ownership; do
+  write_dkms
+  case $damage in
+    archive) echo changed >>"$backup" ;;
+    origin) echo /usr/lib/modules/other/kernel/driver.ko >"$backup.origin" ;;
+    missing-origin) rm "$backup.origin" ;;
+    missing-archive) rm "$backup" ;;
+    missing-mtree) rm "$root/var/lib/pacman/local/$kernel-$pkgver/mtree" ;;
+    wrong-mtree) echo './unrelated type=file sha256digest=bad' | gzip >"$root/var/lib/pacman/local/$kernel-$pkgver/mtree" ;;
+    database-query) rm "$test_tmp/files/dbpath" ;;
+    inactive) rm "$family/kernel-$kver-$arch" ;;
+    foreign-link) ln -sfn "$modules" "$family/kernel-$kver-$arch" ;;
+    missing-build) rm "$build/module/driver.ko" ;;
+    changed-build) echo changed >>"$build/module/driver.ko" ;;
+    missing-replacement) rm "$replacement" ;;
+    changed-replacement) echo changed >>"$replacement" ;;
+    outside-kernel) cp "$replacement" "$root/driver.ko"; echo "$root/driver.ko" >"$test_tmp/files/selected" ;;
+    wrong-vermagic) echo 'other-kernel SMP' >"$test_tmp/files/vermagic" ;;
+    built-only) echo "test-driver/1.0, $kver, $arch: built" >"$test_tmp/files/dkms-status" ;;
+    unknown-warning) echo 'error: unexpected package query failure' >>"$test_tmp/files/qkk-$kernel" ;;
+    checksum) write_warning "$missing" 'SHA256 checksum mismatch' ;;
+    ownership) write_warning "$missing" 'UID mismatch' ;;
+  esac
+  run_check
+  expect_fail "DKMS $damage" 'files do not match the package mtree'
+done
+write_dkms
+printf 'test-driver/1.0, %s, %s: installed\n' "$kver" "$arch" >"$test_tmp/files/dkms-status"
+run_check
+expect_pass 'installed status without the optional archive annotation'
+printf 'warning: m1n1: %s (No such file or directory)\n' "$missing" >"$test_tmp/files/qkk-m1n1"
+run_check
+expect_fail 'DKMS never exempts bootloader files' 'installed m1n1 files do not match'
+pass 'incomplete, changed, unselected and mismatched DKMS replacements fail closed'
+
+write_dkms
+run_check
+expect_pass 'installed DKMS replacement without an additional approval policy'
+grep -Fq "verified installed DKMS test-driver/1.0 replacing $missing with $replacement" "$test_tmp/err" ||
+  fail 'accepted replacements are reported even when stdout is discarded'
+pass 'installed DKMS state authorizes replacements and every exception is reported'
