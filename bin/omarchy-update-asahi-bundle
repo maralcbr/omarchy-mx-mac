@@ -315,6 +315,39 @@ done <"$workdir/$manifest_name"
 [[ $manifest_package_count == "6" ]] || fail "manifest package count is invalid"
 (( checksum_count == 6 )) || fail "manifest must contain exactly six packages"
 
+# A Mac that crossed from the omarchy-mac project can hold bundle packages
+# (omarchy-nvim, ttf-jetbrains-mono-nerd-basic, omarchy-keyring) built by its
+# retired [omarchy-aarch64] repository at versions above the signed bundle.
+# Those alone may be downgraded: the installed name, version and build date
+# must match an entry of that repository's sync database, the live copy or the
+# one install/hardware/pacman.sh keeps when it drops the section. Any other
+# newer package is still refused.
+pacman_db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$(root_path /etc/pacman.conf)" 2>/dev/null || true)
+pacman_db_path=${pacman_db_path:-/var/lib/pacman}
+pacman_db_path=${pacman_db_path%/}
+retired_repository_dbs=(
+  "$(root_path "$pacman_db_path/sync/omarchy-aarch64.db")"
+  "$(root_path /var/lib/omarchy/retired-repositories/omarchy-aarch64.db)"
+)
+desc_field() {
+  awk -v field="%$1%" '$0 == field { getline; print; exit }'
+}
+retired_repository_build() {
+  local package="$1" version="$2" local_desc build_date database entry
+  local_desc=$(root_path "$pacman_db_path/local/$package-$version/desc")
+  [[ -f $local_desc ]] || return 1
+  [[ $(desc_field NAME <"$local_desc") == "$package" && $(desc_field VERSION <"$local_desc") == "$version" ]] || return 1
+  build_date=$(desc_field BUILDDATE <"$local_desc")
+  [[ $build_date =~ ^[0-9]+$ ]] || return 1
+  for database in "${retired_repository_dbs[@]}"; do
+    [[ -f $database ]] || continue
+    entry=$(bsdtar -xOf "$database" "$package-$version/desc" 2>/dev/null) || continue
+    [[ $(desc_field NAME <<<"$entry") == "$package" && $(desc_field VERSION <<<"$entry") == "$version" ]] || continue
+    [[ $(desc_field BUILDDATE <<<"$entry") == "$build_date" ]] && return 0
+  done
+  return 1
+}
+
 archives=()
 for package in "${packages[@]}"; do
   filename=${manifest_files[$package]:-}
@@ -336,7 +369,10 @@ for package in "${packages[@]}"; do
   [[ $incoming_version == "${manifest_versions[$package]}" ]] || fail "$package version does not match the signed manifest"
   grep -Fxq "arch = ${manifest_arches[$package]}" <<<"$metadata" || fail "$package architecture does not match the signed manifest"
   installed_version=$(pacman -Q "$package" 2>/dev/null | awk '{print $2}' || true)
-  [[ -z $installed_version ]] || (( $(vercmp "$incoming_version" "$installed_version") >= 0 )) || fail "$package would be downgraded"
+  if [[ -n $installed_version ]] && (( $(vercmp "$incoming_version" "$installed_version") < 0 )); then
+    retired_repository_build "$package" "$installed_version" || fail "$package would be downgraded"
+    echo "Apple Silicon bundle update: $package $installed_version came from the retired [omarchy-aarch64] repository; replacing it with the signed $incoming_version"
+  fi
   archives+=("$archive")
 done
 

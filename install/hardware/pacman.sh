@@ -55,6 +55,23 @@ if omarchy-hw-apple-silicon; then
     current_server=$distinct_servers
   fi
 
+  # [omarchy-aarch64] is the retired, unsigned community repository of the
+  # omarchy-mac project (github.com/omarchy-mac/omarchy-pkgs-aarch64, earlier
+  # scottjones/omarchy-pkgs-aarch64). Macs that crossed from that project
+  # still carry it, sometimes ahead of [omarchy], where it shadows the signed
+  # packages. It is dropped here, and [omarchy] takes its place when it stood
+  # first. Its sync database is kept so omarchy-update-asahi-bundle can still
+  # prove which installed packages it built.
+  legacy_blocks=$(grep -Ec '^[[:space:]]*\[omarchy-aarch64\][[:space:]]*$' "$pacman_conf" || true)
+  legacy_first=0
+  if (( legacy_blocks && omarchy_blocks )); then
+    legacy_first=$(awk '
+      /^[[:space:]]*\[omarchy-aarch64\][[:space:]]*$/ { print 1; exit }
+      /^[[:space:]]*\[omarchy\][[:space:]]*$/ { print 0; exit }
+    ' "$pacman_conf")
+  fi
+  db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$pacman_conf")
+
   # Only once the configuration is known to be repairable: a refusal above must leave
   # the keyring untouched.
   if ! pacman-key --finger "$release_fingerprint" >/dev/null 2>&1; then
@@ -76,7 +93,7 @@ if omarchy-hw-apple-silicon; then
     release_server=$current_server
   fi
 
-  if ! awk -v server="$release_server" '
+  if (( legacy_blocks )) || ! awk -v server="$release_server" '
     /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; blocks++; next }
     inside && /^[[:space:]]*\[[^]]+\][[:space:]]*$/ { inside = 0 }
     inside && /^[[:space:]]*[^#[:space:]]/ { entries++ }
@@ -84,27 +101,46 @@ if omarchy-hw-apple-silicon; then
     inside && $0 == "Server = " server { url = 1 }
     END { exit !(blocks == 1 && entries == 2 && signature && url) }
   ' "$pacman_conf"; then
+    if (( legacy_blocks )); then
+      backup_dir="${OMARCHY_BACKUP_DIR:-/var/lib/omarchy/backups}"
+      retired_dir="${OMARCHY_RETIRED_REPOSITORY_DIR:-/var/lib/omarchy/retired-repositories}"
+      legacy_backup="$backup_dir/pacman.conf-omarchy-aarch64-$(date +%Y%m%d%H%M%S)"
+      mkdir -p "$backup_dir"
+      cp -a "$pacman_conf" "$legacy_backup"
+      legacy_db="${db_path:-/var/lib/pacman}/sync/omarchy-aarch64.db"
+      if [[ -f $legacy_db ]]; then
+        mkdir -p "$retired_dir"
+        install -m 0644 "$legacy_db" "$retired_dir/omarchy-aarch64.db"
+      fi
+    fi
     tmp="${pacman_conf}.omarchy.$$"
     # The section is rewritten where it stands, keeping its comments. A missing
     # one goes before the first repository, never after [aur]: below [extra]
     # it would hand Hyprland back to Arch Linux ARM.
-    awk -v server="$release_server" -v insert="$(( omarchy_blocks == 0 ))" '
+    # A retired [omarchy-aarch64] section goes, settings and blank lines
+    # alike; when it stood ahead of [omarchy], the section moves into its slot.
+    awk -v server="$release_server" -v insert="$(( omarchy_blocks == 0 ))" -v relocate="$legacy_first" '
       function section() { return $0 ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/ }
       function emit() {
         print "[omarchy]"
         print "SigLevel = Required DatabaseOptional"
         print "Server = " server
       }
-      section() { inside = 0 }
-      /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; emit(); next }
+      section() { inside = 0; legacy = 0 }
+      /^[[:space:]]*\[omarchy\][[:space:]]*$/ { inside = 1; if (!relocate) emit(); next }
       insert && !placed && section() && !/^[[:space:]]*\[options\][[:space:]]*$/ { emit(); print ""; placed = 1 }
+      /^[[:space:]]*\[omarchy-aarch64\][[:space:]]*$/ { legacy = 1; if (relocate && !placed) { emit(); print ""; placed = 1 }; next }
+      legacy && /^[[:space:]]*([^#[:space:]].*)?$/ { next }
       inside && /^[[:space:]]*[^#[:space:]]/ { next }
+      inside && relocate && /^[[:space:]]*$/ { next }
       { print }
       END { if (insert && !placed) { print ""; emit() } }
     ' "$pacman_conf" >"$tmp"
     chmod --reference="$pacman_conf" "$tmp"
     chown --reference="$pacman_conf" "$tmp"
     mv "$tmp" "$pacman_conf"
+    (( ! legacy_blocks )) ||
+      echo "Removed the retired [omarchy-aarch64] repository from $pacman_conf (backup: $legacy_backup)"
     if [[ $current_server != "$release_server" ]]; then
       # A GitHub release serves every tag's database under the same name
       # (omarchy.db), and their upload times are not ordered by tag, so when the
@@ -112,7 +148,6 @@ if omarchy-hw-apple-silicon; then
       # pacman keeps the stale database while fetching the new tag's signature and
       # rejects the pair as an invalid signature. Drop the cached database so it
       # and its signature are always fetched together for the tag now pinned.
-      db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2 }' "$pacman_conf")
       rm -f "${db_path:-/var/lib/pacman}/sync/omarchy.db" "${db_path:-/var/lib/pacman}/sync/omarchy.db.sig"
     fi
     [[ ${OMARCHY_ASAHI_OFFLINE:-} == 1 ]] || pacman -Sy --noconfirm

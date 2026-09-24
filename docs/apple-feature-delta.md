@@ -94,6 +94,7 @@ No Apple-specific files. `config/hypr/input.lua` is the user override template (
 | `bin/omarchy-install-asahi-fresh` | Fresh Asahi/Aurora install: `--deferred-user`, `--offline`, `update-m1n1`, boot-check. | Absent. Plan reuses this app + encrypted ISO work; does not extract this command. | No | `omarchy-mac-boot (ours)` (deferred user, m1n1 rebuild, encryption handoff) |
 | `bin/omarchy-update-apple-boot-admission` | Read-only: `owned` / `adopt` / `skip` for image-written `omarchy-apple-boot` files (vendorfw, `90-omarchy-asahi.conf`). | Absent | — | `mx runtime` (updater must keep deciding adoption) |
 | `bin/omarchy-update-asahi-repository` | Move `[omarchy]` Server along the signed Asahi channel. | Distilled `install/hardware/apple/pacman.sh` (unsigned `[omarchy-aarch64]`). | No | `mx runtime` |
+| `bin/omarchy-update-asahi-legacy-repository` | Remove omarchy-mac's `[omarchy-aarch64]` from `pacman.conf` (via `install/hardware/pacman.sh`) and replace `obsidian-appimage` / `hyprland-preview-share-picker-git` with the `[omarchy]` packages. | Scott's configs still ship `[omarchy-aarch64]` | No | `mx runtime` (crossing from omarchy-mac) |
 | `bin/omarchy-update-asahi-bundle` | Older signed Quattro bundle updater (`omarchy-dev` / settings-dev). | Absent | — | `drop` once the channel updater is the only path |
 | `bin/omarchy-debug-apple` | Post-install PASS/FAIL including `speakersafetyd`. | Absent | — | `mx runtime` |
 | `bin/omarchy-brightness-display-apple` | Studio/XDR brightness via `asdcontrol`. Identical to quattro. | Identical | n/a (generic Apple display) | `omacom/omarchy quattro` |
@@ -114,7 +115,8 @@ One-shot migrators stay in `mx runtime` even when the payload they once wrote mo
 | `migrations/1788345489.sh` | Speaker no-suspend drop-in. | `1789136142.sh` / `1789136143.sh` (audio stack + mic map, not no-suspend) | Audio stack: package 1 mic yes; speakersafetyd desktop leftover | `mx runtime`; payload → `omarchy-mac-boot (ours)` until Scott |
 | `migrations/1787552067.sh` | Install `rtkit` on Apple Silicon. | `1788200002.sh` + `audio.sh` | Partial (audio packages on trial) | `omarchy-mac (Scott)` (audio.sh leftover; should join package 1 later) |
 | `migrations/1789172112.sh` | Remove Intel `brcmfmac` workaround from Apple Silicon. | Absent (distilled leaf already skips AS) | — | `mx runtime` |
-| `migrations/1788486400.sh` | Install packages missing from an older Asahi set. | Absent | — | `mx runtime` |
+| `migrations/1788486400.sh` | Install packages missing from an older Asahi set; runs the legacy cleanup first. | Absent | — | `mx runtime` |
+| `migrations/1790256699.sh` | Retire omarchy-mac's `[omarchy-aarch64]` and its conflicting packages. | Absent | — | `mx runtime` |
 | `migrations/1787560726.sh` | Configure signed Omarchy repo on Apple Silicon. | `1788200000.sh` `[omarchy-aarch64]`; `1789275235.sh` package-owned Wi-Fi default | Trust: no | `mx runtime` |
 | `migrations/1789879296.sh` | Replace leftover `linux-asahi-headers` on Aurora; `update-m1n1`. | Absent | — | `mx runtime` |
 | `migrations/1786391100.sh` | Broadcom software WPA on Intel/T2 Macs. | Same idea on product branch | n/a | `omacom/omarchy quattro` |

@@ -45,11 +45,12 @@ The Mac's own record lives in `/var/lib/omarchy/apple-silicon-channel`, and the 
 
 ## How an update arrives
 
-`omarchy update` behaves as it does on x86, with two Apple-specific steps in front:
+`omarchy update` behaves as it does on x86, with three Apple-specific steps in front:
 
-1. **Runtime bundle.** `omarchy-update-asahi-bundle` reads the runtime channel pointer, verifies the release descriptor, the six-package manifest, the checksums and the signatures, then installs `omarchy-keyring`, `omarchy-settings-dev`, `omarchy-dev`, `omarchy-nvim`, `quickshell-git` and `ttf-jetbrains-mono-nerd-basic` as one transaction.
-2. **Package repository.** `omarchy-update-asahi-repository` points `[omarchy]` at the current promoted package channel. Rollbacks of the package or release sequence are refused.
-3. **Everything else** comes from the live Arch Linux ARM and Asahi mirrors, as upstream.
+1. **Runtime bundle.** `omarchy-update-asahi-bundle` reads the runtime channel pointer, verifies the release descriptor, the six-package manifest, the checksums and the signatures, then installs `omarchy-keyring`, `omarchy-settings-dev`, `omarchy-dev`, `omarchy-nvim`, `quickshell-git` and `ttf-jetbrains-mono-nerd-basic` as one transaction. It refuses to downgrade any of them, with one exception: a package the retired `[omarchy-aarch64]` repository built, proven by its name, version and build date in that repository's sync database.
+2. **Legacy repository cleanup.** On a Mac that came from the omarchy-mac project, `omarchy-update-asahi-legacy-repository` removes its unsigned `[omarchy-aarch64]` repository from `/etc/pacman.conf` (backup under `/var/lib/omarchy/backups/`), keeps `[omarchy]` ahead of what that repository shadowed, and replaces `obsidian-appimage` and `hyprland-preview-share-picker-git` with the `[omarchy]` packages. On other Macs it does nothing. A cleanup that cannot finish changes nothing and is tried again on the next update.
+3. **Package repository.** `omarchy-update-asahi-repository` points `[omarchy]` at the current promoted package channel. Rollbacks of the package or release sequence are refused.
+4. **Everything else** comes from the live Arch Linux ARM and Asahi mirrors, as upstream.
 
 A snapper snapshot is taken before the package sync. `snapper list` shows it. On a lab Mac with `/var/lib/omarchy/snapshot-restore.enabled`, `omarchy-snapshot restore <number>` reboots into a writable clone of a snapshot.
 

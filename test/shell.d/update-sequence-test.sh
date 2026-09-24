@@ -21,6 +21,7 @@ steps=(
   omarchy-update-stay-awake
   omarchy-update-dev
   omarchy-update-asahi-bundle
+  omarchy-update-asahi-legacy-repository
   omarchy-update-asahi-repository
   omarchy-update-keyring
   omarchy-update-system-pkgs
@@ -182,7 +183,7 @@ pass "every other blocked upgrade still shows the failure banner"
 # failure banner over an update that carries on; only a bundle that really failed shows it.
 apple_expected_steps() {
   expected_steps | sed \
-    -e '/^omarchy-update-dev$/a omarchy-update-asahi-bundle\nomarchy-update-asahi-repository' \
+    -e '/^omarchy-update-dev$/a omarchy-update-asahi-bundle\nomarchy-update-asahi-legacy-repository\nomarchy-update-asahi-repository' \
     -e '/^omarchy-migrate$/a omarchy-update-aurora-repository'
 }
 
@@ -205,6 +206,17 @@ if grep -q 'Something went wrong' "$test_tmp/out" "$test_tmp/err"; then
   fail "a failed repository repoint that the update carries past prints the failure banner"
 fi
 pass "a failed repository repoint continues on the pinned snapshot without the failure banner"
+
+APPLE_SILICON=1 FAILING_STEP=omarchy-update-asahi-legacy-repository FAILING_STATUS=1 run_update -y ||
+  fail "a legacy repository cleanup that did not finish fails the update" "$(cat "$test_tmp/err")"
+diff <(apple_expected_steps) <(steps_run) >"$test_tmp/order" ||
+  fail "a legacy repository cleanup that did not finish skips later steps" "$(cat "$test_tmp/order")"
+grep -q 'cleanup did not finish; continuing the update' "$test_tmp/err" ||
+  fail "a legacy repository cleanup that did not finish is not reported"
+if grep -q 'Something went wrong' "$test_tmp/out" "$test_tmp/err"; then
+  fail "a legacy repository cleanup that did not finish prints the failure banner"
+fi
+pass "the legacy repository cleanup runs between the bundle and the repository repoint and never stops the update"
 
 set +e
 APPLE_SILICON=1 FAILING_STEP=omarchy-update-asahi-bundle FAILING_STATUS=2 run_update -y

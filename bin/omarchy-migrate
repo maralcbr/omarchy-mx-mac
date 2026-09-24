@@ -161,6 +161,7 @@ asahi_migration_disposition() {
     1790226002.sh) printf 'run\treviewed busybox initramfs GRUB kernel line repair for Apple Silicon; self-gating to Apple Silicon GRUB Macs\n' ;;
     1790226271.sh) printf 'run\treviewed Tensaku install for the screenshot editor; self-gating to Apple Silicon hardware\n' ;;
     1790226283.sh) printf 'run\treviewed stock Arch ~/.bashrc replacement for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
+    1790256699.sh) printf 'run\treviewed retirement of the omarchy-mac [omarchy-aarch64] repository and its conflicting packages; self-gating to Apple Silicon hardware\n' ;;
     *) return 1 ;;
   esac
 }

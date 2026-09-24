@@ -1,0 +1,97 @@
+#!/bin/bash
+
+# omarchy:summary=Retire the omarchy-mac [omarchy-aarch64] repository and replace its conflicting packages
+# omarchy:hidden=true
+# omarchy:requires-sudo=true
+
+# Macs that crossed from the omarchy-mac project still list its unsigned
+# community repository, [omarchy-aarch64] (github.com/omarchy-mac/omarchy-pkgs-aarch64),
+# and hold packages from it or from the AUR that conflict with the signed
+# [omarchy] ones. install/hardware/pacman.sh drops the section, keeping
+# [omarchy] ahead of everything it shadowed; then each legacy package is
+# replaced by its [omarchy] equivalent, only where the legacy one is installed
+# and the replacement is available. Nothing is done on a Mac without either.
+#
+# Exit 0 when there was nothing to do or everything was done, 1 when a step
+# could not finish. Every step leaves the Mac as it found it on failure, and
+# omarchy update runs this again each time, so a caller carries on.
+
+set -euo pipefail
+
+omarchy-hw-apple-silicon || exit 0
+
+pacman_conf="${OMARCHY_PACMAN_CONF:-/etc/pacman.conf}"
+legacy_header='^[[:space:]]*\[omarchy-aarch64\][[:space:]]*$'
+
+if grep -Eq "$legacy_header" "$pacman_conf"; then
+  echo "Retiring the legacy [omarchy-aarch64] package repository"
+  if ! sudo env OMARCHY_PATH="$OMARCHY_PATH" OMARCHY_PACMAN_CONF="$pacman_conf" \
+    bash -euo pipefail -c 'source "$1"' _ "$OMARCHY_PATH/install/hardware/pacman.sh"; then
+    echo "Could not remove [omarchy-aarch64] from $pacman_conf; its packages stay as they are." >&2
+    exit 1
+  fi
+  if grep -Eq "$legacy_header" "$pacman_conf"; then
+    echo "[omarchy-aarch64] is still listed in $pacman_conf; its packages stay as they are." >&2
+    exit 1
+  fi
+fi
+
+# legacy package, then the [omarchy] package that replaces it.
+legacy_replacements=(
+  "obsidian-appimage obsidian"
+  "hyprland-preview-share-picker-git hyprland-preview-share-picker"
+)
+
+status=0
+for pair in "${legacy_replacements[@]}"; do
+  read -r legacy replacement <<<"$pair"
+  pacman -Q "$legacy" &>/dev/null || continue
+  if ! pacman -Si "$replacement" &>/dev/null; then
+    echo "$replacement is not in the configured repositories; keeping $legacy"
+    continue
+  fi
+
+  legacy_files=() legacy_dirs=()
+  while IFS= read -r file; do
+    if [[ $file == */ ]]; then
+      legacy_dirs=("$file" "${legacy_dirs[@]}")
+    else
+      legacy_files+=("$file")
+    fi
+  done < <(pacman -Qlq "$legacy")
+  # obsidian-appimage declares its conflict with obsidian, and --ask 4 lets
+  # pacman remove it in the same transaction. The -git picker declares none,
+  # so the files the two share are taken over in that transaction instead.
+  overwrite=()
+  for file in "${legacy_files[@]}"; do
+    overwrite+=(--overwrite "$(sed 's/[][*?\\]/\\&/g' <<<"$file")")
+  done
+
+  echo "Replacing $legacy with $replacement from the Omarchy repositories"
+  if ! sudo pacman -S --noconfirm --ask 4 "${overwrite[@]}" "$replacement"; then
+    echo "Could not install $replacement; $legacy stays installed." >&2
+    status=1
+    continue
+  fi
+  pacman -Q "$legacy" &>/dev/null || continue
+
+  # The shared files now belong to the replacement, so removing the legacy
+  # package normally would delete them. Drop its database entry, then the
+  # files and emptied directories only it owned.
+  if ! sudo pacman -Rdd --dbonly --noconfirm "$legacy"; then
+    echo "$replacement is installed, but $legacy could not be removed from the package database." >&2
+    status=1
+    continue
+  fi
+  for file in "${legacy_files[@]}"; do
+    [[ -e $file || -L $file ]] && [[ ! -d $file ]] || continue
+    pacman -Qoq "$file" &>/dev/null && continue
+    sudo rm -f -- "$file"
+  done
+  for dir in "${legacy_dirs[@]}"; do
+    [[ -d $dir ]] && ! pacman -Qoq "$dir" &>/dev/null || continue
+    sudo rmdir --ignore-fail-on-non-empty -- "$dir"
+  done
+done
+
+exit "$status"

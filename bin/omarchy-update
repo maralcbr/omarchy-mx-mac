@@ -57,6 +57,12 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
     else
       (( bundle_status == 0 )) || (exit "$bundle_status")
     fi
+    # A Mac from the omarchy-mac project may still list the retired
+    # [omarchy-aarch64] repository ahead of [omarchy]. Drop it before the
+    # repository repoint and the package upgrade read it; a cleanup that
+    # cannot finish leaves pacman.conf as it was and is tried again next time.
+    omarchy-update-asahi-legacy-repository ||
+      echo "Legacy [omarchy-aarch64] cleanup did not finish; continuing the update." >&2
     # The [omarchy] repository the ISO pinned stays on its install-time snapshot
     # otherwise; move it to the newest promoted snapshot before the package sync
     # so the system upgrade below reads current packages.
