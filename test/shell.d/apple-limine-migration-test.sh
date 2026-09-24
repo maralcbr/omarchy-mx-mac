@@ -178,6 +178,21 @@ printf 'default_config="/etc/mkinitcpio-busybox.conf"\n' >>"$preset_dir/linux-as
 run_migration
 expect_wait "a preset with its own configuration" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
 ready
+printf 'default_options=(-c /etc/mkinitcpio-busybox.conf)\n' >>"$preset_dir/linux-asahi.preset"
+run_migration
+expect_wait "a preset array naming its own configuration" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
+ready
+chmod 000 "$preset_dir/linux-asahi.preset"
+run_migration
+chmod 644 "$preset_dir/linux-asahi.preset"
+expect_wait "an unreadable preset" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
+# mkinitcpio reads drop-ins in version order: 100-local.conf comes last.
+ready
+printf 'HOOKS=(base udev block encrypt filesystems)\n' >"$mkinitcpio_conf.d/100-local.conf"
+run_migration
+rm -f "$mkinitcpio_conf.d/100-local.conf"
+expect_wait "a busybox drop-in sorted after Omarchy's by version" "the encrypted disk is unlocked by a busybox initramfs"
+ready
 printf '#!/bin/bash\necho "base udev block encrypt filesystems"\n' >"$stub_bin/omarchy-hw-apple-initramfs-hooks"
 chmod +x "$stub_bin/omarchy-hw-apple-initramfs-hooks"
 run_migration
@@ -269,7 +284,10 @@ grep -Fq 'Limine boots this Mac but is not verified: the Limine boot files did n
   fail "a deployed Limine that does not verify says not to reboot" "$(cat "$test_tmp/err")"
 grep -Fxq 'Limine boots this Mac but is not verified: the Limine boot files did not verify' "$reboot_blocked" ||
   fail "a deployed Limine that does not verify blocks the reboot"
-cp "$reboot_blocked" "$test_tmp/blocked-before"
+TEST_NEW_KERNEL=1 run_migration_keeping_block
+(( status == 0 )) && [[ ! -e $reboot_blocked && -e $pending ]] ||
+  fail "a retry verified up to a pending reboot lifts its block and verifies again later" "$(cat "$test_tmp/err")"
+TEST_CHECK_FAILS=1 run_migration_keeping_block
 run_migration_keeping_block
 (( status == 0 )) && [[ ! -e $reboot_blocked && ! -e $pending ]] || fail "a verified retry lifts its reboot block" "$(cat "$test_tmp/err")"
 ready

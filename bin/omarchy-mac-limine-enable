@@ -35,11 +35,16 @@ declare -A minimum=([limine-mkinitcpio-hook]=1.36.0-4 [omarchy-mac-boot]=2026092
 
 block_prefix="Limine boots this Mac but is not verified"
 
-finish() {
-  sudo rm -f "$pending"
-  if [[ -f $reboot_blocked ]] && [[ $(head -n 1 "$reboot_blocked") == "$block_prefix"* ]]; then
+# Lifts the reboot block this script wrote, never another step's.
+lift_block() {
+  if sudo test -f "$reboot_blocked" && [[ $(sudo head -n 1 "$reboot_blocked") == "$block_prefix"* ]]; then
     sudo rm -f "$reboot_blocked"
   fi
+}
+
+finish() {
+  sudo rm -f "$pending"
+  lift_block
   exit 0
 }
 
@@ -74,11 +79,11 @@ new_enough() {
 global_hooks() {
   [[ -r $mkinitcpio_conf ]] || return 1
   bash -c '
+    # As mkinitcpio reads them: the file, then its drop-ins in version
+    # order, sourced as one.
     HOOKS=()
-    source "$1" >/dev/null 2>&1 || exit 1
-    for drop_in in "$1".d/*.conf; do
-      [[ -f $drop_in ]] && { source "$drop_in" >/dev/null 2>&1 || exit 1; }
-    done
+    mapfile -d "" drop_ins < <(find "$1.d" -maxdepth 1 -xtype f -name "*.conf" -print0 2>/dev/null | LC_ALL=C.UTF-8 sort -zV)
+    source <(cat "$1" "${drop_ins[@]}") >/dev/null 2>&1 || exit 1
     (( ${#HOOKS[@]} )) || exit 1
     printf "%s\n" "${HOOKS[*]}"
   ' _ "$mkinitcpio_conf"
@@ -94,12 +99,12 @@ preset_hooks() {
     return
   fi
   preset="$preset_dir/$(omarchy-hw-apple-kernel).preset"
-  if [[ -f $preset ]]; then
-    ! grep -Eq '^[[:space:]]*[A-Za-z]+_config=' "$preset" || return 1
-    # Arch's fallback preset skips autodetect; any other hook or
-    # configuration option changes what the preset builds.
-    ! grep -E '^[[:space:]]*[A-Za-z]+_options=' "$preset" | sed 's/-S[[:space:]]*autodetect//' |
-      grep -Eq -- '(^|[[:space:]"'"'"'=])(-[A-Za-z]*[cAS]|--(config|add|addhooks|skiphooks))' || return 1
+  if [[ -e $preset ]]; then
+    [[ -r $preset ]] || return 1
+    # Only Arch's own preset settings keep the global configuration: no
+    # *_config, and no *_options but the fallback's -S autodetect.
+    ! grep -E '^[[:space:]]*[A-Za-z0-9_]+_(config|options)[[:space:]]*=' "$preset" |
+      grep -Evq '^[[:space:]]*[A-Za-z0-9_]+_options=(""|'"''"'|"-S autodetect"|'"'-S autodetect'"'|\(("-S autodetect"|'"'-S autodetect'"'|-S autodetect)\)|\(\))?[[:space:]]*(#.*)?$' || return 1
   fi
   global_hooks
 }
@@ -161,6 +166,7 @@ check=$(sudo env OMARCHY_BOOT_CHECK_ALLOW_PENDING_REBOOT=1 omarchy-apple-silicon
   wait_for "the Limine boot files did not verify"
 if [[ $check == *"reboot pending"* ]]; then
   echo "Limine boots this Mac from now on; reboot to start the new kernel."
+  lift_block
   sudo touch "$pending"
   exit 0
 fi
