@@ -95,9 +95,25 @@
 
     func testShortAuthorizationTokensAreRedacted() {
       let redacted = EngineStandardErrorRedactor.redact(
-        Data("curl Basic dTpw then bearer abc123\n".utf8), truncated: false, secrets: [])
+        Data("curl Basic dTpw then bearer abc123 and basic eHl6\n".utf8), truncated: false,
+        secrets: [])
       XCTAssertFalse(redacted.contains("dTpw"))
       XCTAssertFalse(redacted.contains("abc123"))
+      XCTAssertFalse(redacted.contains("eHl6"))
+      XCTAssertFalse(
+        EngineStandardErrorRedactor.summary(
+          from: "omarchy_asahi.AsahiAdapterError: basic dTpw", secrets: []
+        ).contains("dTpw"))
+    }
+
+    func testSummaryLimitIsAppliedOnlyAfterRedaction() {
+      let secret = Data("ABCDEFGHIJ0123456789Z".utf8)
+      let prefix = "omarchy_asahi.AsahiAdapterError: "
+      let padding = String(repeating: "p", count: 180 - prefix.count)
+      let line = prefix + padding + "ABCDE\u{E9}FGHIJ0123456789Z"
+      let summary = EngineStandardErrorRedactor.summary(from: line, secrets: [secret])
+      XCTAssertFalse(summary.contains("FGHIJ0123"), summary)
+      XCTAssertLessThanOrEqual(summary.count, EngineFailureNotice.maximumSummaryCharacters)
     }
 
     func testTruncatedTailDropsItsPartialFirstLine() {

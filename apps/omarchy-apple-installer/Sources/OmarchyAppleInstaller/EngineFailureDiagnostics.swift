@@ -89,10 +89,13 @@
     /// Printable ASCII only, one line, bounded. Applied on both sides of XPC
     /// so a malformed or hostile value can never carry control characters or
     /// unbounded text into the UI or logs.
-    static func sanitizedSummary(_ value: String) -> String {
+    static func sanitizedSummary(
+      _ value: String,
+      limit: Int? = EngineFailureNotice.maximumSummaryCharacters
+    ) -> String {
       var result = ""
       for scalar in value.unicodeScalars {
-        guard result.count < maximumSummaryCharacters else { break }
+        if let limit, result.count >= limit { break }
         if scalar.value >= 0x20 && scalar.value < 0x7F {
           result.unicodeScalars.append(scalar)
         } else if scalar == "\t" {
@@ -181,7 +184,9 @@
         options: .regularExpression
       )
       text = text.replacingOccurrences(
-        of: #"\b((?i:bearer)|Basic)\s+[A-Za-z0-9._~+/=-]+"#,
+        // Schemes are case-insensitive (RFC 9110 11.1); over-redacting a
+        // word that follows "basic" in ordinary text is the accepted cost.
+        of: #"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+"#,
         with: "$1 \(redaction)",
         options: .regularExpression
       )
@@ -198,10 +203,13 @@
     /// summary's printable-ASCII form first and redacted after that, so the
     /// normalization cannot rejoin a secret that other characters had split.
     public static func summary(from line: String, secrets: [Data]) -> String {
-      var text = EngineFailureNotice.sanitizedSummary(line)
+      // Normalize without truncating: a cut before redaction could leave most
+      // of a secret that no longer matches in full. The limit comes last.
+      var text = EngineFailureNotice.sanitizedSummary(line, limit: nil)
       for secret in secrets where !secret.isEmpty {
         let raw = String(decoding: secret, as: UTF8.self)
-        for form in Set([raw, EngineFailureNotice.sanitizedSummary(raw)]) where !form.isEmpty {
+        for form in Set([raw, EngineFailureNotice.sanitizedSummary(raw, limit: nil)])
+        where !form.isEmpty {
           text = text.replacingOccurrences(of: form, with: redaction)
         }
       }
