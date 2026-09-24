@@ -186,6 +186,19 @@ chmod 000 "$preset_dir/linux-asahi.preset"
 run_migration
 chmod 644 "$preset_dir/linux-asahi.preset"
 expect_wait "an unreadable preset" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
+for assignment in 'export default_options="-c /etc/mkinitcpio-busybox.conf"' 'default_options+=(-c /etc/mkinitcpio-busybox.conf)' 'PRESETS+=(busybox)\nbusybox_options="-A encrypt"'; do
+  ready
+  printf "$assignment\n" >>"$preset_dir/linux-asahi.preset"
+  run_migration
+  expect_wait "a preset with $assignment" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
+done
+# A drop-in the check cannot read (it runs as root; this one fails for anyone).
+ready
+printf 'HOOKS=(base udev block encrypt filesystems)\n' >"$mkinitcpio_conf.d/95-local.conf"
+chmod 000 "$mkinitcpio_conf.d/95-local.conf"
+run_migration
+rm -f "$mkinitcpio_conf.d/95-local.conf"
+expect_wait "an unreadable drop-in" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
 # mkinitcpio reads drop-ins in version order: 100-local.conf comes last.
 ready
 printf 'HOOKS=(base udev block encrypt filesystems)\n' >"$mkinitcpio_conf.d/100-local.conf"

@@ -75,37 +75,63 @@ new_enough() {
 }
 
 # The mkinitcpio HOOKS of mkinitcpio.conf and its drop-ins: what Limine's
-# UKI is built with (mkinitcpio --kernel --uki, no preset).
+# UKI is built with (mkinitcpio --kernel --uki, no preset). Read as root, the
+# way mkinitcpio reads them: the file, then its drop-ins in version order,
+# sourced as one. Anything that cannot be read fails.
 global_hooks() {
-  [[ -r $mkinitcpio_conf ]] || return 1
-  bash -c '
-    # As mkinitcpio reads them: the file, then its drop-ins in version
-    # order, sourced as one.
+  sudo bash -c '
+    set -uo pipefail
+    conf=$1
+    [[ -r $conf ]] || exit 1
+    drop_ins=()
+    if [[ -e $conf.d ]]; then
+      list=$(mktemp) || exit 1
+      trap "rm -f \"\$list\"" EXIT
+      find "$conf.d" -maxdepth 1 -xtype f -name "*.conf" -print0 | LC_ALL=C.UTF-8 sort -zV >"$list" || exit 1
+      mapfile -d "" drop_ins <"$list"
+    fi
+    body=$(cat "$conf" "${drop_ins[@]}") || exit 1
     HOOKS=()
-    mapfile -d "" drop_ins < <(find "$1.d" -maxdepth 1 -xtype f -name "*.conf" -print0 2>/dev/null | LC_ALL=C.UTF-8 sort -zV)
-    source <(cat "$1" "${drop_ins[@]}") >/dev/null 2>&1 || exit 1
+    source /dev/stdin <<<"$body" >/dev/null 2>&1 || exit 1
     (( ${#HOOKS[@]} )) || exit 1
     printf "%s\n" "${HOOKS[*]}"
   ' _ "$mkinitcpio_conf"
 }
 
+# True when the kernel's preset builds from the global configuration as it
+# is: sourced as root like mkinitcpio sources it, no preset names a
+# configuration, and none passes options but the fallback's -S autodetect.
+preset_uses_global() {
+  sudo bash -c '
+    preset=$1
+    [[ -e $preset ]] || exit 0
+    [[ -r $preset ]] || exit 1
+    source "$preset" >/dev/null 2>&1 || exit 1
+    [[ -z ${ALL_config:-} ]] || exit 1
+    for name in "${PRESETS[@]}"; do
+      config=${name}_config options=${name}_options
+      [[ -z ${!config:-} ]] || exit 1
+      if [[ $(declare -p "$options" 2>/dev/null) == "declare -"*a* ]]; then
+        declare -n list=$options
+        words=("${list[@]}")
+        unset -n list
+      else
+        read -ra words <<<"${!options:-}"
+      fi
+      [[ ${#words[@]} -eq 0 || ${words[*]} == "-S autodetect" ]] || exit 1
+    done
+  ' _ "$1"
+}
+
 # The HOOKS of the kernel's preset, what GRUB boots (mkinitcpio -P), as
 # omarchy-hw-apple-initramfs-hooks resolves them where it exists. Without it
-# a preset that names its own configuration or hooks cannot be told apart.
+# a preset that names its own configuration or options cannot be resolved.
 preset_hooks() {
-  local preset
   if omarchy-cmd-present omarchy-hw-apple-initramfs-hooks; then
-    omarchy-hw-apple-initramfs-hooks
+    sudo omarchy-hw-apple-initramfs-hooks
     return
   fi
-  preset="$preset_dir/$(omarchy-hw-apple-kernel).preset"
-  if [[ -e $preset ]]; then
-    [[ -r $preset ]] || return 1
-    # Only Arch's own preset settings keep the global configuration: no
-    # *_config, and no *_options but the fallback's -S autodetect.
-    ! grep -E '^[[:space:]]*[A-Za-z0-9_]+_(config|options)[[:space:]]*=' "$preset" |
-      grep -Evq '^[[:space:]]*[A-Za-z0-9_]+_options=(""|'"''"'|"-S autodetect"|'"'-S autodetect'"'|\(("-S autodetect"|'"'-S autodetect'"'|-S autodetect)\)|\(\))?[[:space:]]*(#.*)?$' || return 1
-  fi
+  preset_uses_global "$preset_dir/$(omarchy-hw-apple-kernel).preset" || return 1
   global_hooks
 }
 
