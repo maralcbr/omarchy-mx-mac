@@ -1,0 +1,415 @@
+#!/usr/bin/env python3
+"""Regenerate docs/omarchy-variant-package-map.md from live package lists and repo databases.
+
+Usage: scripts/package-map [--check]
+  --check  exit 1 if the committed page differs from a fresh render (ignoring snapshot time and commit ids)
+"""
+
+import collections
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import urllib.parse
+import urllib.request
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DOC = os.path.join(ROOT, "docs", "omarchy-variant-package-map.md")
+
+UPSTREAM = ("omacom/omarchy", "quattro")
+OMARCHY_MAC = ("omacom/omarchy-mac", "quattro")
+
+DBS = {
+    "core": "https://geo.mirror.pkgbuild.com/core/os/x86_64/core.db",
+    "extra": "https://geo.mirror.pkgbuild.com/extra/os/x86_64/extra.db",
+    "multilib": "https://geo.mirror.pkgbuild.com/multilib/os/x86_64/multilib.db",
+    "omarchy-x86": "https://pkgs.omarchy.org/stable/x86_64/omarchy.db",
+    "alarm-core": "http://mirror.archlinuxarm.org/aarch64/core/core.db",
+    "alarm-extra": "http://mirror.archlinuxarm.org/aarch64/extra/extra.db",
+    "alarm-alarm": "http://mirror.archlinuxarm.org/aarch64/alarm/alarm.db",
+    "alarm-aur": "http://mirror.archlinuxarm.org/aarch64/aur/aur.db",
+    "asahi-alarm": "https://github.com/asahi-alarm/asahi-alarm/releases/download/aarch64/asahi-alarm.db",
+    "omarchy-stable": "https://pkgs.omarchy.org/stable/aarch64/omarchy.db",
+    "omarchy-edge": "https://pkgs.omarchy.org/edge/aarch64/omarchy.db",
+    "omarchy-mac-community": "https://github.com/omarchy-mac/omarchy-pkgs-aarch64/releases/download/edge/omarchy-aarch64.db",
+}
+LABEL = {
+    "core": "core", "extra": "extra", "multilib": "multilib", "omarchy-x86": "omarchy",
+    "alarm-core": "ALARM", "alarm-extra": "ALARM", "alarm-alarm": "ALARM", "alarm-aur": "ALARM",
+    "asahi-alarm": "asahi-alarm", "omarchy-stable": "omarchy", "omarchy-edge": "omarchy edge",
+    "omarchy-mac-community": "omarchy-aarch64",
+}
+X86 = ["core", "extra", "multilib", "omarchy-x86"]
+ALARM = ["alarm-core", "alarm-extra", "alarm-alarm", "alarm-aur"]
+OMACOM_ARM = ["omarchy-stable"] + ALARM
+OMACOM_ARM_EDGE = ["omarchy-edge"] + ALARM
+# omarchy-mac enables official edge with `Usage = Sync`: only explicit `omarchy/<pkg>` targets
+# (install/helpers/arm-package-sources.sh) come from it; everything else resolves from the
+# community [omarchy-aarch64] repo, [asahi-alarm] and ALARM, then yay falls back to the AUR.
+OMARCHY_MAC_REPOS = ["omarchy-mac-community", "asahi-alarm"] + ALARM
+OMARCHY_MAC_EXPLICIT = {"hyprland", "hyprtoolkit", "hyprland-guiutils", "asdcontrol", "tobi-try"}
+T2_PACKAGES = {"apple-bcm-firmware", "apple-t2-audio-config", "linux-t2", "linux-t2-headers", "t2fanrd"}
+
+# x86 hardware support with no meaning on Apple Silicon (n/a in the Mac columns).
+X86_HARDWARE = {
+    "asusctl", "broadcom-wl-dkms", "egl-wayland", "intel-ipu7-camera", "intel-lpmd",
+    "intel-media-driver", "libva-intel-driver", "libva-nvidia-driver", "macbook12-spi-driver-dkms",
+    "nvidia-580xx-dkms", "nvidia-dkms", "nvidia-open-dkms", "nvidia-580xx-utils", "nvidia-utils",
+    "lib32-nvidia-580xx-utils", "lib32-nvidia-utils", "sof-firmware", "thermald",
+    "tuxedo-drivers-nocompatcheck-dkms", "yt6801-dkms", "libvpl", "vpl-gpu-rt", "vulkan-intel",
+    "vulkan-radeon", "linux-firmware-marvell", "dell-xps-touchpad-haptics", "dell-xps13-sidecar-amps",
+    "lsp-plugins-lv2", "apple-bcm-firmware", "apple-t2-audio-config", "linux-t2", "linux-t2-headers",
+    "t2fanrd", "qmk-hid",
+}
+# Stand-ins each Mac variant installs under a different name.
+MX_RENAMES = {
+    "mise-bin": "mise", "nvim": "neovim", "quickshell": "quickshell-git",
+    "linux-omarchy": "linux-aurora", "linux-omarchy-headers": "linux-aurora-headers",
+}
+MAC_RENAMES = {  # install/helpers/arm-package-sources.sh and the Asahi base image
+    "nvim": "neovim", "linux-omarchy": "linux-asahi", "linux-omarchy-headers": "linux-asahi-headers",
+}
+MAC_ALTERNATIVES = {"obsidian": "obsidian-appimage"}  # install/user/hardware/apple/obsidian.sh
+WHY_NO_ARM = {
+    "nvim": "Virtual name. Arch's `neovim` declares `provides=nvim`; ALARM's `neovim` does not, so `pacman -S nvim` fails. Install `neovim`.",
+    "obsidian": "Not in ALARM or `[omarchy]`; the AUR `obsidian-appimage` split package carries the Arm AppImage.",
+    "qemu-user-static-binfmt": "ALARM drops the static QEMU build.",
+    "linux-omarchy": "x86 kernel; generic Arm uses ALARM's `linux-aarch64`, Macs an Asahi kernel.",
+    "linux-omarchy-headers": "x86 kernel headers.",
+}
+
+
+def fetch(url):
+    request = urllib.request.Request(url, headers={"User-Agent": "omarchy-package-map"})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return response.read()
+
+
+def remote_head(repo, branch):
+    out = subprocess.run(["git", "ls-remote", f"https://github.com/{repo}", f"refs/heads/{branch}"],
+                         check=True, capture_output=True, text=True).stdout
+    return out.split()[0]
+
+
+def aur_packages(candidates):
+    if not candidates:
+        return set()
+    query = "&".join("arg[]=" + urllib.parse.quote(name) for name in sorted(candidates))
+    data = json.loads(fetch("https://aur.archlinux.org/rpc/v5/info?" + query))
+    return {result["Name"] for result in data["results"]}
+
+
+def mac_source(dbs, pkg):
+    if pkg in OMARCHY_MAC_EXPLICIT:
+        return "omarchy edge" if resolve(dbs, pkg, ["omarchy-edge"]) else None
+    found = resolve(dbs, pkg, OMARCHY_MAC_REPOS)
+    return found[0] if found else None
+
+
+def remote_file(repo, sha, path):
+    return fetch(f"https://raw.githubusercontent.com/{repo}/{sha}/{path}").decode()
+
+
+def package_list(text):
+    return [line.split("#")[0].strip() for line in text.splitlines() if line.split("#")[0].strip()]
+
+
+def load_db(url, workdir):
+    path = os.path.join(workdir, "repo.db")
+    with open(path, "wb") as f:
+        f.write(fetch(url))
+    outdir = tempfile.mkdtemp(dir=workdir)
+    subprocess.run(["bsdtar", "-xf", path, "-C", outdir], check=True, capture_output=True)
+    packages = {}
+    for entry in os.listdir(outdir):
+        desc = os.path.join(outdir, entry, "desc")
+        if not os.path.exists(desc):
+            continue
+        fields, key = {}, None
+        with open(desc, errors="replace") as f:
+            for line in f.read().splitlines():
+                if re.fullmatch(r"%[A-Z0-9]+%", line):
+                    key = line[1:-1]
+                    fields[key] = []
+                elif line and key:
+                    fields[key].append(line)
+        if "NAME" in fields:
+            packages[fields["NAME"][0]] = [re.split("[<>=]", p)[0] for p in fields.get("PROVIDES", [])]
+    return packages
+
+
+def resolve(dbs, name, repos):
+    for repo in repos:
+        if name in dbs[repo]:
+            return LABEL[repo], name
+    for repo in repos:
+        for pkg, provides in dbs[repo].items():
+            if name in provides:
+                return LABEL[repo], pkg
+    return None
+
+
+def local_head():
+    sha = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short=8", "HEAD"],
+                         check=True, capture_output=True, text=True).stdout.strip()
+    return sha
+
+
+def names(rows):
+    return ", ".join(f"`{r['pkg']}`" for r in rows) or "none"
+
+
+def render():
+    up_sha = remote_head(*UPSTREAM)
+    mac_sha = remote_head(*OMARCHY_MAC)
+    x86_base = package_list(remote_file(UPSTREAM[0], up_sha, "install/omarchy-base.packages"))
+    x86_other = package_list(remote_file(UPSTREAM[0], up_sha, "install/omarchy-other.packages"))
+    mac_base = set(package_list(remote_file(OMARCHY_MAC[0], mac_sha, "install/omarchy-base.packages")))
+    mac_excluded = set(package_list(remote_file(OMARCHY_MAC[0], mac_sha, "install/omarchy-aarch64-unavailable.packages")))
+    mx = set()
+    for name in ("omarchy-base-asahi.packages", "omarchy-other-asahi.packages"):
+        with open(os.path.join(ROOT, "install", name)) as f:
+            mx.update(package_list(f.read()))
+    mx_sha = local_head()
+
+    with tempfile.TemporaryDirectory() as workdir:
+        dbs = {name: load_db(url, workdir) for name, url in DBS.items()}
+
+    unresolved = {p for p in x86_base + x86_other
+                  if p not in X86_HARDWARE and p not in OMARCHY_MAC_EXPLICIT and not mac_source(dbs, p)}
+    aur = aur_packages(unresolved)
+
+    rows = []
+    for group, packages in (("base", x86_base), ("other", x86_other)):
+        for pkg in packages:
+            hw = pkg in X86_HARDWARE
+            x86 = resolve(dbs, pkg, X86)
+            stable = resolve(dbs, pkg, OMACOM_ARM)
+            edge = resolve(dbs, pkg, OMACOM_ARM_EDGE)
+            if stable:
+                arm, arm_state = stable[0] + ("" if stable[1] == pkg else f" ({stable[1]})"), "ok"
+            elif edge:
+                arm, arm_state = "edge only", "edge"
+            else:
+                arm, arm_state = "✗", "missing"
+
+            if hw:
+                mx_cell, mx_state = "n/a", "na"
+            elif pkg in mx:
+                mx_cell, mx_state = "✓", "ok"
+            elif MX_RENAMES.get(pkg) in mx:
+                mx_cell, mx_state = f"→ {MX_RENAMES[pkg]}", "renamed"
+            else:
+                mx_cell, mx_state = "✗", "missing"
+
+            if hw:
+                mac_cell, mac_state = "n/a", "na"
+            elif group == "base":
+                if pkg in MAC_ALTERNATIVES and pkg in mac_excluded:
+                    mac_cell, mac_state = f"excluded → {MAC_ALTERNATIVES[pkg]}", "excluded"
+                elif pkg in mac_excluded:
+                    mac_cell, mac_state = "excluded", "excluded"
+                elif pkg not in mac_base:
+                    mac_cell, mac_state = "✗", "missing"
+                elif pkg in MAC_RENAMES:
+                    mac_cell, mac_state = f"→ {MAC_RENAMES[pkg]}", "renamed"
+                elif mac_source(dbs, pkg):
+                    mac_cell, mac_state = f"✓ {mac_source(dbs, pkg)}", "ok"
+                elif pkg in aur:
+                    mac_cell, mac_state = "? AUR candidate", "aur"
+                else:
+                    mac_cell, mac_state = "✗ unresolved", "unresolved"
+            elif pkg in MAC_RENAMES and mac_source(dbs, MAC_RENAMES[pkg]):
+                mac_cell, mac_state = f"→ {MAC_RENAMES[pkg]}", "renamed"
+            elif mac_source(dbs, pkg):
+                mac_cell, mac_state = f"✓ {mac_source(dbs, pkg)}", "ok"
+            elif pkg in aur:
+                mac_cell, mac_state = "? AUR candidate", "aur"
+            else:
+                mac_cell, mac_state = "✗", "missing"
+
+            x86_source = x86[0] if x86 else ("arch-mact2" if pkg in T2_PACKAGES else "unresolved")
+            rows.append(dict(group=group, pkg=pkg, hw=hw, x86=x86_source,
+                             arm=arm, arm_state=arm_state, mx=mx_cell, mx_state=mx_state,
+                             mac=mac_cell, mac_state=mac_state,
+                             mac_avail=mac_source(dbs, pkg) or ("AUR candidate (build untested)" if pkg in aur else None)))
+
+    def pick(group, key, state, hw=None):
+        return [r for r in rows if r["group"] == group and r[key] == state and (hw is None or r["hw"] == hw)]
+
+    def count(group, key):
+        return collections.Counter(r[key] for r in rows if r["group"] == group)
+
+    n_base, n_other = len(x86_base), len(x86_other)
+    a_b, a_o = count("base", "arm_state"), count("other", "arm_state")
+    x_b, x_o = count("base", "mx_state"), count("other", "mx_state")
+    m_b, m_o = count("base", "mac_state"), count("other", "mac_state")
+    arm_hw_missing = pick("other", "arm_state", "missing", hw=True)
+    n_hw = sum(r["hw"] for r in rows)
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=10)))
+
+    out = []
+    w = out.append
+    w("# Omarchy variant package map\n")
+    w("Every package in Omarchy's x86_64 default lists, and what each of the three Arm")
+    w("variants does with it. Generated by `scripts/package-map`; do not edit by hand.\n")
+    w(f"Snapshot: {now:%Y-%m-%d %H:%M} (Brisbane), from the live package databases.\n")
+    w("## The four variants\n")
+    w("| Variant | Source | Package lists | Package repositories | How packages get installed |")
+    w("|---|---|---|---|---|")
+    w(f"| **Omacom x86** | [`{UPSTREAM[0]}`](https://github.com/{UPSTREAM[0]}) `{UPSTREAM[1]}` @ `{up_sha[:8]}` | "
+      "`install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + "
+      "`pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |")
+    w(f"| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | "
+      f"Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` "
+      f"({len(dbs['omarchy-stable'])} packages; `edge` has {len(dbs['omarchy-edge'])}) | "
+      "None yet: this column is what those repos can serve |")
+    w(f"| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) "
+      f"`main` @ `{mx_sha}` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | "
+      "ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | "
+      "macOS installer writes a prebuilt image |")
+    w(f"| **Omarchy Mac** | [`{OMARCHY_MAC[0]}`](https://github.com/{OMARCHY_MAC[0]}) `{OMARCHY_MAC[1]}` @ `{mac_sha[:8]}` | "
+      "Its own copy of `omarchy-base.packages`/`omarchy-other.packages`, minus "
+      "`install/omarchy-aarch64-unavailable.packages` | Community `[omarchy-aarch64]` + `[asahi-alarm]` + ALARM; "
+      "`pkgs.omarchy.org/edge/aarch64` only for explicit targets (Hyprland stack, `asdcontrol`, `tobi-try`) | "
+      "`install.sh` on top of an Asahi ALARM install, via `yay` |\n")
+
+    w("## Summary\n")
+    w("| | Omacom aarch64 | Omarchy MX Mac | Omarchy Mac |")
+    w("|---|---|---|---|")
+    w(f"| Core desktop set ({n_base}) | {a_b['ok']} served from stable, {a_b['edge']} only from `edge`, "
+      f"**{a_b['missing']} missing** | {x_b['ok'] + x_b['renamed']} installed ({x_b['renamed']} renamed), "
+      f"**{x_b['missing']} missing** | {m_b['ok'] + m_b['renamed']} installed ({m_b['renamed']} renamed), "
+      f"{m_b['aur']} unverified AUR candidates, {m_b['excluded']} excluded, **{m_b['missing']} missing**, "
+      f"{m_b['unresolved']} unresolved |")
+    w(f"| Platform & hardware set ({n_other}) | {a_o['ok']} served, {a_o['edge']} only from `edge`, "
+      f"**{a_o['missing']} missing** ({len(arm_hw_missing)} x86-hardware) | "
+      f"{n_other - x_o['missing']} covered or n/a, **{x_o['missing']} missing** | "
+      f"{n_other - m_o['missing'] - m_o['aur']} covered or n/a, {m_o['aur']} unverified AUR candidates, "
+      f"**{m_o['missing']} missing** |\n")
+
+    w("### Legend\n")
+    w("- **Omacom x86**: repository serving the package (`core`, `extra`, `multilib`,")
+    w("  `omarchy`, or `arch-mact2` for T2 Macs).")
+    w("- **Omacom aarch64**: `ALARM` or `omarchy` = served on stable; `edge only` = only")
+    w("  in `pkgs.omarchy.org/edge/aarch64`; ✗ = not found under that name in those repos.")
+    w("- **Mac columns**: ✓ = installed/available (Omarchy Mac names the repo); `? AUR candidate` =")
+    w("  `yay` would try an AUR build that is not verified on aarch64; `→ name` = a differently named")
+    w("  package stands in; `excluded` = listed but skipped by default (`OMARCHY_TRY_UNAVAILABLE=1`")
+    w("  opts in); ✗ = not in its lists (core set) or not installable (platform set); `✗ unresolved` =")
+    w("  listed but found in none of its repos nor the AUR; n/a = x86 hardware support with no meaning")
+    w("  on Apple Silicon.")
+    w("- ¹ = x86-hardware package (NVIDIA, Intel, Dell, Tuxedo, T2, Framework, …).")
+    w("- The platform & hardware set is the x86 ISO's availability list, not a default")
+    w("  install; for the Mac columns ✓ means the variant can install it.\n")
+
+    for group, title in (("base", "core desktop set"), ("other", "platform & hardware set")):
+        w(f"## Package map: {title}\n")
+        w("| Package (x86) | Omacom x86 | Omacom aarch64 | Omarchy MX Mac | Omarchy Mac |")
+        w("|---|---|---|---|---|")
+        for r in rows:
+            if r["group"] == group:
+                mark = " ¹" if r["hw"] else ""
+                w(f"| `{r['pkg']}`{mark} | {r['x86']} | {r['arm']} | {r['mx']} | {r['mac']} |")
+        w("")
+
+    w("## Missing from Omacom aarch64\n")
+    w("Resolved against Arch Linux ARM and `pkgs.omarchy.org/stable/aarch64`.\n")
+    base_missing = pick("base", "arm_state", "missing")
+    w(f"**Core desktop, not found under that name ({len(base_missing)})**\n")
+    if base_missing:
+        w("| Package | Why |")
+        w("|---|---|")
+        for r in base_missing:
+            why = WHY_NO_ARM.get(r["pkg"], "Not in ALARM or stable/edge aarch64 `[omarchy]`.")
+            w(f"| `{r['pkg']}` | {why} |")
+        w("")
+    edge_only = pick("base", "arm_state", "edge")
+    w(f"**Core desktop, only in `edge` ({len(edge_only)})**: {names(edge_only)}. "
+      "Promoting them to stable closes this gap.\n")
+    w(f"**Platform, missing ({len(pick('other', 'arm_state', 'missing', hw=False))})**: "
+      f"{names(pick('other', 'arm_state', 'missing', hw=False))}.")
+    w(f"**Platform, only in `edge` ({len(pick('other', 'arm_state', 'edge', hw=False))})**: "
+      f"{names(pick('other', 'arm_state', 'edge', hw=False))}.\n")
+    w(f"**x86 hardware, missing ({len(arm_hw_missing)})**: {names(arm_hw_missing)}.")
+    hw_served = [r for r in rows if r["hw"] and r["arm_state"] == "ok"]
+    w(f"ALARM does serve {names(hw_served)}, which matter for generic Arm machines.\n")
+
+    w("## Missing from Omarchy MX Mac\n")
+    w("Compared against `install/omarchy-*-asahi.packages` in this checkout.\n")
+    mx_missing = [r for r in rows if r["mx_state"] == "missing"]
+    if mx_missing:
+        w("| Package | Set | Aarch64 availability |")
+        w("|---|---|---|")
+        for r in mx_missing:
+            avail = r["arm"] if r["arm_state"] != "missing" else "not in ALARM or `[omarchy]`"
+            w(f"| `{r['pkg']}` | {'core' if r['group'] == 'base' else 'platform'} | {avail} |")
+        w("")
+    renamed = [f"`{r['pkg']}` → `{MX_RENAMES[r['pkg']]}`" for r in rows if r["mx_state"] == "renamed"]
+    w(f"Renamed rather than missing: {', '.join(renamed) or 'none'}. The {n_hw} x86-hardware packages are n/a.\n")
+
+    w("## Missing from Omarchy Mac\n")
+    w(f"Compared against `{OMARCHY_MAC[0]}` `{OMARCHY_MAC[1]}`: its base list minus the unavailable list,")
+    w("resolved the way its installer does: explicit official-edge targets, then community")
+    w("`[omarchy-aarch64]`, `[asahi-alarm]` and ALARM, then an AUR build through `yay`.\n")
+    mac_missing = pick("base", "mac_state", "missing")
+    w(f"**Not in its lists ({len(mac_missing)})**\n")
+    if mac_missing:
+        w("| Package | Where its installer would find it if listed |")
+        w("|---|---|")
+        for r in mac_missing:
+            w(f"| `{r['pkg']}` | {r['mac_avail'] or 'nowhere it searches'} |")
+        w("")
+    unresolved_rows = pick("base", "mac_state", "unresolved")
+    if unresolved_rows:
+        w(f"**Listed but unresolved ({len(unresolved_rows)})**: {names(unresolved_rows)}.\n")
+    excluded = pick("base", "mac_state", "excluded")
+    w(f"**Excluded by default pending Arm qualification ({len(excluded)})**\n")
+    if excluded:
+        w("| Package | Status in its repos |")
+        w("|---|---|")
+        for r in excluded:
+            if r["pkg"] in MAC_ALTERNATIVES:
+                status = f"Replaced by `{MAC_ALTERNATIVES[r['pkg']]}` from an Apple hardware install script."
+            elif r["mac_avail"]:
+                status = f"Available ({r['mac_avail']}); still excluded."
+            else:
+                status = "Not found in its repos or the AUR."
+            w(f"| `{r['pkg']}` | {status} |")
+        w("")
+    w(f"**Platform, missing ({m_o['missing']})**: {names(pick('other', 'mac_state', 'missing'))}. "
+      f"The {n_hw} x86-hardware packages are n/a.\n")
+
+    w("## Regenerating\n")
+    w("Run `scripts/package-map` from the repository root (needs `python3`, `git` and `bsdtar`).")
+    w("It reads this checkout's asahi lists, the upstream trees at their current heads and the")
+    w("live repo databases, and resolves each x86 name by exact name, then by `%PROVIDES%`.")
+    w("Omarchy Mac's AUR fallback is checked by name through the AUR RPC; whether the build succeeds")
+    w("on aarch64 is not tested. Hand-kept knowledge (renames, x86-hardware set, explicit targets,")
+    w("reasons) lives at the top of the script.")
+    return "\n".join(out) + "\n"
+
+
+def strip_snapshot(text):
+    text = re.sub(r"^Snapshot: .*$", "", text, flags=re.M)
+    return re.sub(r"@ `[0-9a-f]{7,40}`", "@ `<commit>`", text)
+
+
+def main():
+    page = render()
+    if "--check" in sys.argv[1:]:
+        current = open(DOC).read() if os.path.exists(DOC) else ""
+        if strip_snapshot(current) != strip_snapshot(page):
+            print(f"{os.path.relpath(DOC, ROOT)} is stale; run scripts/package-map", file=sys.stderr)
+            sys.exit(1)
+        return
+    with open(DOC, "w") as f:
+        f.write(page)
+    print(f"wrote {os.path.relpath(DOC, ROOT)}")
+
+
+if __name__ == "__main__":
+    main()
