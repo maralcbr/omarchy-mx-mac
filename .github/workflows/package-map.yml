@@ -1,0 +1,57 @@
+name: Package map
+
+on:
+  schedule:
+    # Mondays 06:00 Brisbane (UTC+10).
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: package-map
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libarchive-tools
+          pip install "markdown==3.7"
+      - name: Regenerate the page when the live data changed
+        id: map
+        run: |
+          result=$(scripts/package-map --if-changed)
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+      - name: Build the manual before publishing
+        if: steps.map.outputs.result == 'changed'
+        run: python3 docs/site/build.py
+      - name: Commit to main
+        if: steps.map.outputs.result == 'changed'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/site/content/13-package-map.md
+          git commit -m "Refresh the package map from live repository data"
+          # Fails if main moved during the run; the next run retries from the new main.
+          git push origin HEAD:main
+      - name: Redeploy the manual
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A push made with GITHUB_TOKEN does not start other workflows; a dispatch does.
+        # Dispatched every run, so a deploy that failed last week is retried.
+        run: |
+          for attempt in 1 2 3; do
+            gh workflow run pages.yml --ref main && exit 0
+            sleep 20
+          done
+          exit 1

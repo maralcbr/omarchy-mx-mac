@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Regenerate the manual page docs/site/content/13-package-map.md from live package lists and repo databases.
 
-Usage: scripts/package-map [--check]
-  --check  exit 1 if the committed page differs from a fresh render (ignoring snapshot time and commit ids)
+Usage: scripts/package-map [--check | --if-changed]
+  --check       exit 1 if the committed page differs from a fresh render (ignoring snapshot time and commit ids)
+  --if-changed  write the page only when that comparison differs; prints "changed" or "unchanged"
 """
 
 import collections
@@ -13,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 
@@ -84,8 +86,14 @@ WHY_NO_ARM = {
 
 def fetch(url):
     request = urllib.request.Request(url, headers={"User-Agent": "omarchy-package-map"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return response.read()
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return response.read()
+        except OSError:
+            if attempt == 2:
+                raise
+            time.sleep(10 * (attempt + 1))
 
 
 def remote_head(repo, branch):
@@ -404,15 +412,19 @@ def strip_snapshot(text):
 
 def main():
     page = render()
+    current = open(DOC).read() if os.path.exists(DOC) else ""
+    stale = strip_snapshot(current) != strip_snapshot(page)
     if "--check" in sys.argv[1:]:
-        current = open(DOC).read() if os.path.exists(DOC) else ""
-        if strip_snapshot(current) != strip_snapshot(page):
+        if stale:
             print(f"{os.path.relpath(DOC, ROOT)} is stale; run scripts/package-map", file=sys.stderr)
             sys.exit(1)
         return
+    if "--if-changed" in sys.argv[1:] and not stale:
+        print("unchanged")
+        return
     with open(DOC, "w") as f:
         f.write(page)
-    print(f"wrote {os.path.relpath(DOC, ROOT)}")
+    print("changed" if "--if-changed" in sys.argv[1:] else f"wrote {os.path.relpath(DOC, ROOT)}")
 
 
 if __name__ == "__main__":

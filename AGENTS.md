@@ -140,6 +140,8 @@ or release is not finished until the docs describe what now ships.
   change, a package enters or leaves a channel, or a release is cut. Run
   `scripts/package-map --check` before a release; it fails when the page is stale.
   Never edit that page by hand; change the knowledge tables at the top of the script.
+  `.github/workflows/package-map.yml` also refreshes it every Monday 06:00 Brisbane:
+  it commits to `main` only when the live data changed, and redeploys the manual every run.
 
 # Apple Silicon work
 
