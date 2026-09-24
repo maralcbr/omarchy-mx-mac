@@ -145,10 +145,10 @@ A few words used below: the **lease** is a lock that lets only one run use the h
 | The package channel resolves to an `asahi-packages-channel-N` tag, and that channel names exactly one `asahi-packages-stable-<commit>` set | The package set verification expects is fixed before the install, so it is never learned from the system being checked | `run` |
 | The Arch Linux ARM root file system's signature verifies with the Arch Linux ARM build key, whose fingerprint must match | The VM starts from genuine upstream Arch Linux ARM | `container/build-base` |
 | The Asahi keyring package matches a pinned SHA-256 | The Asahi repository is trusted through a known key | `container/build-base` |
-| The base holds exactly one generic kernel before the Asahi kernel is added, and its loop device is released before the disk is converted | The generic kernel the VM boots is unambiguous, and the disk is not converted while still attached | `container/build-base` |
+| The loop device's partitions appear within two seconds; the base holds exactly one generic kernel before the Asahi kernel is added, and its loop device is released before the disk is converted | The generic kernel the VM boots is unambiguous, and the disk is not converted while still attached | `container/build-base` |
 | The run directory lies under `/work` and the CPU count is a positive integer | The VM's disk and logs land where the run expects them | `container/start-vm` |
 | The guest answers SSH within 120 attempts two seconds apart (a few minutes) | The base VM boots; if not, the serial log is shown | `run` |
-| After the mirror is rewritten, no `archlinuxarm.org` server line other than the dated snapshot is left in `pacman.conf` or the mirror list | Arch Linux ARM packages come from the snapshot. Checked on the fresh VM, before the target-replacement run and each resume attempt, and before the optional packages | `guest/alarm-snapshot` |
+| After the mirror is rewritten, no `archlinuxarm.org` server line other than the dated snapshot is left in `pacman.conf` or the mirror list | The Arch Linux ARM mirror configuration points only at the snapshot. Checked on the fresh VM, before the target-replacement run and each resume attempt, and before the optional packages | `guest/alarm-snapshot` |
 
 The base image is built once and cached. Its checks run only when it is rebuilt, which happens when the build script, the SSH key, the root file system address or the mirror changes, or with `--rebuild-base`.
 
@@ -208,7 +208,7 @@ Without a pinned runtime, the install checks the published channel instead:
 | Within three attempts, the installer reaches the point where it sets the password, and the harness kills its process tree there | The install is cut off mid-way, after packages and the user exist | `guest/install` |
 | The checkpoint then has its release, Asahi kernel hash, GRUB hash, owner token and target user files; the home has its owner marker; completion has not started; the stock `alarm` account is still in `wheel` | Recovery state exists before the risky steps, and the stock administrator is not removed too early | `guest/install` |
 | With the account's home directory changed to another path, the installer refuses with `The target user is not owned by this installation` | A resume does not adopt a user whose home does not match | `guest/install` |
-| Before each resume attempt, the dated snapshot and the candidate repository are restored, the candidate key is trusted again and the databases sync | Every resume installs from the candidate | `guest/install` |
+| Before the target-replacement run and each resume attempt, the dated snapshot is restored; for a candidate run, the candidate tag and key fingerprint are well formed, the candidate repository is restored, its key trusted again and the databases sync | Every resume of a candidate run installs from the candidate | `guest/install` |
 | The installer is killed a second time, inside the completion step, then run again, up to three attempts in all, until it exits cleanly with no checkpoint left; the second kill must have happened | An install killed while finishing completes on a later run | `guest/install` |
 | The checkpoint and the owner marker are gone, the account's temporary comment is cleared, and `alarm` is out of `wheel` and locked | A completed install leaves no recovery state, and the stock account cannot log in | `guest/install` |
 | `linux-asahi`, its headers and `m1n1` keep their versions, and the VM kernel and the Asahi kernel are byte-identical to before | The install did not replace the kernels | `guest/install` |
@@ -234,7 +234,7 @@ All of these run in one script and print a single `ok` line when every one holds
 | SDDM remembers `omarchy` and the Omarchy session, and its PAM file has GNOME Keyring's unlock and auto-start lines | The login screen and keyring are configured for the owner | `guest/verify` |
 | The user finalization marker exists | Per-user setup reached its end | `guest/verify` |
 | `omarchy-dev`, `omarchy-settings-dev`, `linux-asahi`, `networkmanager`, `iwd` and `rtkit` are installed | The core packages are present | `guest/verify` |
-| `pacman.conf` has an `[omarchy]` section, a `SigLevel = Required DatabaseOptional` line and a server line for the expected immutable release, and `omarchy` is the first repository | Omarchy packages are pinned to the expected set and take precedence | `guest/verify` |
+| `pacman.conf` has an `[omarchy]` section, a `SigLevel = Required DatabaseOptional` line and a server line for the expected immutable release, and `omarchy` is the first repository | The expected server and signature policy lines are present and `omarchy` comes first. The lines are not tied to the `[omarchy]` section itself | `guest/verify` |
 | For a candidate run no promoted set is recorded; otherwise the recorded set is the stable set the host resolved | The installer kept the repository it was meant to keep | `guest/verify` |
 | The release signing key is in pacman's keyring, and for a stable set the ARM repository subkey too | pacman has the keys for the packages it will be asked to update | `guest/verify` |
 | For a candidate: the descriptor's checksum, channel, tag, count and inventory still match, its signing key is in pacman's keyring, and every package is at its descriptor version | The installed system still has the candidate's package versions after the reboot | `guest/verify` |
@@ -258,7 +258,7 @@ Only with `--optional-packages`, which the release command always passes.
 
 | Check | What it shows | Script |
 | --- | --- | --- |
-| The dated snapshot is restored first | Optional packages come from the same snapshot | `guest/optional-packages` |
+| The dated snapshot is restored first | The Arch Linux ARM mirror configuration points only at the snapshot; `[omarchy]` and `asahi-alarm` stay as installed | `guest/optional-packages` |
 | Every transaction in `install/optional-packages-aarch64-required` exists in `install/optional-packages.tsv` | The required list and the recipes agree | `guest/optional-packages` |
 | Each transaction's packages install with pacman, and each is then registered; one `ok` line each, 23 today | Each required aarch64 optional package installs. The menu's own installers are not run | `guest/optional-packages` |
 | The summary reports 0 failed | No transaction failed | `guest/optional-packages` |
@@ -275,15 +275,15 @@ Only with `--optional-packages`, which the release command always passes.
 
 | Check | What it shows | Script |
 | --- | --- | --- |
-| The container is removed and confirmed gone before anything is copied; if not, no evidence is exported and the run fails. A `--keep` run pauses the VM instead | Evidence is not copied from a VM still writing to it | `run` |
+| The container is removed and confirmed gone before anything is copied; if not, no evidence is exported and the run fails. A `--keep` run asks the VM to pause instead, without checking that it did | Evidence is not copied from a removed VM still writing to it | `run` |
 | The logs and the desktop screenshot that exist are hashed, copied, and the copies checked against the hashes before the directory loses its `.partial` suffix; a failed check fails the run and keeps the disk | An exported evidence directory matches the run it came from. A missing log is not caught here | `run` |
 | `run.txt` records passed or failed, the exit status, the identities the run used and each log's hash | The result can be matched to the candidate without the disk | `run` |
 
-A cancelled run exits with status 130 or 143 and still exports what it has. The screenshot is captured, not inspected.
+A cancelled run exits with status 130 or 143 and tries to export what it has, under the same conditions. The screenshot is captured, not inspected.
 
 ### What the release command adds
 
-`bin/asahi-release` in `omarchy-pkgs` refuses a harness that predates the lease or has no default mirror, runs the harness on a test Mac with a candidate, a pinned runtime and `--optional-packages`, then accepts the run only if:
+`bin/asahi-release` in `omarchy-pkgs` needs its SSH user and VM host settings, refuses a harness that predates the lease or has no default mirror, runs the harness on a test Mac with a candidate, a pinned runtime and `--optional-packages`, then accepts the run only if:
 
 - the harness exited 0 and exported its evidence;
 - `run.txt` is not empty and contains `format=1`, this run's ID, `status=passed`, exit status 0, the candidate's tag and checksum, the runtime manifest and source, and the harness's default mirror;
@@ -321,7 +321,7 @@ This is why the release command asks for a hardware evidence record whenever a k
 | Without `--release`: the payload file exists, and its lane is given or can be read from its name | The run knows which image it is booting |
 | The ESP boot files, `boot.img` and `root.img` are present, and the two images carry the fixed UUIDs | The payload has the layout the boot chain expects |
 | The snapshot lists a generic kernel, which is signed by an Arch Linux ARM key from the image's own keyring | The stand-in kernel is genuine |
-| The image root lists one kernel; the generic kernel yields a version; mkinitcpio builds an initramfs there that runs the `omarchy-mac-encrypt` and `asahi` hooks; the result has at least three `omarchy-mac-encrypt` entries and the key-mount ordering drop-in | The image's own initramfs hooks build |
+| The image root's module listing is one line; the generic kernel yields a version; mkinitcpio builds an initramfs there that runs the `omarchy-mac-encrypt` and `asahi` hooks; the result has at least three `omarchy-mac-encrypt` entries and the key-mount ordering drop-in | The image's own initramfs hooks build |
 | Plain first boot: the serial log shows `encrypt=0` read, first boot finished and owner provisioning started, and no `Failed to start Omarchy first boot`; the guest then stays up for 40 seconds | A first boot without encryption completes |
 | After it: the root is still btrfs, the pending marker and last error are absent, `install.conf` is kept on the root and removed from the ESP, a per-Mac pacman key is recorded, provisioning is armed, and the boot partition records `phase=declined` | First boot left the right state behind |
 | Encrypted first boot: the serial log shows the conversion start and finish, the root repointed to `/dev/mapper/root`, first boot finished and provisioning started, and none of three named encryption, GRUB or initramfs failure messages; the guest then stays up for 40 seconds | In-place encryption completes on first boot |
