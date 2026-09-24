@@ -498,7 +498,7 @@ pass "US, non-Latin and unencrypted Macs are not checked for the layout"
 limine_mac() {
   mkdir -p "$root/var/lib/omarchy" "$root/etc/default" "$root/usr/share/limine" "$esp/EFI/Linux" "$esp/EFI/BOOT"
   : >"$root/var/lib/omarchy/limine.enabled"
-  printf 'ENABLE_UKI=yes\n' >"$root/etc/default/limine"
+  printf 'ESP_PATH="/boot/efi"\nENABLE_UKI=yes\n' >"$root/etc/default/limine"
   printf 'limine\n' >"$root/usr/share/limine/BOOTAA64.EFI"
   cp "$root/usr/share/limine/BOOTAA64.EFI" "$esp/EFI/BOOT/BOOTAA64.EFI"
   printf 'uki\n' >"$esp/EFI/Linux/omarchy_linux-aurora.efi"
