@@ -476,7 +476,21 @@ cleanup_line=$(grep -n 'omarchy-update-asahi-legacy-repository' "$parity" | cut 
 add_line=$(grep -n '^omarchy-pkg-add' "$parity" | cut -d: -f1)
 [[ -n $cleanup_line && -n $add_line ]] && (( cleanup_line < add_line )) ||
   fail "the default-package migration replaces the legacy packages before installing obsidian and the picker"
-pass "the migration runs the cleanup on Apple Silicon without holding back later migrations"
+printf '#!/bin/bash\necho "pkg-add $*" >>"$TEST_CALLS"\n' >"$test_tmp/migration-bin/omarchy-pkg-add"
+chmod +x "$test_tmp/migration-bin/omarchy-pkg-add"
+for status in 0 1; do
+  : >"$calls"
+  TEST_APPLE=0 TEST_CLEANUP_STATUS=$status TEST_CALLS="$calls" PATH="$test_tmp/migration-bin:$PATH" \
+    bash -euo pipefail "$parity" >"$test_tmp/out" 2>"$test_tmp/err" ||
+    fail "the default-package migration stops when the cleanup returns $status" "$(cat "$test_tmp/err")"
+  [[ $(head -1 "$calls") == cleanup && $(sed -n 2p "$calls") == "pkg-add "*obsidian* ]] ||
+    fail "the default-package migration does not clean up and then install (cleanup $status)" "$(cat "$calls")"
+done
+grep -Fq 'installing the default packages anyway' "$test_tmp/err" || fail "an unfinished cleanup in the default-package migration is not explained"
+: >"$calls"
+TEST_APPLE=1 TEST_CALLS="$calls" PATH="$test_tmp/migration-bin:$PATH" bash -euo pipefail "$parity" >/dev/null
+[[ $(cat "$calls") == "pkg-add "* ]] || fail "the default-package migration runs the cleanup off Apple Silicon" "$(cat "$calls")"
+pass "both migrations run the cleanup on Apple Silicon and carry on when it cannot finish"
 
 # The bundle: a package the retired repository built newer than the signed
 # bundle is downgraded; any other newer package is still refused.

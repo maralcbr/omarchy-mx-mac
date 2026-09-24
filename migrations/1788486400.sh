@@ -6,9 +6,12 @@ echo "Install the default packages that were missing from the Apple Silicon pack
 
 # A Mac from the omarchy-mac project still holds obsidian-appimage and
 # hyprland-preview-share-picker-git, which block the two packages below, and
-# may list the retired [omarchy-aarch64] repository ahead of [omarchy].
+# may list the retired [omarchy-aarch64] repository ahead of [omarchy]. A
+# cleanup that cannot finish does not stop here: the install below still
+# runs, and omarchy update retries the cleanup before its next upgrade.
 if omarchy-hw-apple-silicon; then
-  omarchy-update-asahi-legacy-repository
+  omarchy-update-asahi-legacy-repository ||
+    echo "The legacy repository cleanup did not finish; installing the default packages anyway." >&2
 fi
 
 omarchy-pkg-add asdcontrol dotnet-runtime gpu-screen-recorder herdr hyprland-preview-share-picker \

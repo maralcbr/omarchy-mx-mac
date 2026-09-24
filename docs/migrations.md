@@ -135,7 +135,9 @@ New migration format:
   every package upgrade, such as the legacy `[omarchy-aarch64]` cleanup
   (`omarchy-update-asahi-legacy-repository`, migration `1790256699`): its
   migration reports a failure and exits 0, because the update retries the
-  repair and no later migration depends on it having finished.
+  repair and no later migration depends on it having finished. Migration
+  `1788486400` runs the same repair before its package install and likewise
+  carries on to that install when the repair cannot finish.
 - Use helper commands such as `omarchy-cmd-present`, `omarchy-cmd-missing`,
   `omarchy-pkg-add`, `omarchy-pkg-drop`, `omarchy-pkg-present`, and
   `omarchy-pkg-missing` when appropriate.
