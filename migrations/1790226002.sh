@@ -146,13 +146,34 @@ backup="$backup_dir/grub.pre-cmdline-repair"
 [[ -e $backup ]] || sudo cp "$grub_default" "$backup"
 
 # From the first edit on, any failure puts the defaults and grub.cfg back.
+# A rollback that lands leaves the Mac on the configuration it booted with:
+# the repair warns, keeps its pending marker and lets the migrations go on.
+# Only a rollback that fails stops the update, as the Mac may not boot.
 restore() {
   trap - ERR
-  echo "$1; restoring $grub_default. The GRUB repair migration will retry later." >&2
-  install_defaults "$work/before" || echo "Could not restore $grub_default; the original is $backup." >&2
-  sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1 || echo "update-grub failed while restoring GRUB." >&2
+  local restored=1
+  echo "GRUB repair: $1." >&2
+  if ! install_defaults "$work/before"; then
+    echo "Could not restore $grub_default; the original is $backup." >&2
+    restored=0
+  elif ! sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1; then
+    echo "update-grub failed while restoring GRUB." >&2
+    restored=0
+  fi
   rm -rf "$work"
-  exit 1
+  if (( ! restored )); then
+    echo "The GRUB repair could not roll back and this Mac may not boot. Before rebooting, copy $backup to $grub_default and run sudo update-grub; the GRUB repair migration will retry later." >&2
+    exit 1
+  fi
+  cat >&2 <<WARN
+Warning: the GRUB repair could not verify its result, so $grub_default and
+grub.cfg are back as this Mac booted with them. To fix it by hand: in
+GRUB_CMDLINE_LINUX drop $device_wait${cryptdevice:+ and add $cryptdevice},
+run sudo update-grub, and check that every linux line in $grub_cfg carries
+one rootflags= (with subvol=@)${cryptdevice:+ and the cryptdevice=}. To retry the repair:
+bash ${OMARCHY_PATH:-/usr/share/omarchy}/migrations/1790226002.sh
+WARN
+  exit 0
 }
 set -E
 trap 'restore "a repair step failed"' ERR

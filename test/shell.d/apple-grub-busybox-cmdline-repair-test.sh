@@ -62,6 +62,10 @@ line=$GRUB_CMDLINE_LINUX
     printf '### END /etc/grub.d/30_os-prober ###\n'
   fi
 } >"$OMARCHY_GRUB_CFG"
+if [[ -n ${TEST_UPDATE_FAIL_ONCE:-} && ! -e $TEST_UPDATE_FAIL_ONCE ]]; then
+  : >"$TEST_UPDATE_FAIL_ONCE"
+  exit 1
+fi
 if [[ ${TEST_RESTORE_INSTALL_FAIL:-0} == 1 ]]; then
   : >"$OMARCHY_GRUB_CFG.fail-install"
   exit 1
@@ -157,21 +161,41 @@ grep -Fxq "GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luks_uuid:root\"" "$tmp/grub" 
 pass "the booted cryptdevice= is kept only when it names this root"
 
 # Verification: a grub.cfg that still passes two rootflags= is refused and
-# the defaults go back as they were.
+# the defaults go back as they were. The Mac is back on the configuration
+# it booted with, so the migrations go on: a warning says what could not be
+# verified and how to fix it by hand, and the pending marker stays.
 cp "$damaged" "$tmp/grub"
 : >"$tmp/cmdline"
-if TEST_EXTRA_ROOTFLAGS=rootflags=noatime run; then fail "a grub.cfg with two rootflags= fails the repair"; fi
+TEST_EXTRA_ROOTFLAGS=rootflags=noatime run || fail "a rolled-back repair does not block the migrations: $(<"$tmp/out")"
 cmp -s "$damaged" "$tmp/grub" || fail "a failed verification restores the defaults: $(<"$tmp/grub")"
 [[ $(grep -c update-grub "$CALL_LOG") == 2 ]] || fail "the restored defaults are regenerated: $(<"$CALL_LOG")"
-grep -Fq 'will retry later' "$tmp/out" || fail "the failure says it retries: $(<"$tmp/out")"
-pass "a regeneration that does not verify is rolled back and retried"
+grep -Fq 'a kernel entry does not carry exactly one rootflags= with subvol=' "$tmp/out" &&
+  grep -Fq 'Warning: the GRUB repair could not verify its result' "$tmp/out" &&
+  grep -Fq "add cryptdevice=UUID=$luks_uuid:root" "$tmp/out" && grep -Fq 'migrations/1790226002.sh' "$tmp/out" ||
+  fail "the warning names what failed, the fix by hand and the retry: $(<"$tmp/out")"
+[[ -e $tmp/repair.pending ]] || fail "a rolled-back repair keeps its pending marker"
+run || fail "the retry runs: $(<"$tmp/out")"
+grep -Fxq "GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luks_uuid:root\"" "$tmp/grub" && [[ ! -e $tmp/repair.pending ]] ||
+  fail "a later run repairs and clears the marker: $(<"$tmp/grub")"
+pass "a regeneration that does not verify is rolled back with a warning, without blocking, and retried"
 
-# A step that fails after the backup (the rename into place) rolls back too.
+# A failed update-grub whose rollback regenerates cleanly does not block either.
 cp "$damaged" "$tmp/grub"
-if TEST_MV_FAIL=1 run; then fail "a failed rename fails the repair"; fi
+rm -f "$tmp/update-failed"
+TEST_UPDATE_FAIL_ONCE="$tmp/update-failed" run || fail "a failed update-grub rolled back does not block: $(<"$tmp/out")"
+cmp -s "$damaged" "$tmp/grub" && grep -Fq 'update-grub failed' "$tmp/out" && [[ -e $tmp/repair.pending ]] ||
+  fail "a failed update-grub is rolled back and left pending: $(<"$tmp/out")"
+rm -f "$tmp/update-failed" "$tmp/repair.pending"
+pass "a failed update-grub that rolls back cleanly warns and goes on"
+
+# A step that fails after the backup (the rename into place) goes to the
+# rollback; a rollback that cannot rename either stops the update loudly.
+cp "$damaged" "$tmp/grub"
+if TEST_MV_FAIL=1 run; then fail "a rollback that fails stops the update"; fi
 cmp -s "$damaged" "$tmp/grub" || fail "a failed rename leaves the defaults whole: $(<"$tmp/grub")"
-grep -Fq 'will retry later' "$tmp/out" || fail "the failed step is reported: $(<"$tmp/out")"
-pass "any failure after the first edit rolls back"
+grep -Fq 'may not boot' "$tmp/out" && grep -Fq 'Could not restore' "$tmp/out" || fail "the failed rollback is loud: $(<"$tmp/out")"
+rm -f "$tmp/repair.pending"
+pass "any failure after the first edit rolls back, and a failed rollback stops the update"
 
 # A rollback whose own copy fails never renames a partial file into place.
 cp "$damaged" "$tmp/grub"
