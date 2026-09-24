@@ -69,7 +69,7 @@ The gate a full release cannot skip. It exercises the Linux installation lifecyc
 
 It is an adapted environment, not a Mac. The installers' device-tree checks are patched out of copies made for the VM, the Apple Silicon hardware helper is stubbed during the install and put back afterwards, and the guest boots a generic kernel.
 
-Run the way the release tooling runs it, with the optional-package checks enabled, a pass prints 25 `ok` lines in 10 to 15 minutes. Read that carefully: 23 of the 25 are optional-package transactions, and the whole verification stage collapses into one line. Those checks are off by default. Every other check is silent when it passes and stops the run when it fails, so the full list is in [every check in a fresh-install run](#every-check-in-a-fresh-install-run) rather than in the log.
+Run the way the release tooling runs it, with the optional-package checks enabled, a pass prints 25 `ok` lines in about 15 minutes. Read that carefully: 23 of the 25 are optional-package transactions, and the whole verification stage collapses into one line. Those checks are off by default. Almost every other check is silent when it passes and stops the run when it fails, so the full list is in [every check in a fresh-install run](#every-check-in-a-fresh-install-run) rather than in the log.
 
 Packages come from a dated, immutable mirror snapshot rather than live mirrors, so a mirror mid-update cannot fail an unrelated run.
 
@@ -129,160 +129,170 @@ Hardware evidence is plain text: date, model, pass or fail or not-tested, the co
 
 ## Every check in a fresh-install run
 
-The harness is `test/vm/asahi-fresh/`: `run` on the host, the scripts in `container/` that build and start the VM, and the scripts in `guest/` that run inside it. Each row below is a check that ends the run as a failure when it does not hold. Plumbing that can also fail (a download, a copy, an SSH connection) is left out unless it decides something.
+The harness is `test/vm/asahi-fresh/`: `run` on the host, the scripts in `container/` that build and start the VM, and the scripts in `guest/` that run inside it. Each row below is a check that ends the run as a failure when it does not hold, unless the row says otherwise. Steps that can only fail by not working (a download, a copy, a package transaction in the base image) are left out. The tables follow the order a run takes.
+
+A few words used below: the **lease** is a lock that lets only one run use the host at a time; a **checkpoint** is the state the installer writes so an interrupted install can resume; a **preset** is the recipe mkinitcpio uses to build an initramfs, the small system that starts the boot.
 
 ### Setup and base image
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
-| The run ID, CPU and memory counts, mirror address and channel addresses are well formed | The run starts from inputs it can trust, before anything is created | `run` |
+| Options are known; the run ID, CPU and memory counts, evidence path, mirror address and channel addresses are well formed; `flock` is installed | The run starts from inputs it can use, before anything is created | `run` |
 | The evidence directory is not inside the VM state directory | Deleting a finished run's disk can never delete its evidence | `run` |
 | A candidate is named in full: 40-character commit tag, 64-character descriptor checksum, 40-character signing fingerprint, a package count and a readable key; a pinned runtime also needs its manifest checksum and source commit | The run tests one exact candidate, not "the latest" | `run` |
-| The host lock is a regular file owned by this user, is taken (or waited for with `--wait-for-lease`), and still names the same file afterwards; the state directory is owned by this user and leased | Two runs never share the Docker daemon, ports, KVM or state directory | `run` |
-| The run ID has no existing run directory, evidence directory or container, and no running container already forwards the SSH or VNC port | A run never reuses or overwrites another run's files or VM | `run` |
+| The host lock is not a symlink, opens for writing, is a regular file owned by this user, is taken (or waited for with `--wait-for-lease`) and still names the same file afterwards; the state directory is owned by this user and its lease is free | Two runs never share the Docker daemon, ports, KVM or state directory | `run` |
+| The run ID has no run directory, evidence directory or half-exported evidence yet, no container has its name, and no running container already forwards the SSH or VNC port | A run never reuses or overwrites another run's files or VM | `run` |
 | The package channel resolves to an `asahi-packages-channel-N` tag, and that channel names exactly one `asahi-packages-stable-<commit>` set | The package set verification expects is fixed before the install, so it is never learned from the system being checked | `run` |
 | The Arch Linux ARM root file system's signature verifies with the Arch Linux ARM build key, whose fingerprint must match | The VM starts from genuine upstream Arch Linux ARM | `container/build-base` |
-| The Asahi keyring package matches a pinned SHA-256 | The Asahi repository is trusted through a known key, not whatever was downloaded | `container/build-base` |
-| The base holds exactly one generic kernel before the Asahi kernel is added, and its loop device is released before conversion | The cached base disk is complete and consistent | `container/build-base` |
+| The Asahi keyring package matches a pinned SHA-256 | The Asahi repository is trusted through a known key | `container/build-base` |
+| The base holds exactly one generic kernel before the Asahi kernel is added, and its loop device is released before the disk is converted | The generic kernel the VM boots is unambiguous, and the disk is not converted while still attached | `container/build-base` |
 | The run directory lies under `/work` and the CPU count is a positive integer | The VM's disk and logs land where the run expects them | `container/start-vm` |
-| The guest answers SSH within about four minutes | The base VM boots; if not, the serial log is shown | `run` |
-| After the mirror is rewritten, no Arch Linux ARM server except the dated snapshot is left in the pacman configuration | Every Arch Linux ARM package comes from the snapshot. Repeated before the candidate install, before every installer run and before the optional packages | `guest/alarm-snapshot` |
+| The guest answers SSH within 120 attempts two seconds apart (a few minutes) | The base VM boots; if not, the serial log is shown | `run` |
+| After the mirror is rewritten, no `archlinuxarm.org` server line other than the dated snapshot is left in `pacman.conf` or the mirror list | Arch Linux ARM packages come from the snapshot. Checked on the fresh VM, before the target-replacement run and each resume attempt, and before the optional packages | `guest/alarm-snapshot` |
+
+The base image is built once and cached. Its checks run only when it is rebuilt, which happens when the build script, the SSH key, the root file system address or the mirror changes, or with `--rebuild-base`.
 
 ### Candidate repository and signatures
 
 Release runs always name a candidate. Without one, the install uses the published channel instead (last table in this group).
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
 | The candidate's inputs are well formed and its key file is readable | The guest checks the same exact candidate the host was given | `guest/candidate-repository` |
 | The downloaded `CANDIDATE` descriptor's SHA-256 matches the checksum given | This is the exact descriptor the release built | `guest/candidate-repository` |
-| The descriptor says `format=1` and `channel=candidate`, and names this tag, its commit, the signing fingerprint and the package count, with that many `package=` lines | The descriptor describes this candidate and nothing else | `guest/candidate-repository` |
-| `CANDIDATE.sig` verifies, signed by exactly the expected fingerprint; the key's primary fingerprint is well formed and is locally trusted by pacman | The descriptor was signed by the Apple Silicon repository key | `guest/candidate-repository` |
-| Every package line has a valid name and a version; the names are unique and their number matches the count | The package list is complete and unambiguous | `guest/candidate-repository` |
-| Every candidate package installs from a first-place `[omarchy]` repository that requires signatures | The candidate's packages install together, signed, from the candidate release | `guest/candidate-repository` |
-| `linux-asahi`, its headers, `m1n1` and `grub` keep their versions, and the VM kernel, its initramfs, the Asahi kernel and `grub.cfg` keep their hashes | Installing the candidate leaves the VM's own boot files alone (these four packages are held back) | `guest/candidate-repository` |
-| Each installed package's version equals the descriptor's | pacman installed the candidate, not a newer or older copy | `guest/candidate-repository` |
-| Every mkinitcpio preset builds when run directly, names at least one image, and writes each one non-empty | The candidate's initramfs hooks work; pacman alone would hide a failed hook | `guest/candidate-repository` |
-| When the vendor firmware drop-in is present, each image contains the vendor firmware script, its service and the link that starts it | The initramfs carries the hook that loads Apple's vendor firmware | `guest/candidate-repository` |
+| The descriptor contains `format=1`, `channel=candidate`, this tag, its commit, the signing fingerprint and the package count, with that many `package=` lines | The descriptor names this candidate | `guest/candidate-repository` |
+| `CANDIDATE.sig` verifies, signed by exactly the expected fingerprint, and the key's primary fingerprint is well formed; pacman then trusts that key | The descriptor was signed by the Apple Silicon repository key | `guest/candidate-repository` |
+| Every package line has a valid name and a version; the names are unique and their number matches the count | The package list is unambiguous | `guest/candidate-repository` |
+| All the candidate's packages install in one transaction, with `[omarchy]` first, signatures required and the server set to the candidate release | The candidate's packages install together | `guest/candidate-repository` |
+| `linux-asahi`, its headers, `m1n1` and `grub` keep their versions, and the VM kernel, its initramfs, the Asahi kernel and `grub.cfg` keep their hashes | Installing the candidate leaves the VM's own boot files alone. These four packages are held back | `guest/candidate-repository` |
+| Each installed package's version equals the descriptor's | pacman ended up at the candidate's versions | `guest/candidate-repository` |
+| At least one preset exists; each one builds when mkinitcpio is run directly, can be read, names at least one image, and writes each one non-empty | The candidate's initramfs hooks work. pacman alone would hide a failed hook | `guest/candidate-repository` |
+| Only when the vendor firmware drop-in is present: each image contains the vendor firmware script, its service and the link that starts it | The initramfs carries the hook that loads Apple's vendor firmware. The 2026-09-24 release run had no drop-in, so this check did not run | `guest/candidate-repository` |
 | The protected boot files still match their hashes after the presets are built | mkinitcpio's post hooks leave the VM's boot files alone too | `guest/candidate-repository` |
-| The log ends `Installed exact signed package candidate <tag>` | The release command can tell this candidate was installed | `guest/candidate-repository` |
+
+The script ends by printing `Installed exact signed package candidate <tag>`. The harness does not check that line; the release command does.
 
 With a pinned runtime, which is how releases run, the install is fed from the candidate's own signed runtime bundle:
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
-| The installed descriptor still matches its recorded checksum, and its tag and signer are well formed | The runtime is taken from the candidate already verified | `guest/candidate-runtime` |
+| The runtime checksum and source commit are well formed; the installed descriptor still matches its recorded checksum; its tag and signer are well formed | The runtime is taken from the candidate already verified | `guest/candidate-runtime` |
 | The bundle manifest's SHA-256 matches the pinned checksum and its signature is by the candidate's signer | The manifest is the one the release pinned | `guest/candidate-runtime` |
-| The manifest says `format=2` and `bundle=asahi-quattro`, names the expected source commit, and lists exactly six packages | The bundle is the complete runtime from the expected source | `guest/candidate-runtime` |
-| Each of the six packages matches its manifest digest, carries the signer's signature, and reports the name and version the manifest gives | Every runtime package is the signed one | `guest/candidate-runtime` |
+| The manifest contains `format=2`, `bundle=asahi-quattro`, the expected source commit and `package_count=6`, with six package lines | The bundle comes from the expected source. The six names are not checked against a fixed list | `guest/candidate-runtime` |
+| Each package line is well formed; each package file matches its manifest digest, carries the signer's signature, and reports the name and version the manifest gives | Every runtime package is the signed one | `guest/candidate-runtime` |
 | `omarchy-dev` carries this repository's version | The runtime is the version being released | `guest/candidate-runtime` |
-| The fresh installer inside the signed `omarchy-dev` is byte-identical to `bin/omarchy-install-asahi-fresh` in the checkout | The installer the VM runs is the installer that ships | `guest/candidate-runtime` |
+| The fresh installer inside the signed `omarchy-dev` is byte-identical to `bin/omarchy-install-asahi-fresh` in the checkout | The installer under test is the one that ships. The VM then runs a copy with the device-tree checks patched out | `guest/candidate-runtime` |
 
 Without a pinned runtime, the install checks the published channel instead:
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
 | The channel pointer has the exact expected form (else the GitHub release listing is used), and the tag is `asahi-quattro-channel-N` | The run tests one published channel | `guest/install` |
-| The release key's fingerprint matches, and the bootstrap installer, the release record and the channel installer all verify against it | Everything fetched is signed by the release key | `guest/install` |
+| The release key's fingerprint matches, and the bootstrap installer, the release record and the channel installer each verify against it | The three files the install runs from are signed by the release key | `guest/install` |
 | The published release record names this repository's version | The published release is the version being tested | `guest/install` |
-| No device-tree check survives in the VM copy of the channel installer, and its `--verify-only` pass produces a verified directory | Only the hardware check was changed, and the channel's own verification passes | `guest/install` |
+| No device-tree check survives in the VM copy of the channel installer, and its `--verify-only` pass produces a verified directory | The hardware check is out, and the channel's own verification passes. The VM copy also keeps its working files instead of deleting them | `guest/install` |
 
 ### Install
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
-| The version is `X.Y.Z-mac.N`, a mirror is set and the package channel address points at `maralcbr/omarchy-pkgs` | The guest got the same inputs the host resolved | `guest/install` |
-| No device-tree check ending in a failure survives in the VM copy of the candidate installer | The VM's only change to the installer is the hardware boundary | `guest/install` |
-| While another process holds the install lock, the installer exits with an error, says `Another fresh installation is already running`, and leaves no checkpoint | Two installs can never run at once | `guest/install` |
+| The version is `X.Y.Z-mac.N`, a mirror is set and the package channel address is an `asahi-packages-channel-N` asset of `maralcbr/omarchy-pkgs` | The guest got the same inputs the host resolved | `guest/install` |
+| No device-tree check ending in a failure survives in the VM copy of the candidate installer | The hardware check is out of the copy the VM runs | `guest/install` |
+| While another process holds the install lock, the installer exits with an error, says `Another fresh installation is already running`, and leaves no checkpoint | Two installs cannot run at once | `guest/install` |
+| `ufw` installs and allows SSH | The test can still reach the VM once the installer turns on the firewall | `guest/install` |
 
 ### Interruption and resume
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
-| The installer's whole process tree is killed at the moment it sets the password, within three attempts | The install is really cut off mid-way, after packages and the user exist | `guest/install` |
-| The checkpoint then holds the release, the Asahi kernel and GRUB hashes, the owner token and the target user; the home has its owner marker; completion has not started; the stock `alarm` account is still an administrator | Recovery state is written before the risky steps, and the only other administrator is not removed too early | `guest/install` |
-| With the user's home moved, the installer refuses with `The target user is not owned by this installation` | A resume never adopts a user it cannot prove it created | `guest/install` |
-| The installer is killed a second time, inside the completion step, then run again (up to three times) until it exits cleanly with no checkpoint left, and that second kill really happened | An install killed while finishing still completes on the next run | `guest/install` |
-| The checkpoint and the owner marker are gone, the user's temporary comment is cleared, and `alarm` is out of `wheel` and locked | A completed install leaves no recovery state and no second way in | `guest/install` |
-| The resumed install never showed an `Install anyway?` prompt | Resuming needs no manual override | `guest/install` |
+| Within three attempts, the installer reaches the point where it sets the password, and the harness kills its process tree there | The install is cut off mid-way, after packages and the user exist | `guest/install` |
+| The checkpoint then has its release, Asahi kernel hash, GRUB hash, owner token and target user files; the home has its owner marker; completion has not started; the stock `alarm` account is still in `wheel` | Recovery state exists before the risky steps, and the stock administrator is not removed too early | `guest/install` |
+| With the account's home directory changed to another path, the installer refuses with `The target user is not owned by this installation` | A resume does not adopt a user whose home does not match | `guest/install` |
+| Before each resume attempt, the dated snapshot and the candidate repository are restored, the candidate key is trusted again and the databases sync | Every resume installs from the candidate | `guest/install` |
+| The installer is killed a second time, inside the completion step, then run again, up to three attempts in all, until it exits cleanly with no checkpoint left; the second kill must have happened | An install killed while finishing completes on a later run | `guest/install` |
+| The checkpoint and the owner marker are gone, the account's temporary comment is cleared, and `alarm` is out of `wheel` and locked | A completed install leaves no recovery state, and the stock account cannot log in | `guest/install` |
 | `linux-asahi`, its headers and `m1n1` keep their versions, and the VM kernel and the Asahi kernel are byte-identical to before | The install did not replace the kernels | `guest/install` |
-| The `grub.cfg` Omarchy generated boots `vmlinuz-linux-asahi` with `initramfs-linux-asahi.img` | Omarchy's boot configuration points at the Asahi kernel. It is kept for verification, and the VM's own configuration is put back for the reboot | `guest/install` |
+| The `grub.cfg` Omarchy generated boots `vmlinuz-linux-asahi` with `initramfs-linux-asahi.img` | Omarchy's boot configuration names the Asahi kernel. It is kept for verification, and the VM's own configuration is put back for the reboot | `guest/install` |
+| The SSH firewall rule is added, or is already there | The VM stays reachable after the reboot | `guest/install` |
+
+Not enforced: the script looks for an `Install anyway?` prompt in the resumed install's log, but as written a match does not stop the run.
 
 ### Reboot
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
-| After `systemctl reboot`, SSH answers with a new boot ID within about four minutes | The installed system comes back up and accepts logins | `run` |
+| After `systemctl reboot`, SSH answers with a new boot ID within 120 attempts two seconds apart | The installed system comes back up and accepts logins | `run` |
 
 ### Post-boot verification
 
 All of these run in one script and print a single `ok` line when every one holds.
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
 | The installed version, release sequence and release tag equal what was recorded before the install | The system is the release that was installed | `guest/verify` |
 | The `omarchy` user exists; `alarm` is not in `wheel` and is locked | The owner account replaced the stock one | `guest/verify` |
-| SDDM remembers `omarchy` and the Omarchy session, and its PAM file unlocks and starts GNOME Keyring | The login screen and keyring are set up for the owner | `guest/verify` |
-| The user finalization marker exists | Per-user setup finished | `guest/verify` |
+| SDDM remembers `omarchy` and the Omarchy session, and its PAM file has GNOME Keyring's unlock and auto-start lines | The login screen and keyring are configured for the owner | `guest/verify` |
+| The user finalization marker exists | Per-user setup reached its end | `guest/verify` |
 | `omarchy-dev`, `omarchy-settings-dev`, `linux-asahi`, `networkmanager`, `iwd` and `rtkit` are installed | The core packages are present | `guest/verify` |
-| `[omarchy]` is configured with `SigLevel = Required DatabaseOptional`, points at the expected immutable release, and comes before every other repository | Omarchy packages come only from the signed, pinned set and take precedence | `guest/verify` |
+| `pacman.conf` has an `[omarchy]` section, a `SigLevel = Required DatabaseOptional` line and a server line for the expected immutable release, and `omarchy` is the first repository | Omarchy packages are pinned to the expected set and take precedence | `guest/verify` |
 | For a candidate run no promoted set is recorded; otherwise the recorded set is the stable set the host resolved | The installer kept the repository it was meant to keep | `guest/verify` |
-| The release signing key is in pacman's keyring, and for a stable set the ARM repository subkey too | pacman can verify the packages it will be asked to update | `guest/verify` |
-| For a candidate: the descriptor's checksum, channel, tag, count and inventory still match, its signing certificate is trusted, and every package is at its descriptor version | The installed system runs exactly the candidate's packages | `guest/verify` |
-| NetworkManager, SDDM and systemd-resolved are enabled | Networking, name resolution and the login screen start at boot | `guest/verify` |
-| The old seamless-login unit, its enablement link and its helper are gone | A retired login path cannot come back | `guest/verify` |
+| The release signing key is in pacman's keyring, and for a stable set the ARM repository subkey too | pacman has the keys for the packages it will be asked to update | `guest/verify` |
+| For a candidate: the descriptor's checksum, channel, tag, count and inventory still match, its signing key is in pacman's keyring, and every package is at its descriptor version | The installed system still has the candidate's package versions after the reboot | `guest/verify` |
+| NetworkManager, SDDM and systemd-resolved are enabled | They are set to start at boot. Whether they started is not checked | `guest/verify` |
+| The old seamless-login unit, its enablement link and its helper are gone | A retired login path is not left behind | `guest/verify` |
 | NetworkManager uses iwd for Wi-Fi | The Wi-Fi backend Apple Silicon needs is configured | `guest/verify` |
 | The system locale is UTF-8 | The locale was set | `guest/verify` |
-| The `asahi-alarm` repository is configured | Asahi packages can be updated | `guest/verify` |
+| `asahi-alarm` is in the repository list | The Asahi repository is configured | `guest/verify` |
 | The VM kernel, the Asahi kernel and `grub.cfg` exist, and the kept Omarchy `grub.cfg` boots the Asahi kernel and initramfs | The boot files survived the reboot | `guest/verify` |
 | No swap is active and zswap is off | Swap is disabled as intended | `guest/verify` |
-| The VM adapter audit log is not empty | The record of what the VM changed in the installers was kept | `guest/verify` |
+| The VM adapter audit log is not empty | The record of which installer copies the VM ran was kept | `guest/verify` |
 | `pacman -Qkk omarchy-dev` reports no altered files | The hardware helper stubbed for the VM was restored, and the package's files are intact | `guest/verify` |
 | The temporary package-build sudo rule and account are gone | The install cleaned up its build access | `guest/verify` |
-| The VM's SSH firewall rule is present | The firewall came up with the test's rule, which rerun removes | `guest/verify` |
-| `omarchy-migrate --pending` finds nothing | No migration is left to run on a fresh install | `guest/verify` |
+| The VM's SSH firewall rule is listed | The firewall kept the test's rule, which rerun removes | `guest/verify` |
+| `omarchy-migrate --pending`, run as the owner, reports nothing pending and prints nothing | No migration is left to run on a fresh install | `guest/verify` |
 | The updater candidate's `--check` exits 0 or 1 | The updater accepts the fresh install's release state instead of rejecting it | `guest/verify` |
-
-### Rerun rejection
-
-| Check | What it proves | Script |
-| --- | --- | --- |
-| Running the installer again exits with an error and says `User already exists outside this release installation: omarchy` | A completed install cannot be run over | `guest/rerun` |
-| The installed package list and the release record are byte-identical before and after | The refused rerun changed nothing | `guest/rerun` |
 
 ### Optional packages
 
 Only with `--optional-packages`, which the release command always passes.
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
 | The dated snapshot is restored first | Optional packages come from the same snapshot | `guest/optional-packages` |
 | Every transaction in `install/optional-packages-aarch64-required` exists in `install/optional-packages.tsv` | The required list and the recipes agree | `guest/optional-packages` |
-| Each transaction installs, and every package in it is then registered with pacman; one `ok` line each, 23 today | Each optional package the menu offers on aarch64 really installs | `guest/optional-packages` |
+| Each transaction's packages install with pacman, and each is then registered; one `ok` line each, 23 today | Each required aarch64 optional package installs. The menu's own installers are not run | `guest/optional-packages` |
 | The summary reports 0 failed | No transaction failed | `guest/optional-packages` |
+
+### Rerun rejection
+
+| Check | What it shows | Script |
+| --- | --- | --- |
+| Running the installer again exits with an error and says `User already exists outside this release installation: omarchy` | A completed install cannot be run over | `guest/rerun` |
+| The installed package list and the release record are byte-identical before and after | The refused rerun did not change packages or the release record | `guest/rerun` |
+| The test's SSH firewall rule is deleted | The test leaves no firewall hole behind | `guest/rerun` |
 
 ### Evidence export
 
-| Check | What it proves | Script |
+| Check | What it shows | Script |
 | --- | --- | --- |
-| The container is confirmed gone before anything is copied; if not, no evidence is exported and the run fails | Evidence is never copied from a VM still writing to it | `run` |
-| The logs and the desktop screenshot are hashed, copied, and the copy checked against the hashes before the directory loses its `.partial` suffix; a failed check fails the run and keeps the disk | An evidence directory always matches the run it came from | `run` |
+| The container is removed and confirmed gone before anything is copied; if not, no evidence is exported and the run fails. A `--keep` run pauses the VM instead | Evidence is not copied from a VM still writing to it | `run` |
+| The logs and the desktop screenshot that exist are hashed, copied, and the copies checked against the hashes before the directory loses its `.partial` suffix; a failed check fails the run and keeps the disk | An exported evidence directory matches the run it came from. A missing log is not caught here | `run` |
 | `run.txt` records passed or failed, the exit status, the identities the run used and each log's hash | The result can be matched to the candidate without the disk | `run` |
 
-The screenshot is captured, not inspected.
+A cancelled run exits with status 130 or 143 and still exports what it has. The screenshot is captured, not inspected.
 
 ### What the release command adds
 
-`bin/asahi-release` in `omarchy-pkgs` runs the harness on a test Mac with a candidate, a pinned runtime and `--optional-packages`, then accepts the run only if:
+`bin/asahi-release` in `omarchy-pkgs` refuses a harness that predates the lease or has no default mirror, runs the harness on a test Mac with a candidate, a pinned runtime and `--optional-packages`, then accepts the run only if:
 
 - the harness exited 0 and exported its evidence;
-- `run.txt` names this run, `status=passed`, exit status 0, the candidate's tag and checksum, the runtime manifest and source, and the harness's default mirror;
-- all six logs exist and each matches its hash in `run.txt`;
-- the candidate log shows the candidate was installed;
-- no log has a `not ok` line, and verify and rerun each have an `ok` line;
+- `run.txt` is not empty and contains `format=1`, this run's ID, `status=passed`, exit status 0, the candidate's tag and checksum, the runtime manifest and source, and the harness's default mirror;
+- the six logs (candidate repository, install, serial, verify, optional packages, rerun) exist, are not empty and each matches its hash in `run.txt`;
+- the candidate log contains `Installed exact signed package candidate <tag>`;
+- none of those logs except the serial log has a line starting `not ok`, and verify and rerun each have an `ok` line;
 - the optional `ok` count equals the number of required transactions, and the summary says 0 failed.
 
-Its record sums this up as install, interruption recovery, reboot, verify and rerun rejection, plus optional packages.
+A matching acceptance record already committed for the same candidate is accepted instead of a new run. The record sums a run up as install, interruption recovery, reboot, verify and rerun rejection, plus optional packages.
 
 ### What VM acceptance cannot prove
 
@@ -294,29 +304,31 @@ The VM is not a Mac, so some things need hardware evidence instead:
 - **Audio.** The guest has no sound device.
 - **Cold boot.** The only reboot is a warm restart of the VM.
 - **Apple hardware in general.** The device tree is faked and the hardware helper stubbed, so Wi-Fi, Bluetooth, firmware loading, power and suspend are not exercised.
+- **A clean session.** A passing run can still log errors during user setup; the run checks the listed results, not that the logs are free of errors.
 
 This is why the release command asks for a hardware evidence record whenever a kernel or boot package moves.
 
 ## Every check in an image run
 
-`test/vm/mac-image/run` boots a built Mac image in a VM. It is run separately from the release command.
+`test/vm/mac-image/run` boots a built Mac image in a VM. It is run separately from the release command. Every wait below fails if the guest exits or the step takes longer than 15 minutes (the default).
 
-| Check | What it proves |
+| Check | What it shows |
 | --- | --- |
-| The inputs are well formed, the host is aarch64 with readable KVM, the tools and passwordless sudo are present, the signing key exists, and evidence lies outside the state directory | The run can start safely |
+| Options are known; the inputs are well formed; the host is aarch64 with readable KVM; the tools and passwordless sudo are present; the signing key exists; evidence lies outside the state directory | The run can start safely |
 | With `--release`: `IMAGE.sig` verifies with the repository key, and `IMAGE` names a lane | The image record is signed |
-| With `--release`: `PROVENANCE` names this lane's payload, and the payload (reassembled from its parts if needed) has the recorded size and digest | The downloaded payload is the one built |
-| With `--release`: every member `IMAGE` lists is an expected file, is present and matches its digest; at least four are listed, and `IMAGE` has an input digest | Every file that will be written to disk is the signed one |
+| With `--release`: `PROVENANCE` names this lane's payload, and the payload (reassembled from at least two parts if needed) has the recorded size and digest | The payload is the one the unsigned provenance record names; the signed member digests below are what bind it |
+| With `--release`: every member `IMAGE` lists is an expected file, is present and matches its digest; at least four are listed, and `IMAGE` has an input digest | Every member the signed record lists is intact. Files it does not list are not checked |
+| Without `--release`: the payload file exists, and its lane is given or can be read from its name | The run knows which image it is booting |
 | The ESP boot files, `boot.img` and `root.img` are present, and the two images carry the fixed UUIDs | The payload has the layout the boot chain expects |
 | The snapshot lists a generic kernel, which is signed by an Arch Linux ARM key from the image's own keyring | The stand-in kernel is genuine |
-| The image root holds exactly one kernel, and mkinitcpio builds an initramfs there that runs the `omarchy-mac-encrypt` and `asahi` hooks and contains the encryption units and the key-mount ordering drop-in | The image's own initramfs hooks work |
-| Plain first boot: the serial log shows `encrypt=0` read, first boot finished and owner provisioning started, with no failure, each within 15 minutes by default | A first boot without encryption completes |
-| After it: the root is still plain btrfs, the pending marker and last error are absent, `install.conf` is kept on the root and removed from the ESP, a per-Mac pacman key is recorded, provisioning is armed, and the boot partition records `phase=declined` | First boot left the right state behind |
-| Encrypted first boot: the serial log shows the conversion start and finish, the root repointed to `/dev/mapper/root`, first boot finished and provisioning started, with no encryption, GRUB or initramfs failure | In-place LUKS2 conversion completes on first boot |
-| After it: the root is LUKS, the boot partition records `phase=configured` with that LUKS UUID, the key file is 64 bytes and mode 600, and `grub.cfg` unlocks with it | The encrypted system is set up to boot |
+| The image root lists one kernel; the generic kernel yields a version; mkinitcpio builds an initramfs there that runs the `omarchy-mac-encrypt` and `asahi` hooks; the result has at least three `omarchy-mac-encrypt` entries and the key-mount ordering drop-in | The image's own initramfs hooks build |
+| Plain first boot: the serial log shows `encrypt=0` read, first boot finished and owner provisioning started, and no `Failed to start Omarchy first boot`; the guest then stays up for 40 seconds | A first boot without encryption completes |
+| After it: the root is still btrfs, the pending marker and last error are absent, `install.conf` is kept on the root and removed from the ESP, a per-Mac pacman key is recorded, provisioning is armed, and the boot partition records `phase=declined` | First boot left the right state behind |
+| Encrypted first boot: the serial log shows the conversion start and finish, the root repointed to `/dev/mapper/root`, first boot finished and provisioning started, and none of three named encryption, GRUB or initramfs failure messages; the guest then stays up for 40 seconds | In-place encryption completes on first boot |
+| After it: the root is LUKS, the boot partition records `phase=configured` with that LUKS UUID, the key file is 64 bytes and mode 600, `grub.cfg` unlocks with it, and the log reports the conversion time | The encrypted system is set up to boot |
 | Second boot: the root unlocks and a login prompt appears, with no emergency mode, failed key mount or failed encryption unit | The encrypted system boots again |
 
-The limits of the fresh-install run apply here too, plus one of its own: the second boot unlocks with the throwaway key file, not an owner passphrase.
+Its limits differ from the fresh-install run's. It boots the generic kernel directly, with no display at all, and starts a new VM for each boot, so the Aurora kernel, the boot loaders, displays, audio and Apple hardware are all out of reach. The second boot unlocks with the throwaway key file, not an owner passphrase.
 
 ## What is not tested
 
