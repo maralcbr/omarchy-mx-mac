@@ -447,7 +447,7 @@ encrypt_root
 host_layout "${danish[@]}"
 initrd_carries KEYMAP=us XKBLAYOUT=us
 TEST_INITRD_TREE=$initrd_tree run_check
-expect_fail "an initramfs built before the layout changed" "does not carry /etc/vconsole.conf (KEYMAP=dk-latin1 XKBLAYOUT=dk)"
+expect_fail "an initramfs built before the layout changed" "does not carry the keyboard layout of /etc/vconsole.conf (KEYMAP=dk-latin1 XKBLAYOUT=dk)"
 grep -Fq "sudo /usr/bin/mkinitcpio -P && sudo omarchy-mac-boot-update" "$test_tmp/err" ||
   fail "a GRUB Mac is told to rebuild with mkinitcpio and omarchy-mac-boot-update" "$(cat "$test_tmp/err")"
 
@@ -456,8 +456,22 @@ encrypt_root
 host_layout "${danish[@]}"
 initrd_carries
 TEST_INITRD_TREE=$initrd_tree run_check
-expect_fail "an initramfs without vconsole.conf" "does not carry /etc/vconsole.conf"
-pass "an encrypted Mac with a Latin non-US layout needs it in the initramfs"
+expect_fail "an initramfs without vconsole.conf" "does not carry the keyboard layout of /etc/vconsole.conf"
+
+system
+encrypt_root
+host_layout '# edited by hand' "${danish[@]}" FONT=ter-132n
+initrd_carries "${danish[@]}"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "an image whose vconsole.conf differs only in comments and font"
+
+system
+encrypt_root
+host_layout KEYMAP=de-latin1 XKBLAYOUT=de XKBVARIANT=nodeadkeys
+initrd_carries KEYMAP=de-latin1 XKBLAYOUT=de
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "an image missing the XKB variant" "does not carry the keyboard layout"
+pass "an encrypted Mac with a Latin non-US layout needs its keyboard settings in the initramfs"
 
 system
 encrypt_root
@@ -465,18 +479,20 @@ host_layout KEYMAP=us XKBLAYOUT=us
 initrd_carries
 TEST_INITRD_TREE=$initrd_tree run_check
 expect_pass "a US layout"
+! grep -Fq 'lsinitcpio -x' "$calls" || fail "a US layout extracts nothing" "$(cat "$calls")"
 system
 encrypt_root
 host_layout KEYMAP=ru XKBLAYOUT=ru,us
 initrd_carries
 TEST_INITRD_TREE=$initrd_tree run_check
 expect_pass "a non-Latin layout, which stays out of the initramfs on purpose"
+! grep -Fq 'lsinitcpio -x' "$calls" || fail "a non-Latin layout extracts nothing" "$(cat "$calls")"
 system
 host_layout "${danish[@]}"
 initrd_carries
 TEST_INITRD_TREE=$initrd_tree run_check
 expect_pass "an unencrypted root, which has no passphrase prompt"
-! grep -Fq 'lsinitcpio -x' "$calls" || fail "US, non-Latin and unencrypted Macs extract nothing" "$(cat "$calls")"
+! grep -Fq 'lsinitcpio -x' "$calls" || fail "an unencrypted Mac extracts nothing" "$(cat "$calls")"
 pass "US, non-Latin and unencrypted Macs are not checked for the layout"
 
 limine_mac() {
@@ -506,7 +522,7 @@ limine_mac
 host_layout "${danish[@]}"
 initrd_carries KEYMAP=us XKBLAYOUT=us
 TEST_INITRD_TREE=$initrd_tree run_check
-expect_fail "a UKI built before the layout changed" "the initramfs inside /boot/efi/EFI/Linux/omarchy_linux-aurora.efi does not carry /etc/vconsole.conf"
+expect_fail "a UKI built before the layout changed" "the initramfs inside /boot/efi/EFI/Linux/omarchy_linux-aurora.efi does not carry the keyboard layout"
 grep -Fq "rebuild the boot image with 'sudo omarchy-mac-boot-update'" "$test_tmp/err" ||
   fail "a Limine Mac is told to rebuild with omarchy-mac-boot-update" "$(cat "$test_tmp/err")"
 pass "a Limine Mac checks the layout inside the UKI it boots"

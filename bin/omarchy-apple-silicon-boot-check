@@ -351,13 +351,21 @@ fi
 # The disk passphrase is typed with the layout the boot image carries, not the
 # one the desktop uses (#235). On an encrypted Mac with a non-US layout that
 # types Latin letters, the image that boots (the UKI on a Limine Mac) must
-# carry /etc/vconsole.conf as it is now: a layout changed after the image was
-# built only reaches the prompt with the next rebuild. Layouts that cannot
+# carry the keyboard settings of /etc/vconsole.conf as they are now (KEYMAP
+# for the console, XKB* for Plymouth; comments and fonts do not count): a
+# layout changed after the image was built only reaches the prompt with the
+# next rebuild. Layouts that cannot
 # type Latin letters are left out of the image on purpose
 # (94-omarchy-mac-vconsole.conf in omarchy-mac-boot), so they are not checked.
 vconsole_value() {
   # shellcheck disable=SC1090 # the host vconsole.conf, under the check root
   (unset "$1"; . "$2" 2>/dev/null; printf '%s' "${!1:-}")
+}
+vconsole_keyboard() {
+  local key
+  for key in KEYMAP KEYMAP_TOGGLE XKBLAYOUT XKBMODEL XKBVARIANT XKBOPTIONS; do
+    printf '%s=%s\n' "$key" "$(vconsole_value "$key" "$1")"
+  done
 }
 host_vconsole=$(path /etc/vconsole.conf)
 if (( has_crypttab_root )) && [[ -f $host_vconsole ]]; then
@@ -372,7 +380,7 @@ if (( has_crypttab_root )) && [[ -f $host_vconsole ]]; then
     mkdir -p "$initrd_dir"
     initrd_image=""
     if (( limine_mac )); then
-      if command -v objcopy >/dev/null 2>&1; then
+      if omarchy-cmd-present objcopy; then
         initrd_image=$workdir/uki.initrd
         sudo objcopy -O binary --only-section=.initrd "$limine_uki" "$initrd_image" 2>/dev/null &&
           sudo test -s "$initrd_image" ||
@@ -392,8 +400,9 @@ if (( has_crypttab_root )) && [[ -f $host_vconsole ]]; then
       fi
       (cd "$initrd_dir" && sudo lsinitcpio -x --cpio "$initrd_image" >/dev/null 2>&1) ||
         fail "$label cannot be extracted"
-      sudo cmp -s "$host_vconsole" "$initrd_dir/etc/vconsole.conf" ||
-        fail "$label does not carry /etc/vconsole.conf (KEYMAP=${vconsole_keymap:-unset} XKBLAYOUT=${vconsole_layout:-unset}): the disk passphrase prompt would not use this keyboard layout; rebuild the boot image with '$rebuild'"
+      [[ -f $initrd_dir/etc/vconsole.conf &&
+        $(vconsole_keyboard "$initrd_dir/etc/vconsole.conf") == "$(vconsole_keyboard "$host_vconsole")" ]] ||
+        fail "$label does not carry the keyboard layout of /etc/vconsole.conf (KEYMAP=${vconsole_keymap:-unset} XKBLAYOUT=${vconsole_layout:-unset}), so the disk passphrase prompt may type with another layout; rebuild the boot image with '$rebuild'"
       sudo rm -rf "$initrd_dir"
     fi
   fi
