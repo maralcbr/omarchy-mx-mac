@@ -68,9 +68,15 @@ case "$PROCESSING" in
 
     # Best-effort: the screenshot is already saved and on the clipboard, so a
     # notification outage must not report the capture itself as failed.
-    omarchy-notification-send "Screenshot saved to clipboard and file" "Edit with Super + Alt + , (or click this)" \
-      --image "$FILEPATH" \
-      --exec "$SCREENSHOT_EDITOR" "$FILEPATH" || true
+    # Offer the edit action only when the editor is installed; clicking one
+    # that is missing does nothing at all.
+    if omarchy-cmd-present "$SCREENSHOT_EDITOR"; then
+      omarchy-notification-send "Screenshot saved to clipboard and file" "Edit with Super + Alt + , (or click this)" \
+        --image "$FILEPATH" \
+        --exec "$SCREENSHOT_EDITOR" "$FILEPATH" || true
+    else
+      omarchy-notification-send "Screenshot saved to clipboard and file" --image "$FILEPATH" || true
+    fi
     ;;
   copy)
     grim -g "$SELECTION" - | wl-copy --type image/png

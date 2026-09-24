@@ -158,6 +158,7 @@ asahi_migration_disposition() {
     1790055026.sh) printf 'run\treviewed Limine boot activation for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
     1790197726.sh) printf 'run\treviewed Apple Silicon audio UCM install; self-gating to Apple Silicon hardware\n' ;;
     1790225826.sh) printf 'run\treviewed removal of the shipped Apple Silicon software-dsp.lua overlay; self-gating to Apple Silicon hardware\n' ;;
+    1790226271.sh) printf 'run\treviewed Tensaku install for the screenshot editor; self-gating to Apple Silicon hardware\n' ;;
     1790226283.sh) printf 'run\treviewed stock Arch ~/.bashrc replacement for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
     *) return 1 ;;
   esac
