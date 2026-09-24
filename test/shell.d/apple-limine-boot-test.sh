@@ -63,7 +63,7 @@ for entry in "${path_entries[@]}"; do
     shadow="$test_tmp/path$((shadow_count++))"
     mkdir "$shadow"
     for tool in "$entry"/*; do
-      [[ ${tool##*/} == grub-probe || ${tool##*/} == grub-mkconfig ]] || ln -s "$tool" "$shadow/"
+      [[ ${tool##*/} == "grub-probe" || ${tool##*/} == "grub-mkconfig" ]] || ln -s "$tool" "$shadow/"
     done
     entry=$shadow
   fi
