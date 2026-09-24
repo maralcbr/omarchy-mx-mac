@@ -95,7 +95,13 @@ ln -s "$ROOT/bin/omarchy-cmd-present" "$stub_bin/omarchy-cmd-present"
 
 # The runner may put this repository's bin on PATH; the stubs decide which
 # helpers exist, so it is left out.
-host_path=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$ROOT/bin" | paste -sd: -)
+host_path=
+IFS=: read -ra path_entries <<<"$PATH:"
+for entry in "${path_entries[@]}"; do
+  [[ -n $entry && $entry -ef $ROOT/bin ]] && continue
+  host_path+=${host_path:+:}$entry
+done
+unset path_entries entry
 
 gate="$test_tmp/limine.enabled"
 limine_default="$test_tmp/etc/limine"
