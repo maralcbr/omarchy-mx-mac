@@ -110,6 +110,10 @@ struct SupportCatalog: Equatable, Sendable {
   func record(for deviceIdentifier: String) -> PinnedInstallerRecord? {
     records[deviceIdentifier]
   }
+
+  var deviceIdentifiers: [String] {
+    records.keys.sorted()
+  }
 }
 
 public enum SupportCatalogError: Error, Equatable, Sendable {

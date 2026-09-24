@@ -38,7 +38,15 @@
         await session.inspect()
         switch scenario {
         case .unsupported, .engineUnavailable:
-          guard case .unsupported = session.phase else { return XCTFail(scenario.title) }
+          guard case .unsupported(let failure) = session.phase else {
+            return XCTFail(scenario.title)
+          }
+          if scenario == .unsupported {
+            XCTAssertTrue(failure.isBlockedModel)
+            XCTAssertTrue(
+              failure.plainDetail.contains("MacBook Pro 14-inch (M3, 2023) · Mac15,3 · apple,j504"))
+            XCTAssertTrue(try XCTUnwrap(failure.remedy).contains("(22 models)"))
+          }
           XCTAssertFalse(session.canStartInstallation)
           continue
         case .existingInstall:
@@ -87,6 +95,28 @@
         if scenario == .credentialsRejected {
           XCTAssertEqual(session.credentialSheet.context?.error, .credentialsRejected)
           XCTAssertFalse(session.hasExecutionStarted)
+          await session.submit(dummy)
+        }
+        if scenario == .spaceChanged {
+          guard case .failed(let failure) = session.phase else { return XCTFail(scenario.title) }
+          XCTAssertTrue(failure.replanAvailable)
+          XCTAssertTrue(failure.plainDetail.contains("No disk changes were made."))
+          XCTAssertFalse(session.hasExecutionStarted)
+          XCTAssertTrue(session.canInspect)
+          await session.replanAfterEngineRefusal()
+          guard case .planReview(let plan, let acknowledged) = session.phase else {
+            return XCTFail(scenario.title)
+          }
+          XCTAssertEqual(plan.omarchyBytes, 133_000_000_000)
+          XCTAssertFalse(acknowledged)
+          XCTAssertFalse(environment.hasApprovedPlan)
+          XCTAssertEqual(
+            session.allocationNotice,
+            "Space for Omarchy changed from 137 GB to 133 GB. Review the updated size before installing."
+          )
+          session.setAcknowledged(true)
+          session.approve()
+          session.presentInstallCredentials()
           await session.submit(dummy)
         }
         if scenario == .recoveryRetry {

@@ -7,7 +7,7 @@
     case downloadFailure, invalidDownload, outdatedInstaller, emptyChannel, planFailure
     case allocationClamped, allocationAligned, approvalChanged, credentialsRejected, connectionLost
     case emptyReply, helperFailure, degradedProgress, recoveryRetry, manualRecovery
-    case shutdownFailure, completed, installationMedia
+    case shutdownFailure, completed, installationMedia, spaceChanged
 
     public var id: String { rawValue }
     public var title: String {
@@ -36,6 +36,7 @@
       case .shutdownFailure: "Shutdown request fails"
       case .completed: "Installation complete → first-boot check"
       case .installationMedia: "Installation media required"
+      case .spaceChanged: "Space shrinks before install · engine refuses plan"
       }
     }
 
@@ -53,6 +54,10 @@
         "Retry Recovery using the test account. The simulation must not repeat disk preparation."
       case .shutdownFailure:
         "Request shutdown from Recovery. Confirm your Mac stays on and the steps remain visible."
+      case .spaceChanged:
+        "Install the 137 GB plan. The engine refuses it before changing the disk. Choose Check available space: the new plan offers 133 GB, the acknowledgement clears, and the next install succeeds."
+      case .unsupported:
+        "The simulated Mac is a MacBook Pro 14-inch (M3). The message must name it and list the M1 and M2 families from the simulated signed catalog."
       default:
         "Walk through the installer with test data. Check keyboard navigation, smaller windows, and activity details. Reset starts again."
       }
@@ -104,7 +109,24 @@
         blockingReason: scenario == .engineUnavailable ? PlainLanguage.engineUnavailable : nil,
         existingInstalls: scenario == .existingInstall
           ? [ExistingInstallDisplay(sourceIdentifier: "Simulated disk", sizeDescription: "137 GB")]
-          : [])
+          : [],
+        unsupportedModel: scenario == .unsupported
+          ? UnsupportedModelDisplay(
+            deviceIdentifier: "apple,j504", modelIdentifier: "Mac15,3",
+            supportedDeviceIdentifiers: Self.simulatedCatalogDevices)
+          : nil)
+    }
+
+    /// The 22 M1 and M2 models today's stable catalog admits.
+    public static let simulatedCatalogDevices = [
+      "apple,j274", "apple,j293", "apple,j313", "apple,j314c", "apple,j314s", "apple,j316c",
+      "apple,j316s", "apple,j375c", "apple,j375d", "apple,j413", "apple,j414c", "apple,j414s",
+      "apple,j415", "apple,j416c", "apple,j416s", "apple,j456", "apple,j457", "apple,j473",
+      "apple,j474s", "apple,j475c", "apple,j475d", "apple,j493",
+    ]
+
+    private var refusedOnce: Bool {
+      scenario == .spaceChanged && lock.withLock { attempts > 0 }
     }
 
     public func preparePlan(
@@ -146,7 +168,8 @@
       try await tick()
       let initial: UInt64 = 137_438_953_472
       let maximum: UInt64 =
-        scenario == .allocationClamped && omarchyBytes != nil ? initial : 700_000_000_000
+        scenario == .allocationClamped && omarchyBytes != nil
+        ? initial : (refusedOnce ? 133_000_000_000 : 700_000_000_000)
       let requested = min(maximum, max(80_000_000_000, omarchyBytes ?? initial))
       let unit = PinnedAsahiPlanRequest.allocationUnitBytes
       let length = scenario == .allocationAligned ? requested - requested % unit : requested
@@ -184,6 +207,12 @@
       try await tick()
       if scenario == .credentialsRejected && attempt == 1 {
         throw EngineXPCSubmissionError.machineOwnerCredentialsRejected
+      }
+      if scenario == .spaceChanged && attempt == 1 {
+        throw EngineXPCSubmissionError.engineFailed(
+          EngineFailureNotice(
+            reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: true,
+            summary: "omarchy_execution.ExecutionAdmissionError: approved extent changed"))
       }
       if operation == .retryRecoveryAuthorization { return completion() }
       for (index, line) in Self.journalLines.enumerated() {

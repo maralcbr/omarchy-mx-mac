@@ -15,7 +15,10 @@
     case extractionFailed(Int32)
     case invalidBundle
     case launchFailed
-    case engineExited(Int32)
+    /// The engine exited non-zero. The report's notice is the only part that
+    /// may leave the privileged helper; the redacted stderr tail stays in its
+    /// root-only diagnostics.
+    case engineFailed(EngineFailureReport)
     case recoveryAuthorizationFailed
     case unsafeTranscript
   }
@@ -88,6 +91,7 @@
           operation: operation
         ),
         standardInput: authorization.password + Data([10]),
+        secrets: [authorization.password],
         retryIdentity: RecoveryRetryIdentity(package: package)
       )
     }
@@ -160,6 +164,7 @@
       journal: URL?,
       additionalEnvironment: [String: String],
       standardInput: Data? = nil,
+      secrets: [Data] = [],
       retryIdentity: RecoveryRetryIdentity? = nil
     ) throws -> Data {
       try validateArchive(
@@ -214,9 +219,14 @@
       let inputPipe = standardInput == nil ? nil : Pipe()
       process.standardInput = inputPipe ?? FileHandle.nullDevice
       process.standardOutput = FileHandle.nullDevice
-      process.standardError = FileHandle.nullDevice
+      // stderr is drained concurrently into a bounded tail so a chatty engine
+      // can neither block on a full pipe nor grow the helper's memory.
+      let errorPipe = Pipe()
+      process.standardError = errorPipe
+      let errorCollector = BoundedStandardErrorCollector()
       do {
         try process.run()
+        errorCollector.start(reading: errorPipe.fileHandleForReading)
         if let standardInput, let inputPipe {
           try inputPipe.fileHandleForWriting.write(contentsOf: standardInput)
           try inputPipe.fileHandleForWriting.close()
@@ -225,6 +235,7 @@
       } catch {
         throw PinnedAsahiEngineExecutionError.launchFailed
       }
+      let capturedError = errorCollector.finish()
       guard process.terminationReason == .exit,
         process.terminationStatus == 0
       else {
@@ -237,11 +248,88 @@
           throw PinnedAsahiEngineExecutionError
             .recoveryAuthorizationFailed
         }
-        throw PinnedAsahiEngineExecutionError.engineExited(
-          process.terminationStatus
+        throw PinnedAsahiEngineExecutionError.engineFailed(
+          failureReport(
+            standardError: capturedError,
+            secrets: secrets,
+            exitStatus: process.terminationStatus,
+            journal: journal
+          )
         )
       }
       return try readTranscript(transcriptURL)
+    }
+
+    private func failureReport(
+      standardError: (data: Data, truncated: Bool),
+      secrets: [Data],
+      exitStatus: Int32,
+      journal: URL?
+    ) -> EngineFailureReport {
+      let redacted = EngineStandardErrorRedactor.redact(
+        standardError.data,
+        truncated: standardError.truncated,
+        secrets: secrets
+      )
+      let final = EngineStandardErrorRedactor.finalException(in: redacted)
+      let reason =
+        final.map {
+          EngineFailureReason.classify(exception: $0.exception, message: $0.message)
+        } ?? .unclassified
+      return EngineFailureReport(
+        notice: EngineFailureNotice(
+          reason: reason,
+          exitStatus: exitStatus,
+          diskUnchanged: journal.map(journalProvesNoMutation) ?? false,
+          summary: final?.line ?? ""
+        ),
+        redactedStandardErrorTail: redacted
+      )
+    }
+
+    /// True only when the persistent journal can be read in full and holds
+    /// nothing but the read-only inspection, inventory and plan records.
+    /// Every engine mutation stage appends its start event before touching
+    /// the disk, so the absence of event, checkpoint and completion records
+    /// proves no mutation began. Anything unreadable or unexpected makes no
+    /// claim.
+    func journalProvesNoMutation(_ journal: URL) -> Bool {
+      let descriptor = Darwin.open(
+        journal.path,
+        O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+      )
+      guard descriptor >= 0 else { return false }
+      defer { Darwin.close(descriptor) }
+      var status = stat()
+      guard fstat(descriptor, &status) == 0,
+        (status.st_mode & S_IFMT) == S_IFREG,
+        status.st_mode & 0o077 == 0,
+        status.st_uid == expectedFileOwnerID(),
+        status.st_size >= 0,
+        status.st_size <= Self.maximumTranscriptBytes
+      else {
+        return false
+      }
+      if status.st_size == 0 { return true }
+      let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
+      guard let data = try? handle.readToEnd(),
+        data.count == Int(status.st_size),
+        data.last == 0x0A
+      else {
+        return false
+      }
+      let readOnlyRecords: Set<String> = ["inspection", "inventory", "plan"]
+      for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
+        guard
+          let object = try? JSONSerialization.jsonObject(with: Data(line)),
+          let record = object as? [String: Any],
+          let type = record["type"] as? String,
+          readOnlyRecords.contains(type)
+        else {
+          return false
+        }
+      }
+      return true
     }
 
     private func isRecoveryAuthorizationRetryEligible(

@@ -51,7 +51,12 @@
         supported: !blocked,
         existingInstalls: scenario == .existingInstall
           ? [ExistingInstallDisplay(sourceIdentifier: "disk0s3", sizeDescription: "128 GB")]
-          : []
+          : [],
+        unsupportedModel: blocked
+          ? UnsupportedModelDisplay(
+            deviceIdentifier: device, modelIdentifier: "Mac16,8",
+            supportedDeviceIdentifiers: InstallerSimulationEnvironment.simulatedCatalogDevices)
+          : nil
       )
     }
 

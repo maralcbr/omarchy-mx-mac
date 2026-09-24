@@ -321,6 +321,13 @@ struct OnePageInstallerView: View {
           .omarchyPrimaryButton()
           .disabled(!session.canRetryRecoveryAuthorization)
           .keyboardShortcut(.defaultAction)
+      } else if failure.replanAvailable {
+        Button(PlainLanguage.replanAction) {
+          Task { await session.replanAfterEngineRefusal() }
+        }
+        .omarchyPrimaryButton()
+        .disabled(session.isBusy)
+        .keyboardShortcut(.defaultAction)
       } else if let url = failure.actionURL, let title = failure.actionTitle {
         Button(title) {
           if !session.isSimulation { NSWorkspace.shared.open(url) }

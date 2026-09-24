@@ -29,6 +29,10 @@ The layout is the engine's four partitions: an APFS stub holding a stub macOS th
 
 The bundled engine in the app only inspects the Mac. The engine that performs the install always comes from the catalog, so an engine fix can ship without a new app.
 
+When the engine stops with an error, the helper keeps the last 64 KiB of its error output, removes the machine-owner password and anything shaped like a credential, and saves it in `/var/db/com.omarchy.mx.installer/diagnostics/`, readable only by root. The app receives a typed reason, the exit status, the final exception line and whether the helper's journal shows that no disk step started; it writes those to `~/Library/Logs/Omarchy MX Mac Installer/`. The engine re-checks the approved size against the live disk before it changes anything, so when macOS can no longer give up the approved space (`approved extent changed`) the app says no disk changes were made and offers **Check available space**, which runs the normal size check again and asks for a fresh review and approval.
+
+A Mac the release does not support is named by model, model identifier and device identifier, and the message lists the Mac families the channel's signed catalog admits.
+
 ## The image
 
 The Mac image is built in omarchy-pkgs by `bin/build-mac-image` from a promoted package channel, a runtime channel and a dated Arch Linux ARM snapshot. It is a complete Omarchy installation with no user yet: kernel, initramfs, vendor firmware hooks, the Omarchy runtime pair and the whole default package set, recorded package by package in `PROVENANCE`. The payload is split into parts under GitHub's 2 GiB asset limit and signed as a set (`IMAGE` and `IMAGE.sig`).

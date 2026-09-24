@@ -31,6 +31,91 @@
         "Space for Omarchy changed from 70 GB to 80 GB. Review the updated size before installing.")
     }
 
+    func testApprovedSpaceChangeOffersReplanOnlyWhenTheDiskIsProvenUnchanged() {
+      let unchanged = PlainLanguage.failure(
+        for: EngineXPCSubmissionError.engineFailed(
+          EngineFailureNotice(
+            reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: true,
+            summary: "omarchy_execution.ExecutionAdmissionError: approved extent changed")))
+      XCTAssertEqual(unchanged.headline, "The space available for Omarchy changed")
+      XCTAssertTrue(unchanged.plainDetail.contains("No disk changes were made."))
+      XCTAssertTrue(unchanged.replanAvailable)
+      XCTAssertTrue(try XCTUnwrap(unchanged.technicalDetail).contains("approved extent changed"))
+
+      let unknown = PlainLanguage.failure(
+        for: EngineXPCSubmissionError.engineFailed(
+          EngineFailureNotice(
+            reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: false, summary: "")))
+      XCTAssertFalse(unknown.plainDetail.contains("No disk changes were made."))
+      XCTAssertFalse(unknown.replanAvailable)
+    }
+
+    func testEveryEngineFailureReasonHasPlainWording() {
+      for reason in EngineFailureReason.allCases {
+        for unchanged in [true, false] {
+          let display = PlainLanguage.engineFailure(
+            EngineFailureNotice(
+              reason: reason, exitStatus: 1, diskUnchanged: unchanged, summary: ""),
+            technicalDetail: "detail")
+          XCTAssertFalse(display.headline.isEmpty)
+          XCTAssertEqual(
+            display.plainDetail.contains("No disk changes were made."), unchanged, "\(reason)")
+          XCTAssertEqual(
+            display.replanAvailable,
+            unchanged && (reason == .approvedSpaceChanged || reason == .diskLayoutChanged))
+        }
+      }
+    }
+
+    func testUnsupportedModelNamesTheMacAndTheCatalogFamilies() throws {
+      let display = PlainLanguage.failure(
+        for: InstallerAssetPreparationError.notInCatalog(
+          deviceIdentifier: "apple,j504",
+          modelIdentifier: "Mac15,3",
+          supportedDeviceIdentifiers: ["apple,j314s", "apple,j416c", "apple,j274", "apple,j999"]))
+      XCTAssertTrue(display.isBlockedModel)
+      XCTAssertEqual(
+        display.plainDetail,
+        "This Mac (MacBook Pro 14-inch (M3, 2023) · Mac15,3 · apple,j504) isn’t included in this release."
+      )
+      let remedy = try XCTUnwrap(display.remedy)
+      XCTAssertTrue(
+        remedy.hasPrefix(
+          "This release supports these Macs (4 models): M1: Mac mini, MacBook Pro. M2: MacBook Pro. also apple,j999."
+        ), remedy)
+    }
+
+    func testUnsupportedModelWithoutACatalogStillNamesTheMac() {
+      let display = PlainLanguage.failure(
+        for: ClosedEngineHelperError.unsupportedDevice("apple,j614s"))
+      XCTAssertTrue(display.isBlockedModel)
+      XCTAssertTrue(
+        display.plainDetail.contains("MacBook Pro 14-inch (M4 Pro, 2024) · apple,j614s"))
+      XCTAssertEqual(display.remedy, PlainLanguage.blockedExplainer)
+      let unknown = PlainLanguage.unsupportedModel(
+        deviceIdentifier: "apple,j999", modelIdentifier: "Mac99,1")
+      XCTAssertEqual(
+        unknown.plainDetail, "This Mac (Mac99,1 · apple,j999) isn’t included in this release.")
+    }
+
+    func testFriendlyNamesCoverEveryModelTheReleaseTemplatesList() throws {
+      let scripts = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("scripts")
+      var identifiers = Set<String>()
+      for name in ["release-inputs.template.json", "release-inputs-aurora.template.json"] {
+        let text = try String(
+          contentsOf: scripts.appendingPathComponent(name), encoding: .utf8)
+        for match in text.matches(of: /"(apple,j[0-9a-z]+)"/) {
+          identifiers.insert(String(match.1))
+        }
+      }
+      XCTAssertGreaterThanOrEqual(identifiers.count, 22)
+      for identifier in identifiers {
+        XCTAssertNotNil(MacModelNames.name(for: identifier), identifier)
+      }
+    }
+
     func testEveryPhaseHasADistinctTitle() {
       let phases = [
         "preflight", "existing_removal", "apfs_preparation", "stub_and_esp",

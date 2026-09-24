@@ -81,6 +81,14 @@
   public enum InstallerAssetPreparationError: Error, Equatable, Sendable {
     case hostBlocked(String)
     case unsupportedDevice(String)
+    /// The signed catalog does not list this Mac. Carries the Mac's model
+    /// identifier (hw.model) and the catalog's admitted device identifiers so
+    /// the app can say which Macs this release supports.
+    case notInCatalog(
+      deviceIdentifier: String,
+      modelIdentifier: String,
+      supportedDeviceIdentifiers: [String]
+    )
     case deliveryMetadataUnavailable
     case installerOutdated(
       current: InstallerVersion,
@@ -135,7 +143,11 @@
           for: deviceIdentifier
         )
       else {
-        throw InstallerAssetPreparationError.unsupportedDevice(deviceIdentifier)
+        throw InstallerAssetPreparationError.notInCatalog(
+          deviceIdentifier: deviceIdentifier,
+          modelIdentifier: request.host.identity.model,
+          supportedDeviceIdentifiers: catalog.deviceIdentifiers
+        )
       }
       guard let delivery = installer.delivery else {
         throw InstallerAssetPreparationError.deliveryMetadataUnavailable

@@ -19,19 +19,42 @@
     /// any download; the session stops here instead of fetching a release
     /// that could not be installed.
     public let spaceShortfall: InstallerAllocationRecommendationError?
+    /// Set when the Mac model itself is what blocks installation: its device
+    /// identifier (`apple,j504`), its model identifier (`Mac15,3`), and the
+    /// device identifiers the signed catalog admits when it could be read.
+    public let unsupportedModel: UnsupportedModelDisplay?
 
     public init(
       chipAndSpace: String,
       supported: Bool,
       blockingReason: String? = nil,
       existingInstalls: [ExistingInstallDisplay] = [],
-      spaceShortfall: InstallerAllocationRecommendationError? = nil
+      spaceShortfall: InstallerAllocationRecommendationError? = nil,
+      unsupportedModel: UnsupportedModelDisplay? = nil
     ) {
       self.chipAndSpace = chipAndSpace
       self.supported = supported
       self.blockingReason = blockingReason
       self.existingInstalls = existingInstalls
       self.spaceShortfall = spaceShortfall
+      self.unsupportedModel = unsupportedModel
+    }
+  }
+
+  public struct UnsupportedModelDisplay: Equatable, Sendable {
+    public let deviceIdentifier: String
+    public let modelIdentifier: String?
+    /// Nil when the signed catalog could not be fetched or verified.
+    public let supportedDeviceIdentifiers: [String]?
+
+    public init(
+      deviceIdentifier: String,
+      modelIdentifier: String?,
+      supportedDeviceIdentifiers: [String]?
+    ) {
+      self.deviceIdentifier = deviceIdentifier
+      self.modelIdentifier = modelIdentifier
+      self.supportedDeviceIdentifiers = supportedDeviceIdentifiers
     }
   }
 
@@ -301,6 +324,10 @@
     /// A supported guidance page or installer download for resolving this failure.
     public let actionURL: URL?
     public let actionTitle: String?
+    /// The engine refused the approved plan before changing the disk because
+    /// the available space or layout moved. The page offers to prepare a new
+    /// plan through the normal size check.
+    public let replanAvailable: Bool
 
     public init(
       headline: String,
@@ -311,7 +338,8 @@
       isBlockedModel: Bool = false,
       device: HostDisplay? = nil,
       actionURL: URL? = nil,
-      actionTitle: String? = nil
+      actionTitle: String? = nil,
+      replanAvailable: Bool = false
     ) {
       self.headline = headline
       self.plainDetail = plainDetail
@@ -322,6 +350,7 @@
       self.device = device
       self.actionURL = actionURL
       self.actionTitle = actionTitle
+      self.replanAvailable = replanAvailable
     }
 
     /// The same failure, shown under the header of the Mac it concerns.
@@ -330,7 +359,7 @@
         headline: headline, plainDetail: plainDetail, technicalDetail: technicalDetail,
         remedy: remedy, retryRecoveryAvailable: retryRecoveryAvailable,
         isBlockedModel: isBlockedModel, device: device, actionURL: actionURL,
-        actionTitle: actionTitle)
+        actionTitle: actionTitle, replanAvailable: replanAvailable)
     }
   }
 

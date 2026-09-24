@@ -647,6 +647,63 @@
       }
     }
 
+    func testEngineRefusalReleasesTheLatchOnlyWithJournalProof() async throws {
+      for unchanged in [false, true] {
+        let environment = MockInstallerEnvironment()
+        environment.executeResults = [
+          .failure(
+            EngineXPCSubmissionError.engineFailed(
+              EngineFailureNotice(
+                reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: unchanged,
+                summary: "omarchy_execution.ExecutionAdmissionError: approved extent changed")))
+        ]
+        let session = await ready(environment)
+        let approvedBytes = environment.plan.omarchyBytes
+        session.presentInstallCredentials()
+        await session.submit(try authorization())
+        guard case .failed(let failure) = session.phase else {
+          return XCTFail("Expected failure")
+        }
+        XCTAssertEqual(failure.replanAvailable, unchanged)
+        XCTAssertEqual(session.hasExecutionStarted, !unchanged)
+        XCTAssertEqual(session.canInspect, unchanged)
+        let prepared = environment.prepareCount
+
+        await session.replanAfterEngineRefusal()
+        if unchanged {
+          XCTAssertEqual(environment.prepareCount, prepared + 1)
+          XCTAssertEqual(environment.lastOmarchyBytes, approvedBytes)
+          guard case .planReview(_, let acknowledged) = session.phase else {
+            return XCTFail("Expected planReview, got \(session.phase)")
+          }
+          XCTAssertFalse(acknowledged)
+          XCTAssertFalse(session.canStartInstallation)
+        } else {
+          XCTAssertEqual(environment.prepareCount, prepared)
+          guard case .failed = session.phase else { return XCTFail("Expected failure") }
+        }
+      }
+    }
+
+    func testUnsupportedModelHostNamesTheMac() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.engineSupported = false
+      environment.host = HostDisplay(
+        chipAndSpace: "Apple M3 · 400 GB free", supported: false,
+        unsupportedModel: UnsupportedModelDisplay(
+          deviceIdentifier: "apple,j504", modelIdentifier: "Mac15,3",
+          supportedDeviceIdentifiers: ["apple,j314s"]))
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      guard case .unsupported(let failure) = session.phase else {
+        return XCTFail("Expected unsupported, got \(session.phase)")
+      }
+      XCTAssertTrue(failure.isBlockedModel)
+      XCTAssertTrue(failure.plainDetail.contains("Mac15,3"))
+      XCTAssertTrue(try XCTUnwrap(failure.remedy).contains("M1: MacBook Pro"))
+      XCTAssertNotNil(failure.device)
+    }
+
     func testShutdownRetainsInstructionsForAcceptedAndFailedRequests() async throws {
       for accepted in [false, true] {
         let environment = MockInstallerEnvironment()

@@ -14,7 +14,7 @@ Requires Xcode and XcodeBuildMCP. The launcher builds the debug app and supplies
 
 ## Controls
 
-- **Scenario** selects one of 23 outcomes and resets the simulated session.
+- **Scenario** selects one of 24 outcomes and resets the simulated session.
 - **Reset simulation** abandons only the in-memory run, including a stopped or uncertain outcome.
 - **Slow events** makes each event take two seconds; changing speed resets the session.
 - **Test channel** offers Stable and Release candidate, and is local to the simulator. It locks while preparing, authorizing, executing, and after execution has started.
@@ -26,11 +26,12 @@ Requires Xcode and XcodeBuildMCP. The launcher builds the debug app and supplies
 | Group | Scenarios | Expected behavior |
 | --- | --- | --- |
 | Normal path | Successful install and Recovery; installed-system verification handoff; installation media handoff | Review the plan, authorize with dummy credentials, inspect progress and handoff |
-| Eligibility | Unsupported Mac; engine unavailable; existing installation | Stop before preparation |
+| Eligibility | Unsupported Mac; engine unavailable; existing installation | Stop before preparation; the unsupported Mac is named (MacBook Pro 14-inch M3, `Mac15,3`, `apple,j504`) with the M1 and M2 families of a simulated 22-model catalog |
 | Preparation | Download interrupted; verification failed; out-of-date installer; empty channel; no eligible space | Explain the error and permit a fresh check; simulation download links do not open |
 | Disk review | Large free extent; disk limit changes during replan | Preserve macOS capacity for free space; returned allocation always wins; reset acknowledgement |
 | Authorization | Missing helper; plan changes before approval; first credentials rejected | Respect the gate; permit back-navigation before submission; rejected dummy credentials can be retried |
 | Execution | Connection lost; empty reply; helper failure; interrupted live progress | Retain verified activity; uncertain outcomes cannot start another installation |
+| Engine refusal | Space shrinks before install | The engine refuses the approved 137 GB plan before any disk step; the page says no disk changes were made and offers **Check available space**, which returns to review with 133 GB, a size-change notice and a cleared acknowledgement; the next install succeeds |
 | Recovery | Recovery fails then retry succeeds; manual recovery required; shutdown request fails | Retry only the eligible Recovery path; keep instructions visible when shutdown fails |
 
 Click the size field to edit GB. Use the green checkmark or Return to apply; use the red cross or Escape to cancel. Invalid or out-of-range values cannot be applied. Installation is disabled until you apply or cancel.

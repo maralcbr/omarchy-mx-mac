@@ -30,6 +30,45 @@
       XCTAssertTrue(try importedEntries(in: fixture.destination).isEmpty)
     }
 
+    func testEngineFailureIsKeptInRootDiagnosticsAndRethrown() async throws {
+      let fixture = try makeFixture()
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let source = try openDirectory(fixture.source)
+      defer { try? source.close() }
+      let report = EngineFailureReport(
+        notice: EngineFailureNotice(
+          reason: .approvedSpaceChanged, exitStatus: 1, diskUnchanged: true,
+          summary: "omarchy_execution.ExecutionAdmissionError: approved extent changed"),
+        redactedStandardErrorTail: "redacted tail\n"
+      )
+      let server = ClosedEngineHelperServer(
+        workingDirectory: fixture.destination,
+        executor: FailingHandoffExecutor(error: .engineFailed(report)),
+        credentialValidator: AcceptingMachineOwnerCredentialValidator()
+      )
+
+      do {
+        _ = try await server.submit(
+          packageDirectory: source,
+          authorization: try machineOwnerAuthorization()
+        )
+        XCTFail("Expected the engine failure")
+      } catch {
+        XCTAssertEqual(
+          error as? PinnedAsahiEngineExecutionError, .engineFailed(report))
+      }
+      let diagnostics = fixture.destination.appendingPathComponent("diagnostics")
+      let reports = try FileManager.default.contentsOfDirectory(atPath: diagnostics.path)
+      XCTAssertEqual(reports.count, 1)
+      let body = try String(
+        contentsOf: diagnostics.appendingPathComponent(try XCTUnwrap(reports.first)),
+        encoding: .utf8)
+      XCTAssertTrue(body.contains("redacted tail"))
+      XCTAssertFalse(body.contains("owner-password"))
+      XCTAssertEqual(
+        try importedEntries(in: fixture.destination).map(\.lastPathComponent), ["diagnostics"])
+    }
+
     func testM4PackageIsRejectedBeforeExecution() async throws {
       let fixture = try makeFixture(deviceIdentifier: "apple,j614s")
       defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -477,6 +516,18 @@
     ) async throws -> Data {
       executionCount += 1
       return result
+    }
+  }
+
+  private struct FailingHandoffExecutor: ImportedEngineHandoffExecuting {
+    let error: PinnedAsahiEngineExecutionError
+
+    func execute(
+      _ package: ImportedEngineHandoffPackage,
+      authorization: MachineOwnerAuthorization,
+      operation: EngineHandoffOperation
+    ) async throws -> Data {
+      throw error
     }
   }
 

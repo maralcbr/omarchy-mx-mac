@@ -102,7 +102,42 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     }
     cancelPayloadPrefetch()
 
-    return display(host: host, engine: engine, engineFailure: engineFailure)
+    var unsupportedModel: UnsupportedModelDisplay?
+    let modelRefused =
+      AppleSiliconHostInspector.isExplicitlyUnsupported(host.identity.deviceIdentifier)
+      || engine?.support == .unsupported
+    if modelRefused {
+      unsupportedModel = UnsupportedModelDisplay(
+        deviceIdentifier: host.identity.deviceIdentifier,
+        modelIdentifier: host.identity.model,
+        supportedDeviceIdentifiers: await supportedDeviceIdentifiers()
+      )
+    }
+
+    return display(
+      host: host, engine: engine, engineFailure: engineFailure,
+      unsupportedModel: unsupportedModel)
+  }
+
+  /// The signed catalog's model list for the unsupported-Mac message. Any
+  /// failure (offline, unsigned, rolled back) just leaves the list out.
+  private func supportedDeviceIdentifiers() async -> [String]? {
+    guard let configuration = try? InstallerReleaseConfigurationLocator().loadFromMainBundle(),
+      let workspace = try? installerWorkspace()
+    else {
+      return nil
+    }
+    let channel = ReleaseChannelPreference().resolve(configuration: configuration)
+    let previouslyAccepted = try? AcceptedCatalogIdentityStore(
+      directory: workspace.state,
+      channel: channel
+    ).load()
+    return try? await InstallerReleaseAssetCoordinator().supportedDeviceIdentifiers(
+      configuration: configuration,
+      channel: channel,
+      validationTime: Date(),
+      previouslyAcceptedCatalog: previouslyAccepted
+    )
   }
 
   // MARK: Plan preparation
@@ -377,25 +412,30 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
     let workspace = try installerWorkspace()
     let coordinator = InstallerExecutionCoordinator()
     let progress: InstallerExecutionProgress
-    switch operation {
-    case .install:
-      progress = try await coordinator.execute(
-        prepared,
-        approval: approval,
-        configuration: configuration,
-        handoffDirectory: workspace.handoff,
-        machineOwnerAuthorization: authorization,
-        journalProgress: journal
-      )
-    case .retryRecoveryAuthorization:
-      progress = try await coordinator.retryRecoveryAuthorization(
-        prepared,
-        approval: approval,
-        configuration: configuration,
-        handoffDirectory: workspace.handoff,
-        machineOwnerAuthorization: authorization,
-        journalProgress: journal
-      )
+    do {
+      switch operation {
+      case .install:
+        progress = try await coordinator.execute(
+          prepared,
+          approval: approval,
+          configuration: configuration,
+          handoffDirectory: workspace.handoff,
+          machineOwnerAuthorization: authorization,
+          journalProgress: journal
+        )
+      case .retryRecoveryAuthorization:
+        progress = try await coordinator.retryRecoveryAuthorization(
+          prepared,
+          approval: approval,
+          configuration: configuration,
+          handoffDirectory: workspace.handoff,
+          machineOwnerAuthorization: authorization,
+          journalProgress: journal
+        )
+      }
+    } catch let EngineXPCSubmissionError.engineFailed(notice) {
+      EngineFailureUserLog.write(notice, operation: String(describing: operation))
+      throw EngineXPCSubmissionError.engineFailed(notice)
     }
     var installConf: InstallConfHandoff = .recorded
     let handoffOperation: EngineHandoffOperation =
@@ -422,7 +462,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private func display(
     host: AppleSiliconHostInspection,
     engine: ValidatedEngineTranscript?,
-    engineFailure: String?
+    engineFailure: String?,
+    unsupportedModel: UnsupportedModelDisplay?
   ) -> HostDisplay {
     let blocked: Bool
     if case .blocked = host.eligibility {
@@ -444,7 +485,8 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
       supported: !blocked && engine?.support == .supported,
       blockingReason: blockingReason(host: host, engineFailure: engineFailure),
       existingInstalls: existing,
-      spaceShortfall: space?.shortfall
+      spaceShortfall: space?.shortfall,
+      unsupportedModel: unsupportedModel
     )
   }
 

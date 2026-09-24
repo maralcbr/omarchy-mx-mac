@@ -45,6 +45,9 @@
     case recoveryAuthorizationFailed
     case machineOwnerCredentialsRejected
     case helperRejected(domain: String, code: Int)
+    /// The pinned engine stopped with an error. Display and diagnostics only:
+    /// nothing in it may decide trust, and the summary is untrusted text.
+    case engineFailed(EngineFailureNotice)
     case emptyResponse
   }
 
@@ -379,8 +382,30 @@
     static let machineOwnerAuthorizationDomain =
       "com.omarchy.mx.installer.machine-owner-authorization"
     static let machineOwnerAuthorizationCode = 1
+    // The engine's typed failure. The code is the EngineFailureReason raw
+    // value; userInfo carries only an exit status, a Boolean and one redacted,
+    // bounded summary line. Never the stderr tail, never credentials.
+    // Skew-safe like the domain above: an older app sees helperRejected.
+    static let engineFailureDomain = "com.omarchy.mx.installer.engine-failure"
+    static let exitStatusKey = "exitStatus"
+    static let diskUnchangedKey = "diskUnchanged"
+    static let summaryKey = "summary"
 
     static func serviceError(for error: any Error) -> NSError {
+      if let executionError = error as? PinnedAsahiEngineExecutionError,
+        case .engineFailed(let report) = executionError
+      {
+        let notice = report.notice
+        return NSError(
+          domain: engineFailureDomain,
+          code: notice.reason.rawValue,
+          userInfo: [
+            exitStatusKey: NSNumber(value: notice.exitStatus),
+            diskUnchangedKey: NSNumber(value: notice.diskUnchanged),
+            summaryKey: EngineFailureNotice.sanitizedSummary(notice.summary) as NSString,
+          ]
+        )
+      }
       if let executionError = error
         as? PinnedAsahiEngineExecutionError,
         executionError == .recoveryAuthorizationFailed
@@ -415,6 +440,21 @@
         error.code == machineOwnerAuthorizationCode
       {
         return .machineOwnerCredentialsRejected
+      }
+      if error.domain == engineFailureDomain {
+        let exitStatus = (error.userInfo[exitStatusKey] as? NSNumber)?.int32Value ?? -1
+        let unchanged = error.userInfo[diskUnchangedKey] as? NSNumber
+        // Only an explicit Boolean true counts; anything else makes no claim.
+        let diskUnchanged =
+          unchanged.map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false
+        return .engineFailed(
+          EngineFailureNotice(
+            reason: EngineFailureReason(rawValue: error.code) ?? .unclassified,
+            exitStatus: exitStatus,
+            diskUnchanged: diskUnchanged,
+            summary: error.userInfo[summaryKey] as? String ?? ""
+          )
+        )
       }
       return .helperRejected(
         domain: error.domain,

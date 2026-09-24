@@ -240,6 +240,15 @@
         )
       } catch {
         await tailer?.stop()
+        if case .engineFailed(let report) = error as? PinnedAsahiEngineExecutionError {
+          // The redacted stderr tail stays here, root-only; only the notice
+          // travels back to the app.
+          EngineFailureDiagnosticsStore.write(
+            report,
+            operation: operation.rawValue,
+            in: workingDirectory
+          )
+        }
         throw error
       }
       await tailer?.stop()

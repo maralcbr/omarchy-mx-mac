@@ -246,13 +246,121 @@
           authorization: try machineOwnerAuthorization()
         )
       ) {
-        XCTAssertEqual(
-          $0 as? PinnedAsahiEngineExecutionError,
-          .engineExited(17)
-        )
+        guard
+          case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError
+        else {
+          return XCTFail("Expected engineFailed, got \($0)")
+        }
+        XCTAssertEqual(report.notice.exitStatus, 17)
+        XCTAssertEqual(report.notice.reason, .unclassified)
+        // The synthetic transcript is not a journal: no claim either way.
+        XCTAssertFalse(report.notice.diskUnchanged)
       }
       XCTAssertTrue(try executionEntries(in: fixture.root).isEmpty)
       XCTAssertEqual(try journalEntries(in: fixture.root).count, 1)
+    }
+
+    func testApprovedExtentChangedIsClassifiedRedactedAndProvesNoMutation()
+      async throws
+    {
+      let stderr = """
+        Traceback (most recent call last):
+          File "main.py", line 1270, in <module>
+        debug: owner=owner-password passphrase: "hunter 2" raw=b'owner-password'
+        \u{1B}[31mcolored\u{1B}[0m
+        omarchy_execution.ExecutionAdmissionError: approved extent changed
+
+        """
+      let fixture = try makeFixture(
+        exitCode: 1,
+        transcript: readOnlyJournal(),
+        standardError: Data(stderr.utf8)
+      )
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package,
+          authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        guard
+          case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError
+        else {
+          return XCTFail("Expected engineFailed, got \($0)")
+        }
+        XCTAssertEqual(report.notice.reason, .approvedSpaceChanged)
+        XCTAssertEqual(report.notice.exitStatus, 1)
+        XCTAssertTrue(report.notice.diskUnchanged)
+        XCTAssertEqual(
+          report.notice.summary,
+          "omarchy_execution.ExecutionAdmissionError: approved extent changed"
+        )
+        let tail = report.redactedStandardErrorTail
+        XCTAssertFalse(tail.contains("owner-password"))
+        XCTAssertFalse(tail.contains("hunter"))
+        XCTAssertFalse(tail.contains("\u{1B}"))
+        XCTAssertTrue(tail.contains("approved extent changed"))
+      }
+    }
+
+    func testJournalWithAMutationEventMakesNoDiskUnchangedClaim() async throws {
+      let fixture = try makeFixture(
+        exitCode: 1,
+        transcript: readOnlyJournal(withEvent: true),
+        standardError: Data(
+          "omarchy_asahi.AsahiAdapterError: approved extent is smaller than Asahi minimum\n".utf8)
+      )
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package,
+          authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        guard
+          case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError
+        else {
+          return XCTFail("Expected engineFailed, got \($0)")
+        }
+        XCTAssertEqual(report.notice.reason, .approvedSpaceChanged)
+        XCTAssertFalse(report.notice.diskUnchanged)
+      }
+    }
+
+    func testLargeEngineStandardErrorIsDrainedAndBounded() async throws {
+      var stderr = Data(repeating: UInt8(ascii: "x"), count: 300_000)
+      stderr.append(Data("\nomarchy_execution.ExecutionAdmissionError: disk layout changed\n".utf8))
+      let fixture = try makeFixture(
+        exitCode: 3,
+        transcript: readOnlyJournal(),
+        standardError: stderr
+      )
+      defer { try? FileManager.default.removeItem(at: fixture.root) }
+      let executor = PinnedAsahiEngineExecutor(effectiveUserID: { 0 })
+      let started = Date()
+
+      await assertThrowsErrorAsync(
+        try await executor.execute(
+          fixture.package,
+          authorization: try machineOwnerAuthorization()
+        )
+      ) {
+        guard
+          case .engineFailed(let report) = $0 as? PinnedAsahiEngineExecutionError
+        else {
+          return XCTFail("Expected engineFailed, got \($0)")
+        }
+        XCTAssertEqual(report.notice.reason, .diskLayoutChanged)
+        XCTAssertLessThanOrEqual(
+          report.redactedStandardErrorTail.count,
+          EngineStandardErrorRedactor.maximumTailCharacters
+        )
+      }
+      XCTAssertLessThan(Date().timeIntervalSince(started), 4)
     }
 
     func testRecoveryAuthorizationFailureRequiresExactRetryCheckpoint()
@@ -383,7 +491,8 @@
       transcript: Data = Data("validated-transcript\n".utf8),
       expectedInstallMode: String = "install",
       checkpointEvidence: [String: Data] = [:],
-      repairManifest: Data? = nil
+      repairManifest: Data? = nil,
+      standardError: Data? = nil
     ) throws -> PinnedExecutorFixture {
       let root = FileManager.default.temporaryDirectory.appendingPathComponent(
         "omarchy-pinned-executor-\(UUID().uuidString.lowercased())",
@@ -473,6 +582,7 @@
         esac
         /bin/cp "$PWD/transcript.jsonl" "$OMARCHY_ENGINE_JOURNAL"
         \(checkpointCommands.joined(separator: "\n"))
+        \(standardError == nil ? "" : #"/bin/cat "$PWD/stderr.txt" >&2"#)
         exit \(exitCode)
         """
       try script.data(using: .utf8)?.write(
@@ -487,6 +597,12 @@
         transcript,
         to: bundleSource.appendingPathComponent("transcript.jsonl")
       )
+      if let standardError {
+        try writePrivate(
+          standardError,
+          to: bundleSource.appendingPathComponent("stderr.txt")
+        )
+      }
 
       let engineURL = packageURL.appendingPathComponent("engine.tar.gz")
       try createArchive(from: bundleSource, at: engineURL)
@@ -529,6 +645,21 @@
         ),
         transcript: transcript
       )
+    }
+
+    private func readOnlyJournal(withEvent: Bool = false) -> Data {
+      let planDigest = String(repeating: "a", count: 64)
+      var lines = [
+        #"{"schema_version":1,"sequence":1,"type":"inspection","payload":{"device_identifier":"apple,j314s","support":"supported"}}"#,
+        #"{"schema_version":1,"sequence":2,"type":"inventory","payload":{"layout_digest":"sha256:\#(String(repeating: "c", count: 64))","system_store_identifier":"disk0","candidates":[]}}"#,
+        #"{"schema_version":1,"sequence":3,"type":"plan","payload":{"plan_digest":"\#(planDigest)","device_identifier":"apple,j314s","store_identifier":"disk0"}}"#,
+      ]
+      if withEvent {
+        lines.append(
+          #"{"schema_version":1,"sequence":4,"type":"event","payload":{"plan_digest":"\#(planDigest)","name":"apfs_preparation_started"}}"#
+        )
+      }
+      return Data((lines.joined(separator: "\n") + "\n").utf8)
     }
 
     private func recoveryRetryTranscript(

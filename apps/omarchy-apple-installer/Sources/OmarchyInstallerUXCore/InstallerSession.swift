@@ -74,9 +74,10 @@
     }
 
     /// One-shot latch: an approved plan may be submitted for execution once.
-    /// Cleared only by the re-inspect / re-prepare reset cascades, plus the one
-    /// provable no-work case (the helper rejected the credentials before it
-    /// imported the package or started the engine).
+    /// Cleared only by the re-inspect / re-prepare reset cascades, plus the
+    /// provable no-work cases: the helper rejected the credentials before it
+    /// imported the package or started the engine, or the engine failed and
+    /// the helper proved from its root-owned journal that no mutation began.
     public private(set) var hasExecutionStarted = false
     public private(set) var recoveryRetryAvailable = false
 
@@ -88,6 +89,9 @@
     private var lastHost: HostDisplay?
     private var lastOmarchyBytes: UInt64?
     private var lastPrepared: (plan: PlanDisplay, update: AssetProgressUpdate)?
+    /// The approved plan the engine refused before changing the disk, kept so
+    /// a re-plan can start from the size the person chose.
+    private var refusedPlan: PlanDisplay?
     /// True while a chosen size is being re-planned; the Plan screen stays
     /// visible with its controls disabled instead of showing the download
     /// screen again.
@@ -170,6 +174,8 @@
         } else if host.supported, !environment.installationBlocked {
           lastHost = host
           phase = .welcome(host)
+        } else if let model = host.unsupportedModel {
+          phase = .unsupported(PlainLanguage.unsupportedModel(model).on(host))
         } else {
           let blockedModel = environment.installationBlocked
           phase = .unsupported(
@@ -209,6 +215,20 @@
       isReplanning = true
       defer { isReplanning = false }
       await preparePlan(host: lastHost, omarchyBytes: omarchyBytes, hold: false)
+    }
+
+    /// After the engine refused the approved plan because the available space
+    /// or disk layout moved, and proved no disk change began, prepare a new
+    /// plan from the refused size. The normal size check clamps it to what is
+    /// available now, and the new plan needs a fresh review and approval.
+    public func replanAfterEngineRefusal() async {
+      guard !isBusy, !isExecuting, !hasExecutionStarted,
+        case .failed(let failure) = phase, failure.replanAvailable,
+        let plan = refusedPlan
+      else { return }
+      refusedPlan = nil
+      phase = .planReview(plan, acknowledged: false)
+      await replan(omarchyBytes: plan.omarchyBytes)
     }
 
     private func preparePlan(
@@ -554,6 +574,17 @@
         return
       }
 
+      if context.kind == .install,
+        case .engineFailed(let notice) = error as? EngineXPCSubmissionError,
+        notice.diskUnchanged
+      {
+        // The helper derived this from the run's root-owned journal, not from
+        // engine output: no event, checkpoint or completion was recorded, so
+        // no disk mutation began. The latch may be released, as for rejected
+        // credentials; any new attempt still needs a new reviewed plan.
+        hasExecutionStarted = false
+        refusedPlan = plan
+      }
       beginInstallingIfNeeded()
       recoveryRetryAvailable = RecoveryAuthorizationRetryPolicy.isEligible(
         after: error
@@ -697,6 +728,7 @@
       recoveryRetryAvailable = false
       isExecuting = false
       lastHost = nil
+      refusedPlan = nil
       encryptLinuxDisk = true
       environment.setEncryptLinuxDisk(true)
       stopPrefetch()
@@ -714,6 +746,7 @@
       hasExecutionStarted = false
       recoveryRetryAvailable = false
       isExecuting = false
+      refusedPlan = nil
       if !keepingPrefetch {
         stopPrefetch()
       }

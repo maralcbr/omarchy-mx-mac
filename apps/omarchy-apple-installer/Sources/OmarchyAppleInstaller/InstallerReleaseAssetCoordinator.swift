@@ -58,6 +58,28 @@
       try await prepareRelease(request, progress: progress).assets
     }
 
+    /// The device identifiers the channel's signed catalog admits, for
+    /// telling an unsupported Mac which models this release covers. Read-only:
+    /// it verifies the signature and rollback floor but records nothing.
+    public func supportedDeviceIdentifiers(
+      configuration: InstallerReleaseConfiguration,
+      channel: ReleaseChannel,
+      validationTime: Date,
+      previouslyAcceptedCatalog: AcceptedCatalogIdentity?
+    ) async throws -> [String] {
+      let documents = try await catalogFetcher.fetch(
+        configuration: configuration,
+        channel: channel
+      )
+      return try AppleInstallerTrustCore().validateSupportCatalog(
+        payload: documents.payload,
+        signature: documents.signature,
+        trustRoot: configuration.trustRoot,
+        now: validationTime,
+        previouslyAccepted: previouslyAcceptedCatalog
+      ).deviceIdentifiers
+    }
+
     public func prepareRelease(
       _ request: InstallerReleasePreparationRequest,
       progress: ArtifactStagingProgressHandler? = nil,
