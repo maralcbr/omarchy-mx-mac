@@ -96,24 +96,14 @@ fi
 # does not ship, and prints "efi_uga.mod not found" at every boot.
 grub_console_set GRUB_VIDEO_BACKEND efi_gop
 
-# The HOOKS mkinitcpio builds with: mkinitcpio.conf, then every drop-in in
-# order, sourced the way mkinitcpio sources them. Empty when unreadable.
-grub_console_initramfs_hooks() {
-  local conf=${OMARCHY_MKINITCPIO_CONF:-/etc/mkinitcpio.conf}
-  local conf_dir=${OMARCHY_MKINITCPIO_CONF_DIR:-/etc/mkinitcpio.conf.d}
-  [[ -r $conf ]] || return 0
-  bash -c 'HOOKS=(); source "$1" >/dev/null 2>&1 || exit 0; shift
-    for drop_in; do [[ -r $drop_in ]] && { source "$drop_in" >/dev/null 2>&1 || exit 0; }; done
-    printf "%s\n" "${HOOKS[*]}"' _ "$conf" "$conf_dir"/*.conf 2>/dev/null || true
-}
-
 # The root-device wait is a systemd fstab option: a systemd initramfs merges
 # every rootflags= on the line, so it rides along with 10_linux's
 # rootflags=subvol=@. The busybox init (the encrypt hook's cryptdevice= Macs
 # installed before Omarchy's images) keeps only the last rootflags=, and a
-# second one drops subvol=@ and the root with it: there the wait goes. A
-# configuration that cannot be read keeps the wait, as every image boots
-# systemd.
+# second one drops subvol=@ and the root with it: there the wait goes. The
+# HOOKS are the ones mkinitcpio builds with (preset, mkinitcpio.conf and its
+# drop-ins); a configuration that cannot be read keeps the wait, as every
+# image boots systemd.
 grub_console_device_wait() {
   local hooks=$1 wait=${device_wait#rootflags=} word flags last=-1 i
   local -a words kept=()
@@ -149,7 +139,7 @@ grub_console_device_wait() {
 
 cmdline=$(grub_console_get GRUB_CMDLINE_LINUX)
 read -ra grub_console_words <<<"$cmdline"
-wanted_cmdline=$(grub_console_device_wait "$(grub_console_initramfs_hooks)" "$cmdline")
+wanted_cmdline=$(grub_console_device_wait "$(omarchy-hw-apple-initramfs-hooks 2>/dev/null || true)" "$cmdline")
 # Words unchanged: the line stays as the Mac wrote it, spacing and all.
 [[ $wanted_cmdline == "${grub_console_words[*]}" ]] && wanted_cmdline=$cmdline
 grub_console_set GRUB_CMDLINE_LINUX "$wanted_cmdline"

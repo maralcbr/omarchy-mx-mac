@@ -346,7 +346,7 @@ expect_fail "an encrypted root whose initramfs lacks sd-encrypt" "/boot/initramf
 system linux-asahi
 printf '/dev/mapper/root / btrfs subvol=@ 0 0\n' >"$root/etc/fstab"
 printf 'linux /vmlinuz-linux-asahi root=UUID=x rw rootflags=subvol=@ cryptdevice=UUID=0422663f-9969-4953-900f-b342703b7e84:root:allow-discards quiet\ninitrd /initramfs-linux-asahi.img\n' >"$root/boot/grub/grub.cfg"
-printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\nusr/bin/init\nhooks/encrypt\n' "$kver" >"$test_tmp/initramfs"
+printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\nusr/bin/init\ninit_functions\nhooks/encrypt\n' "$kver" >"$test_tmp/initramfs"
 printf '==> Image: initramfs\n==> Hook run order:\n  base\n  udev\n  encrypt\n' >"$test_tmp/initramfs.analyze"
 export TEST_LSBLK_CHAIN="/dev/mapper/root btrfs\n/dev/nvme0n1p5 crypto_LUKS\n/dev/nvme0n1 \n"
 export TEST_LUKS_UUID=0422663f-9969-4953-900f-b342703b7e84
@@ -361,6 +361,14 @@ expect_fail "a busybox encrypt root without cryptdevice=" "does not set cryptdev
 sed -i 's| rw | rw cryptdevice=UUID=11111111-2222-3333-4444-555555555555:root |' "$root/boot/grub/grub.cfg"
 run_check
 expect_fail "a busybox encrypt root whose cryptdevice= names another partition" "does not name the LUKS partition"
+printf 'linux /vmlinuz-linux-asahi root=UUID=x rw rootflags=subvol=@\nlinux /vmlinuz-linux-asahi root=UUID=x rw rootflags=subvol=@ cryptdevice=UUID=0422663f-9969-4953-900f-b342703b7e84:root single\ninitrd /initramfs-linux-asahi.img\n' >"$root/boot/grub/grub.cfg"
+run_check
+expect_fail "a busybox encrypt entry without cryptdevice= beside one with it" "does not set cryptdevice="
+# An image with the encrypt hook and a systemd init runs systemd: the
+# sd-encrypt and crypttab checks still apply.
+printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\nusr/bin/init\ninit_functions\nhooks/encrypt\nusr/lib/systemd/systemd\n' "$kver" >"$test_tmp/initramfs"
+run_check
+expect_fail "a systemd image carrying the encrypt hook" "encrypted root has no crypttab"
 printf 'usr/lib/modules/%s/kernel/drivers/gpu/drm/apple/appledrm.ko.zst\nusr/bin/init\n' "$kver" >"$test_tmp/initramfs"
 printf '==> Image: initramfs\n==> Hook run order:\n  base\n  udev\n' >"$test_tmp/initramfs.analyze"
 run_check

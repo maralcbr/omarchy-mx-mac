@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# omarchy:summary=Print the mkinitcpio HOOKS the Apple Silicon kernel's initramfs is built with
+# omarchy:hidden=true
+
+# Resolves the configuration the way mkinitcpio -P does for the kernel's
+# default preset: a default_config or ALL_config in the preset is passed as
+# -c and disables the drop-ins; otherwise /etc/mkinitcpio.conf is joined by
+# every /etc/mkinitcpio.conf.d/*.conf in version order (LC_ALL=C.UTF-8
+# sort -V, as mkinitcpio sorts them) and sourced as one file. Prints HOOKS on
+# one line and exits 0, or exits 1 when the configuration cannot be read or
+# sets no HOOKS, so a caller can tell "busybox" from "unknown".
+
+set -euo pipefail
+
+conf=${OMARCHY_MKINITCPIO_CONF:-/etc/mkinitcpio.conf}
+conf_dir=${OMARCHY_MKINITCPIO_CONF_DIR:-$conf.d}
+preset_dir=${OMARCHY_MKINITCPIO_PRESET_DIR:-/etc/mkinitcpio.d}
+kernel=${OMARCHY_MKINITCPIO_KERNEL:-$(omarchy-hw-apple-kernel 2>/dev/null || echo linux-asahi)}
+
+drop_ins=1
+preset="$preset_dir/$kernel.preset"
+if [[ -r $preset ]]; then
+  explicit=$(bash -c '. "$1" >/dev/null 2>&1 || exit 1; printf "%s" "${default_config:-${ALL_config:-}}"' _ "$preset") || exit 1
+  if [[ -n $explicit ]]; then
+    conf=$explicit
+    drop_ins=0
+  fi
+fi
+[[ -r $conf ]] || exit 1
+
+files=("$conf")
+if (( drop_ins )) && [[ -d $conf_dir ]]; then
+  while IFS= read -r -d '' name; do
+    [[ -r $conf_dir/$name ]] && files+=("$conf_dir/$name")
+  done < <(LC_ALL=C.UTF-8 find "$conf_dir" -maxdepth 1 -xtype f -name '*.conf' -print0 | sed -z 's/.*\///' | LC_ALL=C.UTF-8 sort -zVu)
+fi
+
+joined=$(mktemp)
+trap 'rm -f "$joined"' EXIT
+cat -- "${files[@]}" >"$joined"
+hooks=$(bash -c 'HOOKS=(); . "$1" >/dev/null 2>&1 || exit 1; printf "%s" "${HOOKS[*]}"' _ "$joined") || exit 1
+[[ -n $hooks ]] || exit 1
+printf '%s\n' "$hooks"

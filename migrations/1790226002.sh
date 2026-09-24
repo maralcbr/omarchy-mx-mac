@@ -20,8 +20,6 @@ grub_default=${OMARCHY_GRUB_DEFAULT:-/etc/default/grub}
 grub_cfg=${OMARCHY_GRUB_CFG:-/boot/grub/grub.cfg}
 backup_dir=${OMARCHY_GRUB_BACKUP_DIR:-/var/lib/omarchy/backups}
 proc_cmdline=${OMARCHY_PROC_CMDLINE:-/proc/cmdline}
-mkinitcpio_conf=${OMARCHY_MKINITCPIO_CONF:-/etc/mkinitcpio.conf}
-mkinitcpio_conf_dir=${OMARCHY_MKINITCPIO_CONF_DIR:-/etc/mkinitcpio.conf.d}
 device_wait='rootflags=x-systemd.device-timeout=0'
 
 [[ -f $grub_default ]] || exit 0
@@ -31,33 +29,36 @@ fi
 command -v "${OMARCHY_GRUB_PROBE:-grub-probe}" >/dev/null 2>&1 &&
   command -v "${OMARCHY_GRUB_MKCONFIG:-grub-mkconfig}" >/dev/null 2>&1 || exit 0
 
-# The HOOKS mkinitcpio builds with: mkinitcpio.conf, then every drop-in in
-# order, sourced the way mkinitcpio sources them.
-[[ -r $mkinitcpio_conf ]] || exit 0
-hooks=$(bash -c 'HOOKS=(); source "$1" >/dev/null 2>&1 || exit 0; shift
-  for drop_in; do [[ -r $drop_in ]] && { source "$drop_in" >/dev/null 2>&1 || exit 0; }; done
-  printf "%s\n" "${HOOKS[*]}"' _ "$mkinitcpio_conf" "$mkinitcpio_conf_dir"/*.conf 2>/dev/null || true)
-[[ -n $hooks && " $hooks " != *" systemd "* ]] || exit 0
+# The HOOKS mkinitcpio builds with (preset, mkinitcpio.conf, drop-ins); a
+# configuration that cannot be read proves nothing.
+hooks=$(omarchy-hw-apple-initramfs-hooks 2>/dev/null) || exit 0
+[[ " $hooks " != *" systemd "* ]] || exit 0
 
 # The value GRUB would use: the last active assignment, quotes stripped.
 get_assignment() {
   sed -n "s/^$1=//p" "$grub_default" | tail -n 1 | sed -E "s/^\"(.*)\"$/\1/; s/^'(.*)'$/\1/"
 }
 
+# Replace the defaults file in one rename: a failure leaves the old one whole.
+install_defaults() {
+  sudo install -m 644 "$1" "$grub_default.omarchy-new"
+  sudo mv -f "$grub_default.omarchy-new" "$grub_default"
+}
+
 # One authoritative assignment: the first occurrence takes the value, every
 # later one goes.
 set_assignment() {
-  local key=$1 value=$2 staged
-  staged=$(mktemp)
+  local key=$1 value=$2
   KEY=$key LINE="$key=\"$value\"" awk '
     index($0, ENVIRON["KEY"] "=") == 1 { if (!done) { print ENVIRON["LINE"]; done = 1 }; next }
     { print }
     END { if (!done) print ENVIRON["LINE"] }
-  ' "$grub_default" >"$staged"
-  sudo cp "$staged" "$grub_default"
-  rm -f "$staged"
+  ' "$grub_default" >"$work/staged"
+  install_defaults "$work/staged"
 }
 
+root_source=$(findmnt -no SOURCE / 2>/dev/null || true)
+root_source=${root_source%%[*}
 cmdline=$(get_assignment GRUB_CMDLINE_LINUX)
 cmdline_default=$(get_assignment GRUB_CMDLINE_LINUX_DEFAULT)
 read -ra words <<<"$cmdline"
@@ -76,8 +77,6 @@ done
 cryptdevice=""
 if [[ " $hooks " == *" encrypt "* && " $cmdline $cmdline_default " != *" cryptdevice="* &&
   " $cmdline $cmdline_default " != *" rd.luks."* ]]; then
-  root_source=$(findmnt -no SOURCE / 2>/dev/null || true)
-  root_source=${root_source%%[*}
   mapper="" luks_part=""
   if [[ $root_source == /dev/* ]]; then
     while read -r name type fstype; do
@@ -123,37 +122,52 @@ fi
 (( changed )) || exit 0
 
 echo "Restoring the busybox initramfs kernel line: ${cryptdevice:-no cryptdevice= needed}, no second rootflags="
+work=$(mktemp -d)
+cp "$grub_default" "$work/before"
 sudo mkdir -p "$backup_dir"
 backup="$backup_dir/grub.pre-cmdline-repair"
 [[ -e $backup ]] || sudo cp "$grub_default" "$backup"
-before=$(mktemp)
-cp "$grub_default" "$before"
 
+# From the first edit on, any failure puts the defaults and grub.cfg back.
 restore() {
+  trap - ERR
   echo "$1; restoring $grub_default. The GRUB repair migration will retry later." >&2
-  sudo cp "$before" "$grub_default"
-  rm -f "$before"
+  install_defaults "$work/before" || echo "Could not restore $grub_default; the original is $backup." >&2
   sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null 2>&1 || echo "update-grub failed while restoring GRUB." >&2
+  rm -rf "$work"
   exit 1
 }
+set -E
+trap 'restore "a repair step failed"' ERR
 
 set_assignment GRUB_CMDLINE_LINUX "${kept[*]}"
 sudo "${OMARCHY_UPDATE_GRUB:-update-grub}" >/dev/null || restore "update-grub failed"
 
-# Every kernel entry now carries one rootflags= (with subvol= when the root
-# is a subvolume, as 10_linux writes it), no device wait, and the cryptdevice=.
+# Every kernel entry of this root (root= its filesystem UUID or device;
+# another installation's entries are not ours to judge) now carries one
+# rootflags= (with subvol= when the root is a subvolume, as 10_linux writes
+# it), no device wait, and the cryptdevice=.
 fsroot=$(findmnt -no FSROOT / 2>/dev/null || true)
-entries=$(sudo cat "$grub_cfg" 2>/dev/null | grep -E '^[[:space:]]*linux[[:space:]]+[^[:space:]]*/vmlinuz' || true)
-[[ -n $entries ]] || restore "$grub_cfg has no kernel entry"
+fs_uuid=$(findmnt -no UUID / 2>/dev/null || true)
+entries=$(sudo cat "$grub_cfg" 2>/dev/null | grep -E '^[[:space:]]*linux[[:space:]]' || true)
+ours=0
 while read -r entry; do
+  [[ -n $entry ]] || continue
+  if [[ ! ( -n $fs_uuid && " $entry " == *" root=UUID=$fs_uuid "* ) && " $entry " != *" root=$root_source "* ]]; then
+    continue
+  fi
+  ours=$((ours + 1))
   rootflags=$({ grep -Eo '(^|[[:space:]])rootflags=[^[:space:]]*' <<<"$entry" || true; } | wc -l)
   if [[ -n $fsroot && $fsroot != / ]]; then
-    (( rootflags == 1 )) && grep -Eq '(^|[[:space:]])rootflags=([^[:space:]]*,)?subvol=' <<<"$entry" ||
+    if (( rootflags != 1 )) || ! grep -Eq '(^|[[:space:]])rootflags=([^[:space:]]*,)?subvol=' <<<"$entry"; then
       restore "a kernel entry does not carry exactly one rootflags= with subvol="
-  else
-    (( rootflags <= 1 )) || restore "a kernel entry carries more than one rootflags="
+    fi
+  elif (( rootflags > 1 )); then
+    restore "a kernel entry carries more than one rootflags="
   fi
   [[ " $entry " != *" $device_wait "* ]] || restore "a kernel entry still waits through a second rootflags="
   [[ -z $cryptdevice || " $entry " == *" $cryptdevice "* ]] || restore "a kernel entry does not carry $cryptdevice"
 done <<<"$entries"
-rm -f "$before"
+(( ours > 0 )) || restore "$grub_cfg has no kernel entry for this root"
+trap - ERR
+rm -rf "$work"

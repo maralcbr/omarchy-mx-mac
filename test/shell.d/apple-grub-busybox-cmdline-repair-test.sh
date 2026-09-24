@@ -26,7 +26,7 @@ mkdir -p "$tmp/bin" "$tmp/conf.d"
 export CALL_LOG="$tmp/calls"
 export PATH="$tmp/bin:$ROOT/bin:$PATH"
 printf '#!/bin/bash\nexit "${APPLE:-0}"\n' >"$tmp/bin/omarchy-hw-apple-silicon"
-printf '#!/bin/bash\nexec "$@"\n' >"$tmp/bin/sudo"
+printf '#!/bin/bash\n[[ ${TEST_MV_FAIL:-0} == 1 && $1 == mv ]] && exit 1\nexec "$@"\n' >"$tmp/bin/sudo"
 printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/grub-probe"
 printf '#!/bin/bash\nexit 0\n' >"$tmp/bin/grub-mkconfig"
 # update-grub renders the entries the way 10_linux does: rootflags=subvol=
@@ -39,16 +39,20 @@ source "$OMARCHY_GRUB_DEFAULT"
 line=$GRUB_CMDLINE_LINUX
 [[ ${TEST_FSROOT:-/} == / ]] || line="rootflags=subvol=${TEST_FSROOT#/} $line"
 [[ -z ${TEST_EXTRA_ROOTFLAGS:-} ]] || line="$line $TEST_EXTRA_ROOTFLAGS"
+# Another installation's entry (os-prober) is not this root's to judge.
+[[ -z ${TEST_FOREIGN:-} ]] || printf "menuentry 'Other Linux' {\n\tlinux\t/Image root=UUID=0ther000-0000-4000-8000-000000000002 rw rootflags=subvol=@ rootflags=noatime\n}\n" >>"$OMARCHY_GRUB_CFG.foreign"
 {
   printf "menuentry 'Arch Linux' {\n\tlinux\t/vmlinuz-linux-asahi root=UUID=5e1c0d3a-0000-4000-8000-000000000001 rw %s %s\n\tinitrd\t/initramfs-linux-asahi.img\n}\n" "$line" "$GRUB_CMDLINE_LINUX_DEFAULT"
   printf "menuentry 'Arch Linux (fallback)' {\n\tlinux\t/vmlinuz-linux-asahi root=UUID=5e1c0d3a-0000-4000-8000-000000000001 rw %s single\n}\n" "$line"
 } >"$OMARCHY_GRUB_CFG"
+[[ ! -f $OMARCHY_GRUB_CFG.foreign ]] || { cat "$OMARCHY_GRUB_CFG.foreign" >>"$OMARCHY_GRUB_CFG"; rm "$OMARCHY_GRUB_CFG.foreign"; }
 SH
 cat >"$tmp/bin/findmnt" <<'SH'
 #!/bin/bash
 case "$*" in
   "-no SOURCE /") echo "$TEST_ROOT_SOURCE[${TEST_FSROOT:-/}]" ;;
   "-no FSROOT /") echo "${TEST_FSROOT:-/}" ;;
+  "-no UUID /") echo 5e1c0d3a-0000-4000-8000-000000000001 ;;
   *) exit 1 ;;
 esac
 SH
@@ -81,7 +85,8 @@ run() {
   : >"$CALL_LOG"
   OMARCHY_GRUB_DEFAULT="$tmp/grub" OMARCHY_GRUB_CFG="$tmp/grub.cfg" OMARCHY_GRUB_BACKUP_DIR="$tmp/backups" \
   OMARCHY_PROC_CMDLINE="$tmp/cmdline" OMARCHY_MKINITCPIO_CONF="${MKINITCPIO_CONF:-$busybox}" \
-  OMARCHY_MKINITCPIO_CONF_DIR="$tmp/conf.d" \
+  OMARCHY_MKINITCPIO_CONF_DIR="$tmp/conf.d" OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" \
+  OMARCHY_MKINITCPIO_KERNEL=linux-asahi \
   OMARCHY_LIMINE_GATE="$tmp/limine.enabled" OMARCHY_LIMINE_DEFAULT="$tmp/limine" \
     bash -euo pipefail "$migration" >"$tmp/out" 2>&1
 }
@@ -140,6 +145,20 @@ cmp -s "$damaged" "$tmp/grub" || fail "a failed verification restores the defaul
 grep -Fq 'will retry later' "$tmp/out" || fail "the failure says it retries: $(<"$tmp/out")"
 pass "a regeneration that does not verify is rolled back and retried"
 
+# A step that fails after the backup (the rename into place) rolls back too.
+cp "$damaged" "$tmp/grub"
+if TEST_MV_FAIL=1 run; then fail "a failed rename fails the repair"; fi
+cmp -s "$damaged" "$tmp/grub" || fail "a failed rename leaves the defaults whole: $(<"$tmp/grub")"
+grep -Fq 'will retry later' "$tmp/out" || fail "the failed step is reported: $(<"$tmp/out")"
+pass "any failure after the first edit rolls back"
+
+# Another installation's entry in grub.cfg does not fail the verification.
+cp "$damaged" "$tmp/grub"
+TEST_FOREIGN=1 run || fail "a foreign entry does not fail the repair: $(<"$tmp/out")"
+grep -Fq 'Other Linux' "$tmp/grub.cfg" && grep -Fxq "GRUB_CMDLINE_LINUX=\"cryptdevice=UUID=$luks_uuid:root\"" "$tmp/grub" ||
+  fail "the repair lands beside a foreign entry: $(<"$tmp/grub")"
+pass "only this root's kernel entries are verified"
+
 # A busybox Mac without encryption: only the wait comes off.
 printf 'HOOKS=(base asahi udev autodetect modconf kms keyboard block filesystems fsck)\n' >"$tmp/plain.conf"
 printf 'GRUB_CMDLINE_LINUX="zswap.enabled=0 rootflags=x-systemd.device-timeout=0"\nGRUB_CMDLINE_LINUX_DEFAULT="quiet"\n' >"$tmp/grub"
@@ -164,7 +183,14 @@ printf 'HOOKS=(base systemd block sd-encrypt filesystems)\n' >"$tmp/conf.d/91-te
 run || fail "a drop-in systemd Mac runs: $(<"$tmp/out")"
 cmp -s "$damaged" "$tmp/grub" && [[ ! -s $CALL_LOG ]] || fail "a drop-in that makes the initramfs systemd is honoured"
 rm "$tmp/conf.d/91-test.conf"
-pass "a systemd initramfs, from mkinitcpio.conf or a drop-in, is left alone"
+mkdir -p "$tmp/presets"
+printf 'PRESETS=(default)\ndefault_config=%s\n' "$systemd" >"$tmp/presets/linux-asahi.preset"
+run || fail "a preset systemd Mac runs: $(<"$tmp/out")"
+cmp -s "$damaged" "$tmp/grub" && [[ ! -s $CALL_LOG ]] || fail "the preset's configuration decides"
+rm -rf "$tmp/presets"
+MKINITCPIO_CONF="$tmp/missing.conf" run || fail "an unreadable configuration runs: $(<"$tmp/out")"
+cmp -s "$damaged" "$tmp/grub" && [[ ! -s $CALL_LOG ]] || fail "an unreadable configuration proves nothing"
+pass "a systemd initramfs (mkinitcpio.conf, drop-in or preset) or an unreadable one is left alone"
 
 printf 'GRUB_CMDLINE_LINUX=""\nGRUB_CMDLINE_LINUX_DEFAULT="loglevel=3 cryptdevice=UUID=%s:root:allow-discards quiet"\n' "$luks_uuid" >"$tmp/grub"
 cp "$tmp/grub" "$tmp/correct"

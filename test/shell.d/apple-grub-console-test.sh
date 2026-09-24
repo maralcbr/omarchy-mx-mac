@@ -48,7 +48,8 @@ run_leaf() {
   OMARCHY_GRUB_THEME_SOURCE="$theme" OMARCHY_GRUB_FONT_SOURCE_DIR="$tmp/liberation" \
   OMARCHY_GRUB_LINUX_SCRIPT="$tmp/grub.d/10_linux" OMARCHY_GRUB_BACKUP_DIR="$tmp/backups" \
   OMARCHY_MKINITCPIO_CONF="${MKINITCPIO_CONF:-$ROOT/test/fixtures/mkinitcpio/systemd.conf}" \
-  OMARCHY_MKINITCPIO_CONF_DIR="$tmp/mkinitcpio.conf.d" \
+  OMARCHY_MKINITCPIO_CONF_DIR="$tmp/mkinitcpio.conf.d" OMARCHY_MKINITCPIO_PRESET_DIR="$tmp/presets" \
+  OMARCHY_MKINITCPIO_KERNEL=linux-asahi \
     bash -euo pipefail -c 'source "$1"' _ "$leaf" >"$tmp/out" 2>&1
 }
 
@@ -160,8 +161,20 @@ printf 'GRUB_CMDLINE_LINUX="zswap.enabled=0"\n' >"$tmp/grub"
 MKINITCPIO_CONF="$tmp/stock.conf" run_leaf || fail "drop-ins resolve: $(<"$tmp/out")"
 grep -Fxq 'GRUB_CMDLINE_LINUX="zswap.enabled=0 rootflags=x-systemd.device-timeout=0"' "$tmp/grub" ||
   fail "a drop-in that makes the initramfs systemd keeps the wait: $(<"$tmp/grub")"
-rm -rf "$tmp/mkinitcpio.conf.d"
-pass "the initramfs kind comes from mkinitcpio.conf and its drop-ins"
+# Drop-ins apply in version order, as mkinitcpio sorts them: a local
+# 100-*.conf comes after 91-*.conf and puts the busybox line back.
+printf 'HOOKS=(base udev block encrypt filesystems)\n' >"$tmp/mkinitcpio.conf.d/100-local.conf"
+printf 'GRUB_CMDLINE_LINUX="zswap.enabled=0"\n' >"$tmp/grub"
+MKINITCPIO_CONF="$tmp/stock.conf" run_leaf || fail "version-ordered drop-ins resolve: $(<"$tmp/out")"
+grep -Fxq 'GRUB_CMDLINE_LINUX="zswap.enabled=0"' "$tmp/grub" || fail "100-local.conf is applied after 91-test.conf: $(<"$tmp/grub")"
+# A preset that names its configuration (-c) builds without the drop-ins.
+rm "$tmp/mkinitcpio.conf.d/100-local.conf"
+mkdir -p "$tmp/presets"
+printf 'PRESETS=(default)\nALL_kver=/boot/vmlinuz-linux-asahi\nALL_config=%s\n' "$busybox" >"$tmp/presets/linux-asahi.preset"
+MKINITCPIO_CONF="$tmp/stock.conf" run_leaf || fail "a preset configuration resolves: $(<"$tmp/out")"
+grep -Fxq 'GRUB_CMDLINE_LINUX="zswap.enabled=0"' "$tmp/grub" || fail "the preset's configuration, without drop-ins, decides: $(<"$tmp/grub")"
+rm -rf "$tmp/mkinitcpio.conf.d" "$tmp/presets"
+pass "the initramfs kind comes from the preset, mkinitcpio.conf and its drop-ins in mkinitcpio's order"
 
 # A failed update-grub leaves the regeneration owed.
 printf '#!/bin/bash\necho update-grub >>"$CALL_LOG"; exit 1\n' >"$tmp/bin/update-grub"
