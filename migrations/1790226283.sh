@@ -38,9 +38,11 @@ cp -p "$bashrc" "$backup"
 cp "$omarchy_bashrc" "$bashrc.omarchy-new"
 mv "$bashrc.omarchy-new" "$bashrc"
 
-# Login shells read ~/.bash_profile; Arch's skeleton ships one that sources
-# ~/.bashrc, and a home without one gets the same line.
-if [[ ! -e $bash_profile && ! -L $bash_profile ]]; then
+# Login shells read the first of ~/.bash_profile, ~/.bash_login and ~/.profile;
+# Arch's skeleton ships a ~/.bash_profile that sources ~/.bashrc. A home with
+# none of them gets that line; one with any of them keeps what it has.
+if [[ ! -e $bash_profile && ! -L $bash_profile && ! -e $HOME/.bash_login && ! -L $HOME/.bash_login &&
+  ! -e $HOME/.profile && ! -L $HOME/.profile ]]; then
   echo '[[ -f ~/.bashrc ]] && . ~/.bashrc' >"$bash_profile"
 fi
 

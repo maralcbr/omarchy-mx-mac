@@ -68,6 +68,15 @@ cmp -s "$tmp/home/.bashrc" "$ROOT/default/bashrc" || fail "the installed bash pa
 [[ $(<"$tmp/home/.bash_profile") == '# user profile' ]] || fail "an existing ~/.bash_profile is left alone"
 pass "the installed bash package's own skeleton is recognised"
 
+for login_file in .bash_login .profile; do
+  reset_home "$arch_2023"
+  printf '%s\n' '# user login file' >"$tmp/home/$login_file"
+  migrate || fail "the migration runs with a $login_file" "$(<"$tmp/out")"
+  cmp -s "$tmp/home/.bashrc" "$ROOT/default/bashrc" || fail "a home with a $login_file still gets Omarchy's ~/.bashrc"
+  [[ ! -e $tmp/home/.bash_profile ]] || fail "a ~/.bash_profile would shadow the user's $login_file"
+done
+pass "a ~/.bash_login or ~/.profile is not shadowed by a new ~/.bash_profile"
+
 mtree_for "$future" "$tmp/db/local/bash-completion-2.16.0-1/mtree"
 : | gzip -c >"$tmp/db/local/bash-5.3.20-1/mtree"
 reset_home "$future"
