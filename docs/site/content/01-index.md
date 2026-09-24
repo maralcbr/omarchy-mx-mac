@@ -22,6 +22,7 @@ It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). E
 | Installer app | 2.0.9 (opens on Stable at every launch; choose RC from the Release Channel menu) |
 | Stable channel | `os-v4.0.4-mac.1.20260924-rc`, Aurora kernel, Limine boot menu (since 2026-09-24) |
 | Release candidate channel | `os-v4.0.4-mac.1.20260924-rc`, the same image |
+| Installed Macs update to | Runtime channel 58 (`4.0.4.r7094.g16eaa2f-1`) and package channel 14, since 2026-09-24 |
 | Macs a new install admits | The 22 M1 and M2 models; hardware-qualified on the MacBook Pro 14" M1 Pro (`apple,j314s`) and 16" M2 Max (`apple,j416c`) |
 | Reference Mac | MacBook Pro 14" 2021, M1 Pro (`apple,j314s`) |
 | Also exercised | MacBook Pro 16" 2023, M2 Max (`apple,j416c`), five displays |

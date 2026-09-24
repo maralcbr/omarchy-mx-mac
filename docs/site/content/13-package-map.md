@@ -8,7 +8,7 @@ description: Every x86 Omarchy default package and what Omacom aarch64, MX Mac a
 Every package in Omarchy's x86_64 default lists, and what each of the three Arm
 variants does with it. Rows marked ✗ are the gaps.
 
-Snapshot: 2026-09-24 17:57 (Brisbane), from the live package databases.
+Snapshot: 2026-09-24 21:10 (Brisbane), from the live package databases.
 
 ## The four variants
 
@@ -16,7 +16,7 @@ Snapshot: 2026-09-24 17:57 (Brisbane), from the live package databases.
 |---|---|---|---|---|
 | **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `28ceaae7` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
 | **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (22 packages; `edge` has 143) | None yet: this column is what those repos can serve |
-| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `8fb25234` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
+| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `ab4d4787` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
 | **Omarchy Mac** | [`omacom/omarchy-mac`](https://github.com/omacom/omarchy-mac) `quattro` @ `e77295a9` | Its own copy of `omarchy-base.packages`/`omarchy-other.packages`, minus `install/omarchy-aarch64-unavailable.packages` | Community `[omarchy-aarch64]` + `[asahi-alarm]` + ALARM; `pkgs.omarchy.org/edge/aarch64` only for explicit targets (Hyprland stack, `asdcontrol`, `tobi-try`) | `install.sh` on top of an Asahi ALARM install, via `yay` |
 
 ## Summary

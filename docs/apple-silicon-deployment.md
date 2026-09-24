@@ -93,6 +93,9 @@ beside the evidence it copied to `~/vm-evidence/<candidate tag>/<run-id>/`) to
 this repository as `docs/releases/asahi-packages-candidate-<8hex>-acceptance.txt`.
 A valid record of the same candidate already on `main` stands in for a new VM
 run.
+When the run took `--hardware-evidence FILE`, commit that file byte for byte
+beside it as `docs/releases/asahi-packages-candidate-<8hex>-hardware-evidence.txt`;
+the acceptance record names its SHA-256.
 
 ### Resume
 

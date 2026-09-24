@@ -159,6 +159,12 @@ The image embeds the `4.0.4.r7081.gca187b0-1` runtime and settings from
 [runtime channel 57](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-57),
 on top of the
 [stable packages](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-stable-2949b88ccfc303e3c423106eafa68c9088ab6eea).
+Installed Macs have since moved on: since 2026-09-24 `omarchy update` brings
+them to the `4.0.4.r7094.g16eaa2f-1` runtime from
+[runtime channel 58](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-58)
+and the packages of
+[package channel 14](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-channel-14)
+([notes](docs/releases/asahi-quattro-channel-58.md)).
 The app follows the latest signed catalog for the channel you select; cached
 files are reused only when their size and SHA-256 match that catalog.
 
@@ -217,7 +223,7 @@ complete output and open a verified bug report with the commands above.
 - [Omarchy MX Mac manual](https://omarchy-mx-mac.org/)
 - [Latest product release and validation notes](https://github.com/maralcbr/omarchy-mx-mac/releases/latest)
 - [Installer download (Stable)](https://downloads.aicodelabs.com.au/installer/stable/Omarchy-MX-Mac-Installer.pkg)
-- [Current runtime channel 57](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-57) and [package channel 13](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-channel-13)
+- [Current runtime channel 58](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-quattro-channel-58) and [package channel 14](https://github.com/maralcbr/omarchy-pkgs/releases/tag/asahi-packages-channel-14) ([notes](docs/releases/asahi-quattro-channel-58.md))
 - [Issues](https://github.com/maralcbr/omarchy-mx-mac/issues)
 - [Discussions](https://github.com/maralcbr/omarchy-mx-mac/discussions)
 

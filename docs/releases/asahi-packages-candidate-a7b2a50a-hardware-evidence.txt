@@ -1,0 +1,12 @@
+Hardware evidence for release of omarchy-mx-mac 16eaa2fb (runtime channel 58), 2026-09-24 (Brisbane).
+Mac: MacBook Pro 16" M2 Max (apple,j416c, omarchy-m2-max), LUKS2 root, Limine active, Aurora rc lane, linux-aurora 7.1.12-2-7.
+Installed from candidate asahi-packages-candidate-a7b2a50a (signed packages): limine-mkinitcpio-hook 1.36.0-3 -> 1.36.0-4,
+omarchy-mac-boot 20260921-9 -> 20260921-10, omarchy-dev/omarchy-settings-dev 4.0.4.r7094.g16eaa2f-1. UKI rebuilt by the hook;
+migrations 1790197726, 1790225826, 1790226002, 1790226271, 1790226283 ran clean; boot check passed before reboot.
+Console keymap set to dk-latin1 / XKB dk; the UKI initrd carries etc/vconsole.conf (dk), dk-latin1.map.gz and xkb symbols/dk.
+Owner cold boot at the machine (power off, power on) 20:48: passphrase accepted at the Plymouth prompt, desktop reached.
+After boot: omarchy-apple-silicon-boot-check passed; no failed system or user units; omarchy-vendor-firmware active;
+speakersafetyd active; j416-convolver speaker sink present and default.
+candidate_sha256=ce9a7f59b1fd0b6130578dcec7d8d66619a658957cc57bab2b2f110498fba006
+boot=limine-mkinitcpio-hook 1.36.0-4
+boot=omarchy-mac-boot 20260921-10

@@ -4,6 +4,22 @@ Release notes for the maintained Apple Silicon line are version-controlled in
 [`docs/releases/`](docs/releases/). GitHub Releases publish those files
 verbatim.
 
+## Runtime channel 58 - 2026-09-24
+
+An update within 4.0.4-mac.1 for installed Macs; the version is unchanged.
+
+- Runtime `4.0.4.r7094.g16eaa2f-1` from `omarchy-mx-mac` `16eaa2fb`, on package
+  channel 14 (`asahi-packages-stable-a7b2a50a`).
+- Drops the `software-dsp.lua` overlay that hung WirePlumber on a J293, replaces
+  a stock Arch `~/.bashrc`, installs Tensaku and the prebuilt `voxtype-bin`.
+- Limine migration survives a pending kernel reboot, an ESP at `/boot` and an
+  ext4 root; GRUB Macs with busybox `encrypt` keep booting; the boot check
+  verifies the keyboard layout in the boot image.
+- VM acceptance on the M2 Max and a LUKS2 Limine cold boot on the M2 Max. The
+  #235 non-US layout lockout is not proven fixed yet.
+
+[Release notes](docs/releases/asahi-quattro-channel-58.md) | [Full diff](https://github.com/maralcbr/omarchy-mx-mac/compare/ca187b0a...16eaa2fb)
+
 ## [4.0.4-mac.1] - 2026-09-23
 
 - Integrate upstream Omarchy 4.0.4; both new x86 kernel migrations are skipped
