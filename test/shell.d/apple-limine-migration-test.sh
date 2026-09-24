@@ -192,6 +192,11 @@ for assignment in 'export default_options="-c /etc/mkinitcpio-busybox.conf"' 'de
   run_migration
   expect_wait "a preset with $assignment" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
 done
+# A value that goes on past its first line is read whole.
+ready
+printf 'default_options="-S autodetect\n  -c /etc/mkinitcpio-busybox.conf"\n' >>"$preset_dir/linux-asahi.preset"
+run_migration
+expect_wait "a preset option on a second line" "the mkinitcpio HOOKS of this Mac's initramfs cannot be read"
 # Arch's own preset settings: no options, empty ones, the fallback's -S autodetect.
 for assignment in 'default_options=""' 'default_options=()' "default_options=('')" 'fallback_options=(-S autodetect)'; do
   ready

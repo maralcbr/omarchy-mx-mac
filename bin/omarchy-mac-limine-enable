@@ -116,7 +116,8 @@ preset_uses_global() {
         words=("${list[@]}")
         unset -n list
       else
-        read -ra words <<<"${!options:-}"
+        # Every line of the value: mkinitcpio splits it on any whitespace.
+        read -ra words -d "" <<<"${!options:-}" || true
       fi
       [[ -z ${words[*]} || ${words[*]} == "-S autodetect" ]] || exit 1
     done
