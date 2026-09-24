@@ -231,12 +231,45 @@ sd_encrypt_in_initramfs() {
     grep -Eq '(^|/)usr/bin/systemd-cryptsetup$' "$workdir/initramfs"
 }
 
+# A Mac installed before Omarchy's images can unlock its root in mkinitcpio's
+# busybox init: the encrypt hook and a cryptdevice= on GRUB's kernel line.
+# That init keeps only the last rootflags=, so a second one loses subvol=@.
+busybox_encrypt_in_initramfs() {
+  local analyze
+  grep -Eq '(^|/)hooks/encrypt$' "$workdir/initramfs" && return 0
+  analyze=$(sudo lsinitcpio -a "$(path "/boot/initramfs-$kernel.img")" 2>/dev/null) || return 1
+  grep -Eq '(^|[[:space:]])encrypt([[:space:]]|$)' <<<"$analyze"
+}
+
+busybox_luks=0
+if (( ! limine_mac )) && root_on_luks && busybox_encrypt_in_initramfs; then
+  busybox_luks=1
+  kernel_lines=$(sudo grep -E '^[[:space:]]*linux[[:space:]]' "$grub_cfg" | grep -F "vmlinuz-$kernel" || true)
+  cryptdevice_arg=$(grep -Eo '(^|[[:space:]])cryptdevice=[^[:space:]]+' <<<"$kernel_lines" | tail -n 1 || true)
+  cryptdevice_arg=${cryptdevice_arg#"${cryptdevice_arg%%[![:space:]]*}"}
+  [[ -n $cryptdevice_arg ]] ||
+    fail "/boot/grub/grub.cfg does not set cryptdevice= for the root the encrypt hook unlocks"
+  luks_part=$(lsblk -nsrpo NAME,FSTYPE "$(root_block_device)" 2>/dev/null | awk '$2=="crypto_LUKS"{print $1; exit}' || true)
+  luks_uuid=""
+  [[ -z $luks_part ]] || luks_uuid=$(lsblk -ndo UUID "$luks_part" 2>/dev/null || true)
+  if [[ -n $luks_uuid && ${cryptdevice_arg#cryptdevice=} == UUID=* ]]; then
+    [[ ${cryptdevice_arg#cryptdevice=UUID=} == "$luks_uuid":* ]] ||
+      fail "/boot/grub/grub.cfg cryptdevice= does not name the LUKS partition of the root"
+  fi
+  while read -r kernel_line; do
+    (( $(grep -Eo '(^|[[:space:]])rootflags=' <<<"$kernel_line" | wc -l) <= 1 )) ||
+      fail "/boot/grub/grub.cfg passes more than one rootflags=, and the busybox initramfs keeps only the last"
+  done <<<"$kernel_lines"
+fi
+
 crypttab=$(path /etc/crypttab)
 has_crypttab_root=0
 if [[ -f $crypttab ]] && sudo grep -Eq '^[[:space:]]*root[[:space:]]' "$crypttab"; then
   has_crypttab_root=1
 fi
-if (( has_crypttab_root )); then
+if (( busybox_luks )); then
+  : # Unlocked by cryptdevice= above; Omarchy's sd-encrypt provisioning is not this Mac's.
+elif (( has_crypttab_root )); then
   crypttab_uuid=$(sudo awk '/^[[:space:]]*root[[:space:]]/ {
     if ($2 ~ /^UUID=/) { sub(/^UUID=/, "", $2); print $2; exit }
   }' "$crypttab")

@@ -31,7 +31,7 @@ run() {
 printf 'GRUB_DISTRIBUTOR="Omarchy"\nGRUB_TIMEOUT="3"\nGRUB_TIMEOUT_STYLE="menu"\nGRUB_CMDLINE_LINUX="zswap.enabled=0 rootfstype=btrfs"\nGRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3 splash"\n' >"$tmp/grub"
 run || fail "the migration runs: $(<"$tmp/out")"
 grep -Fxq 'GRUB_TIMEOUT="1"' "$tmp/grub" && grep -Fxq 'GRUB_TIMEOUT_STYLE="hidden"' "$tmp/grub" &&
-  grep -Fxq 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=0 systemd.show_status=false rd.udev.log_level=0 vt.global_cursor_default=0"' "$tmp/grub" ||
+  grep -Fxq 'GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=0 splash systemd.show_status=false rd.udev.log_level=0 vt.global_cursor_default=0"' "$tmp/grub" ||
   fail "the GRUB defaults match the finalizer: $(<"$tmp/grub")"
 grep -Fxq 'GRUB_CMDLINE_LINUX="zswap.enabled=0 rootfstype=btrfs"' "$tmp/grub" || fail "GRUB_CMDLINE_LINUX is untouched"
 [[ $(<"$CALL_LOG") == update-grub ]] || fail "grub.cfg is regenerated once"
@@ -40,6 +40,17 @@ pass "an installed Mac gets the finalizer's quiet GRUB defaults and one update-g
 run || fail "a second run passes"
 [[ ! -s $CALL_LOG ]] || fail "a Mac already quiet does not run update-grub again"
 pass "the migration is idempotent"
+
+# An encrypted Mac on the busybox initramfs keeps cryptdevice= (and resume=)
+# in GRUB_CMDLINE_LINUX_DEFAULT: the quiet words join them, nothing goes.
+printf 'GRUB_TIMEOUT="5"\nGRUB_CMDLINE_LINUX_DEFAULT="loglevel=3 cryptdevice=UUID=0422663f-9969-4953-900f-b342703b7e84:root:allow-discards resume=/dev/mapper/root quiet"\nGRUB_CMDLINE_LINUX=""\n' >"$tmp/grub"
+run || fail "the migration runs on an encrypted Mac: $(<"$tmp/out")"
+grep -Fxq 'GRUB_CMDLINE_LINUX_DEFAULT="loglevel=0 cryptdevice=UUID=0422663f-9969-4953-900f-b342703b7e84:root:allow-discards resume=/dev/mapper/root quiet splash systemd.show_status=false rd.udev.log_level=0 vt.global_cursor_default=0"' "$tmp/grub" ||
+  fail "the Mac's own kernel arguments survive the quiet line: $(<"$tmp/grub")"
+[[ $(grep -c '^GRUB_CMDLINE_LINUX_DEFAULT=' "$tmp/grub") == 1 ]] || fail "one GRUB_CMDLINE_LINUX_DEFAULT remains"
+run || fail "a second run passes"
+[[ ! -s $CALL_LOG ]] || fail "an encrypted Mac already quiet does not run update-grub again"
+pass "the quiet words join an encrypted Mac's kernel line instead of replacing it"
 
 printf 'GRUB_TIMEOUT="3"\n' >"$tmp/grub"
 APPLE=1 run || fail "a non-Apple machine passes"

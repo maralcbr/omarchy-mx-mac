@@ -1,0 +1,11 @@
+# /etc/default/grub of a legacy encrypted Mac after 1790003445 and the GRUB
+# console leaf: cryptdevice= gone with the old GRUB_CMDLINE_LINUX_DEFAULT,
+# and a second rootflags= the busybox init takes over subvol=@.
+GRUB_DEFAULT=0
+GRUB_TIMEOUT="1"
+GRUB_DISTRIBUTOR="Arch"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash loglevel=0 systemd.show_status=false rd.udev.log_level=0 vt.global_cursor_default=0 plymouth.ignore-serial-consoles"
+GRUB_CMDLINE_LINUX="rootflags=x-systemd.device-timeout=0"
+GRUB_PRELOAD_MODULES="part_gpt part_msdos"
+GRUB_TIMEOUT_STYLE="hidden"
+GRUB_VIDEO_BACKEND="efi_gop"
