@@ -93,6 +93,10 @@ ln -s "$ROOT/bin/omarchy-mac-limine-active" "$stub_bin/omarchy-mac-limine-active
 ln -s "$ROOT/bin/omarchy-mac-limine-enable" "$stub_bin/omarchy-mac-limine-enable"
 ln -s "$ROOT/bin/omarchy-cmd-present" "$stub_bin/omarchy-cmd-present"
 
+# The runner may put this repository's bin on PATH; the stubs decide which
+# helpers exist, so it is left out.
+host_path=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$ROOT/bin" | paste -sd: -)
+
 gate="$test_tmp/limine.enabled"
 limine_default="$test_tmp/etc/limine"
 pending="$test_tmp/limine-activation.pending"
@@ -120,7 +124,7 @@ run_migration() {
     OMARCHY_LIMINE_GATE="$gate" OMARCHY_LIMINE_DEFAULT="$limine_default" OMARCHY_LIMINE_PENDING="$pending" \
     OMARCHY_MKINITCPIO_CONF="$mkinitcpio_conf" OMARCHY_MKINITCPIO_ALPM="$stub_bin/mkinitcpio-alpm" \
     OMARCHY_MKINITCPIO_PRESET_DIR="$preset_dir" OMARCHY_REBOOT_BLOCKED="$reboot_blocked" \
-    PATH="$stub_bin:$PATH" bash -euo pipefail "$migration" >"$test_tmp/out" 2>"$test_tmp/err" || status=$?
+    PATH="$stub_bin:$host_path" bash -euo pipefail "$migration" >"$test_tmp/out" 2>"$test_tmp/err" || status=$?
 }
 
 run_migration_keeping_block() {
@@ -130,7 +134,7 @@ run_migration_keeping_block() {
     OMARCHY_LIMINE_GATE="$gate" OMARCHY_LIMINE_DEFAULT="$limine_default" OMARCHY_LIMINE_PENDING="$pending" \
     OMARCHY_MKINITCPIO_CONF="$mkinitcpio_conf" OMARCHY_MKINITCPIO_ALPM="$stub_bin/mkinitcpio-alpm" \
     OMARCHY_MKINITCPIO_PRESET_DIR="$preset_dir" OMARCHY_REBOOT_BLOCKED="$reboot_blocked" \
-    PATH="$stub_bin:$PATH" bash -euo pipefail "$migration" >"$test_tmp/out" 2>"$test_tmp/err" || status=$?
+    PATH="$stub_bin:$host_path" bash -euo pipefail "$migration" >"$test_tmp/out" 2>"$test_tmp/err" || status=$?
 }
 
 # Every case where the Mac is not ready: GRUB stays, the migration succeeds so
