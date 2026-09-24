@@ -87,8 +87,8 @@ user_systemctl is-active --quiet wireplumber.service || exit 0
 
 if ! user_systemctl try-restart wireplumber.service; then
   user_systemctl kill --signal=KILL wireplumber.service || true
-  user_systemctl try-restart wireplumber.service ||
-    user_systemctl is-active --quiet wireplumber.service ||
+  user_systemctl restart wireplumber.service || true
+  user_systemctl is-active --quiet wireplumber.service ||
     echo "WirePlumber did not restart; log out and back in to restore audio."
 fi
 

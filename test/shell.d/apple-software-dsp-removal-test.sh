@@ -29,9 +29,10 @@ cat >"$stub_bin/omarchy-hw-apple-silicon" <<'SH'
 SH
 
 # Stubbed rather than run: the real one would restart the running user's audio.
-# SYSTEMCTL_HANG=until-kill makes try-restart block, like a WirePlumber that
+# SYSTEMCTL_HANG=until-kill makes a restart block, like a WirePlumber that
 # ignores SIGTERM, until a SIGKILL has been sent; SYSTEMCTL_HANG=always blocks
-# every restart. The real timeout bounds each call.
+# every restart. SYSTEMCTL_DEAD_AFTER_KILL=1 leaves the unit inactive once
+# killed. The real timeout bounds each call.
 cat >"$stub_bin/systemctl" <<'SH'
 #!/bin/bash
 
@@ -40,11 +41,11 @@ printf '\t%s' "$@" >>"$TEST_LOG"
 printf '\n' >>"$TEST_LOG"
 case $* in
   *is-active*)
-    [[ ${SYSTEMCTL_HANG:-} == always && -e $TEST_LOG.killed ]] && exit 3
+    [[ ${SYSTEMCTL_DEAD_AFTER_KILL:-0} == 1 && -e $TEST_LOG.killed ]] && exit 3
     exit "${SYSTEMCTL_ACTIVE_STATUS:-0}"
     ;;
   *kill*) : >"$TEST_LOG.killed" ;;
-  *try-restart*)
+  *restart*)
     case ${SYSTEMCTL_HANG:-} in
       always) exec sleep 30 ;;
       until-kill) [[ -e $TEST_LOG.killed ]] || exec sleep 30 ;;
@@ -176,7 +177,7 @@ output=$(SYSTEMCTL_HANG=until-kill run_migration) ||
   fail "the restart of a hung WirePlumber is bounded by the timeout" "took ${SECONDS}s"
 grep -Fq $'systemctl\t--user\tkill\t--signal=KILL\twireplumber.service' "$calls" ||
   fail "a WirePlumber that ignores the restart is killed" "$(cat "$calls")"
-[[ $(grep -c $'systemctl\t--user\ttry-restart\twireplumber.service' "$calls") == 2 ]] ||
+grep -Fq $'systemctl\t--user\trestart\twireplumber.service' "$calls" ||
   fail "WirePlumber is started again after the kill" "$(cat "$calls")"
 [[ $output != *"did not restart"* ]] ||
   fail "a WirePlumber restarted after the kill is not reported as failed" "$output"
@@ -187,7 +188,7 @@ pass "a WirePlumber that ignores SIGTERM is killed and restarted"
 reset_tree
 place "$fixtures/pr83.lua" "$user_dsp"
 SECONDS=0
-output=$(SYSTEMCTL_HANG=always run_migration) ||
+output=$(SYSTEMCTL_HANG=always SYSTEMCTL_DEAD_AFTER_KILL=1 run_migration) ||
   fail "a WirePlumber that never restarts does not fail the migration"
 (( SECONDS < 10 )) ||
   fail "every restart attempt is bounded by the timeout" "took ${SECONDS}s"
@@ -196,6 +197,16 @@ output=$(SYSTEMCTL_HANG=always run_migration) ||
 [[ $output == *"log out and back in"* ]] ||
   fail "a WirePlumber that did not restart is reported" "$output"
 pass "a WirePlumber that never restarts does not hold up the update"
+
+# A restart that returns success is not proof WirePlumber is running: the
+# unit can be left inactive after the kill, and the user still hears nothing.
+reset_tree
+place "$fixtures/pr83.lua" "$user_dsp"
+output=$(SYSTEMCTL_HANG=until-kill SYSTEMCTL_DEAD_AFTER_KILL=1 run_migration) ||
+  fail "an inactive WirePlumber after the fallback does not fail the migration"
+[[ $output == *"log out and back in"* ]] ||
+  fail "an inactive WirePlumber after a successful restart call is reported" "$output"
+pass "WirePlumber's state is checked after the fallback, whatever the restart returned"
 
 # Without a running WirePlumber (no user session) there is nothing to restart.
 reset_tree
