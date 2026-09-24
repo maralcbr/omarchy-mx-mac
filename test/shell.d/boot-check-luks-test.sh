@@ -39,12 +39,28 @@ esac
 SH
 cat >"$stub_bin/lsinitcpio" <<'SH'
 #!/bin/bash
+if [[ "$1" == "-x" ]]; then
+  image=${*: -1}
+  [[ -f $image ]] || exit 1
+  printf 'lsinitcpio -x %s\n' "$image" >>"$TEST_CALLS"
+  [[ -z ${TEST_INITRD_TREE:-} ]] || cp -a "$TEST_INITRD_TREE/." .
+  exit 0
+fi
 if [[ "$1" == "-a" && -f "$2" ]]; then
   cat "${TEST_INITRAMFS_ANALYZE:-$TEST_INITRAMFS_LIST.analyze}"
   exit 0
 fi
 [[ "$1" == "-l" && -f "$2" ]] || exit 1
 cat "$TEST_INITRAMFS_LIST"
+SH
+cat >"$stub_bin/objcopy" <<'SH'
+#!/bin/bash
+printf 'objcopy %s\n' "$*" >>"$TEST_CALLS"
+[[ "$*" == *"--only-section=.initrd"* ]] || exit 1
+in=${*: -2:1}
+out=${*: -1}
+[[ -f $in ]] || exit 1
+printf 'initrd of %s\n' "$in" >"$out"
 SH
 cat >"$stub_bin/cryptsetup" <<'SH'
 #!/bin/bash
@@ -227,6 +243,7 @@ run_check() {
     TEST_INITRAMFS_ANALYZE="${TEST_INITRAMFS_ANALYZE:-$test_tmp/initramfs.analyze}" \
     TEST_LSBLK="${TEST_LSBLK:-}" \
     TEST_MAPPER_UUID="${TEST_MAPPER_UUID:-}" \
+    TEST_INITRD_TREE="${TEST_INITRD_TREE:-}" \
     OMARCHY_BOOT_CHECK_ROOT="$root" \
     OMARCHY_BOOT_CHECK_UNAME="$kver" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
@@ -402,3 +419,94 @@ TEST_LSBLK="$test_tmp/lsblk" run_check
 expect_fail "crypto_LUKS parent without crypttab" "encrypted root has no crypttab"
 pass "a mapper or LUKS root without crypttab is a failure"
 
+
+# The disk passphrase prompt types with the layout the boot image carries (#235).
+initrd_tree="$test_tmp/initrd-tree"
+initrd_carries() {
+  rm -rf "$initrd_tree"
+  mkdir -p "$initrd_tree/etc"
+  (( $# == 0 )) || printf '%s\n' "$@" >"$initrd_tree/etc/vconsole.conf"
+}
+host_layout() {
+  mkdir -p "$root/etc"
+  printf '%s\n' "$@" >"$root/etc/vconsole.conf"
+}
+danish=(KEYMAP=dk-latin1 XKBLAYOUT=dk XKBMODEL=pc105 XKBOPTIONS=terminate:ctrl_alt_bksp)
+
+system
+encrypt_root
+host_layout "${danish[@]}"
+initrd_carries "${danish[@]}"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "an encrypted GRUB Mac whose initramfs carries the Danish vconsole.conf"
+grep -Fq "lsinitcpio -x --cpio $root/boot/initramfs-linux-aurora.img" "$calls" ||
+  fail "the GRUB initramfs is the image checked for the layout" "$(cat "$calls")"
+
+system
+encrypt_root
+host_layout "${danish[@]}"
+initrd_carries KEYMAP=us XKBLAYOUT=us
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "an initramfs built before the layout changed" "does not carry /etc/vconsole.conf (KEYMAP=dk-latin1 XKBLAYOUT=dk)"
+grep -Fq "sudo /usr/bin/mkinitcpio -P && sudo omarchy-mac-boot-update" "$test_tmp/err" ||
+  fail "a GRUB Mac is told to rebuild with mkinitcpio and omarchy-mac-boot-update" "$(cat "$test_tmp/err")"
+
+system
+encrypt_root
+host_layout "${danish[@]}"
+initrd_carries
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "an initramfs without vconsole.conf" "does not carry /etc/vconsole.conf"
+pass "an encrypted Mac with a Latin non-US layout needs it in the initramfs"
+
+system
+encrypt_root
+host_layout KEYMAP=us XKBLAYOUT=us
+initrd_carries
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "a US layout"
+system
+encrypt_root
+host_layout KEYMAP=ru XKBLAYOUT=ru,us
+initrd_carries
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "a non-Latin layout, which stays out of the initramfs on purpose"
+system
+host_layout "${danish[@]}"
+initrd_carries
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "an unencrypted root, which has no passphrase prompt"
+! grep -Fq 'lsinitcpio -x' "$calls" || fail "US, non-Latin and unencrypted Macs extract nothing" "$(cat "$calls")"
+pass "US, non-Latin and unencrypted Macs are not checked for the layout"
+
+limine_mac() {
+  mkdir -p "$root/var/lib/omarchy" "$root/etc/default" "$root/usr/share/limine" "$esp/EFI/Linux" "$esp/EFI/BOOT"
+  : >"$root/var/lib/omarchy/limine.enabled"
+  printf 'ENABLE_UKI=yes\n' >"$root/etc/default/limine"
+  printf 'limine\n' >"$root/usr/share/limine/BOOTAA64.EFI"
+  cp "$root/usr/share/limine/BOOTAA64.EFI" "$esp/EFI/BOOT/BOOTAA64.EFI"
+  printf 'uki\n' >"$esp/EFI/Linux/omarchy_linux-aurora.efi"
+  printf '/+Omarchy\n  //linux-aurora\n    protocol: efi\n    path: boot():/EFI/Linux/omarchy_linux-aurora.efi\n    cmdline: root=UUID=1111-2222 rw rootflags=subvol=@ rd.luks.name=abcd-ef=root\n' \
+    >"$esp/limine.conf"
+}
+
+system
+encrypt_root
+limine_mac
+host_layout "${danish[@]}"
+initrd_carries "${danish[@]}"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "an encrypted Limine Mac whose UKI carries the Danish vconsole.conf"
+grep -Fq "objcopy -O binary --only-section=.initrd $esp/EFI/Linux/omarchy_linux-aurora.efi" "$calls" ||
+  fail "a Limine Mac checks the initramfs inside the UKI" "$(cat "$calls")"
+
+system
+encrypt_root
+limine_mac
+host_layout "${danish[@]}"
+initrd_carries KEYMAP=us XKBLAYOUT=us
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "a UKI built before the layout changed" "the initramfs inside /boot/efi/EFI/Linux/omarchy_linux-aurora.efi does not carry /etc/vconsole.conf"
+grep -Fq "rebuild the boot image with 'sudo omarchy-mac-boot-update'" "$test_tmp/err" ||
+  fail "a Limine Mac is told to rebuild with omarchy-mac-boot-update" "$(cat "$test_tmp/err")"
+pass "a Limine Mac checks the layout inside the UKI it boots"

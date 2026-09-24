@@ -10,7 +10,8 @@
 # Without an argument the installed pair decides, and anything ambiguous fails.
 # It looks at the running kernel (uname -r against the installed package's
 # kernel release), the kernel mkinitcpio copied to /boot (sha256 against the
-# installed file), the initramfs it built, GRUB's entry, and m1n1 stage 2 on
+# installed file), the initramfs it built (on an encrypted Mac, that the image
+# that boots carries the keyboard layout), GRUB's entry, and m1n1 stage 2 on
 # the system ESP. For linux-aurora it also binds that identity to the staged
 # AURORA descriptor (name and exact version from pacman -Q) and the lane file,
 # checks the installed files against each package's mtree, and reports which
@@ -57,6 +58,8 @@ cleanup() {
     sudo umount "$mountpoint" 2>/dev/null || true
     sudo rmdir "$mountpoint" 2>/dev/null || true
   fi
+  # The keyboard layout check extracts an initramfs as root under workdir.
+  [[ ! -d $workdir/vconsole-initrd ]] || sudo rm -rf "$workdir/vconsole-initrd" 2>/dev/null || true
   rm -rf "$workdir"
 }
 trap cleanup EXIT
@@ -341,6 +344,57 @@ if (( limine_mac )); then
     if [[ ! -f $(path /var/lib/omarchy/provisioning/luks-key) && ! -f $(path /var/lib/omarchy/mac-first-boot/pending) ]]; then
       grep -q 'rd.luks.key=' <<<"$limine_cmdline" &&
         fail "the Limine $kernel entry still has rd.luks.key= after provisioning"
+    fi
+  fi
+fi
+
+# The disk passphrase is typed with the layout the boot image carries, not the
+# one the desktop uses (#235). On an encrypted Mac with a non-US layout that
+# types Latin letters, the image that boots (the UKI on a Limine Mac) must
+# carry /etc/vconsole.conf as it is now: a layout changed after the image was
+# built only reaches the prompt with the next rebuild. Layouts that cannot
+# type Latin letters are left out of the image on purpose
+# (94-omarchy-mac-vconsole.conf in omarchy-mac-boot), so they are not checked.
+vconsole_value() {
+  # shellcheck disable=SC1090 # the host vconsole.conf, under the check root
+  (unset "$1"; . "$2" 2>/dev/null; printf '%s' "${!1:-}")
+}
+host_vconsole=$(path /etc/vconsole.conf)
+if (( has_crypttab_root )) && [[ -f $host_vconsole ]]; then
+  vconsole_keymap=$(vconsole_value KEYMAP "$host_vconsole")
+  vconsole_layout=$(vconsole_value XKBLAYOUT "$host_vconsole")
+  vconsole_latin=1
+  case ${vconsole_layout%%,*} in
+    af | am | ara | bd | bg | by | et | ge | gr | il | in | iq | ir | kg | kh | kz | la | lk | mk | mm | mn | mv | np | rs | ru | sy | th | tj | ua) vconsole_latin=0 ;;
+  esac
+  if (( vconsole_latin )) && [[ ${vconsole_keymap:-us} != us || ${vconsole_layout:-us} != us ]]; then
+    initrd_dir=$workdir/vconsole-initrd
+    mkdir -p "$initrd_dir"
+    initrd_image=""
+    if (( limine_mac )); then
+      if command -v objcopy >/dev/null 2>&1; then
+        initrd_image=$workdir/uki.initrd
+        sudo objcopy -O binary --only-section=.initrd "$limine_uki" "$initrd_image" 2>/dev/null &&
+          sudo test -s "$initrd_image" ||
+          fail "cannot read the initramfs inside /boot/efi/EFI/Linux/omarchy_$kernel.efi"
+      else
+        echo "Apple Silicon boot check: objcopy (binutils) is not installed; not checking the keyboard layout in the UKI" >&2
+      fi
+    else
+      initrd_image=$(path "/boot/initramfs-$kernel.img")
+    fi
+    if [[ -n $initrd_image ]]; then
+      label="/boot/initramfs-$kernel.img"
+      rebuild="sudo /usr/bin/mkinitcpio -P && sudo omarchy-mac-boot-update"
+      if (( limine_mac )); then
+        label="the initramfs inside /boot/efi/EFI/Linux/omarchy_$kernel.efi"
+        rebuild="sudo omarchy-mac-boot-update"
+      fi
+      (cd "$initrd_dir" && sudo lsinitcpio -x --cpio "$initrd_image" >/dev/null 2>&1) ||
+        fail "$label cannot be extracted"
+      sudo cmp -s "$host_vconsole" "$initrd_dir/etc/vconsole.conf" ||
+        fail "$label does not carry /etc/vconsole.conf (KEYMAP=${vconsole_keymap:-unset} XKBLAYOUT=${vconsole_layout:-unset}): the disk passphrase prompt would not use this keyboard layout; rebuild the boot image with '$rebuild'"
+      sudo rm -rf "$initrd_dir"
     fi
   fi
 fi
