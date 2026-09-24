@@ -73,13 +73,23 @@ fi
 # WirePlumber only reads scripts at startup, so restart it to load the stock
 # script now instead of at the next login. A WirePlumber stuck on the overlay
 # ignores SIGTERM, so a restart that does not finish in time is followed by a
-# SIGKILL and a second restart. Without a user session this does nothing, and a
-# failed restart is not a failed migration: the next login loads the fix.
-if systemctl --user is-active --quiet wireplumber.service 2>/dev/null; then
-  if ! timeout 15 systemctl --user try-restart wireplumber.service >/dev/null 2>&1; then
-    systemctl --user kill --signal=KILL wireplumber.service >/dev/null 2>&1 || true
-    timeout 15 systemctl --user try-restart wireplumber.service >/dev/null 2>&1 || true
-  fi
+# SIGKILL and a second restart; every call is bounded so the update never waits
+# on a hung service. Without a user session this does nothing, and a failed
+# restart is not a failed migration: the overlay is gone and the next login
+# starts WirePlumber without it.
+wait_seconds="${OMARCHY_WIREPLUMBER_RESTART_TIMEOUT:-15}"
+
+user_systemctl() {
+  timeout "$wait_seconds" systemctl --user "$@" >/dev/null 2>&1
+}
+
+user_systemctl is-active --quiet wireplumber.service || exit 0
+
+if ! user_systemctl try-restart wireplumber.service; then
+  user_systemctl kill --signal=KILL wireplumber.service || true
+  user_systemctl try-restart wireplumber.service ||
+    user_systemctl is-active --quiet wireplumber.service ||
+    echo "WirePlumber did not restart; log out and back in to restore audio."
 fi
 
 exit 0

@@ -29,25 +29,29 @@ cat >"$stub_bin/omarchy-hw-apple-silicon" <<'SH'
 SH
 
 # Stubbed rather than run: the real one would restart the running user's audio.
-# SYSTEMCTL_HANG makes try-restart time out, like a WirePlumber that ignores
-# SIGTERM.
+# SYSTEMCTL_HANG=until-kill makes try-restart block, like a WirePlumber that
+# ignores SIGTERM, until a SIGKILL has been sent; SYSTEMCTL_HANG=always blocks
+# every restart. The real timeout bounds each call.
 cat >"$stub_bin/systemctl" <<'SH'
 #!/bin/bash
 
 printf 'systemctl' >>"$TEST_LOG"
 printf '\t%s' "$@" >>"$TEST_LOG"
 printf '\n' >>"$TEST_LOG"
-[[ $* == *is-active* ]] && exit "${SYSTEMCTL_ACTIVE_STATUS:-0}"
-[[ $* == *try-restart* && ${SYSTEMCTL_HANG:-0} == 1 ]] && exit 124
+case $* in
+  *is-active*)
+    [[ ${SYSTEMCTL_HANG:-} == always && -e $TEST_LOG.killed ]] && exit 3
+    exit "${SYSTEMCTL_ACTIVE_STATUS:-0}"
+    ;;
+  *kill*) : >"$TEST_LOG.killed" ;;
+  *try-restart*)
+    case ${SYSTEMCTL_HANG:-} in
+      always) exec sleep 30 ;;
+      until-kill) [[ -e $TEST_LOG.killed ]] || exec sleep 30 ;;
+    esac
+    ;;
+esac
 exit 0
-SH
-
-cat >"$stub_bin/timeout" <<'SH'
-#!/bin/bash
-
-printf 'timeout\t%s\n' "$1" >>"$TEST_LOG"
-shift
-"$@"
 SH
 
 cat >"$stub_bin/sudo" <<'SH'
@@ -64,14 +68,15 @@ chmod +x "$stub_bin"/*
 # omarchy-migrate runs migrations under bash -euo pipefail.
 run_migration() {
   : >"$calls"
+  rm -f "$calls.killed"
 
-  APPLE_SILICON="${APPLE_SILICON:-1}" HOME="$home" TEST_LOG="$calls" \
+  OMARCHY_WIREPLUMBER_RESTART_TIMEOUT=1 APPLE_SILICON="${APPLE_SILICON:-1}" HOME="$home" TEST_LOG="$calls" \
     PATH="$stub_bin:$PATH" OMARCHY_ASAHI_SPEAKER_DSP="$sys_dsp" \
     bash -euo pipefail "$migration"
 }
 
 reset_tree() {
-  rm -rf "$home" "$test_tmp/usr"
+  rm -rf "$home" "${test_tmp:?}/usr"
   mkdir -p "$home/.local/share" "$sys_root"
 }
 
@@ -123,8 +128,10 @@ printf -- '-- tuned by hand\n' >>"$sys_dsp"
 printf -- '-- tuned by hand\n' >>"$user_dsp"
 cp "$sys_dsp" "$test_tmp/sys.expected"
 output=$(run_migration)
-cmp -s "$sys_dsp" "$test_tmp/sys.expected" && cmp -s "$user_dsp" "$test_tmp/sys.expected" ||
-  fail "a modified overlay is kept" "$(ls -R "$home" "$test_tmp/usr" 2>&1)"
+for kept in "$sys_dsp" "$user_dsp"; do
+  cmp -s "$kept" "$test_tmp/sys.expected" ||
+    fail "a modified overlay is kept" "$(ls -R "$home" "$test_tmp/usr" 2>&1)"
+done
 [[ $output == *"Leaving $sys_dsp in place"* && $output == *"Leaving $user_dsp in place"* ]] ||
   fail "a kept overlay is reported" "$output"
 ! grep -Eq $'^(sudo\trm|systemctl)' "$calls" ||
@@ -141,6 +148,16 @@ run_migration >/dev/null
   fail "each copy is judged on its own" "$(ls -R "$home" "$test_tmp/usr" 2>&1)"
 pass "each copy of the overlay is judged on its own"
 
+# A symlink is not a copy Omarchy installed; it and its target stay.
+reset_tree
+mkdir -p "$(dirname "$user_dsp")"
+cp "$fixtures/pr83.lua" "$test_tmp/linked.lua"
+ln -s "$test_tmp/linked.lua" "$user_dsp"
+run_migration >/dev/null
+[[ -L $user_dsp && -f $test_tmp/linked.lua && ! -s $calls ]] ||
+  fail "a symlinked overlay is left alone" "$(cat "$calls"; ls -lR "$home" 2>&1)"
+pass "a symlinked overlay is left alone"
+
 # Nothing to remove: no restart, no sudo.
 reset_tree
 run_migration >/dev/null
@@ -152,15 +169,33 @@ pass "an install without the overlay is left untouched"
 # so the migration kills it and restarts again, and still succeeds.
 reset_tree
 place "$fixtures/pr83.lua" "$user_dsp"
-SYSTEMCTL_HANG=1 run_migration >/dev/null ||
+SECONDS=0
+output=$(SYSTEMCTL_HANG=until-kill run_migration) ||
   fail "a hung WirePlumber does not fail the migration"
-grep -Fq $'timeout\t15' "$calls" ||
-  fail "the restart is bounded by a timeout" "$(cat "$calls")"
+(( SECONDS < 10 )) ||
+  fail "the restart of a hung WirePlumber is bounded by the timeout" "took ${SECONDS}s"
 grep -Fq $'systemctl\t--user\tkill\t--signal=KILL\twireplumber.service' "$calls" ||
   fail "a WirePlumber that ignores the restart is killed" "$(cat "$calls")"
 [[ $(grep -c $'systemctl\t--user\ttry-restart\twireplumber.service' "$calls") == 2 ]] ||
   fail "WirePlumber is started again after the kill" "$(cat "$calls")"
+[[ $output != *"did not restart"* ]] ||
+  fail "a WirePlumber restarted after the kill is not reported as failed" "$output"
 pass "a WirePlumber that ignores SIGTERM is killed and restarted"
+
+# A WirePlumber that never comes back does not hold up the update either; the
+# overlay is gone, so the next login recovers, and the user is told so.
+reset_tree
+place "$fixtures/pr83.lua" "$user_dsp"
+SECONDS=0
+output=$(SYSTEMCTL_HANG=always run_migration) ||
+  fail "a WirePlumber that never restarts does not fail the migration"
+(( SECONDS < 10 )) ||
+  fail "every restart attempt is bounded by the timeout" "took ${SECONDS}s"
+[[ ! -e $user_dsp ]] ||
+  fail "the overlay is removed even when WirePlumber cannot restart"
+[[ $output == *"log out and back in"* ]] ||
+  fail "a WirePlumber that did not restart is reported" "$output"
+pass "a WirePlumber that never restarts does not hold up the update"
 
 # Without a running WirePlumber (no user session) there is nothing to restart.
 reset_tree

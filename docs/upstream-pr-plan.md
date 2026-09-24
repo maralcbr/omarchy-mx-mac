@@ -191,7 +191,6 @@ Present in T3a `pkgbuilds/omarchy-mac-boot/files/` tonight:
 Still required (T3 add, same header style):
 
 ```
-# Origin: omarchy-mx-mac default/wireplumber/scripts/node/software-dsp.lua
 # Origin: omarchy-mx-mac default/hypr/apple.lua
 # Origin: omarchy-mx-mac default/hypr/input.lua (apple-mtp / apple-spi lines)
 ```

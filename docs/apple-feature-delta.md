@@ -279,11 +279,11 @@ Kernel lane tools listed in the task stay in mx: `bin/omarchy-apple-silicon-chan
 
 Each path below is counted once. Tests are listed with the code they cover.
 
-**omarchy-mac-boot (ours) — 19**
+**omarchy-mac-boot (ours) — 18**
 
 `install/hardware/apple/fix-asahi-hid-race.sh`, `fix-asahi-btrfs-race.sh`, `fix-speaker-pop.sh`; `install/user/hardware/apple/fix-speaker-pop.sh`; `default/hypr/apple.lua`; Apple device lines in `default/hypr/input.lua`; `default/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf`; `etc/wireplumber/wireplumber.conf.d/asahi-audio-no-suspend.conf`; `default/systemd/zram-generator.conf.d/90-omarchy.conf`; `bin/omarchy-install-asahi-fresh`; tests `apple-hid-race-test.sh`, `asahi-btrfs-race-test.sh`, `apple-speaker-pop-test.sh`, `hyprland-apple-cursor-test.sh`, `asahi-fresh-install-test.sh`, `asahi-fresh-deferred-test.sh`, `asahi-fresh-offline-test.sh`, `asahi-fresh-vm-run-test.sh`.
 
-Image payload not in this git tree (`90-omarchy-asahi.conf`, vendorfw, `apple-image-finalize`) is also this home; not in the 19.
+Image payload not in this git tree (`90-omarchy-asahi.conf`, vendorfw, `apple-image-finalize`) is also this home; not in the 18.
 
 **mx runtime — 60**
 
