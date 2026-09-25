@@ -135,6 +135,7 @@
     private var waiters: [CheckedContinuation<Void, Error>] = []
     private let retryDelays: [Duration]
     private let sleep: @Sendable (Duration) async throws -> Void
+    private let retainedBytes: (@Sendable () -> UInt64)?
 
     /// A multi-gigabyte download on Wi-Fi meets dropped connections and stalls.
     /// Each is retried after these delays; the count starts again once a retry
@@ -148,7 +149,10 @@
       freeSpace: any InstallerFreeSpaceChecking,
       keepAwake: any InstallerKeepAwakeHolding,
       retryDelays: [Duration] = PayloadPrefetchController.defaultRetryDelays,
-      sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+      sleep: @escaping @Sendable (Duration) async throws -> Void = {
+        try await Task.sleep(for: $0)
+      },
+      retainedBytes: (@Sendable () -> UInt64)? = nil,
       onState: @escaping @Sendable (PayloadPrefetchState) -> Void = { _ in }
     ) {
       self.network = network
@@ -156,6 +160,7 @@
       self.keepAwake = keepAwake
       self.retryDelays = retryDelays
       self.sleep = sleep
+      self.retainedBytes = retainedBytes
       self.onState = onState
     }
 
@@ -254,7 +259,10 @@
         }
         do {
           let available = try freeSpace.availableBytes()
-          let requiredNow = requiredBytes > completed ? requiredBytes - completed : 0
+          // An interrupted transfer starts again from zero; only files the
+          // stager kept (verified parts) already occupy their share.
+          let credited = retainedBytes.map { min(completed, $0()) } ?? completed
+          let requiredNow = requiredBytes > credited ? requiredBytes - credited : 0
           if available < requiredNow {
             let error = PayloadPrefetchError.insufficientSpace(
               requiredBytes: requiredNow,
@@ -598,10 +606,17 @@
         if let predecessor {
           await predecessor.cancel()
         }
-        guard self.lock.withLock({ self.generation == generation }) else {
-          return
+        // Earlier generations are cancelled by now. Their directories hold
+        // nothing the new one reuses, so reclaim the space before it is
+        // checked; otherwise every Try again would count it as used. The
+        // generation check and the removal share one lock hold, so a
+        // replaced task can never delete its successor's directory.
+        let stillCurrent = self.lock.withLock { () -> Bool in
+          guard self.generation == generation else { return false }
+          Self.removeAbandonedWorkDirectories(in: parent)
+          return true
         }
-
+        guard stillCurrent else { return }
         self.publish(.verifying, generation: generation)
         if self.matchesPinned(artifact, canonical) {
           self.publish(.verified, generation: generation)
@@ -628,6 +643,7 @@
           network: self.makeNetwork(),
           freeSpace: self.makeFreeSpace(work),
           keepAwake: self.makeKeepAwake(),
+          retainedBytes: { Self.regularFileBytes(in: work) },
           onState: { [weak self] state in
             self?.publish(state, generation: generation)
           }
@@ -779,6 +795,34 @@
       for observer in observers {
         observer(state)
       }
+    }
+
+    static func removeAbandonedWorkDirectories(in parent: URL) {
+      let fileManager = FileManager.default
+      guard
+        let entries = try? fileManager.contentsOfDirectory(
+          at: parent, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+      else { return }
+      for entry in entries where entry.lastPathComponent.hasPrefix("prefetch-") {
+        let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard values?.isDirectory == true, values?.isSymbolicLink != true else { continue }
+        try? fileManager.removeItem(at: entry)
+      }
+    }
+
+    static func regularFileBytes(in directory: URL) -> UInt64 {
+      guard
+        let entries = try? FileManager.default.contentsOfDirectory(
+          at: directory, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey])
+      else { return 0 }
+      var total: UInt64 = 0
+      for entry in entries {
+        guard let values = try? entry.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+          values.isRegularFile == true, let size = values.fileSize, size > 0
+        else { continue }
+        total &+= UInt64(size)
+      }
+      return total
     }
 
     private func promote(_ staged: URL, to canonical: URL) throws {
