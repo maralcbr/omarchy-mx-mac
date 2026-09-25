@@ -174,7 +174,9 @@ retire_sync_database() {
 
   if [[ -f $live_db ]]; then
     if proves_installed_package "$live_db" && ! cmp -s "$live_db" "$kept_db"; then
-      if [[ -f $kept_db ]] && proves_installed_package "$kept_db"; then
+      # Existence is asked with the privilege the replacement would use: a
+      # kept copy this user cannot see or read still counts as proof.
+      if sudo test -e "$kept_db" && proves_installed_package "$kept_db"; then
         # Both prove something and differ: both stay for the bundle.
         retire_live=0
       elif ! sudo install -D -m 0644 "$live_db" "$kept_db"; then

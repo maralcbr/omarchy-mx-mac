@@ -55,7 +55,12 @@ cat >"$mock_bin/sudo" <<'SH'
 printf 'sudo %s\n' "$*" >>"$TEST_CALLS"
 [[ ${TEST_RM_FAIL:-0} != 1 || $1 != rm ]] || exit 1
 [[ ${TEST_INSTALL_FAIL:-0} != 1 || $1 != install ]] || exit 1
-"$@"
+# TEST_ROOT_ONLY_DIR stands for a directory only root can enter.
+[[ -z ${TEST_ROOT_ONLY_DIR:-} ]] || chmod 755 "$TEST_ROOT_ONLY_DIR"
+status=0
+"$@" || status=$?
+[[ -z ${TEST_ROOT_ONLY_DIR:-} ]] || chmod 000 "$TEST_ROOT_ONLY_DIR"
+exit "$status"
 SH
 
 # pacman-conf over the test pacman.conf; TEST_INCLUDED_REPO stands for a
@@ -180,6 +185,7 @@ run_command() {
     TEST_INSTALL_FAIL="${TEST_INSTALL_FAIL:-0}" \
     TEST_PACMAN_CONF_FAIL="${TEST_PACMAN_CONF_FAIL:-0}" \
     TEST_INCLUDED_REPO="${TEST_INCLUDED_REPO:-}" \
+    TEST_ROOT_ONLY_DIR="${TEST_ROOT_ONLY_DIR:-}" \
     TEST_SY_STATUS="${TEST_SY_STATUS:-0}" \
     TEST_QL_FAIL="${TEST_QL_FAIL:-0}" \
     TEST_DB_PATH="$db_path" \
@@ -609,6 +615,20 @@ if (( EUID != 0 )); then
   chmod 755 "$db_path/local"
   [[ -f $retired/omarchy-aarch64.db ]] || fail "an unreadable local database lets the proof go"
   pass "an installed package whose local entry cannot be read keeps the database"
+
+  # A differing kept copy in a directory only root can enter is not replaced.
+  reset_sync_db
+  write_sync_db "$db_path/sync/omarchy-aarch64.db" 'omarchy-nvim|2026.9.4-1|1789000000'
+  write_sync_db "$retired/omarchy-aarch64.db" 'walker|2.1-1|1788000000'
+  installed_build omarchy-nvim 2026.9.4-1 1789000000
+  installed_build walker 2.1-1 1788000000
+  cp "$retired/omarchy-aarch64.db" "$test_tmp/kept.db"
+  chmod 000 "$retired"
+  TEST_APPLE=0 TEST_ROOT_ONLY_DIR="$retired" run_command || true
+  chmod 755 "$retired"
+  cmp -s "$retired/omarchy-aarch64.db" "$test_tmp/kept.db" && [[ -f $db_path/sync/omarchy-aarch64.db ]] ||
+    fail "a kept copy this user cannot read is replaced" "$(cat "$test_tmp/out" "$test_tmp/err")"
+  pass "a kept copy only root can read is not replaced"
 fi
 
 # The section can come back through an Include file, and pacman-conf can fail:
@@ -887,9 +907,10 @@ set -e
   fail "a newer package without a legacy database entry is downgraded"
 pass "an unrelated newer bundle package is still refused"
 
-# End to end: the cleanup takes the live sync database out of pacman's sync
-# directory, the bundle still proves the legacy package from the kept copy, and
-# once the signed package replaced it the kept copy goes.
+# Simulated lifecycle: the cleanup takes the live sync database out of
+# pacman's sync directory, the bundle still proves the legacy package from the
+# kept copy, and once the installed build no longer matches (the local entry is
+# rewritten by hand here) the kept copy goes.
 write_legacy_db "$root/var/lib/pacman/sync/omarchy-aarch64.db" 1789000000
 { printf '[options]\nDBPath = %s\n\n' "$root/var/lib/pacman"; printf '[omarchy]\nSigLevel = Required DatabaseOptional\nServer = %s\n\n' "$stable_server"; alarm_repositories; } >"$pacman_conf"
 retired="$root/var/lib/omarchy/retired-repositories"
