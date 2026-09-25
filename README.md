@@ -4,6 +4,9 @@
 
 Run Omarchy on Apple Silicon through Arch Linux ARM and Asahi Linux.
 
+> [!IMPORTANT]
+> **This fork is feature-frozen: it takes security and boot fixes only.** New Apple Silicon work goes to [omacom/omarchy-mac](https://github.com/omacom/omarchy-mac) on the `quattro-upstream` branch, as set out in the [convergence spec](https://github.com/omacom/omarchy-mac/pull/512), and installer work goes to [omacom/omarchy-mac-installer](https://github.com/omacom/omarchy-mac-installer). Installed Macs keep updating as before; the spec covers how they migrate.
+
 [![License](https://img.shields.io/github/license/maralcbr/omarchy-mx-mac)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/maralcbr/omarchy-mx-mac?style=social)](https://github.com/maralcbr/omarchy-mx-mac/stargazers)
 

@@ -28,8 +28,10 @@ Identifiers the fork owns are named `mac`, not `asahi`: `omarchy-mac-boot`, `bui
 
 ## Contributing
 
+The fork is feature-frozen: it takes security and boot fixes only. New Apple Silicon work goes to [omacom/omarchy-mac](https://github.com/omacom/omarchy-mac) on `quattro-upstream`, as set out in the [convergence spec](https://github.com/omacom/omarchy-mac/pull/512), and installer work to [omacom/omarchy-mac-installer](https://github.com/omacom/omarchy-mac-installer).
+
 - **Bugs**: open an issue on [omarchy-mx-mac](https://github.com/maralcbr/omarchy-mx-mac/issues) with the details from [Hardware support]({{page:hardware}}).
-- **Runtime changes**: pull requests against `main` on omarchy-mx-mac. Anything Apple-specific must run behind `omarchy-hw-apple-silicon` and come with a migration if it changes installed systems.
+- **Runtime changes**: security and boot fixes only, as pull requests against `main` on omarchy-mx-mac. Anything Apple-specific must run behind `omarchy-hw-apple-silicon` and come with a migration if it changes installed systems.
 - **Packages**: pull requests against `asahi-quattro` on omarchy-pkgs. A recipe that every aarch64 user could want should go to omacom/omarchy-pkgs instead.
 - **Reviews**: designs and code are reviewed before merge, and boot-critical changes need hardware evidence from a test Mac.
 
