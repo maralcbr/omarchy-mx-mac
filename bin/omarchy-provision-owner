@@ -957,18 +957,25 @@ mark_encrypt_finished() {
   write_encrypt_state finished "$1"
 }
 
-# Identify the slot unlocked by $1 (passphrase) on $2 (device).
+# Identify the slot unlocked by $1 (passphrase) on $2 (device). cryptsetup open
+# tries enrolled tokens (TPM2, FIDO2, keyring) before the key and reports a
+# token's slot whatever key it was given. Restricting it to a token type no
+# token has leaves only the key to decide.
 luks_slot_for() {
   local out xtrace_on=0
   [[ $- == *x* ]] && xtrace_on=1
   set +x
-  out=$(cryptsetup open --test-passphrase --verbose --key-file <(printf '%s' "$1") "$2" 2>&1) || true
+  out=$(LC_ALL=C cryptsetup open --test-passphrase --verbose --token-type passphrase-only --key-file <(printf '%s' "$1") "$2" 2>&1) || true
   if (( xtrace_on )); then set -x; fi
   grep -o 'Key slot [0-9]* unlocked' <<<"$out" | grep -o '[0-9]*' | head -1 || true
 }
 
+# LUKS2 lists keyslots under "Keyslots:", and a luks2-keyring token under
+# "Tokens:" looks the same, so read only the keyslot section.
 luks_dump_slots() {
-  cryptsetup luksDump "$1" | awk '/^ +[0-9]+: luks2/ { sub(":", "", $1); print $1 }'
+  cryptsetup luksDump "$1" | awk '
+    /^[^ \t]/ { keyslots = ($0 == "Keyslots:") }
+    keyslots && /^ +[0-9]+: luks2/ { sub(":", "", $1); print $1 }'
 }
 
 luks_slot_present() {
@@ -1139,13 +1146,14 @@ rekey_luks_apple() {
       return 1
     fi
 
-    if ! { cryptsetup open --test-passphrase --key-file <(printf '%s' "$password") "$device" ; } 2>/dev/null; then
+    # Each key must open its own slot: an enrolled token would answer a bare
+    # cryptsetup open for any key.
+    if [[ $(luks_slot_for "$password" "$device") != "$new_slot" ]]; then
       log_step "owner slot does not unlock $device; will retry"
       say --foreground 1 "Could not confirm the LUKS re-key; will retry."
       return 1
     fi
-    if [[ -n ${recovery_key:-} ]] &&
-      ! { cryptsetup open --test-passphrase --key-file <(printf '%s' "$recovery_key") "$device" ; } 2>/dev/null; then
+    if [[ -n ${recovery_key:-} && $(luks_slot_for "$recovery_key" "$device") != "$recovery_slot" ]]; then
       log_step "recovery slot does not unlock $device; will retry"
       say --foreground 1 "Could not confirm the LUKS re-key; will retry."
       return 1
@@ -1252,7 +1260,7 @@ rekey_luks() {
 
   [[ $- == *x* ]] && xtrace_on=1
   set +x
-  if ! { cryptsetup open --test-passphrase --key-file "$PROVISIONING_DIR/luks-key" "$device" ; } 2>/dev/null; then
+  if ! { cryptsetup open --test-passphrase --token-type passphrase-only --key-file "$PROVISIONING_DIR/luks-key" "$device" ; } 2>/dev/null; then
     if (( xtrace_on )); then set -x; fi
     log_step "staged LUKS key does not unlock $device"
     say --foreground 1 "The staged LUKS key no longer unlocks $device."
