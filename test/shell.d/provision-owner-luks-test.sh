@@ -108,14 +108,22 @@ add_slot() {
 case "\$1" in
   open)
     keyfile=""
+    token_type=""
     verbose=0
     while ((\$#)); do
       case "\$1" in
         --verbose) verbose=1 ;;
         --key-file) keyfile=\$2; shift ;;
+        --token-type) token_type=\$2; shift ;;
       esac
       shift
     done
+    # An enrolled token unlocks its slot whatever key is given, unless the
+    # allowed token types exclude it, as with cryptsetup.
+    if [[ -z \$token_type && -s "$tmp/token-slot" ]]; then
+      (( verbose )) && echo "Key slot \$(cat "$tmp/token-slot") unlocked." >&2
+      exit 0
+    fi
     material=\$(read_key "\$keyfile") || exit 1
     slot=\$(slot_for "\$material") || exit 1
     (( verbose )) && echo "Key slot \$slot unlocked" >&2
@@ -147,7 +155,11 @@ case "\$1" in
     exit 0
     ;;
   luksDump)
+    echo "Keyslots:"
     awk '{ printf "  %s: luks2\\n", \$1 }' "\$slots_file"
+    if [[ -s "$tmp/token-slot" ]]; then
+      printf 'Tokens:\\n  0: luks2-keyring\\n\\tKeyslot:    %s\\n' "\$(cat "$tmp/token-slot")"
+    fi
     exit 0
     ;;
   luksUUID)
@@ -364,3 +376,69 @@ set +x
 ! grep -Fq "$password" "$OMARCHY_PROVISION_OWNER_LOG" ||
   fail "xtrace does not persist the owner password in the provision log" "$(cat "$OMARCHY_PROVISION_OWNER_LOG")"
 pass "secret-bearing re-key commands are not captured under xtrace"
+
+# A token a previous owner enrolled (TPM2, FIDO2, keyring) answers a bare
+# cryptsetup open for any key. It must never stand in for the owner's password:
+# the password gets its own slot, and the token's slot goes with the throwaway.
+printf 'format=1\nphase=encrypted\npartition=PART-UUID-1\nluks_uuid=abcd-ef\n' >"$encrypt_state"
+printf '0 throwaway-install-key\n5 tpm-sealed-key\n' >"$slots"
+echo 5 >"$tmp/token-slot"
+printf 'throwaway-install-key' >"$prov/luks-key"
+printf 'throwaway-install-key' >"$boot_key"
+rm -f "$REKEY_STATE"
+printf 'GRUB_CMDLINE_LINUX="rd.luks.name=abcd-ef=root rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4F4D-5801 root=/dev/mapper/root"\n' >"$grub_default"
+touch "$prov/pending"
+password="owner-secret"
+recovery_key="AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH-IIII-JJJJ-KKKK-LLLL"
+RECOVERY_ACKED=1
+: >"$calls"
+rekey_luks || fail "the re-key completes beside a token" "$(cat "$OMARCHY_PROVISION_OWNER_LOG")"
+owner_slot=$(awk '$2 == "owner-secret" { print $1 }' "$slots")
+recovery_slot=$(awk -v k="$recovery_key" '$2 == k { print $1 }' "$slots")
+[[ -n $owner_slot && $owner_slot != "5" && -n $recovery_slot ]] || fail "the owner's password and the recovery key get their own slots" "$(cat "$slots")"
+grep -Fxq "owner_slot=$owner_slot" "$encrypt_state" && grep -Fxq "recovery_slot=$recovery_slot" "$encrypt_state" ||
+  fail "encrypt.state records the owner's and the recovery key's own slots" "$(cat "$encrypt_state")"
+(( $(wc -l <"$slots") == 2 )) && ! grep -q '^5 ' "$slots" || fail "only the owner and recovery slots remain" "$(cat "$slots")"
+pass "a previous owner's token never answers for the owner's password, and its slot is retired"
+
+# The last check that each key opens its own slot is not fooled by a token
+# either: a recovery key that opens nothing stops the re-key.
+printf 'format=1\nphase=encrypted\npartition=PART-UUID-1\nluks_uuid=abcd-ef\n' >"$encrypt_state"
+printf '0 throwaway-install-key\n1 owner-secret\n2 recovery-material\n5 tpm-sealed-key\n' >"$slots"
+printf 'owner_slot=1\nrecovery_slot=2\nrecovery_shown=1\n' >"$REKEY_STATE"
+printf 'throwaway-install-key' >"$prov/luks-key"
+printf 'throwaway-install-key' >"$boot_key"
+printf 'GRUB_CMDLINE_LINUX="rd.luks.name=abcd-ef=root rd.luks.key=abcd-ef=/omarchy/luks-key:UUID=4F4D-5801 root=/dev/mapper/root"\n' >"$grub_default"
+password="owner-secret"
+password="not-the-owner-password"
+recovery_key="recovery-material"
+: >"$calls"
+if rekey_luks; then fail "a resumed re-key refuses a password that opens nothing beside a token"; fi
+grep -Fxq 'phase=encrypted' "$encrypt_state" && ! grep -Fq 'cryptsetup luksKillSlot' "$calls" ||
+  fail "a refused owner password retires no slot" "$(cat "$encrypt_state" "$calls")"
+password="owner-secret"
+recovery_key="not-the-recovery-key"
+: >"$calls"
+if rekey_luks; then fail "a recovery key that opens nothing stops the re-key beside a token"; fi
+grep -Fxq 'phase=encrypted' "$encrypt_state" && ! grep -Fq 'cryptsetup luksKillSlot' "$calls" ||
+  fail "a refused recovery key retires no slot" "$(cat "$encrypt_state" "$calls")"
+recovery_key="recovery-material"
+rekey_luks || fail "the re-key completes once the recovery key opens its slot" "$(cat "$OMARCHY_PROVISION_OWNER_LOG")"
+[[ $(awk '{ print $1 }' "$slots" | paste -sd ' ') == "1 2" ]] || fail "the throwaway and token slots are retired" "$(cat "$slots")"
+pass "the owner and recovery keys must each open their own slot, whatever a token answers"
+
+# luksDump lists tokens the way it lists keyslots: a keyring token numbered like
+# a recorded slot that is gone does not stand in for it.
+printf 'format=1\nphase=encrypted\npartition=PART-UUID-1\nluks_uuid=abcd-ef\n' >"$encrypt_state"
+printf '1 owner-secret\n2 other-key\n' >"$slots"
+echo 1 >"$tmp/token-slot"
+printf 'owner_slot=1\nrecovery_slot=0\nrecovery_shown=1\n' >"$REKEY_STATE"
+printf 'throwaway-install-key' >"$prov/luks-key"
+printf 'throwaway-install-key' >"$boot_key"
+password="owner-secret"
+recovery_key=""
+: >"$calls"
+if rekey_luks; then fail "a keyring token numbered like the missing recovery slot does not stand in for it"; fi
+! grep -Fq 'cryptsetup luksKillSlot' "$calls" || fail "a missing recovery slot retires no slot" "$(cat "$calls")"
+rm -f "$tmp/token-slot"
+pass "a token numbered like a recorded slot that is gone never stands in for it"
