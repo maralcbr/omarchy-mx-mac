@@ -9,6 +9,7 @@ require_platform_fixtures "platform package lists"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export OMARCHY_PATH="$ROOT"
+export PATH="$ROOT/bin:$PATH"
 
 names() {
   sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$@"
