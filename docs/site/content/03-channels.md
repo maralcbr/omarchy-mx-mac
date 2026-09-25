@@ -17,7 +17,7 @@ Both channels write the same image and differ only in the kernel lane the Mac fo
 
 ## Kernels
 
-Two kernels exist. `linux-asahi` comes from the Asahi Linux project through the `[asahi-alarm]` repository. `linux-aurora` is built here from [aurora-silicon/linux](https://github.com/aurora-silicon/linux) and adds DisplayPort alt-mode and USB4 external monitors, variable refresh rate, the camera signal processor and the always-on processor.
+The default kernel is `linux-aurora`, built here from [aurora-silicon/linux](https://github.com/aurora-silicon/linux). It builds on the Asahi Linux kernel and adds DisplayPort alt-mode and USB4 external monitors, variable refresh rate, the camera signal processor and the always-on processor; see [Hardware support]({{page:hardware}}). Macs installed from the earlier Asahi stable image still run `linux-asahi`, which comes from the Asahi Linux project through the `[asahi-alarm]` repository.
 
 An installed Mac is therefore in one of three states, and the updater refuses any other combination:
 
@@ -27,7 +27,7 @@ An installed Mac is therefore in one of three states, and the updater refuses an
 | `stable` | `linux-aurora` | An Aurora Mac on the stable lane, which carries rc's hardware-qualified kernel; includes new Stable installs |
 | `rc` | `linux-aurora` | An Aurora Mac on the release-candidate pin |
 
-The fork is moving the stable channel onto Aurora and retiring the Asahi kernel once Aurora has had enough hardware time. Existing Macs are migrated rather than stranded. Until that finishes, "stable" describes a channel, not a single kernel.
+New installs on both channels get Aurora. What remains is migrating the legacy Asahi Macs and retiring the Asahi kernel; they are migrated rather than stranded. Until that finishes, "stable" describes a channel, not a single kernel.
 
 There is a third Aurora lane, `edge`, which floats on the upstream branch head. It is for lab Macs. The installer does not offer it and `omarchy-channel-set` refuses it on a Mac.
 
