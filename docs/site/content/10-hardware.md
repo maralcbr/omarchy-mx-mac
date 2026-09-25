@@ -42,7 +42,7 @@ The current image admits no M3 or M4 Mac.
 | --- | --- | --- |
 | Apple GPU | <span class="status ok">works</span> | Mesa `vulkan-asahi`, hardware acceleration. `llvmpipe` is a failed install. |
 | Internal display, brightness | <span class="status ok">works</span> | |
-| Keyboard, backlight, trackpad | <span class="status ok">works</span> | Early-loaded HID modules; MTP trackpads on M2 need the fork's fix |
+| Keyboard, backlight, trackpad | <span class="status ok">works</span> | Early-loaded HID modules; media keys on the top row as in macOS (`fnmode=3`); MTP trackpads on M2 need the fork's fix |
 | Wi-Fi, Bluetooth | <span class="status ok">works</span> | NetworkManager with the iwd backend. 5 GHz occasionally times out right after first boot; retry connects. |
 | Speakers, microphone, headphones | <span class="status ok">works</span> | WirePlumber convolver chain, `speakersafetyd` active |
 | Suspend and resume | <span class="status ok">works</span> | Verified per release from a local session |

@@ -428,9 +428,14 @@ fi
 # carry the keyboard settings of /etc/vconsole.conf as they are now (KEYMAP
 # for the console, XKB* for Plymouth; comments and fonts do not count): a
 # layout changed after the image was built only reaches the prompt with the
-# next rebuild. Layouts that cannot
-# type Latin letters are left out of the image on purpose
+# next rebuild. The file alone loads nothing: on a systemd image the console
+# prompt needs systemd-vconsole-setup, loadkeys and the KEYMAP file
+# (sd-vconsole), and Plymouth, which reads keys through evdev, needs the XKB
+# symbols of each XKBLAYOUT (the plymouth hook), so those are checked too.
+# Layouts that cannot type Latin letters are left out of the image on purpose
 # (94-omarchy-mac-vconsole.conf in omarchy-mac-boot), so they are not checked.
+# On a live system a failed systemd-vconsole-setup this boot is reported as a
+# warning: the image was right, yet the prompt typed with the kernel's US map.
 vconsole_value() {
   # shellcheck disable=SC1090 # the host vconsole.conf, under the check root
   (unset "$1"; . "$2" 2>/dev/null; printf '%s' "${!1:-}")
@@ -458,7 +463,7 @@ if (( has_crypttab_root )) && [[ -f $host_vconsole ]]; then
         initrd_image=$workdir/uki.initrd
         sudo objcopy -O binary --only-section=.initrd "$limine_uki" "$initrd_image" 2>/dev/null &&
           sudo test -s "$initrd_image" ||
-          fail "cannot read the initramfs inside /boot/efi/EFI/Linux/omarchy_$kernel.efi"
+          fail "cannot read the initramfs inside $limine_esp/EFI/Linux/omarchy_$kernel.efi"
       else
         echo "Apple Silicon boot check: objcopy (binutils) is not installed; not checking the keyboard layout in the UKI" >&2
       fi
@@ -469,7 +474,7 @@ if (( has_crypttab_root )) && [[ -f $host_vconsole ]]; then
       label="/boot/initramfs-$kernel.img"
       rebuild="sudo /usr/bin/mkinitcpio -P && sudo omarchy-mac-boot-update"
       if (( limine_mac )); then
-        label="the initramfs inside /boot/efi/EFI/Linux/omarchy_$kernel.efi"
+        label="the initramfs inside $limine_esp/EFI/Linux/omarchy_$kernel.efi"
         rebuild="sudo omarchy-mac-boot-update"
       fi
       (cd "$initrd_dir" && sudo lsinitcpio -x --cpio "$initrd_image" >/dev/null 2>&1) ||
@@ -477,7 +482,40 @@ if (( has_crypttab_root )) && [[ -f $host_vconsole ]]; then
       [[ -f $initrd_dir/etc/vconsole.conf &&
         $(vconsole_keyboard "$initrd_dir/etc/vconsole.conf") == "$(vconsole_keyboard "$host_vconsole")" ]] ||
         fail "$label does not carry the keyboard layout of /etc/vconsole.conf (KEYMAP=${vconsole_keymap:-unset} XKBLAYOUT=${vconsole_layout:-unset}), so the disk passphrase prompt may type with another layout; rebuild the boot image with '$rebuild'"
+      layout_missing=()
+      if (( ! busybox_luks )); then
+        for tool in usr/lib/systemd/systemd-vconsole-setup usr/bin/loadkeys; do
+          [[ -e $initrd_dir/$tool || -L $initrd_dir/$tool ]] || layout_missing+=("/$tool")
+        done
+        # sd-vconsole looks the name up under /usr/share/kbd/keymaps, with or
+        # without .map and a compression suffix; an absolute KEYMAP is taken as is.
+        case ${vconsole_keymap:-us} in
+          us | @kernel) ;;
+          /*) [[ -e $initrd_dir$vconsole_keymap ]] || layout_missing+=("$vconsole_keymap") ;;
+          *)
+            [[ -n $(find "$initrd_dir/usr/share/kbd/keymaps" -type f \( -name "$vconsole_keymap" -o -name "$vconsole_keymap.*" \) \
+              -print -quit 2>/dev/null) ]] || layout_missing+=("the $vconsole_keymap keymap")
+            ;;
+        esac
+      fi
+      if [[ -e $initrd_dir/usr/bin/plymouthd && -n $vconsole_layout ]]; then
+        IFS=, read -r -a xkb_layouts <<<"$vconsole_layout"
+        for xkb_layout in "${xkb_layouts[@]}"; do
+          [[ -z $xkb_layout || -e $initrd_dir/usr/share/X11/xkb/symbols/$xkb_layout ]] ||
+            layout_missing+=("the XKB symbols for $xkb_layout")
+        done
+      fi
+      if (( ${#layout_missing[@]} )); then
+        missing_text=$(printf '%s, ' "${layout_missing[@]}")
+        fail "$label carries /etc/vconsole.conf but not what loads it at the disk passphrase prompt (missing ${missing_text%, }); rebuild the boot image with '$rebuild'"
+      fi
       sudo rm -rf "$initrd_dir"
+    fi
+    if [[ -z $root || ${OMARCHY_BOOT_CHECK_LIVE_JOURNAL:-0} == 1 ]] && omarchy-cmd-present journalctl; then
+      vconsole_failure=$(sudo journalctl -b --no-pager -o cat -u systemd-vconsole-setup.service 2>/dev/null |
+        grep -E -m1 "Failed with result|failed with exit status|status=[1-9]" || true)
+      [[ -z $vconsole_failure ]] ||
+        echo "Apple Silicon boot check: warning: the console keyboard setup failed during this boot ($vconsole_failure), so the disk passphrase prompt may have typed with the US layout; see 'journalctl -b -u systemd-vconsole-setup.service'" >&2
     fi
   fi
 fi

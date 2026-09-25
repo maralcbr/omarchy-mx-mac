@@ -132,6 +132,12 @@ cat >"$stub_bin/blkid" <<'SH'
 [[ "$*" == *"/dev/mapper/root"* && -n ${TEST_MAPPER_UUID:-} ]] || exit 2
 echo "$TEST_MAPPER_UUID"
 SH
+cat >"$stub_bin/journalctl" <<'SH'
+#!/bin/bash
+printf 'journalctl %s\n' "$*" >>"$TEST_CALLS"
+[[ -n ${TEST_JOURNAL:-} && -f $TEST_JOURNAL ]] && cat "$TEST_JOURNAL"
+exit 0
+SH
 cat >"$stub_bin/lsblk" <<'SH'
 #!/bin/bash
 [[ -n ${TEST_LSBLK:-} && -f $TEST_LSBLK ]] && cat "$TEST_LSBLK"
@@ -244,6 +250,8 @@ run_check() {
     TEST_LSBLK="${TEST_LSBLK:-}" \
     TEST_MAPPER_UUID="${TEST_MAPPER_UUID:-}" \
     TEST_INITRD_TREE="${TEST_INITRD_TREE:-}" \
+    TEST_JOURNAL="${TEST_JOURNAL:-}" \
+    OMARCHY_BOOT_CHECK_LIVE_JOURNAL="${OMARCHY_BOOT_CHECK_LIVE_JOURNAL:-0}" \
     OMARCHY_BOOT_CHECK_ROOT="$root" \
     OMARCHY_BOOT_CHECK_UNAME="$kver" \
     PATH="$stub_bin:$ROOT/bin:$PATH" \
@@ -422,10 +430,28 @@ pass "a mapper or LUKS root without crypttab is a failure"
 
 # The disk passphrase prompt types with the layout the boot image carries (#235).
 initrd_tree="$test_tmp/initrd-tree"
+# What sd-vconsole and the plymouth hook put next to vconsole.conf: the
+# console tools, the KEYMAP file and the XKB symbols of each layout.
 initrd_carries() {
+  local setting keymap="" layouts="" layout
   rm -rf "$initrd_tree"
   mkdir -p "$initrd_tree/etc"
   (( $# == 0 )) || printf '%s\n' "$@" >"$initrd_tree/etc/vconsole.conf"
+  mkdir -p "$initrd_tree/usr/lib/systemd" "$initrd_tree/usr/bin" "$initrd_tree/usr/share/kbd/keymaps/i386/qwerty" \
+    "$initrd_tree/usr/share/X11/xkb/symbols"
+  : >"$initrd_tree/usr/lib/systemd/systemd-vconsole-setup"
+  : >"$initrd_tree/usr/bin/loadkeys"
+  : >"$initrd_tree/usr/bin/plymouthd"
+  for setting; do
+    case $setting in
+      KEYMAP=*) keymap=${setting#KEYMAP=} ;;
+      XKBLAYOUT=*) layouts=${setting#XKBLAYOUT=} ;;
+    esac
+  done
+  [[ -z $keymap ]] || : >"$initrd_tree/usr/share/kbd/keymaps/i386/qwerty/$keymap.map.gz"
+  for layout in ${layouts//,/ }; do
+    : >"$initrd_tree/usr/share/X11/xkb/symbols/$layout"
+  done
 }
 host_layout() {
   mkdir -p "$root/etc"
@@ -457,6 +483,74 @@ host_layout "${danish[@]}"
 initrd_carries
 TEST_INITRD_TREE=$initrd_tree run_check
 expect_fail "an initramfs without vconsole.conf" "does not carry the keyboard layout of /etc/vconsole.conf"
+
+system
+encrypt_root
+host_layout "${danish[@]}"
+initrd_carries "${danish[@]}"
+rm "$initrd_tree/usr/share/kbd/keymaps/i386/qwerty/dk-latin1.map.gz"
+: >"$initrd_tree/usr/share/kbd/keymaps/i386/qwerty/dk.map.gz"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "an image without the KEYMAP file" "carries /etc/vconsole.conf but not what loads it at the disk passphrase prompt (missing the dk-latin1 keymap)"
+
+system
+encrypt_root
+host_layout "${danish[@]}"
+initrd_carries "${danish[@]}"
+rm "$initrd_tree/usr/lib/systemd/systemd-vconsole-setup"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "an image without sd-vconsole" "missing /usr/lib/systemd/systemd-vconsole-setup"
+grep -Fq "sudo /usr/bin/mkinitcpio -P && sudo omarchy-mac-boot-update" "$test_tmp/err" ||
+  fail "a missing loader names the rebuild" "$(cat "$test_tmp/err")"
+
+system
+encrypt_root
+host_layout "${danish[@]}"
+initrd_carries "${danish[@]}"
+rm "$initrd_tree/usr/share/X11/xkb/symbols/dk"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "a Plymouth image without the XKB symbols" "missing the XKB symbols for dk"
+
+system
+encrypt_root
+host_layout "${danish[@]}"
+initrd_carries "${danish[@]}"
+rm "$initrd_tree/usr/share/X11/xkb/symbols/dk" "$initrd_tree/usr/bin/plymouthd"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "an image without Plymouth, which needs no XKB symbols"
+
+system
+encrypt_root
+host_layout KEYMAP=/usr/local/share/kbd/my.map XKBLAYOUT=dk
+initrd_carries KEYMAP=us XKBLAYOUT=dk
+sed -i 's|^KEYMAP=.*|KEYMAP=/usr/local/share/kbd/my.map|' "$initrd_tree/etc/vconsole.conf"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "an image without an absolute KEYMAP" "missing /usr/local/share/kbd/my.map"
+mkdir -p "$initrd_tree/usr/local/share/kbd"
+: >"$initrd_tree/usr/local/share/kbd/my.map"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "an image that carries the absolute KEYMAP"
+pass "the image must carry what loads the layout, not only vconsole.conf"
+
+system
+encrypt_root
+host_layout "${danish[@]}"
+initrd_carries "${danish[@]}"
+printf 'loadkeys: Unable to open file: dk-latin1: No such file or directory\n/usr/bin/loadkeys failed with exit status 1.\nsystemd-vconsole-setup.service: Failed with result '"'"'exit-code'"'"'.\n' \
+  >"$test_tmp/journal"
+TEST_INITRD_TREE=$initrd_tree TEST_JOURNAL="$test_tmp/journal" OMARCHY_BOOT_CHECK_LIVE_JOURNAL=1 run_check
+expect_pass "a failed console setup this boot is a warning, not a failure"
+grep -Fq "warning: the console keyboard setup failed during this boot (/usr/bin/loadkeys failed with exit status 1.)" "$test_tmp/err" ||
+  fail "a failed console setup this boot is reported" "$(cat "$test_tmp/err")"
+grep -Fq "journalctl -b --no-pager -o cat -u systemd-vconsole-setup.service" "$calls" ||
+  fail "the check reads this boot's systemd-vconsole-setup journal" "$(cat "$calls")"
+printf 'Configuration of first virtual console was skipped, ignoring remaining ones.\n' >"$test_tmp/journal"
+TEST_INITRD_TREE=$initrd_tree TEST_JOURNAL="$test_tmp/journal" OMARCHY_BOOT_CHECK_LIVE_JOURNAL=1 run_check
+expect_pass "a console setup that only skipped the font"
+! grep -Fq "warning" "$test_tmp/err" || fail "a skipped font is not a keyboard failure" "$(cat "$test_tmp/err")"
+TEST_INITRD_TREE=$initrd_tree TEST_JOURNAL="$test_tmp/journal" run_check
+! grep -Fq "journalctl" "$calls" || fail "a check of another root does not read this machine's journal" "$(cat "$calls")"
+pass "this boot's failed console keyboard setup is reported as a warning"
 
 system
 encrypt_root
@@ -525,4 +619,17 @@ TEST_INITRD_TREE=$initrd_tree run_check
 expect_fail "a UKI built before the layout changed" "the initramfs inside /boot/efi/EFI/Linux/omarchy_linux-aurora.efi does not carry the keyboard layout"
 grep -Fq "rebuild the boot image with 'sudo omarchy-mac-boot-update'" "$test_tmp/err" ||
   fail "a Limine Mac is told to rebuild with omarchy-mac-boot-update" "$(cat "$test_tmp/err")"
+
+system
+encrypt_root
+limine_mac
+mkdir -p "$root/boot/EFI/Linux" "$root/boot/EFI/BOOT"
+mv "$esp/EFI/Linux/omarchy_linux-aurora.efi" "$root/boot/EFI/Linux/"
+mv "$esp/EFI/BOOT/BOOTAA64.EFI" "$root/boot/EFI/BOOT/"
+mv "$esp/limine.conf" "$root/boot/limine.conf"
+printf 'ESP_PATH="/boot"\nENABLE_UKI=yes\n' >"$root/etc/default/limine"
+host_layout "${danish[@]}"
+initrd_carries KEYMAP=us XKBLAYOUT=us
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "a UKI on an ESP mounted at /boot" "the initramfs inside /boot/EFI/Linux/omarchy_linux-aurora.efi does not carry the keyboard layout"
 pass "a Limine Mac checks the layout inside the UKI it boots"

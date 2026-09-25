@@ -117,6 +117,7 @@ One-shot migrators stay in `mx runtime` even when the payload they once wrote mo
 | `migrations/1789172112.sh` | Remove Intel `brcmfmac` workaround from Apple Silicon. | Absent (distilled leaf already skips AS) | — | `mx runtime` |
 | `migrations/1788486400.sh` | Install packages missing from an older Asahi set; runs the legacy cleanup first. | Absent | — | `mx runtime` |
 | `migrations/1790256699.sh` | Retire omarchy-mac's `[omarchy-aarch64]` and its conflicting packages. | Absent | — | `mx runtime` |
+| `migrations/1790305681.sh` | Stock `hid_apple` `fnmode=2` → `fnmode=3` (media keys first) on Apple Silicon, boot image rebuilt (#235; `docs/apple-silicon-keyboard.md`). | `1789132067.sh` (`fnmode=1`) | Not yet on hardware | `mx runtime` |
 | `migrations/1787560726.sh` | Configure signed Omarchy repo on Apple Silicon. | `1788200000.sh` `[omarchy-aarch64]`; `1789275235.sh` package-owned Wi-Fi default | Trust: no | `mx runtime` |
 | `migrations/1789879296.sh` | Replace leftover `linux-asahi-headers` on Aurora; `update-m1n1`. | Absent | — | `mx runtime` |
 | `migrations/1786391100.sh` | Broadcom software WPA on Intel/T2 Macs. | Same idea on product branch | n/a | `omacom/omarchy quattro` |
@@ -225,7 +226,7 @@ Apple-named paths on `fe18cd6c` that are absent from this worktree.
 | `install/hardware/apple/pacman.sh` | Unsigned `[omarchy-aarch64]` | Trust conflict with MX signed channel | `mx runtime` keeps signed channel; distilled leaf should not ship to testers on MX |
 | `install/user/hardware/apple/obsidian.sh` / `share-picker.sh` | AppImage Obsidian; PipeWire capturer flag | No | `omarchy-mac (Scott)` later or quattro PR |
 | `bin/omarchy-hw-apple` | Alias to `omarchy-hw-apple-silicon` | No | `mx runtime` (add alias if user units need it) |
-| `migrations/1789132067.sh` | Fn/media keys | No | later Scott / quattro |
+| `migrations/1789132067.sh` | Fn/media keys (`fnmode=1`); MX uses `fnmode=3` via `fix-fkeys.sh` and `1790305681.sh` | No | later Scott / quattro |
 | `migrations/1789135842.sh` | Keyboard ALS | No | later Scott / quattro |
 | `migrations/1789148088.sh` | Snapper on Apple Silicon | No | later Scott / quattro |
 | `migrations/1789158178.sh` | GRUB/plymouth branding on AS | Overlaps boot story | `omarchy-mac-boot (ours)` if it touches initramfs hooks; else desktop |

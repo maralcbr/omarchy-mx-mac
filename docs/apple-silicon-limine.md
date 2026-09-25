@@ -58,7 +58,10 @@ snapshot from `Snapshots`.
   restores). `omarchy-mac-snapshot-menu` (grub-btrfs) is a no-op there.
 - `bin/omarchy-apple-silicon-boot-check`: on a Limine Mac verifies the UKI,
   the entry's root and LUKS mapping, and that the ESP carries the installed
-  Limine; the grub.cfg checks apply to GRUB Macs only.
+  Limine; the grub.cfg checks apply to GRUB Macs only. On an encrypted Mac
+  with a non-US Latin layout it also checks that the UKI's initramfs carries
+  the keyboard settings and what loads them at the passphrase prompt
+  (`docs/apple-silicon-keyboard.md`).
 - omarchy-pkgs `uboot-asahi`: Asahi's package name with a higher pkgrel, so pacman installs it from [omarchy].
   An `uboot.env` on the ESP overrides the default environment, so it must
   carry `silent=1` or not exist.
