@@ -162,6 +162,7 @@ asahi_migration_disposition() {
     1790226271.sh) printf 'run\treviewed Tensaku install for the screenshot editor; self-gating to Apple Silicon hardware\n' ;;
     1790226283.sh) printf 'run\treviewed stock Arch ~/.bashrc replacement for Apple Silicon; self-gating to Apple Silicon hardware\n' ;;
     1790256699.sh) printf 'run\treviewed retirement of the omarchy-mac [omarchy-aarch64] repository and its conflicting packages; self-gating to Apple Silicon hardware\n' ;;
+    1790305681.sh) printf 'run\treviewed move of the stock hid_apple fnmode=2 line to fnmode=3 (media keys first) with retryable boot image rebuild; self-gating to Apple Silicon hardware\n' ;;
     *) return 1 ;;
   esac
 }

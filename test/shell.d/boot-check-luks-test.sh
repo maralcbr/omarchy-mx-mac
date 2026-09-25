@@ -448,7 +448,14 @@ initrd_carries() {
       XKBLAYOUT=*) layouts=${setting#XKBLAYOUT=} ;;
     esac
   done
-  [[ -z $keymap ]] || : >"$initrd_tree/usr/share/kbd/keymaps/i386/qwerty/$keymap.map.gz"
+  case $keymap in
+    "" | /*) ;;
+    */*)
+      mkdir -p "$(dirname "$initrd_tree/usr/share/kbd/keymaps/$keymap")"
+      : >"$initrd_tree/usr/share/kbd/keymaps/$keymap.map.gz"
+      ;;
+    *) : >"$initrd_tree/usr/share/kbd/keymaps/i386/qwerty/$keymap.map.gz" ;;
+  esac
   for layout in ${layouts//,/ }; do
     : >"$initrd_tree/usr/share/X11/xkb/symbols/$layout"
   done
@@ -530,6 +537,45 @@ mkdir -p "$initrd_tree/usr/local/share/kbd"
 : >"$initrd_tree/usr/local/share/kbd/my.map"
 TEST_INITRD_TREE=$initrd_tree run_check
 expect_pass "an image that carries the absolute KEYMAP"
+
+system
+encrypt_root
+host_layout "${danish[@]}"
+initrd_carries "${danish[@]}"
+mv "$initrd_tree/usr/share/kbd/keymaps/i386/qwerty/dk-latin1.map.gz" "$initrd_tree/usr/share/kbd/keymaps/i386/qwerty/dk-latin1.map.bak"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "a keymap file with a suffix sd-vconsole does not load" "missing the dk-latin1 keymap"
+
+system
+encrypt_root
+host_layout KEYMAP=i386/qwerty/dk-latin1 XKBLAYOUT=dk
+initrd_carries KEYMAP=i386/qwerty/dk-latin1 XKBLAYOUT=dk
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "a KEYMAP named with its directory"
+
+system
+encrypt_root
+host_layout XKBLAYOUT=dk,us
+initrd_carries XKBLAYOUT=dk,us
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "an XKB-only layout, whose console keeps the US map"
+rm "$initrd_tree/usr/share/X11/xkb/symbols/us"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_fail "a second XKB layout without its symbols" "missing the XKB symbols for us"
+
+# A Mac whose busybox init unlocks the root through cryptdevice= loads its
+# keymap from the keymap hook, not from sd-vconsole.
+system
+encrypt_root
+printf '/dev/mapper/root / btrfs subvol=@ 0 0\n' >"$root/etc/fstab"
+printf 'linux /vmlinuz-linux-aurora root=UUID=x rw rootflags=subvol=@ cryptdevice=UUID=abcd-ef:root\ninitrd /initramfs-linux-aurora.img\n' \
+  >"$root/boot/grub/grub.cfg"
+printf 'usr/lib/modules/%s/kernel/x.ko\nusr/bin/init\ninit_functions\nhooks/encrypt\n' "$kver" >"$test_tmp/initramfs"
+host_layout "${danish[@]}"
+initrd_carries "${danish[@]}"
+rm "$initrd_tree/usr/lib/systemd/systemd-vconsole-setup" "$initrd_tree/usr/share/kbd/keymaps/i386/qwerty/dk-latin1.map.gz"
+TEST_INITRD_TREE=$initrd_tree run_check
+expect_pass "a busybox image, which has no sd-vconsole"
 pass "the image must carry what loads the layout, not only vconsole.conf"
 
 system

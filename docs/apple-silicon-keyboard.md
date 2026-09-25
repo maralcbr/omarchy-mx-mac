@@ -34,18 +34,23 @@ and rebuild the boot image.
 Apple ISO keyboards report the key left of `1` and the key left of `Z`
 swapped. `hid_apple` swaps them back when `iso_layout` is `-1` (auto) and the
 keyboard reports the ISO country code. SPI and MTP keyboards carry
-`APPLE_ISO_TILDE_QUIRK`, so Omarchy leaves `iso_layout` at auto. Forcing it
-would break keyboards the kernel already handles.
+`APPLE_ISO_TILDE_QUIRK`, so Omarchy leaves `iso_layout` at auto. A blanket
+override is not needed, and `iso_layout=0` would undo the correction on
+keyboards the kernel already handles.
 
 A key that types the PC character instead of the one printed on the key is a
 layout problem, not a swap problem. On a Danish MacBook the key left of `1`
 is printed with `$`, and it types `½` because XKB's `dk` layout is the PC layout.
 If the swap were wrong, the key would type `<`. `dk(mac)` only changes the
 `-` key and the space bar. The Mac legends come from
-`macintosh_vndr/dk(macbookpro)`, which is only reachable with
-`XKBMODEL=applealu_iso XKBLAYOUT=dk XKBVARIANT=macbookpro` (checked with
-`xkbcli compile-keymap`, xkeyboard-config 2.42). Changing the layout also
-changes the disk passphrase prompt, which reads the same settings.
+`macintosh_vndr/dk(macbookpro)`, reached with `XKBMODEL=applealu_iso`,
+`XKBLAYOUT=dk` and `XKBVARIANT=macbookpro` (checked with `xkbcli compile-keymap`
+against xkeyboard-config 2.42 and 2.48). Omarchy cannot offer that yet:
+`default/hypr/input.lua` passes `XKBLAYOUT` and `XKBVARIANT` to Hyprland but
+sets no model, and the `macbookpro` variant does not exist without the Apple
+model. Choosing Mac legends is a follow-up. It has to change the Hyprland
+model and the passphrase prompt's layout together, and the prompt only gets a
+changed `/etc/vconsole.conf` after the boot image is rebuilt.
 
 ## Disk passphrase prompt layout
 
@@ -57,21 +62,29 @@ layout comes from the boot image, not from Hyprland:
   with `KEYMAP` from the image's `/etc/vconsole.conf`.
 - Plymouth reads keys through evdev and builds an XKB keymap from `XKBLAYOUT`,
   `XKBMODEL`, `XKBVARIANT` and `XKBOPTIONS` in the same file. It needs the XKB
-  data the plymouth hook copies. Without an XKB keymap it falls back to the
-  terminal, which means the kernel keymap.
+  data the plymouth hook copies. If no XKB keymap can be built it reads the
+  terminal instead, which uses the kernel keymap.
+
+So a prompt that types US both in Plymouth and with `plymouth.enable=0` rules
+out a theme problem. It does not prove a single cause: the image, the kernel
+keymap and Plymouth's input path each need checking.
 
 omarchy-pkgs `94-omarchy-mac-vconsole.conf` puts `sd-vconsole` and
 `/etc/vconsole.conf` in every systemd image. `omarchy-apple-silicon-boot-check`
 fails when the booted image (the UKI on a Limine Mac) does not carry
-`/etc/vconsole.conf`'s keyboard settings, `systemd-vconsole-setup`,
-`loadkeys`, the `KEYMAP` file, or, when Plymouth is in the image, the XKB
-symbols of each layout. On a live Mac it also warns when
-`systemd-vconsole-setup` failed during the current boot.
+`/etc/vconsole.conf`'s keyboard settings. On a systemd image it also fails
+when `systemd-vconsole-setup`, `loadkeys` or the `KEYMAP` file is missing,
+and, when Plymouth is in the image, the XKB symbols file of each layout.
+These are presence checks: they show the files were bundled, not that every
+file a keymap or XKB layout includes is there. A busybox image loads its
+keymap from the `keymap` hook and is not checked for them. On a live Mac the
+check also warns when `systemd-vconsole-setup` failed during the current boot.
 
 `Configuration of first virtual console was skipped, ignoring remaining ones.`
-is not a keymap failure. `systemd-vconsole-setup` logs it when no `FONT` is
-set: only the font copy to the other consoles is skipped, and `loadkeys` has
-already run.
+is not a keymap failure. `systemd-vconsole-setup` logs it when it applied no
+font (usually because no `FONT` is set), after the keymap step has already
+run; only the copy of the font settings to the other consoles is skipped. A
+`loadkeys` failure is logged separately.
 
 ### When the prompt still types US
 
@@ -97,8 +110,8 @@ How to read them:
 
 - In `dumpkeys`, keycode 53 is `minus` with `dk-latin1` and `slash` with the
   US map. The root system's console should show `minus`.
-- `loadkeys` errors in the journal, or a vconsole unit that failed, point to
-  the console setup, not to the image.
+- `loadkeys` errors in the journal, or a vconsole unit that failed, show the
+  console setup failed. The cause can still be a file missing from the image.
 - The Plymouth log shows which `KEYMAP` and `XKBLAYOUT` Plymouth read from the
   booted image and whether it opened the keyboard as an input device.
 - The freed initrd size should be close to the size of the UKI's `.initrd`.

@@ -431,7 +431,9 @@ fi
 # next rebuild. The file alone loads nothing: on a systemd image the console
 # prompt needs systemd-vconsole-setup, loadkeys and the KEYMAP file
 # (sd-vconsole), and Plymouth, which reads keys through evdev, needs the XKB
-# symbols of each XKBLAYOUT (the plymouth hook), so those are checked too.
+# symbols of each XKBLAYOUT (the plymouth hook). Those files must be there
+# too; that proves they were bundled, not that every file they include is. A
+# busybox image loads its keymap from its own hook and is not checked for them.
 # Layouts that cannot type Latin letters are left out of the image on purpose
 # (94-omarchy-mac-vconsole.conf in omarchy-mac-boot), so they are not checked.
 # On a live system a failed systemd-vconsole-setup this boot is reported as a
@@ -487,14 +489,24 @@ if (( has_crypttab_root )) && [[ -f $host_vconsole ]]; then
         for tool in usr/lib/systemd/systemd-vconsole-setup usr/bin/loadkeys; do
           [[ -e $initrd_dir/$tool || -L $initrd_dir/$tool ]] || layout_missing+=("/$tool")
         done
-        # sd-vconsole looks the name up under /usr/share/kbd/keymaps, with or
-        # without .map and a compression suffix; an absolute KEYMAP is taken as is.
+        # The lookup sd-vconsole makes when it builds the image: the name,
+        # which may carry directories, under /usr/share/kbd/keymaps, then an
+        # optional .map or .inc and an optional compression suffix. An
+        # absolute KEYMAP is taken as it is. Only the file itself is checked,
+        # not the files it includes.
         case ${vconsole_keymap:-us} in
           us | @kernel) ;;
           /*) [[ -e $initrd_dir$vconsole_keymap ]] || layout_missing+=("$vconsole_keymap") ;;
           *)
-            [[ -n $(find "$initrd_dir/usr/share/kbd/keymaps" -type f \( -name "$vconsole_keymap" -o -name "$vconsole_keymap.*" \) \
-              -print -quit 2>/dev/null) ]] || layout_missing+=("the $vconsole_keymap keymap")
+            keymap_found=0
+            while IFS= read -r -d '' keymap_file; do
+              for keymap_suffix in "" .map .inc; do
+                for keymap_compression in "" .gz .bz2 .zst; do
+                  [[ $keymap_file == */"$vconsole_keymap$keymap_suffix$keymap_compression" ]] && keymap_found=1
+                done
+              done
+            done < <(find "$initrd_dir/usr/share/kbd/keymaps" -type f -print0 2>/dev/null)
+            (( keymap_found )) || layout_missing+=("the $vconsole_keymap keymap")
             ;;
         esac
       fi
@@ -511,7 +523,7 @@ if (( has_crypttab_root )) && [[ -f $host_vconsole ]]; then
       fi
       sudo rm -rf "$initrd_dir"
     fi
-    if [[ -z $root || ${OMARCHY_BOOT_CHECK_LIVE_JOURNAL:-0} == 1 ]] && omarchy-cmd-present journalctl; then
+    if [[ -z $root || ${OMARCHY_BOOT_CHECK_LIVE_JOURNAL:-0} == 1 ]]; then
       vconsole_failure=$(sudo journalctl -b --no-pager -o cat -u systemd-vconsole-setup.service 2>/dev/null |
         grep -E -m1 "Failed with result|failed with exit status|status=[1-9]" || true)
       [[ -z $vconsole_failure ]] ||

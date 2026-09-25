@@ -12,17 +12,21 @@ omarchy-hw-apple-silicon || exit 0
 
 conf=${OMARCHY_HID_APPLE_CONF:-/etc/modprobe.d/hid_apple.conf}
 fnmode_param=${OMARCHY_HID_APPLE_FNMODE:-/sys/module/hid_apple/parameters/fnmode}
-stock="options hid_apple fnmode=2"
+pending=${OMARCHY_HID_APPLE_PENDING:-/var/lib/omarchy/migrations/1790305681-boot-image-pending}
 
-[[ -f $conf && $(<"$conf") == "$stock" ]] || exit 0
+if [[ -f $conf && $(<"$conf") == "options hid_apple fnmode=2" ]]; then
+  # Record the rebuild obligation before changing the file. It survives a
+  # failed rebuild, an interrupted run and a retry by another user.
+  sudo install -Dm644 /dev/null "$pending"
+  echo "options hid_apple fnmode=3" | sudo tee "$conf" >/dev/null
+fi
 
-echo "options hid_apple fnmode=3" | sudo tee "$conf" >/dev/null
+[[ -f $pending ]] || exit 0
 
 # hid_apple loads from the initramfs (92-omarchy-mac-hid.conf) and modconf
 # copies /etc/modprobe.d into it, so the option reaches the boot only through
 # a rebuilt image: the UKI on a Limine Mac, the initramfs GRUB boots
-# otherwise. A failed rebuild puts the old line back, so the next run tries
-# again instead of finding a file that already looks migrated.
+# otherwise.
 if omarchy-mac-limine-active; then
   rebuild=(omarchy-mac-boot-update)
 else
@@ -30,13 +34,14 @@ else
 fi
 echo "Rebuilding the boot image so the new keyboard mode survives a reboot"
 if ! sudo "${rebuild[@]}"; then
-  echo "$stock" | sudo tee "$conf" >/dev/null
   echo "Rebuilding the boot image failed; the keyboard mode migration will retry later." >&2
   exit 1
 fi
+sudo rm -f -- "$pending"
 
-# The parameter is writable at runtime and read on every key press: the top
-# row changes now, without a reboot.
-if [[ -f $fnmode_param ]]; then
-  echo 3 | sudo tee "$fnmode_param" >/dev/null || true
+# The parameter is writable at runtime and read on every key press, so the
+# top row changes now; if it cannot be written, the next boot applies it.
+if [[ -f $fnmode_param ]] && ! echo 3 | sudo tee "$fnmode_param" >/dev/null 2>&1; then
+  echo "The running keyboard keeps its mode until the next reboot." >&2
 fi
+exit 0
