@@ -1,3 +1,7 @@
+# Freeze
+
+This fork is feature-frozen. Take only security and boot fixes here, and port them to `quattro-upstream` too when it needs them. Features and other changes go to [omacom/omarchy-mac](https://github.com/omacom/omarchy-mac) on `quattro-upstream`, and installer work to [omacom/omarchy-mac-installer](https://github.com/omacom/omarchy-mac-installer), following the [convergence spec](https://github.com/omacom/omarchy-mac/pull/512).
+
 # Task Guides
 
 Deeper instructions for specific kinds of work live in `agents/skills/`. Read the

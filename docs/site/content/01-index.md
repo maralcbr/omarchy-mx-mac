@@ -8,6 +8,10 @@ Omarchy MX Mac runs [Omarchy](https://omarchy.org) on Apple Silicon Macs. It kee
 
 It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). Everything that is not Mac-specific is upstream Omarchy, so the [Omarchy manual](https://omarchy.org/manual/) applies unchanged. This manual covers only what is different on a Mac and how the fork is built.
 
+<div class="note" markdown="1">
+The fork is feature-frozen: it takes security and boot fixes only. New Apple Silicon work happens on [omacom/omarchy-mac](https://github.com/omacom/omarchy-mac) `quattro-upstream`, as set out in the [convergence spec](https://github.com/omacom/omarchy-mac/pull/512). Installed Macs keep updating as before.
+</div>
+
 ## Current state
 
 | | |
