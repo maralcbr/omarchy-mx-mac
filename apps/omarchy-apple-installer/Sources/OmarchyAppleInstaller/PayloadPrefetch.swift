@@ -536,6 +536,10 @@
     private var observers: [UUID: @Sendable (PayloadPrefetchState) -> Void] = [:]
     private var waiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var cancelEpoch: UInt64 = 0
+    /// Work directories this orchestrator created for earlier generations.
+    /// Another window's orchestrator shares the staging folder, so only
+    /// these are ever reclaimed.
+    private var ownedWorkDirectories: [URL] = []
 
     public convenience init() {
       self.init(
@@ -606,14 +610,18 @@
         if let predecessor {
           await predecessor.cancel()
         }
-        // Earlier generations are cancelled by now. Their directories hold
-        // nothing the new one reuses, so reclaim the space before it is
-        // checked; otherwise every Try again would count it as used. The
-        // generation check and the removal share one lock hold, so a
-        // replaced task can never delete its successor's directory.
+        // Earlier generations of this orchestrator have been told to stop and
+        // nothing they produce is published any more, so their directories
+        // are reclaimed before the space check; otherwise every Try again
+        // would count a failed run's parts as used. The generation check and
+        // the removal share one lock hold, so a replaced task can never
+        // delete its successor's directory.
         let stillCurrent = self.lock.withLock { () -> Bool in
           guard self.generation == generation else { return false }
-          Self.removeAbandonedWorkDirectories(in: parent)
+          for directory in self.ownedWorkDirectories {
+            try? FileManager.default.removeItem(at: directory)
+          }
+          self.ownedWorkDirectories.removeAll()
           return true
         }
         guard stillCurrent else { return }
@@ -636,6 +644,15 @@
         } catch {
           self.publish(
             .failed(PayloadPrefetchFailure.reason(for: error)), generation: generation)
+          return
+        }
+        let owned = self.lock.withLock { () -> Bool in
+          guard self.generation == generation else { return false }
+          self.ownedWorkDirectories.append(work)
+          return true
+        }
+        guard owned else {
+          try? FileManager.default.removeItem(at: work)
           return
         }
 
@@ -794,19 +811,6 @@
       _ = pending
       for observer in observers {
         observer(state)
-      }
-    }
-
-    static func removeAbandonedWorkDirectories(in parent: URL) {
-      let fileManager = FileManager.default
-      guard
-        let entries = try? fileManager.contentsOfDirectory(
-          at: parent, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-      else { return }
-      for entry in entries where entry.lastPathComponent.hasPrefix("prefetch-") {
-        let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        guard values?.isDirectory == true, values?.isSymbolicLink != true else { continue }
-        try? fileManager.removeItem(at: entry)
       }
     }
 

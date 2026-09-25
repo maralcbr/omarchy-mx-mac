@@ -264,6 +264,53 @@
       XCTAssertEqual(try Data(contentsOf: canonical), data)
     }
 
+    func testANewWindowLeavesAnotherWindowsDownloadAlone() async throws {
+      let data = Data("shared-payload".utf8)
+      let artifact = try pinnedPayload(data)
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "prefetch-windows-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let canonical = root.appendingPathComponent(artifact.fileName)
+      let firstDirectory = RecordingBox<URL>()
+      func orchestrator(
+        _ stage: @escaping PayloadPrefetchOrchestrator.StageHandler
+      ) -> PayloadPrefetchOrchestrator {
+        PayloadPrefetchOrchestrator(
+          makeNetwork: { MockNetworkPath(Self.unmetered) },
+          makeKeepAwake: { MockKeepAwake() },
+          makeFreeSpace: { _ in MockFreeSpace(bytes: 8_000_000_000) },
+          matchesPinned: { _, _ in false },
+          requiredFreeBytes: { VerifiedArtifactStager.requiredFreeBytes(forPayloadSize: $0) },
+          stage: stage
+        )
+      }
+      let windowA = orchestrator { _, directory, _ in
+        try Data("part".utf8).write(to: directory.appendingPathComponent("part-1"))
+        firstDirectory.append(directory)
+        try await Task.sleep(for: .seconds(30))
+        throw CancellationError()
+      }
+      let windowB = orchestrator { artifact, directory, _ in
+        let file = directory.appendingPathComponent(artifact.fileName)
+        try data.write(to: file)
+        return StagedInstallerArtifact(
+          artifact: artifact, fileURL: file, reusedExistingFile: false)
+      }
+      let payload = StagedInstallerArtifact(
+        artifact: artifact, fileURL: canonical, reusedExistingFile: false)
+      windowA.begin(payload: payload)
+      for _ in 0..<200 where firstDirectory.values.isEmpty {
+        try await Task.sleep(for: .milliseconds(10))
+      }
+      let busy = try XCTUnwrap(firstDirectory.values.first)
+      windowB.begin(payload: payload)
+      try await windowB.waitUntilVerified { _ in }
+      XCTAssertTrue(
+        FileManager.default.fileExists(atPath: busy.appendingPathComponent("part-1").path))
+      windowA.cancel()
+    }
+
     func testFailureReasonsNameTheCheck() {
       XCTAssertTrue(
         PayloadPrefetchFailure.reason(
