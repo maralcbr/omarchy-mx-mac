@@ -40,7 +40,9 @@ fi
 sudo rm -f -- "$pending"
 
 # The parameter is writable at runtime and read on every key press, so the
-# top row changes now; if it cannot be written, the next boot applies it.
+# top row changes now; if it cannot be written, the next boot applies it. An
+# owner who edited the file while the rebuild was owed keeps their setting.
+[[ -f $conf && $(<"$conf") == "options hid_apple fnmode=3" ]] || exit 0
 if [[ -f $fnmode_param ]] && ! echo 3 | sudo tee "$fnmode_param" >/dev/null 2>&1; then
   echo "The running keyboard keeps its mode until the next reboot." >&2
 fi

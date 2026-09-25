@@ -41,8 +41,8 @@ keyboards the kernel already handles.
 A key that types the PC character instead of the one printed on the key is a
 layout problem, not a swap problem. On a Danish MacBook the key left of `1`
 is printed with `$`, and it types `½` because XKB's `dk` layout is the PC layout.
-If the swap were wrong, the key would type `<`. `dk(mac)` only changes the
-`-` key and the space bar. The Mac legends come from
+If the swap were wrong, the key would type `<`. `dk(mac)` changes the `-` key,
+the space bar and the keypad decimal, not this key. The Mac legends come from
 `macintosh_vndr/dk(macbookpro)`, reached with `XKBMODEL=applealu_iso`,
 `XKBLAYOUT=dk` and `XKBVARIANT=macbookpro` (checked with `xkbcli compile-keymap`
 against xkeyboard-config 2.42 and 2.48). Omarchy cannot offer that yet:

@@ -144,6 +144,19 @@ grep -q $'^omarchy-mac-boot-update\tconf=options hid_apple fnmode=3$' "$calls" |
 [[ ! -e $pending ]] || fail "the finished rebuild clears the marker"
 pass "an interrupted run rebuilds the image it owes"
 
+# The owner edited the file while the rebuild was owed: rebuild what is there,
+# leave the running keyboard alone.
+reset
+mkdir -p "$(dirname "$conf")" "$(dirname "$pending")"
+printf 'options hid_apple fnmode=2 swap_opt_cmd=1\n' >"$conf"
+: >"$pending"
+run_migration 1
+grep -q $'^mkinitcpio\t-P\tconf=options hid_apple fnmode=2 swap_opt_cmd=1$' "$calls" ||
+  fail "an owed rebuild runs with the owner's edited file" "$(cat "$calls")"
+[[ ! -e $pending && $(<"$param") == 2 && $(<"$conf") == "options hid_apple fnmode=2 swap_opt_cmd=1" ]] ||
+  fail "an owner's edit during an owed rebuild keeps their keyboard mode" "$(cat "$param")"
+pass "an owner's edit while the rebuild was owed is kept"
+
 reset
 stock_x86
 FNMODE_WRITE_FAILS=1 run_migration 1 2>"$test_tmp/err" || fail "a read-only parameter does not fail the migration" "$(cat "$test_tmp/err")"
