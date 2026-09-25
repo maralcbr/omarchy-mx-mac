@@ -24,11 +24,11 @@ if [[ $- != *p* ]]; then
 fi
 
 if (( EUID == 0 )) && [[ ${1:-} != --clean-environment ]]; then
-  exec /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/bin /bin/bash -p -- "${BASH_SOURCE[0]}" --clean-environment "$@"
+  exec /usr/bin/env -i PATH=/usr/bin /bin/bash -p -- "${BASH_SOURCE[0]}" --clean-environment "$@"
 fi
 
 if (( EUID == 0 )); then
-  export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin
+  export PATH=/usr/bin
   fixtures=""
 else
   fixtures=${OMARCHY_PROC_ROOT:-}${OMARCHY_SYS_ROOT:-}${OMARCHY_IMAGE_ROOT:-}
@@ -62,14 +62,14 @@ if ! machine=$(uname -m) || [[ -z $machine ]]; then
 fi
 
 # A booted system is one systemd runs as PID 1 from this root. An image build
-# is told apart by what it shows: no /run/systemd/system (arch-chroot, pacstrap
-# and the image builder give the root a /run of its own), PID 1's root being
-# another (a chroot on the build host), or PID 1 being something other than
-# systemd (a PID namespace whose PID 1 is the build). What cannot be seen, such
-# as PID 1's root to a normal user or /proc/1 behind hidepid, never makes a
-# build: a booted system always answers from its hardware, so builds run as
-# root with a /run of their own. A caller in a private PID namespace looks like
-# a build too, so nothing that asks the detector runs with PrivatePIDs=.
+# is told apart by what it shows: no /run/systemd/system (a root with a /run of
+# its own), PID 1's root being another (a chroot on the build host, even with
+# the host's /run bound in, as arch-chroot does), or PID 1 being something other
+# than systemd (a PID namespace whose PID 1 is the build). What cannot be seen,
+# such as PID 1's root to a normal user or /proc/1 behind hidepid, never makes a
+# build: a booted system always answers from its hardware, so a build runs as
+# root. A caller in a private PID namespace looks like a build too, so nothing
+# that asks the detector runs with PrivatePIDs=.
 booted() {
   local comm
 
@@ -92,10 +92,9 @@ trusted() {
   [[ $owner =~ ^[0-9]+$ && $mode =~ ^[0-7]+$ ]] && (( owner == image_owner && (8#$mode & 8#022) == 0 ))
 }
 
-# The manifest by the rules of install/helpers/image-target.sh, read here so the
-# detector stands alone wherever a package ships a copy of it: format=1,
-# platform= one of the four names, comments and unknown keys ignored, and any
-# other line refused.
+# The manifest: format=1, platform= one of the four names, comments and unknown
+# keys ignored, and any other line refused. The detector reads it itself, so it
+# stands alone wherever a package ships a copy of it.
 image_platform() {
   local line key value format="" platform=""
 
