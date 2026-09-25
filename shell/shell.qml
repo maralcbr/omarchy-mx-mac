@@ -1327,7 +1327,11 @@ ShellRoot {
       id: panelEntry
       required property var modelData
       readonly property string pluginId: modelData.id
-      readonly property var manifest: modelData.manifest
+      // Instantiator model data turns the manifest's nested arrays into Qt
+      // sequences, which fail the strict Array.isArray kind checks behind the
+      // capability grants (a menu plugin would lose its app library). Use the
+      // registry's own validated manifest for this id instead.
+      readonly property var manifest: shell.pluginRegistry.installedPlugins[pluginId] || null
       readonly property string entryKind: modelData.kind
       readonly property bool keepLoaded: modelData.keepLoaded === true
       readonly property string sourceUrl: shell.pluginRegistry.entryPointUrl(manifest, entryKind)
