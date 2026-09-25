@@ -10,7 +10,6 @@ It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). E
 
 ## Who this is for
 
-- Owners of a MacBook Pro 14" M1 Pro or 16" M2 Max who want Omarchy as a daily driver next to macOS.
 - People who want to know how the fork is put together before trusting it with a disk.
 - Contributors who need the map of repositories, channels and release gates.
 
