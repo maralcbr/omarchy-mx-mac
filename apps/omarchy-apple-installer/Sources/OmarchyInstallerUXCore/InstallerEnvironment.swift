@@ -455,6 +455,8 @@
     ) async throws
     func waitUntilPayloadVerified() async throws
     func cancelPayloadPrefetch()
+    /// Starts the planned payload's download again after it failed.
+    func restartPayloadPrefetch()
   }
 
   extension InstallerEnvironment {
@@ -470,5 +472,6 @@
     }
     public func waitUntilPayloadVerified() async throws {}
     public func cancelPayloadPrefetch() {}
+    public func restartPayloadPrefetch() {}
   }
 #endif

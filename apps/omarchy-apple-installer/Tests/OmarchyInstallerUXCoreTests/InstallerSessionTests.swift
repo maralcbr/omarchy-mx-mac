@@ -292,6 +292,31 @@
       XCTAssertTrue(session.canStartInstallation)
     }
 
+    func testAFailedDownloadShowsItsReasonAndCanBeRetried() async throws {
+      let environment = MockInstallerEnvironment()
+      environment.payloadPrefetchRequired = true
+      environment.prefetchFailure = true
+      let session = InstallerSession(environment: environment)
+      await session.inspect()
+      await session.continueToPlan()
+      session.continueToPlanReview()
+      await waitUntil {
+        if case .failed = session.prefetchState { return true }
+        return false
+      }
+      XCTAssertEqual(session.prefetchState, .failed("retry"))
+      XCTAssertTrue(session.canRetryPrefetch)
+
+      environment.prefetchFailure = false
+      session.retryPrefetch()
+      XCTAssertEqual(environment.prefetchRestartCount, 1)
+      await waitUntil { session.prefetchState == .verified }
+      XCTAssertFalse(session.canRetryPrefetch)
+      session.setAcknowledged(true)
+      session.approve()
+      XCTAssertTrue(session.canStartInstallation)
+    }
+
     func testApproveRequiresAcknowledgement() async {
       let environment = MockInstallerEnvironment()
       let session = InstallerSession(environment: environment)
@@ -1065,6 +1090,11 @@
 
     func cancelPayloadPrefetch() {
       prefetchCancelCount += 1
+    }
+
+    private(set) var prefetchRestartCount = 0
+    func restartPayloadPrefetch() {
+      prefetchRestartCount += 1
     }
 
     func execute(

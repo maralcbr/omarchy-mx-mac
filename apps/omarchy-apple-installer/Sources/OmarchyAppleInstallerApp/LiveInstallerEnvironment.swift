@@ -27,6 +27,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   private var encryptLinuxDisk = true
   private var selectedLane = ReleaseChannel.stable.rawValue
   private let prefetch = PayloadPrefetchOrchestrator()
+  private var plannedPayload: StagedInstallerArtifact?
 
   var payloadPrefetchRequired: Bool { true }
 
@@ -343,7 +344,15 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   func cancelPayloadPrefetch() {
+    lock.withLock { plannedPayload = nil }
     prefetch.cancel()
+  }
+
+  func restartPayloadPrefetch() {
+    guard let payload = lock.withLock({ plannedPayload }) else { return }
+    // A failed or cancelled download of the same digest starts afresh; a
+    // running one is left alone.
+    prefetch.begin(payload: payload)
   }
 
   func prefetchPayload(
@@ -357,6 +366,7 @@ final class LiveInstallerEnvironment: InstallerEnvironment, @unchecked Sendable 
   }
 
   private func beginPayloadPrefetch(_ payload: StagedInstallerArtifact) {
+    lock.withLock { plannedPayload = payload }
     prefetch.begin(payload: payload)
   }
 

@@ -71,6 +71,94 @@
       await controller.cancel()
     }
 
+    private static let unmetered = InstallerNetworkPathSnapshot(
+      isSatisfied: true, isExpensive: false, isConstrained: false)
+
+    private func flakyController(
+      delays: [Duration] = [.zero, .zero]
+    ) -> PayloadPrefetchController {
+      PayloadPrefetchController(
+        network: MockNetworkPath(Self.unmetered),
+        freeSpace: MockFreeSpace(bytes: 8_000_000_000),
+        keepAwake: MockKeepAwake(),
+        retryDelays: delays,
+        sleep: { _ in }
+      )
+    }
+
+    // Issue #257: one dropped connection during the 3.9 GB download ended the
+    // prefetch for good, leaving Install disabled.
+    func testRetriesADroppedConnectionThenVerifies() async throws {
+      let attempts = RecordingBox<Int>()
+      let controller = flakyController()
+      await controller.start(requiredBytes: 100) {
+        attempts.append(1)
+        if attempts.values.count == 1 {
+          throw URLError(.networkConnectionLost)
+        }
+      }
+      try await controller.waitUntilVerified()
+      let state = await controller.currentState()
+      XCTAssertEqual(state, .verified)
+      XCTAssertEqual(attempts.values.count, 2)
+    }
+
+    func testRetriesServerErrorsButNotForever() async throws {
+      let attempts = RecordingBox<Int>()
+      let controller = flakyController(delays: [.zero, .zero])
+      await controller.start(requiredBytes: 100) {
+        attempts.append(1)
+        throw ArtifactStageError.unexpectedHTTPStatus(503)
+      }
+      do {
+        try await controller.waitUntilVerified()
+        XCTFail("Expected the retries to run out")
+      } catch {}
+      XCTAssertEqual(attempts.values.count, 3)
+      let state = await controller.currentState()
+      XCTAssertEqual(state, .failed("The download server answered HTTP 503."))
+    }
+
+    func testADigestMismatchFailsAtOnceAndSaysSo() async throws {
+      let attempts = RecordingBox<Int>()
+      let controller = flakyController()
+      await controller.start(requiredBytes: 100) {
+        attempts.append(1)
+        throw ArtifactStageError.digestMismatch(expected: "sha256:aa", actual: "sha256:bb")
+      }
+      do {
+        try await controller.waitUntilVerified()
+        XCTFail("Expected a digest failure")
+      } catch {}
+      XCTAssertEqual(attempts.values.count, 1)
+      let state = await controller.currentState()
+      guard case .failed(let reason) = state else {
+        return XCTFail("Expected failed, got \(state)")
+      }
+      XCTAssertTrue(reason.contains("does not match the signed release"), reason)
+      XCTAssertTrue(reason.contains("sha256:bb"), reason)
+    }
+
+    func testFailureReasonsNameTheCheck() {
+      XCTAssertTrue(
+        PayloadPrefetchFailure.reason(
+          for: PayloadPrefetchError.insufficientSpace(
+            requiredBytes: 7_750_765_576, availableBytes: 1_000_000_000)
+        ).hasPrefix("Not enough free space"))
+      XCTAssertTrue(
+        PayloadPrefetchFailure.reason(for: URLError(.timedOut))
+          .hasPrefix("The download was interrupted"))
+      XCTAssertTrue(PayloadPrefetchFailure.isTransient(URLError(.timedOut)))
+      XCTAssertTrue(
+        PayloadPrefetchFailure.isTransient(ArtifactStageError.unexpectedHTTPStatus(0)))
+      XCTAssertFalse(
+        PayloadPrefetchFailure.isTransient(ArtifactStageError.unexpectedHTTPStatus(404)))
+      XCTAssertFalse(
+        PayloadPrefetchFailure.isTransient(
+          ArtifactStageError.sizeMismatch(expected: 1, actual: 2)))
+      XCTAssertFalse(PayloadPrefetchFailure.isTransient(URLError(.cancelled)))
+    }
+
     func testFailsWhenTheVolumeIsTooSmall() async throws {
       let controller = PayloadPrefetchController(
         network: MockNetworkPath(

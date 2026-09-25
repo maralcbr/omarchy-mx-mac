@@ -694,9 +694,31 @@
           prefetchState = .verified
         } catch {
           guard self.prefetchID == currentPrefetch else { return }
-          prefetchState = .failed(String(describing: error))
+          prefetchState = .failed(PayloadPrefetchFailure.reason(for: error))
         }
       }
+    }
+
+    /// Whether the failed strip offers Try again: only on the plan screens,
+    /// before anything has run.
+    public var canRetryPrefetch: Bool {
+      guard case .failed = prefetchState, !isBusy, !isExecuting, !hasExecutionStarted
+      else { return false }
+      switch phase {
+      case .planReview, .awaitingInstall:
+        return true
+      default:
+        return false
+      }
+    }
+
+    /// Restarts a failed payload download for the same plan. The payload does
+    /// not depend on the plan's size, so the approval stays valid.
+    public func retryPrefetch() {
+      guard canRetryPrefetch else { return }
+      environment.restartPayloadPrefetch()
+      forgetPrefetchWatcher()
+      startPrefetchIfNeeded()
     }
 
     private func forgetPrefetchWatcher() {

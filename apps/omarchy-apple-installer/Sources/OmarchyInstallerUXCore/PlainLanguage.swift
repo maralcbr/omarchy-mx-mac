@@ -55,7 +55,8 @@
     public static let prefetchWaitingForNetwork = "Waiting for Wi-Fi or Ethernet…"
     public static let prefetchPaused = "Download paused"
     public static let prefetchVerifying = "Verifying installation files…"
-    public static let prefetchFailed = "The installation files could not be verified."
+    public static let prefetchFailed = "The installation files could not be downloaded or verified."
+    public static let prefetchRetry = "Try again"
 
     public static func prefetchTitle(for state: PayloadPrefetchState) -> String {
       switch state {
