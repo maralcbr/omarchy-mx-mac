@@ -73,7 +73,7 @@ engine v0.9.2-omarchy.17, catalog sequence 1790127482, `apple,j314s` and
 to `stable` with `--no-prune`, so `os-v4.0.3-mac.1.20260913` (Asahi, 22 models)
 stays on R2 for rollback. All three channels serve one catalog. The image
 carries the 4.0.4 runtime; the `4.0.3` in its tag is a naming slip. Installer
-2.0.9 is the download on both `installer/stable` and `installer/rc`.
+2.0.9 was then the download on both `installer/stable` and `installer/rc`.
 
 On 2026-09-24 `os-v4.0.4-mac.1.20260924-rc` (the 4.0.4 image built from runtime
 `asahi-quattro-ca187b0a`, catalog sequence 1790210231) went to `rc` and `stable`
@@ -81,6 +81,16 @@ with `--no-prune`. Its catalog admits the 22 M1 and M2 identifiers of the old
 Asahi catalog, not only the two qualified Macs, and names installer 2.0.9 as
 latest with 2.0.8 as the minimum. `os-v4.0.3-mac.5.20260923-rc` and
 `os-v4.0.3-mac.1.20260913` stay on R2 for rollback.
+
+On 2026-09-25 installer 2.0.10 (build 27, from `main` 20f697f8, #262) was
+published with `publish-channels app-publish` to `installer/2.0.10/`,
+`installer/stable/` and `installer/rc/`, so the permanent download link now
+serves 2.0.10 (pkg SHA-256
+`202f5dfc1588a45c533a2454de703d2183c61c7c4346d172dbe1d7d8205ec993`,
+20,072,207 bytes). The owner-signed channel catalogs were not re-signed and
+still name 2.0.9 as latest with 2.0.8 as the minimum, so installed 2.0.8 and
+2.0.9 apps are not prompted to update. The next catalog signing should raise
+`latestVersion` to 2.0.10.
 
 Installed Macs are unaffected. Each one records its channel and its kernel
 (`stable:linux-aurora` or `rc:linux-aurora` by lane; `stable:linux-asahi` is the

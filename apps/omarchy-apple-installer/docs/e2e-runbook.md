@@ -1,7 +1,7 @@
 # Omarchy v8 — full end-to-end test runbook
 
 > Historical. This covers the v8 prototype distributed as a GitHub ZIP with the
-> old six-screen flow. The current installer is a signed `.pkg` (2.0.9) from
+> old six-screen flow. The current installer is a signed `.pkg` (2.0.10) from
 > `https://downloads.aicodelabs.com.au/installer/stable/Omarchy-MX-Mac-Installer.pkg`;
 > see the [install guide](../../../docs/site/content/02-install.md) and the
 > post-install checks in

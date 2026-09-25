@@ -61,7 +61,7 @@ from Applications.
 
 **[Download Omarchy MX Mac Installer for macOS](https://downloads.aicodelabs.com.au/installer/stable/Omarchy-MX-Mac-Installer.pkg)**
 
-That link always serves the current installer (2.0.9 today), signed with
+That link always serves the current installer (2.0.10 today), signed with
 Developer ID, notarized by Apple, and stapled. It opens on **Stable** at every
 launch; choose **Release candidate** from *Release Channel* in the menu bar
 before installing to follow the RC kernel lane instead. It fetches the latest signed release from
@@ -72,10 +72,13 @@ privileged helper, which performs the disk work.
 The owner confirmed an end-to-end installation on the M2 Max with an earlier
 installer and image. The previous image, `os-v4.0.3-mac.5.20260923-rc`, passed VM
 acceptance. The current image, `os-v4.0.4-mac.1.20260924-rc`, comes from the same
-image lane but has had no VM acceptance or physical install recorded of its own. Installer builds after
-2.0.9 save credential-free logs of engine errors in
+image lane but has had no VM acceptance or physical install recorded of its own. Installer
+2.0.10 saves credential-free logs of engine errors in
 `~/Library/Logs/Omarchy MX Mac Installer/` and root-worker diagnostics in
-`/var/db/com.omarchy.mx.installer/diagnostics/`; 2.0.9 writes neither.
+`/var/db/com.omarchy.mx.installer/diagnostics/`; 2.0.9 and earlier write neither.
+The signed channel catalogs still name 2.0.9 as the latest installer (minimum
+2.0.8), so an installed 2.0.8 or 2.0.9 app is not prompted to update; download
+2.0.10 from the link above.
 
 You can verify the downloaded package before opening it with:
 
