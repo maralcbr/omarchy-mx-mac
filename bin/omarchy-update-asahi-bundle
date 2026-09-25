@@ -320,7 +320,9 @@ done <"$workdir/$manifest_name"
 # retired [omarchy-aarch64] repository at versions above the signed bundle.
 # Those alone may be downgraded: the installed name, version and build date
 # must match an entry of that repository's sync database, the live copy or the
-# one install/hardware/pacman.sh keeps when it drops the section. Any other
+# one install/hardware/pacman.sh keeps when it drops the section (and
+# omarchy-update-asahi-legacy-repository moves the live copy to, while an
+# installed package still came from it). Any other
 # newer package is still refused.
 pacman_db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$(root_path /etc/pacman.conf)" 2>/dev/null || true)
 pacman_db_path=${pacman_db_path:-/var/lib/pacman}

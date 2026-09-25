@@ -10,7 +10,8 @@
 # [omarchy] ones. install/hardware/pacman.sh drops the section, keeping
 # [omarchy] ahead of everything it shadowed; then each legacy package is
 # replaced by its [omarchy] equivalent, only where the legacy one is installed
-# and the replacement is available. Nothing is done on a Mac without either.
+# and the replacement is available, and the retired sync database leaves
+# pacman's sync directory. Nothing is done on a Mac without any of them.
 #
 # Exit 0 when there was nothing to do or everything was done, 1 when a step
 # could not finish. A step that fails leaves what it has not finished in
@@ -108,5 +109,72 @@ for pair in "${legacy_replacements[@]}"; do
     status=1
   fi
 done
+
+# The retired repository's sync database. pacman ignores a database whose
+# section is gone, but omarchy-update-asahi-bundle reads it, or the copy
+# install/hardware/pacman.sh keeps when it drops the section, to prove which
+# installed packages that repository built. With the section gone the live
+# copy can no longer change, so it moves to the kept copy (Macs that lost the
+# section before pacman.sh kept one have only the live copy). The kept copy
+# goes once no installed package is one that repository built: omarchy update
+# runs the bundle before this, so a legacy bundle package it replaced no
+# longer matches, and one it could not replace keeps the proof for next time.
+db_path=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$pacman_conf")
+db_path=${db_path:-/var/lib/pacman}
+db_path=${db_path%/}
+live_db="$db_path/sync/omarchy-aarch64.db"
+kept_db="${OMARCHY_RETIRED_REPOSITORY_DIR:-/var/lib/omarchy/retired-repositories}/omarchy-aarch64.db"
+
+# Succeeds when an installed package has the name, version and build date of
+# an entry in the database, and when the database cannot be read, so an
+# unreadable copy is kept rather than taken for one that proves nothing.
+proves_installed_package() {
+  local entries name version build_date local_desc
+  entries=$(bsdtar -xOf "$1" '*/desc' 2>/dev/null | awk '
+    function flush() { if (name != "") print name, version, build; name = version = build = "" }
+    $0 == "%FILENAME%" { flush() }
+    $0 == "%NAME%" { getline; name = $0 }
+    $0 == "%VERSION%" { getline; version = $0 }
+    $0 == "%BUILDDATE%" { getline; build = $0 }
+    END { flush() }
+  ') || return 0
+  [[ -n $entries ]] || return 0
+  while read -r name version build_date; do
+    local_desc="$db_path/local/$name-$version/desc"
+    [[ -f $local_desc ]] || continue
+    [[ $(awk '$0 == "%BUILDDATE%" { getline; print; exit }' "$local_desc") == "$build_date" ]] && return 0
+  done <<<"$entries"
+  return 1
+}
+
+legacy_sync_files=("$live_db" "$live_db.sig" "$db_path/sync/omarchy-aarch64.files" "$db_path/sync/omarchy-aarch64.files.sig")
+if [[ -f $live_db ]]; then
+  retire_live=1
+  if proves_installed_package "$live_db" && ! cmp -s "$live_db" "$kept_db"; then
+    # A kept copy that differs and still proves a package is not replaced;
+    # both stay for the bundle.
+    if [[ -f $kept_db ]] && proves_installed_package "$kept_db"; then
+      retire_live=0
+    elif ! sudo install -D -m 0644 "$live_db" "$kept_db"; then
+      echo "Could not keep the retired [omarchy-aarch64] sync database; it stays in $db_path/sync." >&2
+      retire_live=0
+      status=1
+    fi
+  fi
+  if (( retire_live )); then
+    if sudo rm -f -- "${legacy_sync_files[@]}"; then
+      echo "Removed the retired [omarchy-aarch64] sync database from $db_path/sync"
+    else
+      status=1
+    fi
+  fi
+fi
+if [[ -f $kept_db && ! -f $live_db ]] && ! proves_installed_package "$kept_db"; then
+  if sudo rm -f -- "$kept_db"; then
+    echo "Removed the kept [omarchy-aarch64] sync database; no installed package came from that repository"
+  else
+    status=1
+  fi
+fi
 
 exit "$status"
