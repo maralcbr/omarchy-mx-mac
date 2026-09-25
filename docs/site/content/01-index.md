@@ -18,8 +18,6 @@ It is a community fork of [omacom/omarchy](https://github.com/omacom/omarchy). E
 | Release candidate channel | `os-v4.0.4-mac.1.20260924-rc`, the same image |
 | Installed Macs update to | Runtime channel 59 (`4.0.4.r7099.gb8ed395-1`) and package channel 15, since 2026-09-25 |
 | Macs a new install admits | The 22 M1 and M2 models; hardware-qualified on the MacBook Pro 14" M1 Pro (`apple,j314s`) and 16" M2 Max (`apple,j416c`) |
-| Reference Mac | MacBook Pro 14" 2021, M1 Pro (`apple,j314s`) |
-| Also exercised | MacBook Pro 16" 2023, M2 Max (`apple,j416c`), five displays |
 
 Apple Silicon support depends on the Asahi Linux project and the Aurora kernel. See [Hardware support]({{page:hardware}}) before installing.
 
