@@ -61,7 +61,9 @@ if omarchy-hw-apple-silicon; then
   # still carry it, sometimes ahead of [omarchy], where it shadows the signed
   # packages. It is dropped here, and [omarchy] takes its place when it stood
   # first. Its sync database is kept so omarchy-update-asahi-bundle can still
-  # prove which installed packages it built.
+  # prove which installed packages it built; a copy kept earlier is never
+  # replaced here, since it may be the only proof of an installed package.
+  # omarchy-update-asahi-legacy-repository decides later which copy stays.
   legacy_blocks=$(grep -Ec '^[[:space:]]*\[omarchy-aarch64\][[:space:]]*$' "$pacman_conf" || true)
   legacy_first=0
   if (( legacy_blocks && omarchy_blocks )); then
@@ -108,7 +110,7 @@ if omarchy-hw-apple-silicon; then
       mkdir -p "$backup_dir"
       cp -a "$pacman_conf" "$legacy_backup"
       legacy_db="${db_path:-/var/lib/pacman}/sync/omarchy-aarch64.db"
-      if [[ -f $legacy_db ]]; then
+      if [[ -f $legacy_db && ! -e $retired_dir/omarchy-aarch64.db ]]; then
         mkdir -p "$retired_dir"
         install -m 0644 "$legacy_db" "$retired_dir/omarchy-aarch64.db"
       fi

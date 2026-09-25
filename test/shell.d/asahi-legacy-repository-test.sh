@@ -58,6 +58,26 @@ printf 'sudo %s\n' "$*" >>"$TEST_CALLS"
 "$@"
 SH
 
+# pacman-conf over the test pacman.conf; TEST_INCLUDED_REPO stands for a
+# repository an Include file adds.
+cat >"$mock_bin/pacman-conf" <<'SH'
+#!/bin/bash
+[[ ${TEST_PACMAN_CONF_FAIL:-0} != 1 ]] || exit 1
+conf=/etc/pacman.conf
+[[ $1 != --config ]] || { conf=$2; shift 2; }
+case "$1" in
+  --repo-list)
+    awk '/^[[:space:]]*\[[^]]+\][[:space:]]*$/ { gsub(/[][[:space:]]/, ""); if ($0 != "options") print }' "$conf"
+    [[ -z ${TEST_INCLUDED_REPO:-} ]] || echo "$TEST_INCLUDED_REPO"
+    ;;
+  DBPath)
+    value=$(awk -F= '/^[[:space:]]*DBPath[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$conf")
+    echo "${value:-/var/lib/pacman}/"
+    ;;
+  *) exit 1 ;;
+esac
+SH
+
 # A small pacman over $TEST_STATE: installed/<pkg> holds a version,
 # files/<pkg> the paths it owns, available/<pkg> the paths a repository
 # package would install, conflicts/<pkg> the names it declares conflicts with.
@@ -158,6 +178,8 @@ run_command() {
     TEST_STATE="$state" \
     TEST_RM_FAIL="${TEST_RM_FAIL:-0}" \
     TEST_INSTALL_FAIL="${TEST_INSTALL_FAIL:-0}" \
+    TEST_PACMAN_CONF_FAIL="${TEST_PACMAN_CONF_FAIL:-0}" \
+    TEST_INCLUDED_REPO="${TEST_INCLUDED_REPO:-}" \
     TEST_SY_STATUS="${TEST_SY_STATUS:-0}" \
     TEST_QL_FAIL="${TEST_QL_FAIL:-0}" \
     TEST_DB_PATH="$db_path" \
@@ -453,23 +475,30 @@ pass "the cleanup does nothing on a machine that is not Apple Silicon"
 # The retired sync database left in pacman's sync directory (issue #238): a
 # Mac whose section went before install/hardware/pacman.sh kept a copy, as on
 # the reporter's M1 Pro, holds only the live one.
+# One sync database entry; SYNC_DB_FILENAME_LAST puts %FILENAME% after the
+# other fields, which the format allows.
 sync_db_entry() {
-  local dbdir=$1 name=$2 version=$3 build_date=$4
+  local dbdir=$1 name=$2 version=$3 build_date=$4 filename
   mkdir -p "$dbdir/$name-$version"
-  printf '%%FILENAME%%\n%s-%s-any.pkg.tar.zst\n\n%%NAME%%\n%s\n\n%%VERSION%%\n%s\n\n%%BUILDDATE%%\n%s\n' \
-    "$name" "$version" "$name" "$version" "$build_date" >"$dbdir/$name-$version/desc"
+  filename=$(printf '%%FILENAME%%\n%s-%s-any.pkg.tar.zst\n\n' "$name" "$version")
+  {
+    [[ ${SYNC_DB_FILENAME_LAST:-0} == 1 ]] || printf '%s\n\n' "$filename"
+    printf '%%NAME%%\n%s\n\n%%VERSION%%\n%s\n\n%%BUILDDATE%%\n%s\n\n' "$name" "$version" "$build_date"
+    [[ ${SYNC_DB_FILENAME_LAST:-0} != 1 ]] || printf '%s\n' "$filename"
+  } >"$dbdir/$name-$version/desc"
 }
-# write_sync_db TARGET NAME:VERSION:BUILDDATE...
+# write_sync_db TARGET 'NAME|VERSION|BUILDDATE'... (SYNC_DB_COMPRESSION=zstd
+# writes the zstd databases current repo-add produces)
 write_sync_db() {
   local target=$1 dbdir entry
   shift
   dbdir=$(mktemp -d)
   for entry in "$@"; do
-    IFS=: read -r name version build_date <<<"$entry"
+    IFS='|' read -r name version build_date <<<"$entry"
     sync_db_entry "$dbdir" "$name" "$version" "$build_date"
   done
   mkdir -p "$(dirname "$target")"
-  (cd "$dbdir" && bsdtar -czf "$target" -- *)
+  (cd "$dbdir" && bsdtar -cf "$target" --"${SYNC_DB_COMPRESSION:-gzip}" -- *)
   rm -rf "$dbdir"
 }
 installed_build() {
@@ -483,7 +512,7 @@ reset_sync_db() {
 }
 
 reset_sync_db
-write_sync_db "$db_path/sync/omarchy-aarch64.db" omarchy-nvim:2026.9.4-1:1789000000 walker:2.1-1:1788000000
+write_sync_db "$db_path/sync/omarchy-aarch64.db" 'omarchy-nvim|2026.9.4-1|1789000000' 'walker|2.1-1|1788000000'
 : >"$db_path/sync/omarchy-aarch64.files"
 installed_build omarchy-nvim 2026.9.4-1 1789000000
 cp "$db_path/sync/omarchy-aarch64.db" "$test_tmp/live.db"
@@ -509,7 +538,7 @@ grep -Fq 'Removed the kept [omarchy-aarch64] sync database' "$test_tmp/out" || f
 pass "the kept sync database goes once no installed package has a build from it"
 
 reset_sync_db
-write_sync_db "$db_path/sync/omarchy-aarch64.db" omarchy-nvim:2026.9.4-1:1789000000
+write_sync_db "$db_path/sync/omarchy-aarch64.db" 'omarchy-nvim|2026.9.4-1|1789000000'
 installed_build omarchy-nvim 2026.9.4-1 1789000001
 TEST_APPLE=0 run_command || fail "removing an unneeded live sync database fails the cleanup" "$(cat "$test_tmp/err")"
 [[ ! -e $db_path/sync/omarchy-aarch64.db && ! -e $retired/omarchy-aarch64.db ]] ||
@@ -518,8 +547,8 @@ pass "a live sync database no installed build matches is removed without a kept 
 
 # A kept copy that differs and still proves a package is not overwritten.
 reset_sync_db
-write_sync_db "$db_path/sync/omarchy-aarch64.db" omarchy-nvim:2026.9.4-1:1789000000
-write_sync_db "$retired/omarchy-aarch64.db" walker:2.1-1:1788000000
+write_sync_db "$db_path/sync/omarchy-aarch64.db" 'omarchy-nvim|2026.9.4-1|1789000000'
+write_sync_db "$retired/omarchy-aarch64.db" 'walker|2.1-1|1788000000'
 installed_build omarchy-nvim 2026.9.4-1 1789000000
 installed_build walker 2.1-1 1788000000
 cp "$retired/omarchy-aarch64.db" "$test_tmp/kept.db"
@@ -534,7 +563,7 @@ TEST_APPLE=0 run_command || fail "a kept sync database that proves nothing fails
 pass "a differing kept sync database is replaced only once it proves nothing"
 
 reset_sync_db
-write_sync_db "$db_path/sync/omarchy-aarch64.db" omarchy-nvim:2026.9.4-1:1789000000
+write_sync_db "$db_path/sync/omarchy-aarch64.db" 'omarchy-nvim|2026.9.4-1|1789000000'
 installed_build omarchy-nvim 2026.9.4-1 1789000000
 set +e
 TEST_APPLE=0 TEST_INSTALL_FAIL=1 run_command
@@ -551,6 +580,82 @@ TEST_APPLE=0 run_command || fail "an unreadable sync database fails the cleanup"
 [[ ! -e $db_path/sync/omarchy-aarch64.db && $(cat "$retired/omarchy-aarch64.db") == "not a database" ]] ||
   fail "an unreadable sync database is discarded rather than kept"
 pass "an unreadable sync database is kept, not taken for one that proves nothing"
+
+# Real databases: zstd, %FILENAME% after the other fields, an epoch in the
+# version, and the proving entry after others.
+reset_sync_db
+SYNC_DB_COMPRESSION=zstd SYNC_DB_FILENAME_LAST=1 write_sync_db "$db_path/sync/omarchy-aarch64.db" \
+  'aether|1.0-1|1787000000' 'walker|2.1-1|1788000000' 'ttf-jetbrains-mono-nerd-basic|1:3.5.0-1|1789000000'
+installed_build aether 1.1-1 1790000000
+installed_build ttf-jetbrains-mono-nerd-basic 1:3.5.0-1 1789000000
+TEST_APPLE=0 run_command || fail "a zstd sync database fails the cleanup" "$(cat "$test_tmp/err")"
+[[ ! -e $db_path/sync/omarchy-aarch64.db && -f $retired/omarchy-aarch64.db ]] ||
+  fail "a later epoch entry in a zstd database with %FILENAME% last does not prove its installed build"
+pass "a zstd database proves an installed build by a later, epoch-versioned entry whatever its field order"
+
+# Uncertain local state keeps the database.
+if (( EUID != 0 )); then
+  reset_sync_db
+  write_sync_db "$db_path/sync/omarchy-aarch64.db" 'omarchy-nvim|2026.9.4-1|1789000000'
+  installed_build omarchy-nvim 2026.9.4-1 1789000000
+  chmod 000 "$db_path/local/omarchy-nvim-2026.9.4-1/desc"
+  TEST_APPLE=0 run_command || fail "an unreadable local package entry fails the cleanup" "$(cat "$test_tmp/err")"
+  chmod 644 "$db_path/local/omarchy-nvim-2026.9.4-1/desc"
+  [[ -f $retired/omarchy-aarch64.db ]] || fail "an unreadable local package entry lets the proof go"
+  rm -f "$retired/omarchy-aarch64.db"
+  write_sync_db "$db_path/sync/omarchy-aarch64.db" 'omarchy-nvim|2026.9.4-1|1789000000'
+  chmod 000 "$db_path/local"
+  TEST_APPLE=0 run_command || fail "an unreadable local database fails the cleanup" "$(cat "$test_tmp/err")"
+  chmod 755 "$db_path/local"
+  [[ -f $retired/omarchy-aarch64.db ]] || fail "an unreadable local database lets the proof go"
+  pass "an installed package whose local entry cannot be read keeps the database"
+fi
+
+# The section can come back through an Include file, and pacman-conf can fail:
+# either way nothing is removed.
+reset_sync_db
+write_sync_db "$db_path/sync/omarchy-aarch64.db" 'omarchy-nvim|2026.9.4-1|1789000000'
+: >"$db_path/sync/omarchy-aarch64.files"
+TEST_APPLE=0 TEST_INCLUDED_REPO=omarchy-aarch64 run_command || fail "an included legacy repository fails the cleanup" "$(cat "$test_tmp/err")"
+[[ -f $db_path/sync/omarchy-aarch64.db && -e $db_path/sync/omarchy-aarch64.files ]] && ! grep -q '^sudo ' "$calls" ||
+  fail "the database of a repository an Include file still configures is removed"
+set +e
+TEST_APPLE=0 TEST_PACMAN_CONF_FAIL=1 run_command
+status=$?
+set -e
+(( status == 1 )) && [[ -f $db_path/sync/omarchy-aarch64.db ]] && ! grep -q '^sudo ' "$calls" ||
+  fail "the database is removed when the pacman configuration cannot be read"
+grep -Fq 'Could not read the pacman configuration' "$test_tmp/err" || fail "an unreadable pacman configuration is not explained"
+pass "the database stays while any configuration file lists the repository or pacman-conf fails"
+
+# Signatures and file lists go even without the database, and a failed
+# removal is retried.
+reset_sync_db
+: >"$db_path/sync/omarchy-aarch64.files"
+: >"$db_path/sync/omarchy-aarch64.db.sig"
+set +e
+TEST_APPLE=0 TEST_RM_FAIL=1 run_command
+status=$?
+set -e
+(( status == 1 )) && [[ -e $db_path/sync/omarchy-aarch64.files ]] || fail "a failed sidecar removal is not reported"
+TEST_APPLE=0 run_command || fail "the sidecar removal is not retried" "$(cat "$test_tmp/err")"
+[[ ! -e $db_path/sync/omarchy-aarch64.files && ! -e $db_path/sync/omarchy-aarch64.db.sig ]] ||
+  fail "orphaned legacy signatures or file lists stay" "$(ls "$db_path/sync")"
+pass "orphaned legacy signatures and file lists are removed, and retried after a failure"
+
+# install/hardware/pacman.sh never replaces a kept copy: it may be the only
+# proof of an installed package once the live database was refreshed.
+reset_sync_db
+{ printf '[options]\nDBPath = %s\n\n' "$db_path"; legacy_section stable; alarm_repositories; } >"$pacman_conf"
+write_sync_db "$db_path/sync/omarchy-aarch64.db" 'omarchy-nvim|2026.9.4-1|1789000000'
+write_sync_db "$retired/omarchy-aarch64.db" 'walker|2.1-1|1788000000'
+installed_build omarchy-nvim 2026.9.4-1 1789000000
+installed_build walker 2.1-1 1788000000
+cp "$retired/omarchy-aarch64.db" "$test_tmp/kept.db"
+TEST_APPLE=0 run_command || fail "retiring the section with a kept copy fails" "$(cat "$test_tmp/err")"
+cmp -s "$retired/omarchy-aarch64.db" "$test_tmp/kept.db" && [[ -f $db_path/sync/omarchy-aarch64.db ]] ||
+  fail "retiring the section replaces a kept copy that still proves a package"
+pass "retiring the section keeps an earlier kept copy that still proves a package"
 
 # The migration runs the cleanup, is reviewed for Apple Silicon, and never
 # stops later migrations; the default-package migration runs it first.
@@ -800,4 +905,4 @@ mkdir -p "$root/var/lib/pacman/local/omarchy-nvim-2026.8.1-3"
 printf '%%NAME%%\nomarchy-nvim\n\n%%VERSION%%\n2026.8.1-3\n\n%%BUILDDATE%%\n1790000000\n' >"$root/var/lib/pacman/local/omarchy-nvim-2026.8.1-3/desc"
 TEST_APPLE=0 run_command || fail "the cleanup fails after the bundle" "$(cat "$test_tmp/err")"
 [[ ! -e $retired/omarchy-aarch64.db ]] || fail "the kept sync database stays after the bundle replaced the legacy package"
-pass "the bundle proves a legacy package from the moved database, which goes once the package is replaced"
+pass "the bundle proves a legacy package from the moved database, which goes once the installed build no longer matches"
