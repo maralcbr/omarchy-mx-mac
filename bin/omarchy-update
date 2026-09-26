@@ -75,6 +75,9 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
 
   # Preserve the established development-checkout update ordering.
   omarchy-update-dev
+  # The platform's boot package can refuse an update it could not boot
+  # afterwards, before the keyring and packages change.
+  omarchy-update-boot preflight
   omarchy-update-keyring
 
   # Migrations ship with the packages installed here and are written against
@@ -101,6 +104,14 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   # update-owned system work before build code, hooks, or mise can run.
   omarchy_security_revoke_sudo_timestamp
   omarchy-update-aur-pkgs
+
+  # The last sudo-capable step: the boot files every package step left, AUR
+  # packages' initramfs rebuilds included, must be shown to boot the updated
+  # system. Like AUR's own installs it authorizes one command without a
+  # reusable timestamp, and it runs before hooks and mise. Until it passes, the
+  # update neither finishes nor offers a reboot.
+  boot_verified=1
+  omarchy-update-boot verify || boot_verified=0
   omarchy_security_revoke_sudo_timestamp
 
   # Hooks and mise execute user-controlled code. Give each a cold credential
@@ -119,5 +130,10 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   omarchy-update-stay-awake stop
   update_stay_awake_stopped=1
 
-  "$OMARCHY_PATH/bin/omarchy-update-restart" --reboot-only
+  if (( boot_verified )); then
+    "$OMARCHY_PATH/bin/omarchy-update-restart" --reboot-only
+  else
+    echo -e "\e[31m\nThe update is not finished: its boot files did not pass verification (see above). Do not reboot until omarchy update completes.\e[0m" >&2
+    exit 1
+  fi
 fi
