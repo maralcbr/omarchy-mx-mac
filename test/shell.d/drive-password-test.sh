@@ -4,11 +4,20 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
-# omarchy-drive-password against fake drives. blkid, findmnt and lsblk describe
-# a system drive under / and a data drive; cryptsetup is either a slot-table fake
+# omarchy-drive-password against fake drives. findmnt and lsblk describe a
+# system drive under / and a data drive, and blkid has the empty cache a user
+# sees until root runs blkid in that boot; cryptsetup is either a slot-table fake
 # or the real binary on file-backed volumes; chpasswd records the accounts. Each
 # cryptsetup and chpasswd call is a crash point, so a run can be killed after
-# every step and rerun, like a power loss.
+# every step and rerun, like a power loss. The runs repeat on an Apple fixture,
+# where a fake boot package records the owner's slot through the real
+# omarchy-lifecycle-dispatch; on the x86 fixture that is a no-op.
+
+# Root's dispatcher ignores the fixtures and sees this machine.
+if (( EUID == 0 )) && [[ $("$ROOT/bin/omarchy-hw-platform") == "apple-silicon" ]]; then
+  skip "running as root on Apple Silicon, where dispatch ignores fixtures; skipping"
+  exit 0
+fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -37,8 +46,7 @@ SH
 
 cat >"$tmp/bin/blkid" <<'SH'
 #!/bin/bash
-[[ $* == "-t TYPE=crypto_LUKS -o device" ]] || exit 99
-cat "$TEST_TMP/drives"
+exit 2
 SH
 
 cat >"$tmp/bin/findmnt" <<'SH'
@@ -53,12 +61,20 @@ if [[ $1 == "-dno" && $2 == "UUID" ]]; then
   cat "$3.uuid"
   exit
 fi
+if [[ $* == "-nrpo NAME,FSTYPE" ]]; then
+  echo "/dev/fake-disk "
+  while IFS= read -r drive; do
+    printf '%s crypto_LUKS\n/dev/mapper/%s btrfs\n' "$drive" "${drive##*/}"
+  done <"$TEST_TMP/drives"
+  exit
+fi
 [[ $* == "-nsrpo NAME,TYPE,FSTYPE /dev/mapper/root" ]] || exit 98
 cat "$TEST_TMP/root-ancestry"
 SH
 
 cat >"$tmp/bin/omarchy-drive-select" <<'SH'
 #!/bin/bash
+printf '%s\n' "$@" >"$TEST_TMP/offered"
 cat "$TEST_TMP/select"
 SH
 
@@ -67,6 +83,10 @@ cat >"$tmp/bin/gum" <<'SH'
 [[ $1 == "input" ]] || exit 97
 printf '%s\n' "$*" >>"$TEST_TMP/prompts"
 [[ -s $TEST_TMP/inputs ]] || exit 130
+# Another key enrolled while the owner types the new password.
+if [[ -n ${TEST_ENROLL_AT_PROMPT:-} && $* == *"$TEST_ENROLL_AT_PROMPT"* ]]; then
+  printf '3\tlater-key\n' >>"$TEST_ENROLL_DEVICE.slots"
+fi
 head -n 1 "$TEST_TMP/inputs"
 sed -i '1d' "$TEST_TMP/inputs"
 SH
@@ -204,8 +224,52 @@ SH
 
 chmod +x "$tmp"/bin/* "$tmp/real/cryptsetup"
 
-export TEST_TMP=$tmp OMARCHY_PATH=$ROOT XDG_STATE_HOME=$tmp/state SUDO_USER=owner
+# The boot package's luks-slots, run by dispatch with an empty environment: it
+# records its arguments and is a crash point like the rest.
+fake_platform "$tmp/x86" generic
+fake_platform "$tmp/apple" apple-silicon
+mkdir -p "$tmp/lifecycle/usr/lib/omarchy/mac-boot"
+cat >"$tmp/lifecycle/usr/lib/omarchy/mac-boot/luks-slots" <<SH
+#!/bin/bash
+# --owner names the recorded owner slot, read-only; setup recorded slot 0. A Mac
+# set up before slots were recorded has none (4); a record the header doesn't
+# hold is a failure (1).
+if [[ \$1 == --owner ]]; then
+  [[ ! -e $tmp/owner-query-fail ]] || { echo "The LUKS header has no key in the recorded owner slot 0." >&2; exit 1; }
+  [[ ! -e $tmp/owner-query-garbage ]] || { echo "slot zero"; exit 0; }
+  [[ ! -e $tmp/owner-slot ]] || { cat "$tmp/owner-slot"; exit 0; }
+  [[ ! -e $tmp/owner-unrecorded ]] || { echo "No owner key slot is recorded." >&2; exit 4; }
+  echo 0
+  exit 0
+fi
+[[ ! -e $tmp/record-fail ]] || exit 1
+printf '%s\n' "\$*" >>"$tmp/slot-record"
+[[ \$1 != owner=* ]] || echo "\${1#owner=}" >"$tmp/owner-slot"
+count=\$(( \$(cat "$tmp/steps") + 1 ))
+echo "\$count" >"$tmp/steps"
+printf '%s slots recorded\n' "\$count" >>"$tmp/trace"
+if (( count == \$(cat "$tmp/crash-at") )); then
+  kill -9 "\$PPID"
+  kill -9 \$\$
+fi
+SH
+chmod 755 "$tmp/lifecycle/usr/lib/omarchy/mac-boot/luks-slots"
+chmod -R go-w "$tmp/lifecycle"
+
+export TEST_TMP=$tmp OMARCHY_PATH=$ROOT XDG_STATE_HOME=$tmp/state SUDO_USER=owner OMARCHY_LIFECYCLE_ROOT=$tmp/lifecycle
 base_path=$PATH
+platform=x86
+
+# The command's PATH for this backend on this platform fixture.
+use() {
+  backend=$1 platform=$2
+  export OMARCHY_PROC_ROOT=$tmp/$platform/proc
+  if [[ $backend == "fake" ]]; then
+    export PATH="$tmp/$platform/bin:$tmp/bin:$ROOT/bin:$base_path"
+  else
+    export PATH="$tmp/$platform/bin:$tmp/real:$tmp/bin:$ROOT/bin:$base_path"
+  fi
+}
 data=$tmp/dev/data
 
 # The slot the key opens, or nothing.
@@ -244,8 +308,8 @@ volume() {
 
 # / on the system drive, which also holds a recovery key; a data drive beside it.
 fixture() {
-  rm -rf "$tmp/state" "$tmp/output" "$tmp/trace" "$tmp"/dev/*
-  unset TEST_OPEN_FAIL TEST_CHPASSWD_FAIL TEST_CHANGE_FAIL TEST_CHANGE_PARTIAL TEST_KILL_FAIL TEST_FINDMNT_FAIL TEST_TOKEN_SLOT CRASH_ORPHAN
+  rm -rf "$tmp/state" "$tmp/output" "$tmp/trace" "$tmp/offered" "$tmp"/dev/* "$tmp/slot-record" "$tmp/record-fail" "$tmp/owner-slot" "$tmp/owner-query-fail" "$tmp/owner-query-garbage" "$tmp/owner-unrecorded"
+  unset TEST_ENROLL_AT_PROMPT TEST_ENROLL_DEVICE TEST_OPEN_FAIL TEST_CHPASSWD_FAIL TEST_CHANGE_FAIL TEST_CHANGE_PARTIAL TEST_KILL_FAIL TEST_FINDMNT_FAIL TEST_TOKEN_SLOT CRASH_ORPHAN
   system=$tmp/dev/system
   recovery=${1-$recovery_key}
   volume "$system" "$old_password" "$recovery"
@@ -264,6 +328,7 @@ attempt() {
   shift
   if (( $# )); then printf '%s\n' "$@" >"$tmp/inputs"; else : >"$tmp/inputs"; fi
   echo 0 >"$tmp/steps"
+  echo "$crash_at" >"$tmp/crash-at"
   : >"$tmp/trace"
   {
     CRASH_AT=$crash_at bash -c 'TEST_PID=$$ exec bash ${TEST_TRACE:+-x} "$0"' "$ROOT/bin/omarchy-drive-password"
@@ -277,8 +342,27 @@ consistent() {
     fail "$backend: $context: the login and root passwords are the disk password" "$(cat "$tmp/accounts" "$tmp/output")"
   [[ -n $(opens "$system" "$password") ]] || fail "$backend: $context: the disk opens with that password" "$(cat "$tmp/output")"
   [[ -z $(opens "$system" "$other") ]] || fail "$backend: $context: the other password no longer opens the disk" "$(cat "$tmp/trace" "$tmp/output")"
-  [[ -z $recovery || -n $(opens "$system" "$recovery_key") ]] || fail "$backend: $context: the recovery key still opens the disk"
+  [[ -z $recovery || -n $(opens "$system" "$recovery") ]] || fail "$backend: $context: the recovery key still opens the disk"
   [[ ! -e $journal ]] || fail "$backend: $context: the journal is gone" "$(cat "$journal")"
+  recorded "$context" "$password"
+}
+
+# On Apple the boot package holds the slot the owner's password opens: recorded
+# whenever the key moved. x86 records nothing and runs no extra sudo.
+recorded() {
+  local context=$1 password=$2 slot
+  if [[ $platform == "apple" ]]; then
+    slot=$(opens "$system" "$password")
+    if [[ -s $tmp/slot-record ]]; then
+      [[ $(tail -n 1 "$tmp/slot-record") == "owner=$slot" ]] ||
+        fail "$backend: apple: $context: the owner's slot is recorded" "$(cat "$tmp/slot-record")"
+    else
+      [[ $slot == "0" ]] || fail "$backend: apple: $context: a key that moved is recorded" "$(cat "$tmp/trace")"
+    fi
+  else
+    [[ ! -e $tmp/slot-record ]] && ! grep -q 'lifecycle-dispatch' "$tmp/sudo-calls" ||
+      fail "$backend: x86: $context: no slot is recorded and no dispatch runs under sudo"
+  fi
 }
 
 said() {
@@ -315,12 +399,13 @@ else
   skip "cryptsetup is not installed; skipping the file-backed volume runs"
 fi
 
+matrix=()
 for backend in "${backends[@]}"; do
-  if [[ $backend == "fake" ]]; then
-    export PATH="$tmp/bin:$ROOT/bin:$base_path"
-  else
-    export PATH="$tmp/real:$tmp/bin:$ROOT/bin:$base_path"
-  fi
+  matrix+=("$backend x86" "$backend apple")
+done
+
+for run_spec in "${matrix[@]}"; do
+  use $run_spec
 
   fixture
   attempt 0 "$old_password" "$new_password" "$new_password" || fail "$backend: changing the system disk password succeeds" "$(cat "$tmp/output")"
@@ -391,11 +476,17 @@ for backend in "${backends[@]}"; do
       no_secrets "rerun after '$point'"
     done
   done
-  pass "$backend: killed after each of $total_steps steps, and each rerun after each of its own, the disk, login and root end on one password"
+  pass "$backend $platform: killed after each of $total_steps steps, and each rerun after each of its own, the disk, login and root end on one password"
 done
 
-backend=fake
-export PATH="$tmp/bin:$ROOT/bin:$base_path"
+use fake x86
+
+fixture
+printf '%s\n%s\n%s\n' "$system" "$data" "$data" >"$tmp/drives"
+attempt 0 "$old_password" "$new_password" "$new_password" || fail "a fresh boot finds the system disk without a blkid cache" "$(cat "$tmp/output")"
+[[ $(cat "$tmp/offered") == "$system"$'\n'"$data" ]] || fail "each LUKS drive lsblk names is offered once" "$(cat "$tmp/offered")"
+consistent "fresh boot" "$new_password"
+pass "before root has run blkid, every LUKS drive is offered once and the system disk changes"
 
 fixture
 printf '5\t%s\n' tpm-sealed-key >>"$system.slots"
@@ -582,3 +673,117 @@ said "The new password is the current one."
 ! grep -q 'luksChangeKey\|chpasswd' "$tmp/sudo-calls" && [[ ! -e $journal && $(account owner) == "$old_password" ]] ||
   fail "refused passwords change nothing"
 pass "drive password rejects empty, mismatched and unchanged passphrases before changing anything"
+
+# Only the owner's slot changes the system disk. A second key an earlier setup
+# added (a recovery key) is refused before anything changes, and so is a change
+# the boot package cannot vouch for.
+use fake apple
+fixture
+if attempt 0 "$recovery_key" "$new_password" "$new_password"; then fail "apple: a key in another slot is refused"; fi
+said "That password opens another key slot on the system disk"
+said "The system disk password did not change."
+! grep -q 'luksChangeKey\|chpasswd' "$tmp/sudo-calls" && [[ ! -e $journal && ! -e $tmp/slot-record ]] || fail "apple: refusing another slot's key changes nothing"
+[[ -n $(opens "$system" "$recovery_key") ]] || fail "apple: the other key still opens the disk"
+consistent "another slot's key refused" "$old_password"
+touch "$tmp/owner-query-fail"
+if attempt 0 "$old_password" "$new_password" "$new_password"; then fail "apple: a boot package that cannot name the owner's slot stops the change"; fi
+said "Could not read which key slot holds the system disk password: The LUKS header has no key in the recorded owner slot 0."
+! grep -q 'luksChangeKey\|chpasswd' "$tmp/sudo-calls" && [[ ! -e $journal ]] || fail "apple: an unanswered owner query changes nothing"
+consistent "owner query failed" "$old_password"
+rm "$tmp/owner-query-fail"
+touch "$tmp/owner-query-garbage"
+if attempt 0 "$old_password" "$new_password" "$new_password"; then fail "apple: an owner slot that is not a number stops the change"; fi
+said "named 'slot zero', which is not a key slot"
+! grep -q 'luksChangeKey\|chpasswd' "$tmp/sudo-calls" && [[ ! -e $journal ]] || fail "apple: a garbled owner slot changes nothing"
+rm "$tmp/owner-query-garbage"
+attempt 0 "$old_password" "$new_password" "$new_password" || fail "apple: the owner's password changes the disk" "$(cat "$tmp/output")"
+consistent "owner's password after refusals" "$new_password"
+pass "apple: only the owner's slot changes the system disk; another slot's key and an unanswered query change nothing"
+
+# A Mac set up before its boot package recorded slots has no owner slot (4).
+# Its disk's only key is the owner's: the change goes through and records the
+# new slot. With another key beside it the owner's can't be told, so the change
+# is refused, saying how to settle it: record both, or remove the extra key.
+use fake apple
+fixture ""
+touch "$tmp/owner-unrecorded"
+attempt 0 "$old_password" "$new_password" "$new_password" || fail "apple: an unrecorded single-key disk changes its password" "$(cat "$tmp/output")"
+[[ $(cat "$tmp/slot-record") == "owner=$(opens "$system" "$new_password")" ]] || fail "apple: the owner's new slot is recorded" "$(cat "$tmp/slot-record")"
+consistent "no owner slot recorded, one key" "$new_password"
+step=$(grep -n 'chpasswd owner' "$tmp/trace" | head -1 | cut -d: -f1)
+fixture ""
+touch "$tmp/owner-unrecorded"
+if attempt "$step" "$old_password" "$new_password" "$new_password"; then fail "apple: the unrecorded change is killed before the accounts"; fi
+[[ -e $journal && ! -e $tmp/slot-record ]] || fail "apple: a change killed before the accounts keeps its journal" "$(cat "$tmp/trace")"
+attempt 0 "$new_password" || fail "apple: the rerun finishes an unrecorded change" "$(cat "$tmp/output")"
+[[ $(cat "$tmp/slot-record") == "owner=$(opens "$system" "$new_password")" ]] || fail "apple: the rerun records the owner's new slot" "$(cat "$tmp/slot-record")"
+consistent "no owner slot recorded, interrupted" "$new_password"
+pass "apple: with no owner slot recorded, the disk's only key changes and its new slot is recorded, after an interruption too"
+
+fixture
+touch "$tmp/owner-unrecorded"
+if attempt 0 "$old_password" "$new_password" "$new_password"; then fail "apple: an unrecorded disk with two keys refuses the change"; fi
+said "has keys in slots 0,1, so which one is yours can't be told"
+said "record both: sudo omarchy-lifecycle-dispatch luks-slots owner=0 recovery=1"
+said "sudo cryptsetup luksKillSlot $system <slot>"
+said "The system disk password did not change."
+! grep -q 'luksChangeKey\|chpasswd' "$tmp/sudo-calls" && [[ ! -e $journal && ! -e $tmp/slot-record ]] || fail "apple: an unrecorded two-key disk changes nothing"
+"$ROOT/bin/omarchy-lifecycle-dispatch" luks-slots owner=0 recovery=1
+: >"$tmp/slot-record"
+attempt 0 "$old_password" "$new_password" "$new_password" || fail "apple: once both slots are recorded the change goes through" "$(cat "$tmp/output")"
+consistent "slots recorded as the refusal said" "$new_password"
+pass "apple: with no owner slot recorded, a disk with another key refuses the change and says how to record or remove it"
+
+fixture ""
+touch "$tmp/owner-unrecorded"
+export TEST_ENROLL_AT_PROMPT="Confirm new encryption password" TEST_ENROLL_DEVICE=$system
+if attempt 0 "$old_password" "$new_password" "$new_password"; then fail "apple: a key enrolled during the prompts stops an unrecorded change"; fi
+said "changed while you entered the new password"
+! grep -q 'luksChangeKey\|chpasswd' "$tmp/sudo-calls" && [[ ! -e $journal && ! -e $tmp/slot-record ]] || fail "apple: a key enrolled during the prompts changes nothing"
+pass "apple: an unrecorded disk that gains a key while the owner types is left alone"
+
+# A slot the boot package could not record keeps the journal: the rerun records it.
+use fake apple
+fixture
+touch "$tmp/record-fail"
+if attempt 0 "$old_password" "$new_password" "$new_password"; then fail "a failed record fails the command"; fi
+said "Could not record the new key slot for the boot checks."
+[[ -e $journal && $(account owner) == "$new_password" && ! -e $tmp/slot-record ]] || fail "a failed record keeps the journal"
+rm "$tmp/record-fail"
+attempt 0 "$new_password" || fail "the rerun records the slot" "$(cat "$tmp/output")"
+[[ -s $tmp/slot-record ]] || fail "the rerun records the moved key's slot"
+consistent "rerun after a failed record" "$new_password"
+pass "apple: the change finishes only once the boot package recorded the owner's new slot"
+
+# An installed boot package older than luks-slots could not record the slot, so
+# the system disk does not change; a data drive still does.
+fixture
+mv "$tmp/lifecycle/usr/lib/omarchy/mac-boot/luks-slots" "$tmp/luks-slots.off"
+mkdir -p "$tmp/lifecycle/var/lib/pacman/local/omarchy-mac-boot-20260925-2"
+if attempt 0 "$old_password" "$new_password" "$new_password"; then fail "an Apple boot package without luks-slots fails the command"; fi
+said "which omarchy-mac-boot 20260925-2 does not provide; update omarchy-mac-boot"
+said "The system disk password did not change."
+! grep -q 'luksChangeKey\|chpasswd' "$tmp/sudo-calls" && [[ ! -e $journal ]] || fail "a boot package without luks-slots changes nothing"
+consistent "boot package without luks-slots" "$old_password"
+echo "$data" >"$tmp/select"
+attempt 0 "$data_password" "$new_password" "$new_password" || fail "a data drive changes without luks-slots" "$(cat "$tmp/output")"
+pass "apple: a boot package without luks-slots stops a system disk change before it starts, naming the package"
+
+# A Mac without its boot package at all predates it: nothing checks its slots,
+# so the change goes through and records nothing.
+fixture
+rm -r "$tmp/lifecycle/var/lib/pacman"
+attempt 0 "$old_password" "$new_password" "$new_password" || fail "a Mac without the boot package changes its disk password" "$(cat "$tmp/output")"
+# Checked as on x86: no slot recorded and no dispatch under sudo.
+platform=x86
+consistent "no boot package" "$new_password"
+platform=apple
+! grep -q 'Error:' "$tmp/output" || fail "without the boot package nothing is reported" "$(cat "$tmp/output")"
+mv "$tmp/luks-slots.off" "$tmp/lifecycle/usr/lib/omarchy/mac-boot/luks-slots"
+pass "apple: a Mac without its boot package changes its disk password and records no slot"
+
+fixture
+echo "$data" >"$tmp/select"
+attempt 0 "$data_password" "$new_password" "$new_password" || fail "apple: a data drive changes" "$(cat "$tmp/output")"
+[[ ! -e $tmp/slot-record && -n $(opens "$data" "$new_password") ]] || fail "apple: a data drive records no slot"
+pass "apple: only the system disk's slot is recorded"

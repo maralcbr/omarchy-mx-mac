@@ -9,7 +9,9 @@
 # behind. Asks for the user (the configurator's Step 2), creates it with the
 # groups system setup recorded, finalizes it offline from the stashed Node
 # tarball, re-keys LUKS from the throwaway install passphrase to the user's
-# password, and hands off to SDDM.
+# password, and hands off to SDDM. A platform whose boot package owns its boot
+# chain prepares it, drops the install key's unlock from it and records the
+# kept key slot through omarchy-lifecycle-dispatch.
 
 set -euo pipefail
 
@@ -862,7 +864,7 @@ PROVISIONING_UNLOCK_FILES=(
   /etc/mkinitcpio.conf.d/99-omarchy-provisioning-key.conf
 )
 
-luks_auto_unlock_present() {
+limine_auto_unlock_present() {
   local file
   for file in "${PROVISIONING_UNLOCK_FILES[@]}"; do
     [[ -e $file ]] && return 0
@@ -872,7 +874,7 @@ luks_auto_unlock_present() {
 
 # Rebuild the UKI without the embedded keyfile. A failed rebuild restores the
 # auto-unlock, so the retry still boots unattended.
-luks_auto_unlock_drop() {
+limine_auto_unlock_drop() {
   rm -f "${PROVISIONING_UNLOCK_FILES[@]}"
   reset_limine_config
   if limine-update >>"$LOG_FILE" 2>&1; then
@@ -886,6 +888,52 @@ luks_auto_unlock_drop() {
   echo 'FILES+=(/etc/omarchy/provisioning.key)' >/etc/mkinitcpio.conf.d/99-omarchy-provisioning-key.conf
   limine-update >>"$LOG_FILE" 2>&1 || true
   return 1
+}
+
+# A platform whose boot package implements provision-commit and provision-verify
+# stages the unlock in its own boot chain and owns it; everywhere else it rides
+# in the Limine UKI above. Deciding fails closed: the unlock then counts as
+# present and cannot be dropped.
+UNLOCK_OWNER=""
+
+unlock_owner() {
+  [[ -z ${UNLOCK_OWNER:-} ]] || return 0
+
+  local commit verify
+  commit=$("$OMARCHY_PATH/bin/omarchy-lifecycle-dispatch" --resolve provision-commit) || return 1
+  verify=$("$OMARCHY_PATH/bin/omarchy-lifecycle-dispatch" --resolve provision-verify) || return 1
+  if [[ -n $commit && -n $verify ]]; then
+    UNLOCK_OWNER=platform
+  elif [[ -z $commit && -z $verify ]]; then
+    UNLOCK_OWNER=limine
+  else
+    log_step "the platform implements only one of provision-commit and provision-verify"
+    return 1
+  fi
+}
+
+luks_auto_unlock_present() {
+  unlock_owner || return 0
+  if [[ $UNLOCK_OWNER == "platform" ]]; then
+    ! "$OMARCHY_PATH/bin/omarchy-lifecycle-dispatch" provision-verify >>"$LOG_FILE" 2>&1
+  else
+    limine_auto_unlock_present
+  fi
+}
+
+luks_auto_unlock_drop() {
+  unlock_owner || return 1
+  if [[ $UNLOCK_OWNER == "platform" ]]; then
+    "$OMARCHY_PATH/bin/omarchy-lifecycle-dispatch" provision-commit >>"$LOG_FILE" 2>&1
+  else
+    limine_auto_unlock_drop
+  fi
+}
+
+# The platform records the slot the re-key keeps, and no recovery slot; a no-op
+# where nothing does.
+luks_record_slots() {
+  "$OMARCHY_PATH/bin/omarchy-lifecycle-dispatch" luks-slots "owner=$1" "recovery=" >>"$LOG_FILE" 2>&1
 }
 
 # Move the LUKS volume from the throwaway install passphrase to the user's
@@ -908,6 +956,8 @@ rekey_luks() {
 # A re-key interrupted after the staged key was retired can only finish with
 # the password the disk already holds.
 rekey_accepts_password() {
+  local -
+  set +x
   local device
   [[ -f $REKEY_STATE ]] || return 0
   if ! device=$(luks_device) || [[ ! -e $device ]]; then
@@ -1034,8 +1084,29 @@ run_provisioning() {
   log_step "first-boot setup complete"
 }
 
+# Where the platform's boot package owns the boot chain, it must be ready to
+# finish setup, and able to record the kept key slot, before the owner is asked
+# anything.
+platform_ready() {
+  local error
+  if error=$("$OMARCHY_PATH/bin/omarchy-lifecycle-dispatch" provision-prepare 2>&1 >>"$LOG_FILE") &&
+    error=$("$OMARCHY_PATH/bin/omarchy-lifecycle-dispatch" --resolve luks-slots 2>&1 >/dev/null); then
+    return 0
+  fi
+  error=${error:-"The boot package could not prepare this machine for setup."}
+
+  log_step "the boot package is not ready for setup: $error"
+  clear_logo
+  echo
+  say --foreground 1 "$error"
+  sleep 5
+  return 1
+}
+
 run_setup() {
   local status
+
+  platform_ready || return 1
 
   while true; do
     keyboard_form
