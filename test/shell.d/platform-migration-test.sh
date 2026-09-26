@@ -6,7 +6,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 # The platform migration is one dispatch line: it hands the machine to the
 # boot package's migrate entrypoint where there is one, does nothing elsewhere,
-# and stays pending when the platform cannot be told.
+# and waits (75) when the platform cannot be told.
 migration=$ROOT/migrations/1790347292.sh
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -48,6 +48,10 @@ echo /usr/lib/omarchy/mac-boot/migrate >"$tmp/resolves"
 echo 2 >"$tmp/status"
 if run_migration >/dev/null 2>&1; then fail "a refused platform migration leaves the migration pending"; fi
 [[ ! -e $marker ]] || fail "a refused platform migration writes no marker"
+echo 75 >"$tmp/status"
+status=0
+run_migration >/dev/null 2>&1 || status=$?
+[[ $status == 75 && ! -e $marker ]] || fail "a deferred platform migration exits 75 for omarchy-migrate and writes no marker" "status $status"
 echo 0 >"$tmp/status"
 run_migration >/dev/null || fail "an entrypoint: the migration completes"
 [[ $(sed -n 1,2p "$tmp/ran") == $'sudo omarchy-lifecycle-dispatch migrate\ndispatch migrate' && -e $marker ]] ||
@@ -55,12 +59,16 @@ run_migration >/dev/null || fail "an entrypoint: the migration completes"
 run_migration >/dev/null || fail "another account: the migration completes"
 [[ ! -e $tmp/ran ]] || fail "another account: nothing runs once the machine migrated" "$(cat "$tmp/ran")"
 rm "$marker"
-pass "a platform migration runs through the dispatcher as root, its refusal keeps the migration pending, and other accounts skip it once it ran"
+pass "a platform migration runs through the dispatcher as root, its refusal or deferral keeps the migration pending, and other accounts skip it once it ran"
 
 : >"$tmp/undetermined"
-if run_migration >/dev/null 2>&1; then fail "an undetermined platform leaves the migration pending"; fi
+status=0
+run_migration >/dev/null 2>"$tmp/err" || status=$?
+[[ $status == 75 && ! -e $marker ]] || fail "an undetermined platform defers the migration (75) and writes no marker" "status $status"
 [[ ! -e $tmp/ran ]] || fail "an undetermined platform runs nothing"
-pass "an undetermined platform fails the migration instead of skipping it"
+grep -q 'cannot determine the hardware platform' "$tmp/err" || fail "an undetermined platform keeps the dispatcher's reason" "$(cat "$tmp/err")"
+rm "$tmp/undetermined"
+pass "an undetermined platform defers the migration (75), so omarchy-migrate and the update go on"
 
 # Through the real dispatcher on every platform fixture: x86, generic aarch64
 # and Qualcomm run nothing even with a migrate entrypoint on disk, and neither
@@ -98,3 +106,18 @@ for run in first second; do
     fail "apple: the $run run hands the machine to the boot package as root" "$(cat "$tmp/ran")"
 done
 pass "a Mac with its boot package runs the migrate entrypoint as root, again on a rerun without the marker"
+
+# An entrypoint the dispatcher won't trust is never run: the migration waits
+# like an undetermined platform. One that runs and fails with anything but 75
+# still stops the queue.
+chmod g+w "$tmp/lifecycle/usr/lib/omarchy/mac-boot/migrate"
+status=0
+migrate_on apple-silicon "$tmp/lifecycle" >/dev/null 2>"$tmp/err" || status=$?
+[[ $status == 75 && ! -e $tmp/ran && ! -e $marker ]] || fail "apple: an untrusted entrypoint defers the migration and runs nothing" "status $status"
+grep -q 'refusing /usr/lib/omarchy/mac-boot/migrate' "$tmp/err" || fail "apple: the refusal says why" "$(cat "$tmp/err")"
+chmod g-w "$tmp/lifecycle/usr/lib/omarchy/mac-boot/migrate"
+printf '#!/bin/bash\necho migrate >>%q\nexit 1\n' "$tmp/ran" >"$tmp/lifecycle/usr/lib/omarchy/mac-boot/migrate"
+status=0
+migrate_on apple-silicon "$tmp/lifecycle" >/dev/null 2>&1 || status=$?
+[[ $status == 1 && -e $tmp/ran && ! -e $marker ]] || fail "apple: a failing entrypoint fails the migration with its status" "status $status"
+pass "a Mac whose migrate entrypoint the dispatcher refuses defers the migration; one that fails still stops the queue"
