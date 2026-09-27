@@ -72,6 +72,11 @@ describes — which is why the batch works hard to be fast:
 - Package and command presence (`omarchy-pkg-present` and friends) are
   answered in-process from one `pacman -Q` snapshot instead of a fork per
   row. The snapshot resolves provides too, so gvim answers for vim.
+- Repository availability (`omarchy-pkg-available`) is answered from one
+  `pacman -Slq` of the sync databases, once every configured repository has
+  one (see below). A name that list does not hold goes to
+  `pacman -Sp`, which resolves provides and version constraints the way
+  `pacman -S` will when the row is chosen.
 - Commands that several rows read a value from — every Defaults > Browser row
   compares against `$(omarchy-default-browser)` — run once, with the captured
   answer substituted into each expression. The reader list is
@@ -96,6 +101,29 @@ The three guards differ in what failure means:
 Install rows should therefore carry `disabled:` with the presence check, not
 `when:`; Remove rows are the opposite, hiding via `when:` what is not there
 to remove. `menu-test.sh` enforces the Install side of this convention.
+
+The one thing an Install row hides for is having nothing to install on this
+machine: its `when:` is `omarchy-pkg-available` with every package the row's
+install command adds, or, for a row that builds from the AUR, the CPU
+architectures its vendor ships for. A package with no build for this
+architecture then removes the row instead of failing halfway through a
+transaction. `optional-transactions-*-test.sh` derives each row's packages from
+its install command and fails when the guard names different ones.
+
+The sync databases can only say a package is missing when every repository
+`pacman-conf --repo-list` names has its database in the DBPath's `sync/`.
+Until then availability is unknown and every row shows, without asking pacman.
+What that means per machine:
+
+- x86_64: a fresh ISO install has only the offline repository's database until
+  its first `omarchy update` syncs the online ones, so it lists every Install
+  row, as it did before these guards. Once updated, every guarded row resolves
+  against the stable and edge repositories, so the menu is the same.
+- aarch64: an image keeps its repositories' databases, so a row with nothing to
+  install is hidden from the first boot.
+
+`omarchy-reinstall-pkgs` leaves out a default no repository offers by the same
+rule, so while a database is missing it leaves nothing out and pacman decides.
 
 ## Providers
 

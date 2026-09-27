@@ -85,10 +85,28 @@ cat >"$work/stubs/omarchy-refresh-pacman" <<'SH'
 #!/bin/bash
 printf 'refresh %s\n' "$*" >>"$STUB_LOG"
 SH
+# The configured repositories offer every default except $UNPUBLISHED.
+cat >"$work/stubs/pacman" <<'SH'
+#!/bin/bash
+[[ $1 == "-Slq" ]] || exit 1
+grep -vx "${UNPUBLISHED:-}" "$DEFAULTS_FILE"
+SH
+# Each configured repository has its sync database unless $UNSYNCED adds one
+# without.
+mkdir -p "$work/db/sync"
+printf 'db' >"$work/db/sync/core.db"
+cat >"$work/stubs/pacman-conf" <<SH
+#!/bin/bash
+case \$1 in
+DBPath) echo "$work/db" ;;
+--repo-list) printf '%s\n' core \${UNSYNCED:-} ;;
+*) exit 1 ;;
+esac
+SH
 chmod +x "$work/stubs/"*
 
 for platform in qualcomm generic; do
-  export STUB_LOG="$work/$platform.log"
+  export STUB_LOG="$work/$platform.log" DEFAULTS_FILE="$work/$platform.packages" UNPUBLISHED=""
   : >"$STUB_LOG"
   OMARCHY_PROC_ROOT="$work/$platform/proc" PATH="$work/stubs:$work/$platform/bin:$ROOT/bin:$PATH" \
     omarchy-reinstall-pkgs
@@ -97,6 +115,29 @@ for platform in qualcomm generic; do
     fail "$platform: reinstall installs the platform's default set" "$(tail -n 1 "$STUB_LOG")"
 done
 pass "omarchy-reinstall-pkgs installs the platform's default set"
+
+export STUB_LOG="$work/unpublished.log" DEFAULTS_FILE="$work/qualcomm.packages" UNPUBLISHED=linux-firmware-qcom
+: >"$STUB_LOG"
+OMARCHY_PROC_ROOT="$work/qualcomm/proc" PATH="$work/stubs:$work/qualcomm/bin:$ROOT/bin:$PATH" \
+  omarchy-reinstall-pkgs 2>"$work/unpublished.err"
+expected="-Syu --noconfirm --needed $(grep -vx linux-firmware-qcom "$work/qualcomm.packages" | tr '\n' ' ')"
+[[ $(tail -n 1 "$STUB_LOG") == "${expected% }" ]] ||
+  fail "reinstall leaves out a default no repository offers" "$(tail -n 1 "$STUB_LOG")"
+grep -Fq "Skipping linux-firmware-qcom" "$work/unpublished.err" || fail "reinstall reports the default it leaves out"
+pass "omarchy-reinstall-pkgs reports and leaves out a default no repository offers"
+
+# With a configured repository that has no sync database, what it offers is
+# unknown, so nothing is left out and pacman decides, as before the check.
+export STUB_LOG="$work/unsynced.log" UNSYNCED=omarchy
+: >"$STUB_LOG"
+OMARCHY_PROC_ROOT="$work/qualcomm/proc" PATH="$work/stubs:$work/qualcomm/bin:$ROOT/bin:$PATH" \
+  omarchy-reinstall-pkgs 2>"$work/unsynced.err"
+expected="-Syu --noconfirm --needed $(tr '\n' ' ' <"$work/qualcomm.packages")"
+[[ $(tail -n 1 "$STUB_LOG") == "${expected% }" ]] ||
+  fail "reinstall leaves nothing out while a repository has no sync database" "$(tail -n 1 "$STUB_LOG")"
+! grep -q "Skipping" "$work/unsynced.err" || fail "reinstall skips nothing while a repository has no sync database"
+unset UNSYNCED
+pass "omarchy-reinstall-pkgs skips nothing while a configured repository has no sync database"
 
 export STUB_LOG="$work/undetected.log"
 : >"$STUB_LOG"

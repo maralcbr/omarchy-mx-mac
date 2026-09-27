@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# omarchy:summary=Check whether all explicit targets are available in the configured repositories
+# omarchy:args=<packages...>
+
+# Shared by the CLI and menu batch. Caches last only for this shell process.
+declare -A __omarchy_sync_targets=() __omarchy_target_results=()
+__omarchy_sync_loaded=false __omarchy_sync_complete=false
+
+# The sync databases answer only when every configured repository has one. A
+# fresh ISO install has just the offline repository's until its first update
+# syncs the online ones, and a name missing from the databases there may be in
+# one that isn't, so every target counts as available then, as it did before
+# these guards. The same goes when the configuration can't be read. It is the
+# whole answer, not one per repository: which repository would offer a name
+# isn't known until it is found.
+__omarchy_sync_databases_complete() {
+  local dbpath repos repo db
+  dbpath=$(pacman-conf DBPath 2>/dev/null) && [[ -n $dbpath ]] || return 1
+  repos=$(pacman-conf --repo-list 2>/dev/null) || return 1
+  while IFS= read -r repo; do
+    [[ -n $repo ]] || continue
+    db=$dbpath/sync/$repo.db
+    [[ -f $db && -s $db && -r $db ]] || return 1
+  done <<<"$repos"
+}
+
+omarchy-pkg-available() {
+  local target
+  (( $# > 0 )) || return 0
+  if ! $__omarchy_sync_loaded; then
+    if __omarchy_sync_databases_complete; then
+      __omarchy_sync_complete=true
+      local -a names=()
+      mapfile -t names < <(pacman -Slq 2>/dev/null)
+      for target in "${names[@]}"; do
+        [[ -z $target ]] || __omarchy_sync_targets[$target]=1
+      done
+    fi
+    __omarchy_sync_loaded=true
+  fi
+  for target in "$@"; do
+    [[ -n $target ]] || return 1
+    $__omarchy_sync_complete || continue
+    if [[ -n ${__omarchy_sync_targets[$target]-} ]]; then
+      continue
+    fi
+    if [[ -z ${__omarchy_target_results[$target]-} ]]; then
+      if pacman -Sp --noconfirm -- "$target" >/dev/null 2>&1; then
+        __omarchy_target_results[$target]=yes
+      else
+        __omarchy_target_results[$target]=no
+      fi
+    fi
+    [[ ${__omarchy_target_results[$target]} == "yes" ]] || return 1
+  done
+}
+
+__omarchy_pkg_available_ready=true
+
+# Sourcing defines the checker without querying pacman or dispatching through PATH.
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  omarchy-pkg-available "$@"
+fi
