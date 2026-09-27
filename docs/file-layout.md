@@ -163,6 +163,7 @@ A platform's runtime package (omarchy-mac on Apple Silicon, say) adds its deskto
   hypr/defaults/*.lua          binds and bind decorators, before Omarchy's defaults
   hypr/settings/*.lua          settings, after Omarchy's defaults, before the theme and the user's
   hypr/gestures/*.lua          gestures that step aside for the user's, after the user's files
+  key-names                    "<keysym> <name>" lines the keybindings menu shows in place of keysyms
 ```
 
 See [lifecycle-dispatch.md](lifecycle-dispatch.md#platform-desktop-defaults).

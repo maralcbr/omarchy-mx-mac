@@ -135,6 +135,25 @@ require_platform_fixtures() {
   exit 0
 }
 
+# A script reads the installed platform package's files from the fixed
+# /usr/share/omarchy-platform, which nothing in its environment moves. Copies
+# script $1 to $2 reading fixture root $3 instead (a directory that doesn't
+# exist stands for no platform package), the way the security tests rewrite
+# other fixed paths. A script that runs Hyprland's config under `lua -E -`,
+# which ignores LUA_INIT, gets platform-root.lua loaded explicitly in the copy
+# (the scan must be written `lua -E - <<`).
+platform_root_copy() {
+  local script="$1" copy="$2" fixture="$3"
+  local seam="OMARCHY_TEST_PLATFORM_ROOT='$fixture' lua -E -e \"dofile('$SHELL_TEST_DIR/platform-root.lua')\" - <<"
+
+  sed -e "s|/usr/share/omarchy-platform|$fixture|g" -e "s|lua -E - <<|$seam|g" "$script" >"$copy" &&
+    chmod +x "$copy" || fail "copy $script for a fixture platform root"
+  grep -qF -- "$fixture" "$copy" && ! grep -qF /usr/share/omarchy-platform "$copy" ||
+    fail "$(basename -- "$script") reads the platform root from the fixture"
+  (( $(grep -cF 'lua -E - <<' "$script") == $(grep -cF -- "$seam" "$copy") )) ||
+    fail "$(basename -- "$script") runs every Lua config scan against the fixture"
+}
+
 run_node_test() {
   require_command node
 

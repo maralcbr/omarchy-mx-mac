@@ -59,11 +59,9 @@ chmod +x "$mock_bin"/*
 platform_root="$test_tmp/platform"
 mkdir -p "$platform_root" "$test_tmp/copy"
 brightness_display="$test_tmp/copy/omarchy-brightness-display"
-sed -e "s|/usr/share/omarchy-platform|$platform_root|g" -e "s|/sys/class/drm|$test_tmp/drm|g" \
-  "$ROOT/bin/omarchy-brightness-display" >"$brightness_display"
-chmod +x "$brightness_display"
-grep -qF "$platform_root/displays.conf" "$brightness_display" && grep -qF "$test_tmp/drm/card" "$brightness_display" ||
-  fail "omarchy-brightness-display reads its platform file and DRM connectors from the fixture"
+platform_root_copy "$ROOT/bin/omarchy-brightness-display" "$brightness_display" "$platform_root"
+sed -i "s|/sys/class/drm|$test_tmp/drm|g" "$brightness_display"
+grep -qF "$test_tmp/drm/card" "$brightness_display" || fail "omarchy-brightness-display reads DRM connectors from the fixture"
 
 run_brightness() {
   CALL_LOG="$call_log" XDG_RUNTIME_DIR="$runtime_dir" \

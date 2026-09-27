@@ -21,10 +21,7 @@ write_backlights() {
 # unless a case writes one, whatever the machine running the suite has installed.
 platform_root="$tmp_dir/platform"
 mkdir -p "$platform_root" "$tmp_dir/bin"
-sed "s|/usr/share/omarchy-platform|$platform_root|g" "$ROOT/bin/omarchy-hw-display" >"$tmp_dir/bin/omarchy-hw-display"
-chmod +x "$tmp_dir/bin/omarchy-hw-display"
-grep -qF "$platform_root/displays.conf" "$tmp_dir/bin/omarchy-hw-display" ||
-  fail "omarchy-hw-display reads its platform file from the fixture"
+platform_root_copy "$ROOT/bin/omarchy-hw-display" "$tmp_dir/bin/omarchy-hw-display" "$platform_root"
 
 write_displays_conf() {
   printf '%s\n' "$@" >"$platform_root/displays.conf"
