@@ -8,22 +8,22 @@ description: Every x86 Omarchy default package and what Omacom aarch64, MX Mac a
 Every package in Omarchy's x86_64 default lists, and what each of the three Arm
 variants does with it. Rows marked ✗ are the gaps.
 
-Snapshot: 2026-09-25 08:54 (Brisbane), from the live package databases.
+Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 
 ## The four variants
 
 | Variant | Source | Package lists | Package repositories | How packages get installed |
 |---|---|---|---|---|
-| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `93e8cd56` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
-| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (22 packages; `edge` has 143) | None yet: this column is what those repos can serve |
-| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `b8ed3951` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
-| **Omarchy Mac** | [`omacom/omarchy-mac`](https://github.com/omacom/omarchy-mac) `quattro` @ `e77295a9` | Its own copy of `omarchy-base.packages`/`omarchy-other.packages`, minus `install/omarchy-aarch64-unavailable.packages` | Community `[omarchy-aarch64]` + `[asahi-alarm]` + ALARM; `pkgs.omarchy.org/edge/aarch64` only for explicit targets (Hyprland stack, `asdcontrol`, `tobi-try`) | `install.sh` on top of an Asahi ALARM install, via `yay` |
+| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `944fa24f` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
+| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (34 packages; `edge` has 156) | None yet: this column is what those repos can serve |
+| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `23a31dfe` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
+| **Omarchy Mac** | [`omacom/omarchy-mac`](https://github.com/omacom/omarchy-mac) `quattro` @ `ba546a61` | Its own copy of `omarchy-base.packages`/`omarchy-other.packages`, minus `install/omarchy-aarch64-unavailable.packages` | Community `[omarchy-aarch64]` + `[asahi-alarm]` + ALARM; `pkgs.omarchy.org/edge/aarch64` only for explicit targets (Hyprland stack, `asdcontrol`, `tobi-try`) | `install.sh` on top of an Asahi ALARM install, via `yay` |
 
 ## Summary
 
 | | Omacom aarch64 | Omarchy MX Mac | Omarchy Mac |
 |---|---|---|---|
-| Core desktop set (151) | 126 served from stable, 22 only from `edge`, **3 missing** | 146 installed (3 renamed), **5 missing** | 141 installed (1 renamed), 0 unverified AUR candidates, 5 excluded, **5 missing**, 0 unresolved |
+| Core desktop set (151) | 125 served from stable, 23 only from `edge`, **3 missing** | 146 installed (3 renamed), **5 missing** | 141 installed (1 renamed), 0 unverified AUR candidates, 5 excluded, **5 missing**, 0 unresolved |
 | Platform & hardware set (58) | 30 served, 3 only from `edge`, **25 missing** (22 x86-hardware) | 57 covered or n/a, **1 missing** | 55 covered or n/a, 2 unverified AUR candidates, **1 missing** |
 
 ### Legend
@@ -71,7 +71,6 @@ Snapshot: 2026-09-25 08:54 (Brisbane), from the live package databases.
 | `dosfstools` | core | ALARM | ✓ | ✓ ALARM |
 | `dotnet-runtime` | extra | edge only | ✓ | excluded |
 | `dua-cli` | extra | ALARM | ✓ | ✓ ALARM |
-| `elsewhen` | omarchy | omarchy | ✗ | ✗ |
 | `evince` | extra | ALARM | ✓ | ✓ ALARM |
 | `exfatprogs` | extra | ALARM | ✓ | ✓ ALARM |
 | `expac` | extra | ALARM | ✓ | ✓ ALARM |
@@ -96,7 +95,7 @@ Snapshot: 2026-09-25 08:54 (Brisbane), from the live package databases.
 | `gvfs-nfs` | extra | ALARM | ✓ | ✓ ALARM |
 | `gvfs-smb` | extra | ALARM | ✓ | ✓ ALARM |
 | `herdr` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `hyprland` | extra | ALARM | ✓ | ✓ omarchy edge |
+| `hyprland` | extra | omarchy | ✓ | ✓ omarchy edge |
 | `hyprland-guiutils` | extra | ALARM | ✓ | ✓ omarchy edge |
 | `hyprland-preview-share-picker` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
 | `hyprpicker` | extra | ALARM | ✓ | ✓ ALARM |
@@ -124,6 +123,7 @@ Snapshot: 2026-09-25 08:54 (Brisbane), from the live package databases.
 | `man-db` | core | ALARM | ✓ | ✓ ALARM |
 | `mariadb-libs` | extra | ALARM | ✓ | ✓ ALARM |
 | `mise-bin` | omarchy | omarchy | → mise | ✓ omarchy-aarch64 |
+| `monologue` | unresolved | edge only | ✗ | ✗ |
 | `moonlight-qt` | extra | ALARM | ✓ | ✓ ALARM |
 | `mpv` | extra | ALARM | ✓ | ✓ ALARM |
 | `mpv-mpris` | extra | ALARM | ✓ | ✓ ALARM |
@@ -273,7 +273,7 @@ Resolved against Arch Linux ARM and `pkgs.omarchy.org/stable/aarch64`.
 | `obs-studio` | Not in ALARM or stable/edge aarch64 `[omarchy]`. |
 | `vi` | Not in ALARM or stable/edge aarch64 `[omarchy]`. |
 
-**Core desktop, only in `edge` (22)**: `asdcontrol`, `cliamp`, `dotnet-runtime`, `herdr`, `hyprland-preview-share-picker`, `localsend`, `obsidian`, `omacalc`, `omacut`, `omawrite`, `omarchy-nvim`, `omasnap`, `pinta`, `ttfx`, `qemu-user-static-binfmt`, `tobi-try`, `ttf-ia-writer`, `ttf-jetbrains-mono-nerd-basic`, `tzupdate`, `ufw-docker`, `yaru-icon-theme`, `yay`. Promoting them to stable closes this gap.
+**Core desktop, only in `edge` (23)**: `asdcontrol`, `cliamp`, `dotnet-runtime`, `herdr`, `hyprland-preview-share-picker`, `localsend`, `monologue`, `obsidian`, `omacalc`, `omacut`, `omawrite`, `omarchy-nvim`, `omasnap`, `pinta`, `ttfx`, `qemu-user-static-binfmt`, `tobi-try`, `ttf-ia-writer`, `ttf-jetbrains-mono-nerd-basic`, `tzupdate`, `ufw-docker`, `yaru-icon-theme`, `yay`. Promoting them to stable closes this gap.
 
 **Platform, missing (3)**: `linux-omarchy`, `linux-omarchy-headers`, `yay-debug`.
 **Platform, only in `edge` (2)**: `limine-mkinitcpio-hook`, `limine-snapper-sync`.
@@ -287,7 +287,7 @@ Compared against `install/omarchy-*-asahi.packages` in this checkout.
 
 | Package | Set | Aarch64 availability |
 |---|---|---|
-| `elsewhen` | core | omarchy |
+| `monologue` | core | edge only |
 | `omasnap` | core | edge only |
 | `owe` | core | omarchy |
 | `owe-lockfeed` | core | omarchy |
@@ -306,7 +306,7 @@ resolved the way its installer does: explicit official-edge targets, then commun
 
 | Package | Where its installer would find it if listed |
 |---|---|
-| `elsewhen` | nowhere it searches |
+| `monologue` | nowhere it searches |
 | `omasnap` | nowhere it searches |
 | `owe` | AUR candidate (build untested) |
 | `owe-lockfeed` | nowhere it searches |
