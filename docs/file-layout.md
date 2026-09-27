@@ -164,6 +164,7 @@ A platform's runtime package (omarchy-mac on Apple Silicon, say) adds its deskto
   hypr/settings/*.lua          settings, after Omarchy's defaults, before the theme and the user's
   hypr/gestures/*.lua          gestures that step aside for the user's, after the user's files
   key-names                    "<keysym> <name>" lines the keybindings menu shows in place of keysyms
+  display-cutouts.json         camera cutouts the top bar keeps out of (see omarchy-shell.md)
 ```
 
 See [lifecycle-dispatch.md](lifecycle-dispatch.md#platform-desktop-defaults).
