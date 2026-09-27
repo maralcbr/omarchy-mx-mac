@@ -9,6 +9,13 @@ ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 SHELL_TEST_DIR="$ROOT/test/shell.d"
 
 export ROOT
+# Hyprland config reads a platform package's defaults from the fixed
+# /usr/share/omarchy-platform; a test must not pick up the ones installed on the
+# machine running it. platform-root.lua points the standalone lua interpreter at
+# OMARCHY_TEST_PLATFORM_ROOT instead, or at nothing. A versioned LUA_INIT would
+# take precedence over it.
+unset LUA_INIT_5_5 LUA_INIT_5_4 OMARCHY_TEST_PLATFORM_ROOT
+export LUA_INIT="@$SHELL_TEST_DIR/platform-root.lua"
 
 pass() {
   printf 'ok - %s\n' "$1"

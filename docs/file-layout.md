@@ -153,6 +153,30 @@ logo.{txt,svg}, icon.{txt,png}  ──► omarchy-settings    /usr/share/omarchy
 
 The hardware-conditional `force-igpu` and `keyboard-backlight` sources also live under `default/systemd/system-sleep/`, but their setup commands publish root-owned copies only on machines that need them; they are not installed by `omarchy-settings`.
 
+### Platform root
+
+A platform's runtime package (omarchy-mac on Apple Silicon, say) adds its desktop files under a fixed root that only the one installed platform package owns. Omarchy ships nothing there, and a missing root or file means no platform additions. No environment variable moves it; tests reach fixtures through test-only seams, never through a desktop session's environment.
+
+```
+/usr/share/omarchy-platform/
+  displays.conf                backlight and DDC hints for the display commands (below)
+  hypr/defaults/*.lua          binds and bind decorators, before Omarchy's defaults
+  hypr/settings/*.lua          settings, after Omarchy's defaults, before the theme and the user's
+  hypr/gestures/*.lua          gestures that step aside for the user's, after the user's files
+```
+
+See [lifecycle-dispatch.md](lifecycle-dispatch.md#platform-desktop-defaults).
+
+#### Display hints (`displays.conf`)
+
+`omarchy-hw-display` picks the built-in panel's backlight by name (`gmux_backlight`, then `amdgpu_bl*`, `intel_backlight`, `acpi_video*`, else the first one listed, never a T2 Touch Bar's `appletb_backlight`), and `omarchy-brightness-display` probes every external monitor over DDC. Where a platform's names or display driver differ, its platform package says so in `/usr/share/omarchy-platform/displays.conf`; Omarchy ships none, and without it both behave as above. One directive per line, whitespace-separated; blank lines, whole-line `#` comments, unknown directives, and lines with a wrong word count or a name that is `.`, `..` or has a `/` are ignored:
+
+- `backlight-skip <glob>`: a `/sys/class/backlight` name (a shell glob) that never drives the built-in panel, such as a Touch Bar's. It is never picked, not even when a later directive or the built-in order names it.
+- `backlight-prefer <name>`: the built-in panel's backlight, a literal name, tried after `gmux_backlight` and before the GPU and ACPI ones, in file order.
+- `ddc-require-connector-ddc`: the display driver registers no DDC channel, so a probe would only walk unrelated I2C buses. An external monitor (other than an Apple Studio or XDR Display, which `omarchy-brightness-display-apple` drives with asdcontrol) is probed only when its DRM connector has a `ddc` node (`/sys/class/drm/card*-<connector>/ddc`); otherwise it gets no DDC or backlight control, and the built-in panel is never dimmed in its place.
+
+No environment variable moves the file: these commands also run under `sudo` and from the brightness keys. Their tests (`test/shell.d/hw-display-test.sh`, `test/shell.d/brightness-display-test.sh`) run a copy rewritten to read a fixture in its place.
+
 ### Why `etc-overrides/` exists
 
 Some files under `/etc/` (`.bashrc` in `/etc/skel`, `nsswitch.conf`,
@@ -348,16 +372,6 @@ and `install/omarchy-other.packages`; the ISO builder also reads them when
 constructing its offline mirror.
 
 A platform's default package set is the base list, then its architecture's additions, then its own: `install/omarchy-aarch64.packages` on every aarch64 platform, then `install/omarchy-<platform>.packages` when that platform has one (`install/omarchy-qualcomm.packages` on Qualcomm). x86_64 installs the base list alone. `omarchy-pkg-defaults [platform]` prints the composed set, for the running machine by default (via `omarchy-hw-platform`, so an image build gets its target's set), and `omarchy-reinstall-pkgs` installs it.
-
-## Platform display hints (`/usr/share/omarchy-platform/displays.conf`)
-
-`omarchy-hw-display` picks the built-in panel's backlight by name (`gmux_backlight`, then `amdgpu_bl*`, `intel_backlight`, `acpi_video*`, else the first one listed, never a T2 Touch Bar's `appletb_backlight`), and `omarchy-brightness-display` probes every external monitor over DDC. Where a platform's names or display driver differ, its platform package says so in `/usr/share/omarchy-platform/displays.conf`; Omarchy ships none, and without it both behave as above. One directive per line, whitespace-separated; blank lines, whole-line `#` comments, unknown directives, and lines with a wrong word count or a name that is `.`, `..` or has a `/` are ignored:
-
-- `backlight-skip <glob>`: a `/sys/class/backlight` name (a shell glob) that never drives the built-in panel, such as a Touch Bar's. It is never picked, not even when a later directive or the built-in order names it.
-- `backlight-prefer <name>`: the built-in panel's backlight, a literal name, tried after `gmux_backlight` and before the GPU and ACPI ones, in file order.
-- `ddc-require-connector-ddc`: the display driver registers no DDC channel, so a probe would only walk unrelated I2C buses. An external monitor (other than an Apple Studio or XDR Display, which `omarchy-brightness-display-apple` drives with asdcontrol) is probed only when its DRM connector has a `ddc` node (`/sys/class/drm/card*-<connector>/ddc`); otherwise it gets no DDC or backlight control, and the built-in panel is never dimmed in its place.
-
-No environment variable moves the file: these commands also run under `sudo` and from the brightness keys. Their tests (`test/shell.d/hw-display-test.sh`, `test/shell.d/brightness-display-test.sh`) run a copy rewritten to read a fixture in its place.
 
 ## Explicit resync (`omarchy-reinstall-configs`)
 

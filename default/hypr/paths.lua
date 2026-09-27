@@ -19,4 +19,8 @@ return {
   config_home = env_or("XDG_CONFIG_HOME", home .. "/.config"),
   state_home = env_or("XDG_STATE_HOME", home .. "/.local/state"),
   omarchy_path = env_or("OMARCHY_PATH", "/usr/share/omarchy"),
+  -- The installed platform package's own files. Fixed: no environment
+  -- variable moves it, and a development checkout in OMARCHY_PATH doesn't
+  -- replace it. Tests point it at a fixture through test/shell.d/platform-root.lua.
+  platform_root = "/usr/share/omarchy-platform",
 }

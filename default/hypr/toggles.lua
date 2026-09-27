@@ -21,3 +21,8 @@ disabled_input_device("touchpad")
 disabled_input_device("touchscreen")
 
 require("default.hypr.workspace-layouts")
+
+-- A platform package's gestures (hypr/gestures/*.lua), loaded after the user's
+-- files only for what must see them: a default gesture stepping aside for the
+-- user's own. Settings and binds load earlier, so the user's files win.
+require("default.hypr.platform").load("gestures")
