@@ -26,6 +26,10 @@ default/omarchy/omarchy-menu.jsonc 'omarchy-install-browser brave-origin'","when
 default/omarchy/omarchy-menu.jsonc 'omarchy-install-browser zen'","when":"[[ $(uname -m) == \"x86_64\" || $(uname -m) == \"aarch64\" ]]"}
 default/omarchy/omarchy-menu.jsonc omarchy-install-service-nordvpn","when":"[[ $(uname -m) == \"x86_64\" || $(uname -m) == \"aarch64\" ]]"}
 
+# The Windows VM runs an x86_64 guest under KVM, which needs an x86_64 host.
+bin/omarchy-windows-vm if [[ $(uname -m) != "x86_64" ]]; then
+default/omarchy/omarchy-menu.jsonc "label":"Windows","when":"[[ $(uname -m) == \"x86_64\" ]]"
+
 # The menu reads uname once per guard batch for the rows above; it decides nothing.
 shell/plugins/menu/MenuModel.js "uname -m"
 
