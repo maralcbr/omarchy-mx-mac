@@ -17,6 +17,12 @@
 # runs the queue on the real hardware. Unknown manifest keys are ignored so the
 # format can grow.
 #
+# An image carries no pacman master key of its own, or every machine flashed
+# from it would share one: where install finalization would make the keyring
+# (install/post-install/pacman.sh), a build requests it in
+# /var/lib/omarchy/image/pacman-keyring instead, and the first boot makes it
+# before any deferred step runs.
+#
 # The manifest is also the only source of the image's platform: until that boot,
 # omarchy-hw-platform reports its platform instead of the build host's, so the
 # initramfs, services and packages the build sets up are the target's. It reads
@@ -41,6 +47,7 @@ omarchy_image_init() {
   omarchy_image_queue=$omarchy_image_dir/deferred-steps
   omarchy_image_initramfs_baseline=$omarchy_image_dir/initramfs-inputs
   omarchy_image_boot_rebuild=$omarchy_image_dir/boot-rebuild
+  omarchy_image_keyring_request=$omarchy_image_dir/pacman-keyring
   omarchy_image_unit=omarchy-provision-hardware.service
   omarchy_image_systemd_dir=$omarchy_image_root/etc/systemd/system
 }

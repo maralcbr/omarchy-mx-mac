@@ -12,9 +12,9 @@
 # stops the run and the next run resumes at that step. Once the queue is empty
 # the initramfs is rebuilt if any step changed its configuration or asked for
 # the rebuild, and the service is disabled. With nothing deferred this does
-# nothing. A step that fails exits 75 (the step stays queued for the next run);
-# anything else that stops the run, such as an untrusted manifest or queue,
-# exits 1.
+# nothing. A failed step, or a failure to make the pacman keyring the build
+# asked for, exits 75 (it stays queued for the next run); anything else that
+# stops the run, such as an untrusted manifest or queue, exits 1.
 
 set -euo pipefail
 
@@ -41,10 +41,16 @@ queue_present() {
   [[ -e $omarchy_image_queue || -L $omarchy_image_queue ]]
 }
 
-omarchy_image_manifest_present || queue_present || exit 0
+# Anything left for the first boot: the manifest, a queue, or the keyring an
+# image build asked for, which is owed even when no step was queued.
+work_present() {
+  omarchy_image_manifest_present || queue_present || [[ -e $omarchy_image_keyring_request ]]
+}
+
+work_present || exit 0
 omarchy_image_lock || exit 1
 # Another run may have finished while this one waited for the lock.
-omarchy_image_manifest_present || queue_present || exit 0
+work_present || exit 0
 
 if omarchy_image_manifest_present; then
   omarchy_image_read_manifest || exit 1
@@ -93,6 +99,21 @@ export OMARCHY_IMAGE_BOOT_REBUILD=$omarchy_image_boot_rebuild
 # Tells a step it runs on the booted machine, after boot already brought up the
 # targets its units hang off (see install/hardware/bluetooth.sh).
 export OMARCHY_IMAGE_DEFERRED_HARDWARE=1
+
+# An image build asks for this machine's own pacman keyring (see
+# install/post-install/pacman.sh), made before any step installs a package. Any
+# keyring the build or an interrupted run left is replaced; the request stays
+# until a keyring is complete.
+if [[ -e $omarchy_image_keyring_request ]]; then
+  echo "Creating this machine's pacman keyring"
+  keyring=$omarchy_image_root/etc/pacman.d/gnupg
+  if ! { rm -rf "$keyring" && pacman-key --gpgdir "$keyring" --init &&
+    pacman-key --gpgdir "$keyring" --populate; } </dev/null >>"$OMARCHY_INSTALL_LOG_FILE" 2>&1; then
+    echo "Error: could not create the pacman keyring (see $OMARCHY_INSTALL_LOG_FILE); the next run retries it" >&2
+    exit 75
+  fi
+  rm -f "$omarchy_image_keyring_request"
+fi
 
 while (( ${#remaining[@]} )); do
   step=${remaining[0]}

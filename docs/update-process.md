@@ -277,6 +277,34 @@ Channel switching runs the `pre-refresh-pacman` hook once, during its refresh
 step: cold, behind the no-update wrapper, after the package config is re-synced
 and before the refresh transaction. It does not run if the switch fails earlier.
 
+On aarch64 a machine's repositories are its own (Arch Linux ARM, a platform's
+repositories, inline servers or its mirrorlist), so a channel change keeps
+them and rewrites only the `[omarchy]` server, backing up `pacman.conf` alone
+(`install/helpers/pacman.sh`); a `pacman.conf` it can't read is refused. It takes only a channel qualified for the
+platform: edge on Snapdragon and other aarch64 machines, none yet on Apple
+Silicon, whose packages are qualified there first. Before touching `/etc` it
+checks, as the user, that the channel's `omarchy.db` publishes the runtime
+pair, and on Apple Silicon `omarchy-mac` and `omarchy-mac-boot`.
+`omarchy-channel-set` refuses an unqualified channel before anything else,
+the dev confirmation included, and on aarch64 refuses to link a dev checkout
+without `bin/omarchy-hw-platform` and `install/helpers/pacman.sh`, whose own
+refresh would write the x86_64 templates. Install finalization writes a whole
+template instead: the channel's on x86_64, Arch Linux ARM with Omarchy on a
+qualified channel on other aarch64 platforms (saying so in the install log
+when the channel isn't), and `omarchy-mac`'s template
+(`/usr/share/omarchy-mac/pacman`) on Apple Silicon. A Snapdragon or generic
+aarch64 machine left without an Omarchy repository gets no Omarchy updates, so
+`omarchy update`'s confirmation, and the refusal of an unqualified channel by
+`omarchy-channel-set` or `omarchy-refresh-pacman`, tell it to switch to edge
+(`omarchy_pacman_missing_repository_notice`); x86_64 and Apple Silicon see no
+such line.
+
+`omarchy-reinstall-pkgs` resets to stable on x86_64, as it always has. An
+aarch64 machine has no stable channel, so it refreshes on the channel its
+`[omarchy]` server names when that channel is qualified for the platform, and
+otherwise (Apple Silicon for now, or a machine with no Omarchy repository)
+keeps its repositories and only syncs their databases before reinstalling.
+
 There is no version file at runtime. `omarchy-version` derives the version from
 `pacman -Q` on whichever package is installed, or reports `dev (<hash>)` for a
 linked checkout, and `omarchy-version-channel` sniffs the mirrorlist and

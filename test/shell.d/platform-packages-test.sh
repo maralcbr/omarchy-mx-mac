@@ -93,6 +93,7 @@ SH
 cat >"$work/stubs/omarchy-refresh-pacman" <<'SH'
 #!/bin/bash
 printf 'refresh %s\n' "$*" >>"$STUB_LOG"
+[[ -z ${REFRESH_FAILS:-} ]]
 SH
 # The configured repositories offer every default except $UNPUBLISHED.
 cat >"$work/stubs/pacman" <<'SH'
@@ -101,7 +102,8 @@ cat >"$work/stubs/pacman" <<'SH'
 grep -vx "${UNPUBLISHED:-}" "$DEFAULTS_FILE"
 SH
 # Each configured repository has its sync database unless $UNSYNCED adds one
-# without.
+# without. $OMARCHY_SERVERS are the [omarchy] repository's servers; unset, it
+# has none.
 mkdir -p "$work/db/sync"
 printf 'db' >"$work/db/sync/core.db"
 cat >"$work/stubs/pacman-conf" <<SH
@@ -109,6 +111,8 @@ cat >"$work/stubs/pacman-conf" <<SH
 case \$1 in
 DBPath) echo "$work/db" ;;
 --repo-list) printf '%s\n' core \${UNSYNCED:-} ;;
+--repo) [[ \$2 == omarchy && \$3 == Server && -n \${OMARCHY_SERVERS:-} ]] || exit 1
+  printf '%s\n' \$OMARCHY_SERVERS ;;
 *) exit 1 ;;
 esac
 SH
@@ -147,6 +151,38 @@ expected="-Syu --noconfirm --needed $(tr '\n' ' ' <"$work/qualcomm.packages")"
 ! grep -q "Skipping" "$work/unsynced.err" || fail "reinstall skips nothing while a repository has no sync database"
 unset UNSYNCED
 pass "omarchy-reinstall-pkgs skips nothing while a configured repository has no sync database"
+
+# x86_64 resets to stable, as it always has. aarch64 has no stable channel: it
+# refreshes on the qualified channel its [omarchy] server names, and otherwise
+# keeps its repositories and only syncs them.
+reinstall_on() {
+  local platform=$1
+  export STUB_LOG="$work/channel.log" DEFAULTS_FILE="$work/$platform.packages" UNPUBLISHED=""
+  : >"$STUB_LOG"
+  OMARCHY_PROC_ROOT="$work/$platform/proc" PATH="$work/stubs:$work/$platform/bin:$ROOT/bin:$PATH" \
+    omarchy-reinstall-pkgs >"$work/channel.out" 2>&1
+}
+edge=https://pkgs.omarchy.org/edge/aarch64
+for case in "generic|$edge|refresh " "qualcomm|$edge|refresh edge" "generic-aarch64|$edge|refresh edge" \
+  "qualcomm||-Syy --noconfirm" "qualcomm|https://pkgs.omarchy.org/rc/aarch64|-Syy --noconfirm" \
+  "qualcomm|https://example.com/edge/aarch64|-Syy --noconfirm" "qualcomm|$edge $edge|-Syy --noconfirm" \
+  "apple-silicon|$edge|-Syy --noconfirm" "apple-silicon||-Syy --noconfirm"; do
+  IFS='|' read -r platform servers first <<<"$case"
+  OMARCHY_SERVERS=$servers reinstall_on "$platform" || fail "$platform ($servers): reinstall completes" "$(cat "$work/channel.out")"
+  [[ $(head -n 1 "$STUB_LOG") == "$first" ]] || fail "$platform ($servers): reinstall first runs '$first'" "$(cat "$STUB_LOG")"
+  (( $(grep -c '^refresh\|^-Syy' "$STUB_LOG") == 1 )) || fail "$platform ($servers): one refresh or sync" "$(cat "$STUB_LOG")"
+  expected="-Syu --noconfirm --needed $(tr '\n' ' ' <"$work/$platform.packages")"
+  [[ $(tail -n 1 "$STUB_LOG") == "${expected% }" ]] || fail "$platform ($servers): reinstall installs the platform's set"
+done
+pass "omarchy-reinstall-pkgs refreshes on stable on x86_64 and on the machine's qualified channel on aarch64"
+
+# A qualified channel's refresh failing stops the reinstall; it doesn't fall
+# back to syncing the repositories as they are.
+if OMARCHY_SERVERS=$edge REFRESH_FAILS=1 reinstall_on qualcomm; then
+  fail "reinstall stops when the channel refresh fails"
+fi
+[[ $(cat "$STUB_LOG") == "refresh edge" ]] || fail "reinstall runs nothing after a failed refresh" "$(cat "$STUB_LOG")"
+pass "omarchy-reinstall-pkgs stops when the channel refresh fails"
 
 export STUB_LOG="$work/undetected.log"
 : >"$STUB_LOG"

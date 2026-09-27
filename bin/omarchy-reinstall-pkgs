@@ -1,16 +1,30 @@
 #!/bin/bash
 
-# omarchy:summary=Reinstall all default Omarchy packages from the stable channel
+# omarchy:summary=Reinstall all default Omarchy packages from the stable channel, or on ARM from the machine's own repositories
 # omarchy:requires-sudo=true
 
 set -e
 
-# Reinstall all default Omarchy packages from the stable channel and downgrade any packages that are too new.
+# Reinstall all default Omarchy packages and downgrade any packages that are too new.
 
-# Set the package repository to the stable mirrors
-omarchy-refresh-pacman
+source "$OMARCHY_PATH/install/helpers/pacman.sh"
+platform=$(omarchy-hw-platform)
 
-# Downgrade any packages to the stable setup
+if [[ $platform == "generic" ]]; then
+  # Set the package repository to the stable mirrors
+  omarchy-refresh-pacman
+elif channel=$(omarchy_pacman_configured_channel) && omarchy_pacman_channel_qualified "$channel" "$platform" 2>/dev/null; then
+  # An aarch64 machine has no stable channel. It refreshes on the Omarchy
+  # channel its configuration names, when that channel is qualified here.
+  omarchy-refresh-pacman "$channel"
+else
+  # Otherwise (Apple Silicon until a channel qualifies there, or no Omarchy
+  # repository) it keeps its repositories and only syncs them.
+  echo "No Omarchy channel qualified for $platform is configured; keeping this machine's repositories."
+  omarchy-update-pacman -Syy --noconfirm
+fi
+
+# Downgrade any packages to the refreshed repositories
 omarchy-update-pacman -Suu --noconfirm
 
 # Ensure this platform's default packages are installed. A default no

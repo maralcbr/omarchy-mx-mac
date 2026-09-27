@@ -29,7 +29,7 @@ grep -q '^if false; then$' "$apply_hardware" || fail "the test copy of omarchy-a
 # Commands a hardware leaf would reach for. Any call means a leaf ran.
 stub_bin="$test_tmp/stub-bin"
 mkdir -p "$stub_bin"
-for command in sudo pacman systemctl lspci omarchy-pkg-add modinfo; do
+for command in sudo pacman pacman-key systemctl lspci omarchy-pkg-add modinfo; do
   cat >"$stub_bin/$command" <<'SH'
 #!/bin/bash
 printf '%s %s\n' "${0##*/}" "$*" >>"$LEAF_CALLS"
@@ -341,6 +341,114 @@ first_boot "$root" >/dev/null || fail "a step that changes the kernel command li
 rm -f "$fixture/install/hardware/cmdline.sh"
 pass "a step that only changed Limine's kernel command line gets the rebuild"
 
+# --- The pacman keyring -------------------------------------------------------
+
+# Install finalization makes the pacman keyring on Qualcomm and generic aarch64.
+# An image build asks for it instead, so every machine flashed from the image
+# makes its own master key on its first boot, before any step installs a package.
+keyring_bin="$test_tmp/keyring-bin"
+mkdir -p "$keyring_bin" "$fixture/install/post-install"
+cp "$ROOT/install/post-install/pacman.sh" "$fixture/install/post-install/"
+# Finalization's repositories are pacman-arm-channel-test.sh's.
+echo 'omarchy_pacman_write_template() { :; }' >"$fixture/install/helpers/pacman.sh"
+: >"$fixture/install/hardware/pacman.sh"
+for command in pacman-key omarchy-pkg-add; do
+  cat >"$keyring_bin/$command" <<'SH'
+#!/bin/bash
+printf '%s %s\n' "${0##*/}" "$*" >>"$KEYRING"
+[[ ${0##*/} != "pacman-key" || ! -e $KEYRING_FAIL ]]
+SH
+done
+printf '#!/bin/bash\necho "$PLATFORM"\n' >"$keyring_bin/omarchy-hw-platform"
+chmod +x "$keyring_bin"/*
+export KEYRING="$test_tmp/keyring" KEYRING_FAIL="$test_tmp/keyring-fail"
+request=var/lib/omarchy/image/pacman-keyring
+
+finalize() {
+  OMARCHY_IMAGE_ROOT="$1" OMARCHY_PATH="$fixture" OMARCHY_INSTALL="$fixture/install" PLATFORM=$2 \
+    PATH="$keyring_bin:$base_path" bash -e -c 'source "$1"' bash "$fixture/install/post-install/pacman.sh"
+}
+
+keyring_boot() {
+  OMARCHY_IMAGE_ROOT="$1" OMARCHY_PATH="$fixture" OMARCHY_PROC_ROOT="$test_tmp/hw/proc" \
+    PATH="$keyring_bin:$base_path" "$ROOT/bin/omarchy-provision-hardware"
+}
+
+for platform in qualcomm generic-aarch64; do
+  rm -f "$KEYRING"
+  root=$(new_root "install-$platform")
+  finalize "$root" "$platform" || fail "$platform: install finalization succeeds"
+  [[ $(cat "$KEYRING") == $'omarchy-pkg-add archlinuxarm-keyring\npacman-key --init\npacman-key --populate' ]] ||
+    fail "$platform: an install makes its pacman keyring in finalization, as before" "$(cat "$KEYRING")"
+  [[ ! -e $root/$request ]] || fail "$platform: an install requests no first-boot keyring"
+
+  rm -f "$KEYRING"
+  root=$(new_root "image-$platform")
+  write_manifest "$root" $'format=1\nplatform='"$platform"$'\n'
+  build "$root" >/dev/null || fail "$platform: the fixture image builds"
+  finalize "$root" "$platform" || fail "$platform: image finalization succeeds"
+  [[ $(cat "$KEYRING") == "omarchy-pkg-add archlinuxarm-keyring" ]] ||
+    fail "$platform: an image build makes no pacman keyring" "$(cat "$KEYRING")"
+  [[ -f $root/$request ]] || fail "$platform: an image build asks its first boot for the keyring"
+done
+for platform in apple-silicon generic; do
+  rm -f "$KEYRING"
+  root=$(new_root "image-$platform")
+  write_manifest "$root" $'format=1\nplatform='"$platform"$'\n'
+  build "$root" >/dev/null || fail "$platform: the fixture image builds"
+  finalize "$root" "$platform" || fail "$platform: image finalization succeeds"
+  finalize "$(new_root "install-$platform")" "$platform" || fail "$platform: install finalization succeeds"
+  [[ ! -e $KEYRING && ! -e $root/$request ]] || fail "$platform: finalization leaves the keyring alone" "$(cat "$KEYRING" 2>/dev/null)"
+done
+pass "an image build on Qualcomm and generic aarch64 leaves the pacman keyring to the first boot"
+
+reset_logs
+rm -f "$KEYRING"
+root=$(new_root image-apple-silicon)
+write_manifest "$root"
+build "$root" >/dev/null || fail "the Mac fixture image builds"
+keyring_boot "$root" >/dev/null || fail "a Mac image's first boot finishes"
+[[ ! -e $KEYRING ]] || fail "a first boot nobody asked for a keyring leaves the keyring alone" "$(cat "$KEYRING")"
+pass "a first boot nobody asked for a keyring leaves the keyring alone"
+
+reset_logs
+root=$test_tmp/root-image-qualcomm
+mkdir -p "$root/etc/pacman.d/gnupg"
+touch "$root/etc/pacman.d/gnupg/build-master-key" "$KEYRING_FAIL"
+status=0
+output=$(KEYRING=$RUNS keyring_boot "$root" 2>&1) || status=$?
+(( status == 75 )) || fail "a keyring that can't be made exits 75" "status $status: $output"
+[[ $output == *"could not create the pacman keyring"* ]] || fail "the first boot says the keyring failed" "$output"
+[[ $(cat "$RUNS") == "pacman-key --gpgdir $root/etc/pacman.d/gnupg --init" ]] ||
+  fail "no step runs before the keyring exists" "$(cat "$RUNS")"
+[[ -f $root/$request && $(queue_of "$root") == $'install/hardware/a.sh\ninstall/hardware/apple/b.sh\ninstall/hardware/c.sh' ]] ||
+  fail "the keyring request and the whole queue stay for the next boot"
+pass "a keyring that can't be made stays requested and holds back every step"
+
+rm -f "$KEYRING_FAIL" "$RUNS"
+mkdir -p "$root/etc/pacman.d/gnupg"
+touch "$root/etc/pacman.d/gnupg/build-master-key"
+output=$(KEYRING=$RUNS keyring_boot "$root") || fail "the next boot makes the keyring and finishes" "$output"
+[[ $(cat "$RUNS") == "pacman-key --gpgdir $root/etc/pacman.d/gnupg --init"$'\n'"pacman-key --gpgdir $root/etc/pacman.d/gnupg --populate"$'\na user= path='"$fixture"$'\nb\nc' ]] ||
+  fail "the first boot makes the keyring, then runs the steps" "$(cat "$RUNS")"
+[[ ! -e $root/etc/pacman.d/gnupg/build-master-key ]] || fail "the first boot replaces a keyring the build left"
+[[ ! -e $root/$request && ! -e $root/var/lib/omarchy/image/deferred-steps ]] || fail "the first boot clears the keyring request"
+pass "the first boot replaces any build keyring with the machine's own before the steps run"
+
+# A keyring request with nothing queued (a build whose hardware setup queued no
+# step) still gets its keyring.
+reset_logs
+rm -f "$RUNS"
+root=$test_tmp/root-keyring-only
+mkdir -p "$root/var/lib/omarchy/image"
+install -m 0644 /dev/null "$root/$request"
+output=$(KEYRING=$RUNS keyring_boot "$root") || fail "a first boot with only a keyring request finishes" "$output"
+[[ $(cat "$RUNS") == "pacman-key --gpgdir $root/etc/pacman.d/gnupg --init"$'\n'"pacman-key --gpgdir $root/etc/pacman.d/gnupg --populate" && ! -e $root/$request ]] ||
+  fail "a keyring request is honoured with no queued step" "$(cat "$RUNS" 2>/dev/null)"
+grep -qx 'ConditionPathExists=|/var/lib/omarchy/image/pacman-keyring' "$ROOT/install/provisioning/omarchy-provision-hardware.service" ||
+  fail "the first-boot unit also starts for a keyring request alone"
+pass "a keyring request with no queued step still gets the machine's own keyring"
+
 # A leaf a later Omarchy no longer ships is dropped; a queue entry outside the
 # hardware setup stops the run before anything runs.
 reset_logs
@@ -416,7 +524,7 @@ pass "the first-boot hardware setup refuses a normal user"
 
 # The service fires on the queue this helper writes and hands the machine to
 # owner setup and the login screen only after it.
-grep -qx 'ConditionPathExists=/var/lib/omarchy/image/deferred-steps' "$unit_source" &&
+grep -qx 'ConditionPathExists=|/var/lib/omarchy/image/deferred-steps' "$unit_source" &&
   grep -qx 'ExecStart=/usr/bin/omarchy-provision-hardware' "$unit_source" &&
   grep -qx 'Before=omarchy-provision-owner.service display-manager.service' "$unit_source" &&
   grep -qx 'WantedBy=multi-user.target' "$unit_source" ||
