@@ -205,3 +205,65 @@ mkdir -p "$R/etc/omarchy-mac"
 printf 'format=1\ntype=candidate-set\nchannel=edge\nset=/x\nfingerprint=%s\n' "$signer" >"$R/etc/omarchy-mac/migration-target"
 expect_deferred "an administrator's candidate-set target" "is not a repository target"
 pass "an administrator's own candidate-set target is left to them"
+
+# An administrator's repository target reaches the engine as it is, whichever
+# channel the package's own target names.
+for packaged in stable rc; do
+  new_root
+  publish rc 20260926-2 "$(package 20260926-2 "$packaged")"
+  mkdir -p "$R/etc/omarchy-mac"
+  printf 'format=1\ntype=repository\nchannel=rc\nserver=https://mirror.example/rc/$arch\npackages=omarchy omarchy-mac-boot\n' >"$R/etc/omarchy-mac/migration-target"
+  cp "$R/etc/omarchy-mac/migration-target" "$tmp/admin-target"
+  output=$(run_bootstrap 2>&1) || fail "an administrator's rc target migrates (packaged $packaged)" "$output"
+  cmp -s "$tmp/admin-target" "$R/etc/omarchy-mac/migration-target" ||
+    fail "the administrator's target is left as it is (packaged $packaged)" "$(cat "$R/etc/omarchy-mac/migration-target")"
+  [[ $(cat "$tmp/engine.log") == "--payload $R$payload run --target $R/etc/omarchy-mac/migration-target" ]] ||
+    fail "the engine runs with the administrator's target (packaged $packaged)" "$(cat "$tmp/engine.log")"
+  [[ $(sed -n 's/^pkgver = //p' "$R$payload/.PKGINFO") == "20260926-2" ]] || fail "the package comes from the administrator's channel"
+done
+pass "an administrator's target keeps its channel, server and packages, and the engine gets it unchanged"
+
+new_root
+publish rc 20260926-2 "$(package 20260926-2 stable)"
+mkdir -p "$R/etc/omarchy-mac"
+printf 'format=1\ntype=repository\nchannel=rc\nserver=https://mirror.example/rc/$arch\n' >"$R/etc/omarchy-mac/migration-target"
+cp "$R/etc/omarchy-mac/migration-target" "$tmp/admin-target"
+output=$(run_bootstrap --channel edge 2>&1) || fail "a --channel that disagrees with the administrator's target still migrates" "$output"
+grep -q "keeping the rc channel from $R/etc/omarchy-mac/migration-target; --channel edge is ignored" <<<"$output" ||
+  fail "a --channel that disagrees with the administrator's target is reported" "$output"
+cmp -s "$tmp/admin-target" "$R/etc/omarchy-mac/migration-target" && grep -q -- "--target $R/etc/omarchy-mac/migration-target" "$tmp/engine.log" ||
+  fail "the administrator's target wins over --channel" "$(cat "$tmp/engine.log")"
+: >"$tmp/engine.log"
+output=$(run_bootstrap --prime --channel edge 2>&1) || fail "priming with a disagreeing --channel succeeds" "$output"
+grep -q "ready to move this Mac onto the rc channel" <<<"$output" && [[ ! -s $tmp/engine.log ]] ||
+  fail "priming with a disagreeing --channel primes the administrator's channel" "$output"
+pass "a --channel that disagrees with the administrator's target is ignored with a warning, never applied"
+
+new_root
+publish stable 20260926-1 "$(package 20260926-1 stable)"
+mkdir -p "$R/etc/omarchy-mac"
+printf 'format=1\ntype=repository\nchannel=beta\n' >"$R/etc/omarchy-mac/migration-target"
+expect_deferred "an administrator's target without a known channel" "names no channel"
+pass "an administrator's target without a known channel defers, running nothing"
+
+new_root
+publish stable 20260926-1 "$(package 20260926-1 stable)"
+run_bootstrap --prime --channel stable >/dev/null 2>&1 || fail "priming for stable succeeds"
+[[ $(cat "$R/etc/omarchy-mac/migration-target") == $'format=1\ntype=repository\nchannel=stable' ]] ||
+  fail "a chosen channel is kept even when the package names it too" "$(cat "$R/etc/omarchy-mac/migration-target" 2>/dev/null)"
+pass "a channel given with --channel is kept for later runs even when it is the package's own"
+
+# When stable's package names another channel, that channel's package is
+# checked again and its target decides whether the Mac needs one of its own.
+new_root
+publish stable 20260926-1 "$(package 20260926-1 rc)"
+publish rc 20260926-2 "$(package 20260926-2 stable)"
+output=$(run_bootstrap 2>&1) || fail "a package naming another channel migrates on it" "$output"
+[[ $(sed -n 's/^pkgver = //p' "$R$payload/.PKGINFO") == "20260926-2" &&
+  $(cat "$R/etc/omarchy-mac/migration-target") == $'format=1\ntype=repository\nchannel=rc' ]] ||
+  fail "the channel the package names is kept when its own package names another" "$(cat "$R/etc/omarchy-mac/migration-target" 2>/dev/null)"
+publish rc 20260926-2 "$(package 20260926-2 none)"
+rm -rf "$R/etc" "$R/var/lib/omarchy-mac/bootstrap"
+: >"$tmp/engine.log"
+expect_deferred "a channel whose package does not activate the migration" "does not activate the migration yet"
+pass "the package from the channel the stable target names is checked and decides the Mac's own target"

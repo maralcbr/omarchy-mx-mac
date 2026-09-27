@@ -16,9 +16,12 @@
 # through their conflict, so nothing is overwritten.
 #
 # The package's own migration target is the switch that activates this: until
-# the published omarchy-mac-boot ships one, nothing runs. The Mac moves to the
-# channel that target names, or to --channel's, which
-# /etc/omarchy-mac/migration-target then keeps for later runs.
+# the published omarchy-mac-boot ships one, nothing runs. An administrator's
+# /etc/omarchy-mac/migration-target always wins and reaches the engine as it
+# is, server= and all; a --channel that disagrees with it is ignored with a
+# warning. Without one the Mac moves to --channel's channel, which that file
+# then keeps for later runs, or else to the channel the package's target names.
+# The package itself always comes from pkgs.omarchy.org's channel of that name.
 #
 # --prime fetches, checks and unpacks the package, and stops there.
 #
@@ -212,36 +215,45 @@ if migration_in_progress; then
   exit 0
 fi
 
-# An administrator's target names the channel this Mac keeps.
+# The package's target must activate the migration and the engine must run
+# from a download. Sets packaged and packaged_channel.
+check_payload() {
+  packaged=$payload/usr/lib/omarchy-mac/boot/migration-target
+  [[ -f $packaged ]] || defer "omarchy-mac-boot $version does not activate the migration yet"
+  grep -q -- '--payload' "$payload/usr/bin/omarchy-mac-migrate" || defer "omarchy-mac-boot $version cannot run from a download"
+  packaged_channel=$(target_value "$packaged" channel)
+  [[ $(target_value "$packaged" type) == "repository" && $packaged_channel =~ ^(stable|rc|edge)$ ]] ||
+    defer "omarchy-mac-boot $version ships a target that is not a repository channel"
+}
+
 if [[ -f $admin_target ]]; then
   [[ $(target_value "$admin_target" type) == "repository" ]] ||
     defer "$admin_target is not a repository target; run omarchy-mac-migrate with it yourself"
-  channel=$(target_value "$admin_target" channel)
-fi
-
-version=$(fetch_payload "${channel:-stable}")
-packaged=$payload/usr/lib/omarchy-mac/boot/migration-target
-[[ -f $packaged ]] || defer "omarchy-mac-boot $version does not activate the migration yet"
-grep -q -- '--payload' "$payload/usr/bin/omarchy-mac-migrate" || defer "omarchy-mac-boot $version cannot run from a download"
-packaged_channel=$(target_value "$packaged" channel)
-[[ $(target_value "$packaged" type) == "repository" && $packaged_channel =~ ^(stable|rc|edge)$ ]] ||
-  defer "omarchy-mac-boot $version ships a target that is not a repository channel"
-if [[ -z $channel && $packaged_channel != "stable" ]]; then
-  channel=$packaged_channel
-  version=$(fetch_payload "$channel")
-fi
-
-target=$packaged
-if [[ -n $channel && $channel != "$packaged_channel" ]]; then
-  install -d -m 755 "$(dirname "$admin_target")"
-  sed -e '/^server=/d' -e "s/^channel=.*/channel=$channel/" "$packaged" >"$admin_target.new"
-  chmod 644 "$admin_target.new"
-  if cmp -s "$admin_target.new" "$admin_target"; then
-    rm -f "$admin_target.new"
-  else
-    mv -f "$admin_target.new" "$admin_target"
+  admin_channel=$(target_value "$admin_target" channel)
+  [[ $admin_channel =~ ^(stable|rc|edge)$ ]] || defer "$admin_target names no channel (stable, rc or edge)"
+  if [[ -n $channel && $channel != "$admin_channel" ]]; then
+    echo "omarchy-mac-migrate-bootstrap: keeping the $admin_channel channel from $admin_target; --channel $channel is ignored: edit or remove that file to change it" >&2
   fi
+  version=$(fetch_payload "$admin_channel")
+  check_payload
   target=$admin_target
+else
+  explicit=$channel
+  version=$(fetch_payload "${channel:-stable}")
+  check_payload
+  if [[ -z $channel && $packaged_channel != "stable" ]]; then
+    channel=$packaged_channel
+    version=$(fetch_payload "$channel")
+    check_payload
+  fi
+  target=$packaged
+  if [[ -n $explicit || ( -n $channel && $channel != "$packaged_channel" ) ]]; then
+    install -d -m 755 "$(dirname "$admin_target")"
+    sed -e '/^server=/d' -e "s/^channel=.*/channel=$channel/" "$packaged" >"$admin_target.new"
+    chmod 644 "$admin_target.new"
+    mv -f "$admin_target.new" "$admin_target"
+    target=$admin_target
+  fi
 fi
 
 if (( prime )); then
