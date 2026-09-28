@@ -165,6 +165,7 @@ A platform's runtime package (omarchy-mac on Apple Silicon, say) adds its deskto
   hypr/gestures/*.lua          gestures that step aside for the user's, after the user's files
   key-names                    "<keysym> <name>" lines the keybindings menu shows in place of keysyms
   display-cutouts.json         camera cutouts the top bar keeps out of (see omarchy-shell.md)
+  audio.json                   audio processing nodes the audio panel and microphone widget leave out (below)
 ```
 
 See [lifecycle-dispatch.md](lifecycle-dispatch.md#platform-desktop-defaults).
@@ -178,6 +179,23 @@ See [lifecycle-dispatch.md](lifecycle-dispatch.md#platform-desktop-defaults).
 - `ddc-require-connector-ddc`: the display driver registers no DDC channel, so a probe would only walk unrelated I2C buses. An external monitor (other than an Apple Studio or XDR Display, which `omarchy-brightness-display-apple` drives with asdcontrol) is probed only when its DRM connector has a `ddc` node (`/sys/class/drm/card*-<connector>/ddc`); otherwise it gets no DDC or backlight control, and the built-in panel is never dimmed in its place.
 
 No environment variable moves the file: these commands also run under `sudo` and from the brightness keys. Their tests (`test/shell.d/hw-display-test.sh`, `test/shell.d/brightness-display-test.sh`) run a copy rewritten to read a fixture in its place.
+
+#### Audio hints (`audio.json`)
+
+The audio panel lists every output, input and playback stream PipeWire has, and the microphone widget counts every recording as the microphone in use (the shell's own level meters never count). A platform whose audio runs through its own processing (DSP filter graphs in front of raw devices, say) has nodes that are neither devices nor apps, and its platform package names them in `/usr/share/omarchy-platform/audio.json`; Omarchy ships none, and without it nothing is left out.
+
+```json
+{
+  "hidden": ["<pattern>", "..."],
+  "replaced": [{ "node": "<pattern>", "by": "<pattern>" }]
+}
+```
+
+A pattern is a JavaScript regular expression matched against a whole `node.name`. A `hidden` node is never listed as an output, an input or an app stream, and never lights the microphone widget; a `replaced` node is left out only while a node matching `by` exists (a mono processed microphone behind a stereo copy of it, say). Missing or malformed JSON means no hints, and an invalid pattern or entry is skipped. The shell reads the file at that fixed path, which no environment variable moves (`shell/Commons/AudioNodes.qml`), and `test/shell.d/audio-test.sh` covers the parsing.
+
+A virtual source (an `Audio/Source/Virtual`, such as EasyEffects' or a platform's microphone mapping) needs no hint: Quickshell leaves it untyped, so the panel and widget set its volume and mute through `wpctl` (`shell/Commons/UntypedInput.qml`, one `pactl subscribe` for the whole shell) and the panel meters it with `omarchy-audio-source-level`, and the panel lists it because PulseAudio does (`omarchy-audio-sink-availability sources`).
+
+Two rules hold on every machine, hints or not: the input list leaves out a source whose ports PulseAudio reports all unavailable (an empty headset jack), unless it is the default, as the output list already did for sinks; and choosing an input (`omarchy-audio-input-set-default`) moves every recording except a filter's own capture, a source output with a `node.link-group` (the input half of a filter chain, loopback or echo canceller), which would otherwise be fed from the new input or from its own output.
 
 ### Why `etc-overrides/` exists
 
