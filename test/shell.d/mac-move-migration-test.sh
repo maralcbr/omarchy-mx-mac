@@ -52,8 +52,8 @@ dev=$(grep -n '^  omarchy-update-dev$' "$update" | cut -d: -f1)
 bundle=$(grep -n 'omarchy-update-asahi-bundle --yes' "$update" | cut -d: -f1)
 [[ -n $move && -n $dev && -n $bundle ]] && (( move < dev && move < bundle )) || fail "omarchy update moves a marked Mac before any fork update" "move $move dev $dev bundle $bundle"
 grep -q '/var/lib/omarchy/migrations/1790462702' "$update" || fail "omarchy update moves only a marked Mac"
-awk -v from="$move" 'NR > from && /conversion_status == 0/ { found = 1 } found && /exit 0/ { ok = 1; exit } END { exit !ok }' "$update" ||
-  fail "a moved Mac's update stops there"
+awk -v from="$move" 'NR > from && /conversion_status == 0.*reboot-pending/ { found = 1 } found && /exit 0/ { ok = 1; exit } END { exit !ok }' "$update" ||
+  fail "a moved Mac's update stops there, and only a moved one's"
 awk -v from="$move" 'NR > from && /conversion_status == 75/ { found = 1 } found && /updating this Mac as before/ { ok = 1; exit } END { exit !ok }' "$update" ||
   fail "a deferred move lets the fork update go on"
 pass "omarchy update moves a marked Mac before any fork update, stops once it moved, and goes on when the move defers"
