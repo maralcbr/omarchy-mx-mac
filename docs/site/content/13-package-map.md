@@ -8,23 +8,23 @@ description: Every x86 Omarchy default package and what Omacom aarch64, MX Mac a
 Every package in Omarchy's x86_64 default lists, and what each of the three Arm
 variants does with it. Rows marked ✗ are the gaps.
 
-Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
+Snapshot: 2026-10-05 07:00 (Brisbane), from the live package databases.
 
 ## The four variants
 
 | Variant | Source | Package lists | Package repositories | How packages get installed |
 |---|---|---|---|---|
-| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `944fa24f` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
-| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (34 packages; `edge` has 156) | None yet: this column is what those repos can serve |
-| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `23a31dfe` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
+| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `035ce29f` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
+| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (42 packages; `edge` has 172) | None yet: this column is what those repos can serve |
+| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `6e115818` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
 | **Omarchy Mac** | [`omacom/omarchy-mac`](https://github.com/omacom/omarchy-mac) `quattro` @ `ba546a61` | Its own copy of `omarchy-base.packages`/`omarchy-other.packages`, minus `install/omarchy-aarch64-unavailable.packages` | Community `[omarchy-aarch64]` + `[asahi-alarm]` + ALARM; `pkgs.omarchy.org/edge/aarch64` only for explicit targets (Hyprland stack, `asdcontrol`, `tobi-try`) | `install.sh` on top of an Asahi ALARM install, via `yay` |
 
 ## Summary
 
 | | Omacom aarch64 | Omarchy MX Mac | Omarchy Mac |
 |---|---|---|---|
-| Core desktop set (151) | 125 served from stable, 23 only from `edge`, **3 missing** | 146 installed (3 renamed), **5 missing** | 141 installed (1 renamed), 0 unverified AUR candidates, 5 excluded, **5 missing**, 0 unresolved |
-| Platform & hardware set (58) | 30 served, 3 only from `edge`, **25 missing** (22 x86-hardware) | 57 covered or n/a, **1 missing** | 55 covered or n/a, 2 unverified AUR candidates, **1 missing** |
+| Core desktop set (158) | 131 served from stable, 25 only from `edge`, **2 missing** | 147 installed (3 renamed), **11 missing** | 140 installed (1 renamed), 0 unverified AUR candidates, 5 excluded, **13 missing**, 0 unresolved |
+| Platform & hardware set (57) | 30 served, 4 only from `edge`, **23 missing** (20 x86-hardware) | 56 covered or n/a, **1 missing** | 54 covered or n/a, 2 unverified AUR candidates, **1 missing** |
 
 ### Legend
 
@@ -50,6 +50,7 @@ Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 | `alsa-utils` | extra | ALARM | ✓ | ✓ ALARM |
 | `asdcontrol` | omarchy | edge only | ✓ | ✓ omarchy edge |
 | `avahi` | extra | ALARM | ✓ | ✓ ALARM |
+| `base-devel` | core | ALARM | ✓ | ✗ |
 | `bash-completion` | extra | ALARM | ✓ | ✓ ALARM |
 | `bat` | extra | ALARM | ✓ | ✓ ALARM |
 | `bluez` | extra | ALARM | ✓ | ✓ ALARM |
@@ -81,6 +82,7 @@ Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 | `fcitx5-gtk` | extra | ALARM | ✓ | ✓ ALARM |
 | `fcitx5-qt` | extra | ALARM | ✓ | ✓ ALARM |
 | `fd` | extra | ALARM | ✓ | ✓ ALARM |
+| `ffmpeg` | extra | ALARM | ✗ | ✗ |
 | `ffmpegthumbnailer` | extra | ALARM | ✓ | ✓ ALARM |
 | `fontconfig` | extra | ALARM | ✓ | ✓ ALARM |
 | `foot` | extra | ALARM | ✓ | ✓ ALARM |
@@ -95,6 +97,7 @@ Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 | `gvfs-nfs` | extra | ALARM | ✓ | ✓ ALARM |
 | `gvfs-smb` | extra | ALARM | ✓ | ✓ ALARM |
 | `herdr` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
+| `hype` | unresolved | edge only | ✗ | ✗ |
 | `hyprland` | extra | omarchy | ✓ | ✓ omarchy edge |
 | `hyprland-guiutils` | extra | ALARM | ✓ | ✓ omarchy edge |
 | `hyprland-preview-share-picker` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
@@ -109,7 +112,6 @@ Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 | `jq` | extra | ALARM | ✓ | ✓ ALARM |
 | `kdenlive` | extra | ALARM | ✓ | ✓ ALARM |
 | `kernel-modules-hook` | extra | ALARM | ✓ | ✓ ALARM |
-| `lazydocker` | extra | ALARM | ✓ | ✓ ALARM |
 | `lazygit` | extra | ALARM | ✓ | ✓ ALARM |
 | `less` | core | ALARM | ✓ | ✓ ALARM |
 | `libsecret` | core | ALARM | ✓ | ✓ ALARM |
@@ -135,7 +137,7 @@ Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 | `noto-fonts-emoji` | extra | ALARM | ✓ | ✓ ALARM |
 | `nss-mdns` | extra | ALARM | ✓ | ✓ ALARM |
 | `nvim` | extra | ✗ | → neovim | → neovim |
-| `obs-studio` | extra | ✗ | ✓ | excluded |
+| `obs-studio` | extra | edge only | ✓ | excluded |
 | `obsidian` | extra | edge only | ✓ | excluded → obsidian-appimage |
 | `omacalc` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
 | `omacut` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
@@ -153,6 +155,11 @@ Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 | `power-profiles-daemon` | extra | ALARM | ✓ | ✓ ALARM |
 | `python-gobject` | extra | ALARM | ✓ | ✓ ALARM |
 | `python-poetry-core` | extra | ALARM | ✓ | ✓ ALARM |
+| `qt6-base` | extra | ALARM | ✗ | ✗ |
+| `qt6-declarative` | extra | ALARM | ✗ | ✗ |
+| `qt6-multimedia` | extra | ALARM | ✗ | ✗ |
+| `qt6-svg` | extra | ALARM | ✗ | ✗ |
+| `qt6-wayland` | extra | ALARM | ✓ | ✗ |
 | `ttfx` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
 | `qemu-user-static-binfmt` | extra | edge only | ✓ | excluded |
 | `qrencode` | extra | ALARM | ✓ | ✓ ALARM |
@@ -226,7 +233,7 @@ Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 | `linux-omarchy-headers` | omarchy | ✗ | → linux-aurora-headers | → linux-asahi-headers |
 | `macbook12-spi-driver-dkms` ¹ | omarchy | ✗ | n/a | n/a |
 | `nvidia-580xx-dkms` ¹ | omarchy | ✗ | n/a | n/a |
-| `nvidia-dkms` ¹ | extra | ✗ | n/a | n/a |
+| `nvidia-dkms` ¹ | extra | edge only | n/a | n/a |
 | `nvidia-open-dkms` ¹ | extra | ALARM | n/a | n/a |
 | `nvidia-580xx-utils` ¹ | omarchy | ✗ | n/a | n/a |
 | `nvidia-utils` ¹ | extra | ALARM | n/a | n/a |
@@ -243,7 +250,6 @@ Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 | `webp-pixbuf-loader` | extra | ALARM | ✓ | ✓ ALARM |
 | `yay-debug` | omarchy | ✗ | ✗ | ✗ |
 | `tuxedo-drivers-nocompatcheck-dkms` ¹ | omarchy | ✗ | n/a | n/a |
-| `yt6801-dkms` ¹ | omarchy | ✗ | n/a | n/a |
 | `zram-generator` | extra | ALARM | ✓ | ✓ ALARM |
 | `libvpl` ¹ | extra | ALARM | n/a | n/a |
 | `vpl-gpu-rt` ¹ | extra | ✗ | n/a | n/a |
@@ -265,20 +271,19 @@ Snapshot: 2026-09-28 06:18 (Brisbane), from the live package databases.
 
 Resolved against Arch Linux ARM and `pkgs.omarchy.org/stable/aarch64`.
 
-**Core desktop, not found under that name (3)**
+**Core desktop, not found under that name (2)**
 
 | Package | Why |
 |---|---|
 | `nvim` | Virtual name. Arch's `neovim` declares `provides=nvim`; ALARM's `neovim` does not, so `pacman -S nvim` fails. Install `neovim`. |
-| `obs-studio` | Not in ALARM or stable/edge aarch64 `[omarchy]`. |
 | `vi` | Not in ALARM or stable/edge aarch64 `[omarchy]`. |
 
-**Core desktop, only in `edge` (23)**: `asdcontrol`, `cliamp`, `dotnet-runtime`, `herdr`, `hyprland-preview-share-picker`, `localsend`, `monologue`, `obsidian`, `omacalc`, `omacut`, `omawrite`, `omarchy-nvim`, `omasnap`, `pinta`, `ttfx`, `qemu-user-static-binfmt`, `tobi-try`, `ttf-ia-writer`, `ttf-jetbrains-mono-nerd-basic`, `tzupdate`, `ufw-docker`, `yaru-icon-theme`, `yay`. Promoting them to stable closes this gap.
+**Core desktop, only in `edge` (25)**: `asdcontrol`, `cliamp`, `dotnet-runtime`, `herdr`, `hype`, `hyprland-preview-share-picker`, `localsend`, `monologue`, `obs-studio`, `obsidian`, `omacalc`, `omacut`, `omawrite`, `omarchy-nvim`, `omasnap`, `pinta`, `ttfx`, `qemu-user-static-binfmt`, `tobi-try`, `ttf-ia-writer`, `ttf-jetbrains-mono-nerd-basic`, `tzupdate`, `ufw-docker`, `yaru-icon-theme`, `yay`. Promoting them to stable closes this gap.
 
 **Platform, missing (3)**: `linux-omarchy`, `linux-omarchy-headers`, `yay-debug`.
 **Platform, only in `edge` (2)**: `limine-mkinitcpio-hook`, `limine-snapper-sync`.
 
-**x86 hardware, missing (22)**: `broadcom-wl-dkms`, `intel-ipu7-camera`, `intel-lpmd`, `intel-media-driver`, `libva-intel-driver`, `macbook12-spi-driver-dkms`, `nvidia-580xx-dkms`, `nvidia-dkms`, `nvidia-580xx-utils`, `lib32-nvidia-580xx-utils`, `lib32-nvidia-utils`, `thermald`, `tuxedo-drivers-nocompatcheck-dkms`, `yt6801-dkms`, `vpl-gpu-rt`, `dell-xps-touchpad-haptics`, `dell-xps13-sidecar-amps`, `apple-bcm-firmware`, `apple-t2-audio-config`, `linux-t2`, `linux-t2-headers`, `t2fanrd`.
+**x86 hardware, missing (20)**: `broadcom-wl-dkms`, `intel-ipu7-camera`, `intel-lpmd`, `intel-media-driver`, `libva-intel-driver`, `macbook12-spi-driver-dkms`, `nvidia-580xx-dkms`, `nvidia-580xx-utils`, `lib32-nvidia-580xx-utils`, `lib32-nvidia-utils`, `thermald`, `tuxedo-drivers-nocompatcheck-dkms`, `vpl-gpu-rt`, `dell-xps-touchpad-haptics`, `dell-xps13-sidecar-amps`, `apple-bcm-firmware`, `apple-t2-audio-config`, `linux-t2`, `linux-t2-headers`, `t2fanrd`.
 ALARM does serve `asusctl`, `egl-wayland`, `libva-nvidia-driver`, `nvidia-open-dkms`, `nvidia-utils`, `sof-firmware`, `libvpl`, `vulkan-intel`, `vulkan-radeon`, `linux-firmware-marvell`, `lsp-plugins-lv2`, which matter for generic Arm machines.
 
 ## Missing from Omarchy MX Mac
@@ -287,14 +292,20 @@ Compared against `install/omarchy-*-asahi.packages` in this checkout.
 
 | Package | Set | Aarch64 availability |
 |---|---|---|
+| `ffmpeg` | core | ALARM |
+| `hype` | core | edge only |
 | `monologue` | core | edge only |
 | `omasnap` | core | edge only |
 | `owe` | core | omarchy |
 | `owe-lockfeed` | core | omarchy |
+| `qt6-base` | core | ALARM |
+| `qt6-declarative` | core | ALARM |
+| `qt6-multimedia` | core | ALARM |
+| `qt6-svg` | core | ALARM |
 | `vi` | core | not in ALARM or `[omarchy]` |
 | `yay-debug` | platform | not in ALARM or `[omarchy]` |
 
-Renamed rather than missing: `mise-bin` → `mise`, `nvim` → `neovim`, `quickshell` → `quickshell-git`, `linux-omarchy` → `linux-aurora`, `linux-omarchy-headers` → `linux-aurora-headers`. The 34 x86-hardware packages are n/a.
+Renamed rather than missing: `mise-bin` → `mise`, `nvim` → `neovim`, `quickshell` → `quickshell-git`, `linux-omarchy` → `linux-aurora`, `linux-omarchy-headers` → `linux-aurora-headers`. The 33 x86-hardware packages are n/a.
 
 ## Missing from Omarchy Mac
 
@@ -302,14 +313,22 @@ Compared against `omacom/omarchy-mac` `quattro`: its base list minus the unavail
 resolved the way its installer does: explicit official-edge targets, then community
 `[omarchy-aarch64]`, `[asahi-alarm]` and ALARM, then an AUR build through `yay`.
 
-**Not in its lists (5)**
+**Not in its lists (13)**
 
 | Package | Where its installer would find it if listed |
 |---|---|
+| `base-devel` | ALARM |
+| `ffmpeg` | ALARM |
+| `hype` | AUR candidate (build untested) |
 | `monologue` | nowhere it searches |
 | `omasnap` | nowhere it searches |
 | `owe` | AUR candidate (build untested) |
 | `owe-lockfeed` | nowhere it searches |
+| `qt6-base` | ALARM |
+| `qt6-declarative` | ALARM |
+| `qt6-multimedia` | ALARM |
+| `qt6-svg` | ALARM |
+| `qt6-wayland` | ALARM |
 | `vi` | omarchy-aarch64 |
 
 **Excluded by default pending Arm qualification (5)**
@@ -322,7 +341,7 @@ resolved the way its installer does: explicit official-edge targets, then commun
 | `pinta` | Available (omarchy-aarch64); still excluded. |
 | `qemu-user-static-binfmt` | Not found in its repos or the AUR. |
 
-**Platform, missing (1)**: `yay-debug`. The 34 x86-hardware packages are n/a.
+**Platform, missing (1)**: `yay-debug`. The 33 x86-hardware packages are n/a.
 
 ## Regenerating
 
