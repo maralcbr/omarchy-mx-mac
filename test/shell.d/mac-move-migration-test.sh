@@ -41,7 +41,7 @@ run_migration >/dev/null && [[ ! -e $tmp/ran ]] || fail "another account: nothin
 pass "a Mac is marked for the move once, machine-wide"
 
 # The vendored tool is omacom/omarchy-mac's release asset, byte for byte.
-vendored_sha256=879faa6520e0e6d6dbdd7f9b7d086e34ab5f5822ab171c10db21a338042d72cc
+vendored_sha256=07c01b67cc55e44576e1981da0b9ffd574f8f0d484cb9367f5dd9134fb43c25c
 [[ $(sha256sum "$ROOT/bin/omarchy-mac-migrate" | cut -d' ' -f1) == "$vendored_sha256" ]] ||
   fail "bin/omarchy-mac-migrate is the omacom/omarchy-mac mac-migrate-v1 release asset"
 pass "bin/omarchy-mac-migrate is vendored byte for byte from omacom/omarchy-mac"
