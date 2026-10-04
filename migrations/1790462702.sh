@@ -1,16 +1,14 @@
-echo "Prepare this Mac's move onto Omarchy's official packages"
+echo "Mark this Mac for the move onto Omarchy's official packages"
 
-# The final omarchy-mx-mac release. This fetches the official omarchy-mac-boot
-# for the channel the Mac follows and checks it against the Omarchy packaging
-# key (omarchy-mac-migrate-bootstrap --prime). The next omarchy update moves the
-# Mac onto Omarchy's packages with it, and stops there. Until that package is
-# published with its migration target this stays pending (75) without holding
-# up the update. Machine-wide: once it ran, the marker spares other accounts.
+# The final omarchy-mx-mac release. This marks the Mac, machine-wide; the next
+# omarchy update moves it onto Omarchy's official packages for the channel it
+# follows with omarchy-mac-migrate (vendored from omacom/omarchy-mac), before
+# any fork step, and stops there for the reboot. Until that channel carries
+# the Mac packages (stable and rc today), those updates leave the Mac on the
+# fork and update it as before. Once a run marked it, other accounts skip this.
 marker="${OMARCHY_MAC_CONVERSION_MARKER:-/var/lib/omarchy/migrations/1790462702}"
 [[ ! -e $marker ]] || exit 0
 omarchy-hw-apple-silicon || exit 0
 
-channel=$(omarchy-apple-silicon-channel current 2>/dev/null) || channel=""
-[[ $channel =~ ^(stable|rc|edge)$ ]] || channel=stable
-sudo omarchy-mac-migrate-bootstrap --prime --channel "$channel"
 sudo install -Dm644 /dev/null "$marker"
+echo "The next omarchy update moves this Mac onto Omarchy's official packages, once its channel has a Mac release."

@@ -47,15 +47,16 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
 
   omarchy-update-stay-awake start
 
-  # The final omarchy-mx-mac release: once migration 1790462702 has fetched and
-  # checked the official omarchy-mac-boot, this update moves the Mac onto
-  # Omarchy's own packages with it, before any fork update, and stops there;
-  # from the next boot on, omarchy update is Omarchy's own. A move that cannot
-  # start yet (75) leaves the Mac on the fork and updates it as before; one
-  # that failed part way stops the update, and the next one resumes it.
+  # The final omarchy-mx-mac release: once migration 1790462702 marked this
+  # Mac, the update moves it onto Omarchy's official packages with
+  # omarchy-mac-migrate (vendored from omacom/omarchy-mac), before any fork
+  # update, and stops there; from the next boot on, omarchy update is Omarchy's
+  # own. A move that cannot start yet (75: its channel has no Mac release, or a
+  # check refused) leaves the Mac on the fork and updates it as before; one that
+  # failed part way stops the update, and the next update or boot resumes it.
   if omarchy-hw-apple-silicon && [[ -e ${OMARCHY_MAC_CONVERSION_MARKER:-/var/lib/omarchy/migrations/1790462702} ]]; then
     conversion_status=0
-    sudo omarchy-mac-migrate-bootstrap || conversion_status=$?
+    sudo "$OMARCHY_PATH/bin/omarchy-mac-migrate" run || conversion_status=$?
     if (( conversion_status == 0 )); then
       echo -e "\e[32m\nThis Mac now runs Omarchy's official packages. Reboot to finish the move.\e[0m"
       omarchy-update-stay-awake stop
