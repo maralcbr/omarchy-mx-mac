@@ -47,6 +47,30 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
 
   omarchy-update-stay-awake start
 
+  # The final omarchy-mx-mac release: once migration 1790462702 marked this
+  # Mac, the update moves it onto Omarchy's official packages with
+  # omarchy-mac-migrate (vendored from omacom/omarchy-mac), before any fork
+  # update, and stops there; from the next boot on, omarchy update is Omarchy's
+  # own. A move that cannot start yet (75: its channel has no Mac release, or a
+  # check refused) leaves the Mac on the fork and updates it as before, and so
+  # does a run that found nothing to move; one that failed part way stops the
+  # update, and the next update or boot resumes it.
+  if omarchy-hw-apple-silicon && [[ -e ${OMARCHY_MAC_CONVERSION_MARKER:-/var/lib/omarchy/migrations/1790462702} ]]; then
+    conversion_status=0
+    sudo "$OMARCHY_PATH/bin/omarchy-mac-migrate" run || conversion_status=$?
+    conversion_state=${OMARCHY_MAC_CONVERSION_STATE:-/var/lib/omarchy-mac/migration}
+    if (( conversion_status == 0 )) && [[ -e $conversion_state/reboot-pending || -e $conversion_state/complete ]]; then
+      echo -e "\e[32m\nThis Mac now runs Omarchy's official packages. Reboot to finish the move.\e[0m"
+      omarchy-update-stay-awake stop
+      trap - EXIT
+      exit 0
+    elif (( conversion_status == 75 )); then
+      echo "The move onto Omarchy's official packages cannot start yet; updating this Mac as before." >&2
+    elif (( conversion_status != 0 )); then
+      (exit "$conversion_status")
+    fi
+  fi
+
   omarchy-update-dev
   if omarchy-hw-apple-silicon; then
     # set +e does not stop the ERR banner; a status taken with || does, so only a real failure shows it.
