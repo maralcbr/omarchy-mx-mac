@@ -36,12 +36,16 @@ while IFS= read -r package; do
   package=${asahi_equivalent[$package]:-$package}
   grep -Fxq "$package" "$base_manifest" || fail "Asahi manifest carries the x86 default package $package"
 done <"$x86_manifest"
-for substitute in gnome-calculator wf-recorder python-terminaltexteffects; do
+for substitute in gnome-calculator python-terminaltexteffects; do
   if grep -Fxq "$substitute" "$base_manifest"; then
     fail "Asahi manifest retired the interim substitute $substitute"
   fi
 done
 pass "Asahi manifest reaches parity with the x86 default package set"
+
+# gpu-screen-recorder can't capture on Apple Silicon, so screen recording uses wf-recorder there
+grep -Fxq wf-recorder "$base_manifest" || fail "Asahi manifest carries wf-recorder for screen recording"
+pass "Asahi manifest carries wf-recorder for screen recording"
 
 utilities="$ROOT/default/hypr/bindings/utilities.lua"
 grep -Fxq 'o.bind("SUPER + CTRL + Q", "Calculator", "omacalc")' "$utilities" || fail "Asahi calculator shortcut uses omacalc"

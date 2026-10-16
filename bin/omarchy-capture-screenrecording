@@ -17,6 +17,12 @@
 # Env: OMARCHY_SCREENRECORD_DEBUG=true appends gpu-screen-recorder's stderr (and
 # the picker target it was launched with) to /tmp/omarchy-screenrecord.log so
 # users can attach a log when reporting capture failures.
+#
+# Apple Silicon records with wf-recorder instead. gpu-screen-recorder can't
+# capture there: its KMS backend can't map the Apple display controller to a
+# GPU (DRM_CLIENT_CAP_UNIVERSAL_PLANES is unsupported), so recording silently
+# never started. wf-recorder captures through Hyprland's screencopy protocol and
+# encodes with x264 on the CPU, since Asahi has no hardware video encoder.
 
 [[ -f ~/.config/user-dirs.dirs ]] && source ~/.config/user-dirs.dirs
 OUTPUT_DIR="${OMARCHY_SCREENRECORD_DIR:-${XDG_VIDEOS_DIR:-$HOME/Videos}}"
@@ -34,9 +40,13 @@ WEBCAM_SIZE="medium"
 RESOLUTION=""
 FULLSCREEN="false"
 STOP_RECORDING="false"
-RECORDING_FILE="/tmp/omarchy-screenrecord-filename"
+RECORDING_FILE="${XDG_RUNTIME_DIR:-/tmp}/omarchy-screenrecord-filename"
 REGION_FILE="${XDG_RUNTIME_DIR:-/tmp}/omarchy-screenrecord-region"
 LOG_FILE=$([[ ${OMARCHY_SCREENRECORD_DEBUG:-false} == "true" ]] && echo "/tmp/omarchy-screenrecord.log" || echo "/dev/null")
+# Either recorder; the bar indicator and the menu's stop entry match the same pattern
+RECORDER_PATTERN="^(gpu-screen-recorder|wf-recorder)"
+MIX_SINK="omarchy_screenrecord_mix"
+MIX_MODULES_FILE="${XDG_RUNTIME_DIR:-/tmp}/omarchy-screenrecord-mix-modules"
 
 for arg in "$@"; do
   case "$arg" in
@@ -83,10 +93,16 @@ start_webcam_overlay() {
     fi
   done
 
+  # --load-scripts=no keeps mpv-mpris off the overlay, or dictation (voxtype's
+  # pause_media) pauses the camera as a media player while it listens.
+  # format=yuv420p copies each frame out of the camera's mmap'd V4L2 buffer;
+  # rendering straight from it segfaults mpv on Apple Silicon when the overlay
+  # closes, as the buffer is unmapped while the renderer still reads it.
   mpv "av://v4l2:$WEBCAM_DEVICE" \
+    --load-scripts=no \
     --profile=low-latency --untimed --no-cache \
     --demuxer-lavf-o="$capture_options" \
-    '--vf=lavfi=[crop=ih*8/9:ih]' \
+    '--vf=lavfi=[crop=ih*8/9:ih,format=yuv420p]' \
     --title="WebcamOverlay" --wayland-app-id="WebcamOverlay-$WEBCAM_SIZE" \
     --no-border --no-audio --no-osc --osd-level=0 \
     --really-quiet &>/dev/null &
@@ -143,9 +159,65 @@ select_capture_target() {
   echo "region:${BASH_REMATCH[3]}x${BASH_REMATCH[4]}+${BASH_REMATCH[1]}+${BASH_REMATCH[2]}"
 }
 
+# wf-recorder takes a single PulseAudio source, so desktop + microphone are
+# mixed into a temporary null sink and its monitor is recorded.
+wf_recorder_audio_source() {
+  local desktop="$(pactl get-default-sink).monitor"
+  local microphone="$(pactl get-default-source)"
+
+  if [[ $DESKTOP_AUDIO == "true" && $MICROPHONE_AUDIO == "true" ]]; then
+    {
+      pactl load-module module-null-sink sink_name="$MIX_SINK" sink_properties=device.description=Screenrecording-Mix
+      pactl load-module module-loopback source="$desktop" sink="$MIX_SINK" latency_msec=20
+      pactl load-module module-loopback source="$microphone" sink="$MIX_SINK" latency_msec=20
+    } >"$MIX_MODULES_FILE"
+    echo "$MIX_SINK.monitor"
+  elif [[ $DESKTOP_AUDIO == "true" ]]; then
+    echo "$desktop"
+  elif [[ $MICROPHONE_AUDIO == "true" ]]; then
+    echo "$microphone"
+  fi
+}
+
+cleanup_audio_mix() {
+  [[ -f $MIX_MODULES_FILE ]] || return 0
+  local module
+  tac "$MIX_MODULES_FILE" | while read -r module; do
+    [[ -n $module ]] && pactl unload-module "$module" 2>/dev/null
+  done
+  rm -f "$MIX_MODULES_FILE"
+}
+
+# Translates a capture target into wf-recorder arguments. -s caps the output
+# size the way gpu-screen-recorder's -s does: scale down, keep the aspect ratio.
+wf_recorder_capture_args() {
+  local target=$1 size=""
+
+  case $target in
+  monitor:*)
+    echo "-o"
+    echo "${target#monitor:}"
+    size=${RESOLUTION:-$(default_resolution)}
+    ;;
+  region:*)
+    [[ ${target#region:} =~ ^([0-9]+)x([0-9]+)\+(-?[0-9]+)\+(-?[0-9]+)$ ]] || return 1
+    echo "-g"
+    echo "${BASH_REMATCH[3]},${BASH_REMATCH[4]} ${BASH_REMATCH[1]}x${BASH_REMATCH[2]}"
+    size=$RESOLUTION
+    ;;
+  esac
+
+  if [[ -n $size && $size != "0x0" ]]; then
+    echo "-F"
+    echo "scale=${size%x*}:${size#*x}:force_original_aspect_ratio=decrease:force_divisible_by=2"
+  fi
+}
+
 start_screenrecording() {
   local capture_args=()
   local target
+  local apple_silicon="false"
+  omarchy-hw-apple-silicon && apple_silicon="true"
 
   # Opt-in path for HDR, external-GPU monitors, and window capture (all things
   # the portal backend supports and the kms backend doesn't). Default flow uses
@@ -154,7 +226,7 @@ start_screenrecording() {
   if [[ $FULLSCREEN == "true" ]]; then
     target="monitor:$(omarchy-hyprland-monitor-focused)"
     capture_args=(-w "${target#monitor:}" -s "${RESOLUTION:-$(default_resolution)}")
-  elif [[ ${OMARCHY_SCREENRECORD_USE_PORTAL:-false} == "true" ]]; then
+  elif [[ ${OMARCHY_SCREENRECORD_USE_PORTAL:-false} == "true" && $apple_silicon == "false" ]]; then
     target="portal"
     capture_args=(-w portal -s "${RESOLUTION:-$(default_resolution)}")
   else
@@ -176,20 +248,33 @@ start_screenrecording() {
   local filename="$OUTPUT_DIR/screenrecording-$(date +'%Y-%m-%d_%H-%M-%S').mp4"
   local audio_devices=""
   local audio_args=()
-
-  [[ $DESKTOP_AUDIO == "true" ]] && audio_devices+="default_output"
-
-  if [[ $MICROPHONE_AUDIO == "true" ]]; then
-    # Merge audio tracks into one - separate tracks only play one at a time in most players
-    [[ -n $audio_devices ]] && audio_devices+="|"
-    audio_devices+="default_input"
-  fi
-
-  [[ -n $audio_devices ]] && audio_args+=(-a "$audio_devices" -ac aac)
+  local pid
 
   echo "===== $(date '+%F %T') args: $* target: $target =====" >>"$LOG_FILE"
-  gpu-screen-recorder "${capture_args[@]}" -k auto -f 60 -fm cfr -fallback-cpu-encoding yes -o "$filename" "${audio_args[@]}" 2>>"$LOG_FILE" &
-  local pid=$!
+
+  if [[ $apple_silicon == "true" ]]; then
+    mapfile -t capture_args < <(wf_recorder_capture_args "$target")
+    audio_devices=$(wf_recorder_audio_source)
+    [[ -n $audio_devices ]] && audio_args+=(--audio="$audio_devices")
+
+    wf-recorder "${capture_args[@]}" "${audio_args[@]}" \
+      -c libx264 -p preset=veryfast -p crf=23 -x yuv420p \
+      -f "$filename" -y </dev/null >>"$LOG_FILE" 2>&1 &
+    pid=$!
+  else
+    [[ $DESKTOP_AUDIO == "true" ]] && audio_devices+="default_output"
+
+    if [[ $MICROPHONE_AUDIO == "true" ]]; then
+      # Merge audio tracks into one - separate tracks only play one at a time in most players
+      [[ -n $audio_devices ]] && audio_devices+="|"
+      audio_devices+="default_input"
+    fi
+
+    [[ -n $audio_devices ]] && audio_args+=(-a "$audio_devices" -ac aac)
+
+    gpu-screen-recorder "${capture_args[@]}" -k auto -f 60 -fm cfr -fallback-cpu-encoding yes -o "$filename" "${audio_args[@]}" 2>>"$LOG_FILE" &
+    pid=$!
+  fi
 
   while kill -0 $pid 2>/dev/null && [[ ! -f $filename ]]; do
     sleep 0.2
@@ -198,24 +283,31 @@ start_screenrecording() {
   if kill -0 $pid 2>/dev/null; then
     echo "$filename" >"$RECORDING_FILE"
     toggle_screenrecording_indicator
+  else
+    cleanup_audio_mix
   fi
 }
 
 stop_screenrecording() {
-  pkill -SIGINT -f "^gpu-screen-recorder" # SIGINT required to save video properly
+  # wf-recorder encodes on the CPU and needs longer to flush its buffered frames
+  local max_wait=50
+  pgrep -f "^wf-recorder" >/dev/null && max_wait=150
 
-  # Wait a maximum of 5 seconds to finish before hard killing
+  pkill -SIGINT -f "$RECORDER_PATTERN" # SIGINT required to save video properly
+
+  # Wait a maximum of 5 seconds (15 for wf-recorder) to finish before hard killing
   local count=0
-  while pgrep -f "^gpu-screen-recorder" >/dev/null && ((count < 50)); do
+  while pgrep -f "$RECORDER_PATTERN" >/dev/null && ((count < max_wait)); do
     sleep 0.1
     count=$((count + 1))
   done
 
   toggle_screenrecording_indicator
   cleanup_webcam
+  cleanup_audio_mix
 
-  if pgrep -f "^gpu-screen-recorder" >/dev/null; then
-    pkill -9 -f "^gpu-screen-recorder"
+  if pgrep -f "$RECORDER_PATTERN" >/dev/null; then
+    pkill -9 -f "$RECORDER_PATTERN"
     omarchy-notification-send -u critical -t 5000 "Screen recording error" "Recording process had to be force-killed. Video may be corrupted."
   else
     finalize_recording
@@ -247,7 +339,7 @@ toggle_screenrecording_indicator() {
 }
 
 screenrecording_active() {
-  pgrep -f "^gpu-screen-recorder" >/dev/null
+  pgrep -f "$RECORDER_PATTERN" >/dev/null
 }
 
 finalize_recording() {

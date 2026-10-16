@@ -110,7 +110,7 @@ be short those packages until the next promotion.
 | `gnome-keyring` | `gnome-keyring` | Arch extra | ALARM extra | Same |  |
 | `gnome-themes-extra` | `gnome-themes-extra` | Arch extra | ALARM extra | Same |  |
 | `grim` | `grim` | Arch extra | ALARM extra | Same |  |
-| `gpu-screen-recorder` | `gpu-screen-recorder` | Arch extra | ALARM extra | Same | In ALARM extra all along - was simply missing from the ARM list. Replaces the interim `wf-recorder` substitute. Encodes on CPU on Apple Silicon; no hardware encoder path yet. |
+| `gpu-screen-recorder` | `gpu-screen-recorder` | Arch extra | ALARM extra | Same | In ALARM extra all along - was simply missing from the ARM list. Kept for parity, but it can't capture on Apple Silicon (its KMS backend can't reach the Apple display controller), so `omarchy-capture-screenrecording` records with `wf-recorder` there, encoding with x264 on the CPU. |
 | `gum` | `gum` | Arch extra | ALARM extra | Same |  |
 | `gvfs-mtp` | `gvfs-mtp` | Arch extra | ALARM extra | Same |  |
 | `gvfs-nfs` | `gvfs-nfs` | Arch extra | ALARM extra | Same |  |

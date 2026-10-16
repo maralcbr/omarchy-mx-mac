@@ -359,7 +359,7 @@
           "source_x86": "Arch extra",
           "source_aarch64": "ALARM extra",
           "status": "Same",
-          "note": "In ALARM extra all along - was simply missing from the ARM list. Replaces the interim `wf-recorder` substitute. Encodes on CPU on Apple Silicon; no hardware encoder path yet."
+          "note": "In ALARM extra all along - was simply missing from the ARM list. Kept for parity, but it can't capture on Apple Silicon (its KMS backend can't reach the Apple display controller), so omarchy-capture-screenrecording records with `wf-recorder` there, encoding with x264 on the CPU."
         },
         {
           "x86": "gum",
