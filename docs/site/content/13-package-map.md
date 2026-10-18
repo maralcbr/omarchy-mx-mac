@@ -8,23 +8,23 @@ description: Every x86 Omarchy default package and what Omacom aarch64, MX Mac a
 Every package in Omarchy's x86_64 default lists, and what each of the three Arm
 variants does with it. Rows marked ✗ are the gaps.
 
-Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
+Snapshot: 2026-10-19 08:22 (Brisbane), from the live package databases.
 
 ## The four variants
 
 | Variant | Source | Package lists | Package repositories | How packages get installed |
 |---|---|---|---|---|
-| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `9480d1b6` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
-| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (59 packages; `edge` has 180) | None yet: this column is what those repos can serve |
-| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `c6fc9b06` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
+| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `60f5b496` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
+| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (174 packages; `edge` has 205) | None yet: this column is what those repos can serve |
+| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `e5714f9d` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
 | **Omarchy Mac** | [`omacom/omarchy-mac`](https://github.com/omacom/omarchy-mac) `quattro` @ `ba546a61` | Its own copy of `omarchy-base.packages`/`omarchy-other.packages`, minus `install/omarchy-aarch64-unavailable.packages` | Community `[omarchy-aarch64]` + `[asahi-alarm]` + ALARM; `pkgs.omarchy.org/edge/aarch64` only for explicit targets (Hyprland stack, `asdcontrol`, `tobi-try`) | `install.sh` on top of an Asahi ALARM install, via `yay` |
 
 ## Summary
 
 | | Omacom aarch64 | Omarchy MX Mac | Omarchy Mac |
 |---|---|---|---|
-| Core desktop set (162) | 132 served from stable, 27 only from `edge`, **3 missing** | 141 installed (3 renamed), **21 missing** | 135 installed (1 renamed), 0 unverified AUR candidates, 4 excluded, **23 missing**, 0 unresolved |
-| Platform & hardware set (58) | 30 served, 4 only from `edge`, **24 missing** (19 x86-hardware) | 55 covered or n/a, **3 missing** | 53 covered or n/a, 2 unverified AUR candidates, **3 missing** |
+| Core desktop set (162) | 160 served from stable, 0 only from `edge`, **2 missing** | 141 installed (3 renamed), **21 missing** | 134 installed (1 renamed), 0 unverified AUR candidates, 4 excluded, **23 missing**, 1 unresolved |
+| Platform & hardware set (60) | 37 served, 1 only from `edge`, **22 missing** (19 x86-hardware) | 55 covered or n/a, **5 missing** | 54 covered or n/a, 2 unverified AUR candidates, **4 missing** |
 
 ### Legend
 
@@ -48,7 +48,7 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 |---|---|---|---|---|
 | `aether` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
 | `alsa-utils` | extra | ALARM | ✓ | ✓ ALARM |
-| `asdcontrol` | omarchy | edge only | ✓ | ✓ omarchy edge |
+| `asdcontrol` | omarchy | omarchy | ✓ | ✓ omarchy edge |
 | `avahi` | extra | ALARM | ✓ | ✓ ALARM |
 | `base-devel` | core | ALARM | ✓ | ✗ |
 | `bash-completion` | extra | ALARM | ✓ | ✓ ALARM |
@@ -60,17 +60,17 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `brightnessctl` | extra | ALARM | ✓ | ✓ ALARM |
 | `btop` | extra | ALARM | ✓ | ✓ ALARM |
 | `chromium` | extra | ALARM | ✓ | ✓ ALARM |
-| `cliamp` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
+| `cliamp` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
 | `cups` | extra | ALARM | ✓ | ✓ ALARM |
 | `cups-filters` | extra | ALARM | ✓ | ✓ ALARM |
 | `cups-pk-helper` | extra | ALARM | ✓ | ✓ ALARM |
 | `ddcutil` | extra | ALARM | ✓ | ✓ ALARM |
-| `disktree-bin` | unresolved | edge only | ✗ | ✗ |
+| `disktree-bin` | omarchy | omarchy | ✗ | ✗ |
 | `docker` | extra | ALARM | ✓ | ✓ ALARM |
 | `docker-buildx` | extra | ALARM | ✓ | ✓ ALARM |
 | `docker-compose` | extra | ALARM | ✓ | ✓ ALARM |
 | `dosfstools` | core | ALARM | ✓ | ✓ ALARM |
-| `dotnet-runtime` | extra | edge only | ✓ | excluded |
+| `dotnet-runtime` | extra | omarchy (dotnet-runtime-bin) | ✓ | excluded |
 | `evince` | extra | ALARM | ✓ | ✓ ALARM |
 | `exfatprogs` | extra | ALARM | ✓ | ✓ ALARM |
 | `expac` | extra | ALARM | ✓ | ✓ ALARM |
@@ -84,6 +84,7 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `fcitx5-hangul` | extra | ALARM | ✗ | ✗ |
 | `fcitx5-mozc` | extra | ALARM | ✗ | ✗ |
 | `fcitx5-qt` | extra | ALARM | ✓ | ✓ ALARM |
+| `fcitx5-table-extra` | extra | ALARM | ✗ | ✗ |
 | `fd` | extra | ALARM | ✓ | ✓ ALARM |
 | `ffmpeg` | extra | ALARM | ✗ | ✗ |
 | `ffmpegthumbnailer` | extra | ALARM | ✓ | ✓ ALARM |
@@ -91,7 +92,7 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `foot` | extra | ALARM | ✓ | ✓ ALARM |
 | `fzf` | extra | ALARM | ✓ | ✓ ALARM |
 | `git` | extra | ALARM | ✓ | ✓ ALARM |
-| `gliff` | unresolved | edge only | ✗ | ✗ |
+| `gliff` | omarchy | omarchy | ✗ | ✗ |
 | `gnome-keyring` | extra | ALARM | ✓ | ✓ ALARM |
 | `gnome-themes-extra` | extra | ALARM | ✓ | ✓ ALARM |
 | `grim` | extra | ALARM | ✓ | ✓ ALARM |
@@ -100,11 +101,11 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `gvfs-mtp` | extra | ALARM | ✓ | ✓ ALARM |
 | `gvfs-nfs` | extra | ALARM | ✓ | ✓ ALARM |
 | `gvfs-smb` | extra | ALARM | ✓ | ✓ ALARM |
-| `herdr` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `hype` | unresolved | edge only | ✗ | ✗ |
+| `herdr` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
+| `hype` | omarchy | omarchy | ✗ | ✗ |
 | `hyprland` | extra | omarchy | ✓ | ✓ omarchy edge |
-| `hyprland-guiutils` | extra | ALARM | ✓ | ✓ omarchy edge |
-| `hyprland-preview-share-picker` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
+| `hyprland-guiutils` | extra | ALARM | ✓ | ✗ unresolved |
+| `hyprland-preview-share-picker` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
 | `hyprpicker` | extra | ALARM | ✓ | ✓ ALARM |
 | `hyprsunset` | extra | ALARM | ✓ | ✓ ALARM |
 | `imagemagick` | extra | ALARM | ✓ | ✓ ALARM |
@@ -121,13 +122,13 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `libvips` | extra | ALARM | ✓ | ✓ ALARM |
 | `libyaml` | extra | ALARM | ✓ | ✓ ALARM |
 | `libreoffice-fresh` | extra | ALARM | ✓ | ✓ ALARM |
-| `localsend` | omarchy | omarchy (localsend-bin) | ✓ | ✓ omarchy-aarch64 |
+| `localsend` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
 | `lua51` | extra | ALARM | ✓ | ✓ ALARM |
 | `luarocks` | extra | ALARM | ✓ | ✓ ALARM |
 | `man-db` | core | ALARM | ✓ | ✓ ALARM |
 | `mariadb-libs` | extra | ALARM | ✓ | ✓ ALARM |
 | `mise-bin` | omarchy | omarchy | → mise | ✓ omarchy-aarch64 |
-| `monologue` | unresolved | edge only | ✗ | ✗ |
+| `monologue` | omarchy | omarchy | ✗ | ✗ |
 | `moonlight-qt` | extra | ALARM | ✓ | ✓ ALARM |
 | `mpv` | extra | ALARM | ✓ | ✓ ALARM |
 | `mpv-mpris` | extra | ALARM | ✓ | ✓ ALARM |
@@ -139,18 +140,18 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `noto-fonts-emoji` | extra | ALARM | ✓ | ✓ ALARM |
 | `nss-mdns` | extra | ALARM | ✓ | ✓ ALARM |
 | `nvim` | extra | ✗ | → neovim | → neovim |
-| `obsidian` | extra | edge only | ✓ | excluded → obsidian-appimage |
-| `omacalc` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `omacut` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `omawrite` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `omarchy-nvim` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `omarchy-hyprland-titlebars` | unresolved | edge only | ✗ | ✗ |
-| `omasnap` | omarchy | edge only | ✗ | ✗ |
+| `obsidian` | extra | omarchy | ✓ | excluded → obsidian-appimage |
+| `omacalc` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
+| `omacut` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
+| `omawrite` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
+| `omarchy-nvim` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
+| `omarchy-hyprland-titlebars` | omarchy | omarchy | ✗ | ✗ |
+| `omasnap` | omarchy | omarchy | ✗ | ✗ |
 | `owe` | omarchy | omarchy | ✗ | ✗ |
 | `owe-lockfeed` | omarchy | omarchy | ✗ | ✗ |
 | `pacman-contrib` | extra | ALARM | ✓ | ✓ ALARM |
 | `pamixer` | extra | ALARM | ✓ | ✓ ALARM |
-| `pinta` | extra | edge only | ✓ | excluded |
+| `pinta` | extra | omarchy | ✓ | excluded |
 | `plocate` | extra | ALARM | ✓ | ✓ ALARM |
 | `plymouth` | extra | ALARM | ✓ | ✓ ALARM |
 | `postgresql-libs` | extra | ALARM | ✓ | ✓ ALARM |
@@ -162,19 +163,19 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `qt6-multimedia` | extra | ALARM | ✗ | ✗ |
 | `qt6-svg` | extra | ALARM | ✗ | ✗ |
 | `qt6-wayland` | extra | ALARM | ✓ | ✗ |
-| `ttfx` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `qemu-user-static-binfmt` | extra | edge only | ✓ | excluded |
+| `ttfx` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
+| `qemu-user-static-binfmt` | extra | omarchy | ✓ | excluded |
 | `qrencode` | extra | ALARM | ✓ | ✓ ALARM |
 | `qt6-imageformats` | extra | ALARM | ✓ | ✓ ALARM |
-| `quickshell` | extra | ALARM | → quickshell-git | ✓ ALARM |
+| `quickshell` | extra | omarchy | → quickshell-git | ✓ ALARM |
 | `ripgrep` | extra | ALARM | ✓ | ✓ ALARM |
 | `ruby` | extra | ALARM | ✓ | ✓ ALARM |
 | `sddm` | extra | ALARM | ✓ | ✓ ALARM |
-| `signed` | unresolved | edge only | ✗ | ✗ |
+| `signed` | omarchy | omarchy | ✗ | ✗ |
 | `slurp` | extra | ALARM | ✓ | ✓ ALARM |
 | `socat` | extra | ALARM | ✓ | ✓ ALARM |
 | `starship` | extra | ALARM | ✓ | ✓ ALARM |
-| `superwhisper-bin` | omarchy | ✗ | ✗ | ✗ |
+| `superwhisper-bin` | omarchy | omarchy | ✗ | ✗ |
 | `sushi` | extra | ALARM | ✓ | ✓ ALARM |
 | `system-config-printer` | extra | ALARM | ✓ | ✓ ALARM |
 | `tesseract` | extra | ALARM | ✓ | ✓ ALARM |
@@ -182,15 +183,14 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `tldr` | extra | ALARM | ✓ | ✓ ALARM |
 | `tree-sitter-cli` | extra | ALARM | ✓ | ✓ ALARM |
 | `tmux` | extra | ALARM | ✓ | ✓ ALARM |
-| `tobi-try` | omarchy | edge only | ✓ | ✓ omarchy edge |
-| `ttf-ia-writer` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `ttf-jetbrains-mono-nerd-basic` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `tzupdate` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
+| `tobi-try` | omarchy | omarchy | ✓ | ✓ omarchy edge |
+| `ttf-ia-writer` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
+| `ttf-jetbrains-mono-nerd-basic` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
+| `tzupdate` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
 | `udiskie` | extra | ALARM | ✓ | ✓ ALARM |
 | `ufw` | extra | ALARM | ✓ | ✓ ALARM |
-| `ufw-docker` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
+| `ufw-docker` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
 | `unzip` | extra | ALARM | ✓ | ✓ ALARM |
-| `usbguard` | extra | ALARM | ✗ | ✗ |
 | `usage` | extra | ALARM | ✓ | ✓ ALARM |
 | `uwsm` | extra | ALARM | ✓ | ✓ ALARM |
 | `vi` | omarchy | ✗ | ✗ | ✗ |
@@ -203,8 +203,8 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `xdg-desktop-portal-gtk` | extra | ALARM | ✓ | ✓ ALARM |
 | `xdg-desktop-portal-hyprland` | extra | ALARM | ✓ | ✓ ALARM |
 | `xdg-terminal-exec` | extra | ALARM | ✓ | ✓ omarchy-aarch64 |
-| `yaru-icon-theme` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
-| `yay` | omarchy | edge only | ✓ | ✓ omarchy-aarch64 |
+| `yaru-icon-theme` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
+| `yay` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
 | `yt-dlp` | extra | ALARM | ✓ | ✓ ALARM |
 | `zbar` | extra | ALARM | ✓ | ✓ ALARM |
 | `zoxide` | extra | ALARM | ✓ | ✓ ALARM |
@@ -230,11 +230,11 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `libva-intel-driver` ¹ | extra | ✗ | n/a | n/a |
 | `libva-nvidia-driver` ¹ | extra | ALARM | n/a | n/a |
 | `limine` | extra | ALARM | ✓ | ✓ ALARM |
-| `limine-mkinitcpio-hook` | omarchy | edge only | ✓ | ? AUR candidate |
-| `limine-snapper-sync` | omarchy | edge only | ✓ | ? AUR candidate |
+| `limine-mkinitcpio-hook` | omarchy | omarchy | ✓ | ? AUR candidate |
+| `limine-snapper-sync` | omarchy | omarchy | ✓ | ? AUR candidate |
 | `linux-firmware` | core | ALARM | ✓ | ✓ ALARM |
-| `linux-omarchy` | omarchy | ✗ | → linux-aurora | → linux-asahi |
-| `linux-omarchy-headers` | omarchy | ✗ | → linux-aurora-headers | → linux-asahi-headers |
+| `linux-omarchy` | omarchy | omarchy | → linux-aurora | → linux-asahi |
+| `linux-omarchy-headers` | omarchy | omarchy | → linux-aurora-headers | → linux-asahi-headers |
 | `macbook12-spi-driver-dkms` ¹ | omarchy | ✗ | n/a | n/a |
 | `nvidia-580xx-dkms` ¹ | omarchy | ✗ | n/a | n/a |
 | `nvidia-dkms` ¹ | extra | edge only | n/a | n/a |
@@ -246,6 +246,7 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `pipewire` | extra | ALARM | ✓ | ✓ ALARM |
 | `pipewire-alsa` | extra | ALARM | ✓ | ✓ ALARM |
 | `pipewire-jack` | extra | ALARM | ✓ | ✓ ALARM |
+| `pipewire-libcamera` | extra | ALARM | ✗ | ✓ ALARM |
 | `pipewire-pulse` | extra | ALARM | ✓ | ✓ ALARM |
 | `qt6-wayland` | extra | ALARM | ✓ | ✓ ALARM |
 | `snapper` | extra | ALARM | ✓ | ✓ ALARM |
@@ -264,33 +265,33 @@ Snapshot: 2026-10-12 09:34 (Brisbane), from the live package databases.
 | `dell-xps-touchpad-haptics` ¹ | omarchy | ✗ | n/a | n/a |
 | `dell-xps13-sidecar-amps` ¹ | omarchy | ✗ | n/a | n/a |
 | `linux-firmware-cirrus-dx13260` | omarchy | ✗ | ✗ | ✗ |
+| `asus-proart-p14-speaker-firmware` | unresolved | omarchy | ✗ | ✗ |
 | `lsp-plugins-lv2` ¹ | extra | ALARM | n/a | n/a |
 | `apple-bcm-firmware-fetcher` | unresolved | ✗ | ✗ | ✗ |
 | `apple-t2-audio-config` ¹ | arch-mact2 | ✗ | n/a | n/a |
 | `linux-t2` ¹ | arch-mact2 | ✗ | n/a | n/a |
 | `linux-t2-headers` ¹ | arch-mact2 | ✗ | n/a | n/a |
 | `t2fanrd` ¹ | arch-mact2 | ✗ | n/a | n/a |
-| `qmk-hid` ¹ | omarchy | edge only | n/a | n/a |
+| `qmk-hid` ¹ | omarchy | omarchy | n/a | n/a |
 
 ## Missing from Omacom aarch64
 
 Resolved against Arch Linux ARM and `pkgs.omarchy.org/stable/aarch64`.
 
-**Core desktop, not found under that name (3)**
+**Core desktop, not found under that name (2)**
 
 | Package | Why |
 |---|---|
 | `nvim` | Virtual name. Arch's `neovim` declares `provides=nvim`; ALARM's `neovim` does not, so `pacman -S nvim` fails. Install `neovim`. |
-| `superwhisper-bin` | Not in ALARM or stable/edge aarch64 `[omarchy]`. |
 | `vi` | Not in ALARM or stable/edge aarch64 `[omarchy]`. |
 
-**Core desktop, only in `edge` (27)**: `asdcontrol`, `cliamp`, `disktree-bin`, `dotnet-runtime`, `gliff`, `herdr`, `hype`, `hyprland-preview-share-picker`, `monologue`, `obsidian`, `omacalc`, `omacut`, `omawrite`, `omarchy-nvim`, `omarchy-hyprland-titlebars`, `omasnap`, `pinta`, `ttfx`, `qemu-user-static-binfmt`, `signed`, `tobi-try`, `ttf-ia-writer`, `ttf-jetbrains-mono-nerd-basic`, `tzupdate`, `ufw-docker`, `yaru-icon-theme`, `yay`. Promoting them to stable closes this gap.
+**Core desktop, only in `edge` (0)**: none. Promoting them to stable closes this gap.
 
-**Platform, missing (5)**: `linux-omarchy`, `linux-omarchy-headers`, `yay-debug`, `linux-firmware-cirrus-dx13260`, `apple-bcm-firmware-fetcher`.
-**Platform, only in `edge` (2)**: `limine-mkinitcpio-hook`, `limine-snapper-sync`.
+**Platform, missing (3)**: `yay-debug`, `linux-firmware-cirrus-dx13260`, `apple-bcm-firmware-fetcher`.
+**Platform, only in `edge` (0)**: none.
 
 **x86 hardware, missing (19)**: `broadcom-wl-dkms`, `intel-ipu7-camera`, `intel-lpmd`, `intel-media-driver`, `libva-intel-driver`, `macbook12-spi-driver-dkms`, `nvidia-580xx-dkms`, `nvidia-580xx-utils`, `lib32-nvidia-580xx-utils`, `lib32-nvidia-utils`, `thermald`, `tuxedo-drivers-nocompatcheck-dkms`, `vpl-gpu-rt`, `dell-xps-touchpad-haptics`, `dell-xps13-sidecar-amps`, `apple-t2-audio-config`, `linux-t2`, `linux-t2-headers`, `t2fanrd`.
-ALARM does serve `asusctl`, `egl-wayland`, `libva-nvidia-driver`, `nvidia-open-dkms`, `nvidia-utils`, `sof-firmware`, `libvpl`, `vulkan-intel`, `vulkan-radeon`, `linux-firmware-marvell`, `lsp-plugins-lv2`, which matter for generic Arm machines.
+ALARM does serve `asusctl`, `egl-wayland`, `libva-nvidia-driver`, `nvidia-open-dkms`, `nvidia-utils`, `sof-firmware`, `libvpl`, `vulkan-intel`, `vulkan-radeon`, `linux-firmware-marvell`, `lsp-plugins-lv2`, `qmk-hid`, which matter for generic Arm machines.
 
 ## Missing from Omarchy MX Mac
 
@@ -298,29 +299,31 @@ Compared against `install/omarchy-*-asahi.packages` in this checkout.
 
 | Package | Set | Aarch64 availability |
 |---|---|---|
-| `disktree-bin` | core | edge only |
+| `disktree-bin` | core | omarchy |
 | `fcitx5-chewing` | core | ALARM |
 | `fcitx5-chinese-addons` | core | ALARM |
 | `fcitx5-hangul` | core | ALARM |
 | `fcitx5-mozc` | core | ALARM |
+| `fcitx5-table-extra` | core | ALARM |
 | `ffmpeg` | core | ALARM |
-| `gliff` | core | edge only |
-| `hype` | core | edge only |
-| `monologue` | core | edge only |
-| `omarchy-hyprland-titlebars` | core | edge only |
-| `omasnap` | core | edge only |
+| `gliff` | core | omarchy |
+| `hype` | core | omarchy |
+| `monologue` | core | omarchy |
+| `omarchy-hyprland-titlebars` | core | omarchy |
+| `omasnap` | core | omarchy |
 | `owe` | core | omarchy |
 | `owe-lockfeed` | core | omarchy |
 | `qt6-base` | core | ALARM |
 | `qt6-declarative` | core | ALARM |
 | `qt6-multimedia` | core | ALARM |
 | `qt6-svg` | core | ALARM |
-| `signed` | core | edge only |
-| `superwhisper-bin` | core | not in ALARM or `[omarchy]` |
-| `usbguard` | core | ALARM |
+| `signed` | core | omarchy |
+| `superwhisper-bin` | core | omarchy |
 | `vi` | core | not in ALARM or `[omarchy]` |
+| `pipewire-libcamera` | platform | ALARM |
 | `yay-debug` | platform | not in ALARM or `[omarchy]` |
 | `linux-firmware-cirrus-dx13260` | platform | not in ALARM or `[omarchy]` |
+| `asus-proart-p14-speaker-firmware` | platform | omarchy |
 | `apple-bcm-firmware-fetcher` | platform | not in ALARM or `[omarchy]` |
 
 Renamed rather than missing: `mise-bin` → `mise`, `nvim` → `neovim`, `quickshell` → `quickshell-git`, `linux-omarchy` → `linux-aurora`, `linux-omarchy-headers` → `linux-aurora-headers`. The 32 x86-hardware packages are n/a.
@@ -341,6 +344,7 @@ resolved the way its installer does: explicit official-edge targets, then commun
 | `fcitx5-chinese-addons` | ALARM |
 | `fcitx5-hangul` | ALARM |
 | `fcitx5-mozc` | ALARM |
+| `fcitx5-table-extra` | ALARM |
 | `ffmpeg` | ALARM |
 | `gliff` | nowhere it searches |
 | `hype` | AUR candidate (build untested) |
@@ -356,8 +360,9 @@ resolved the way its installer does: explicit official-edge targets, then commun
 | `qt6-wayland` | ALARM |
 | `signed` | nowhere it searches |
 | `superwhisper-bin` | nowhere it searches |
-| `usbguard` | ALARM |
 | `vi` | omarchy-aarch64 |
+
+**Listed but unresolved (1)**: `hyprland-guiutils`.
 
 **Excluded by default pending Arm qualification (4)**
 
@@ -368,7 +373,7 @@ resolved the way its installer does: explicit official-edge targets, then commun
 | `pinta` | Available (omarchy-aarch64); still excluded. |
 | `qemu-user-static-binfmt` | Not found in its repos or the AUR. |
 
-**Platform, missing (3)**: `yay-debug`, `linux-firmware-cirrus-dx13260`, `apple-bcm-firmware-fetcher`. The 32 x86-hardware packages are n/a.
+**Platform, missing (4)**: `yay-debug`, `linux-firmware-cirrus-dx13260`, `asus-proart-p14-speaker-firmware`, `apple-bcm-firmware-fetcher`. The 32 x86-hardware packages are n/a.
 
 ## Regenerating
 
