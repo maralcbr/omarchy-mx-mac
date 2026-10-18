@@ -6,6 +6,7 @@ import QtQuick.Effects
 import QtQuick.Shapes
 import qs.Commons
 import qs.Ui
+import qs.Commons as Commons
 
 Item {
   id: root
@@ -75,10 +76,10 @@ Item {
     // pending; the latest theme payload should still apply.
     if (pendingThemeVersion < 0) return
     pendingThemeFallbackTimer.stop()
-    Color.loadColors(pendingColorsRaw)
-    // Color.loadShell also refreshes Style so the type scale flips with the
+    Commons.Color.loadColors(pendingColorsRaw)
+    // Commons.Color.loadShell also refreshes Style so the type scale flips with the
     // background reveal instead of waiting for a separate reload path.
-    Color.loadShell(pendingShellRaw)
+    Commons.Color.loadShell(pendingShellRaw)
     Style.scheduleRefresh()
     pendingThemeVersion = -1
     pendingColorsRaw = ""

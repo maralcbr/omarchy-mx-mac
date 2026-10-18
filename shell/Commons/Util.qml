@@ -1,9 +1,10 @@
 pragma Singleton
 import Quickshell
 import QtQuick
+import qs.Commons as Commons
 
 // Shared utility helpers used across plugins. Pure functions only — no
-// state. Anything stateful belongs on Color, Style, or a service.
+// state. Anything stateful belongs on Commons.Color, Style, or a service.
 QtObject {
   id: root
 
