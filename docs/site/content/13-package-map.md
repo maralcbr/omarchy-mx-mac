@@ -8,22 +8,22 @@ description: Every x86 Omarchy default package and what Omacom aarch64, MX Mac a
 Every package in Omarchy's x86_64 default lists, and what each of the three Arm
 variants does with it. Rows marked ✗ are the gaps.
 
-Snapshot: 2026-10-19 08:22 (Brisbane), from the live package databases.
+Snapshot: 2026-10-26 08:26 (Brisbane), from the live package databases.
 
 ## The four variants
 
 | Variant | Source | Package lists | Package repositories | How packages get installed |
 |---|---|---|---|---|
-| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `60f5b496` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
-| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (174 packages; `edge` has 205) | None yet: this column is what those repos can serve |
-| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `e5714f9d` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
+| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `2fca7fe0` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
+| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (178 packages; `edge` has 221) | None yet: this column is what those repos can serve |
+| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `72f19067` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
 | **Omarchy Mac** | [`omacom/omarchy-mac`](https://github.com/omacom/omarchy-mac) `quattro` @ `ba546a61` | Its own copy of `omarchy-base.packages`/`omarchy-other.packages`, minus `install/omarchy-aarch64-unavailable.packages` | Community `[omarchy-aarch64]` + `[asahi-alarm]` + ALARM; `pkgs.omarchy.org/edge/aarch64` only for explicit targets (Hyprland stack, `asdcontrol`, `tobi-try`) | `install.sh` on top of an Asahi ALARM install, via `yay` |
 
 ## Summary
 
 | | Omacom aarch64 | Omarchy MX Mac | Omarchy Mac |
 |---|---|---|---|
-| Core desktop set (162) | 160 served from stable, 0 only from `edge`, **2 missing** | 141 installed (3 renamed), **21 missing** | 134 installed (1 renamed), 0 unverified AUR candidates, 4 excluded, **23 missing**, 1 unresolved |
+| Core desktop set (161) | 159 served from stable, 0 only from `edge`, **2 missing** | 140 installed (3 renamed), **21 missing** | 133 installed (1 renamed), 0 unverified AUR candidates, 4 excluded, **23 missing**, 1 unresolved |
 | Platform & hardware set (60) | 37 served, 1 only from `edge`, **22 missing** (19 x86-hardware) | 55 covered or n/a, **5 missing** | 54 covered or n/a, 2 unverified AUR candidates, **4 missing** |
 
 ### Legend
@@ -146,16 +146,15 @@ Snapshot: 2026-10-19 08:22 (Brisbane), from the live package databases.
 | `omawrite` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
 | `omarchy-nvim` | omarchy | omarchy | ✓ | ✓ omarchy-aarch64 |
 | `omarchy-hyprland-titlebars` | omarchy | omarchy | ✗ | ✗ |
+| `omarchy-power-profiles-daemon` | omarchy | omarchy | ✗ | ✗ |
 | `omasnap` | omarchy | omarchy | ✗ | ✗ |
 | `owe` | omarchy | omarchy | ✗ | ✗ |
-| `owe-lockfeed` | omarchy | omarchy | ✗ | ✗ |
 | `pacman-contrib` | extra | ALARM | ✓ | ✓ ALARM |
 | `pamixer` | extra | ALARM | ✓ | ✓ ALARM |
 | `pinta` | extra | omarchy | ✓ | excluded |
 | `plocate` | extra | ALARM | ✓ | ✓ ALARM |
 | `plymouth` | extra | ALARM | ✓ | ✓ ALARM |
 | `postgresql-libs` | extra | ALARM | ✓ | ✓ ALARM |
-| `power-profiles-daemon` | extra | ALARM | ✓ | ✓ ALARM |
 | `python-gobject` | extra | ALARM | ✓ | ✓ ALARM |
 | `python-poetry-core` | extra | ALARM | ✓ | ✓ ALARM |
 | `qt6-base` | extra | ALARM | ✗ | ✗ |
@@ -310,9 +309,9 @@ Compared against `install/omarchy-*-asahi.packages` in this checkout.
 | `hype` | core | omarchy |
 | `monologue` | core | omarchy |
 | `omarchy-hyprland-titlebars` | core | omarchy |
+| `omarchy-power-profiles-daemon` | core | omarchy |
 | `omasnap` | core | omarchy |
 | `owe` | core | omarchy |
-| `owe-lockfeed` | core | omarchy |
 | `qt6-base` | core | ALARM |
 | `qt6-declarative` | core | ALARM |
 | `qt6-multimedia` | core | ALARM |
@@ -350,15 +349,15 @@ resolved the way its installer does: explicit official-edge targets, then commun
 | `hype` | AUR candidate (build untested) |
 | `monologue` | nowhere it searches |
 | `omarchy-hyprland-titlebars` | nowhere it searches |
+| `omarchy-power-profiles-daemon` | nowhere it searches |
 | `omasnap` | nowhere it searches |
 | `owe` | AUR candidate (build untested) |
-| `owe-lockfeed` | nowhere it searches |
 | `qt6-base` | ALARM |
 | `qt6-declarative` | ALARM |
 | `qt6-multimedia` | ALARM |
 | `qt6-svg` | ALARM |
 | `qt6-wayland` | ALARM |
-| `signed` | nowhere it searches |
+| `signed` | AUR candidate (build untested) |
 | `superwhisper-bin` | nowhere it searches |
 | `vi` | omarchy-aarch64 |
 
