@@ -8,23 +8,23 @@ description: Every x86 Omarchy default package and what Omacom aarch64, MX Mac a
 Every package in Omarchy's x86_64 default lists, and what each of the three Arm
 variants does with it. Rows marked ✗ are the gaps.
 
-Snapshot: 2026-11-02 09:29 (Brisbane), from the live package databases.
+Snapshot: 2026-11-09 09:36 (Brisbane), from the live package databases.
 
 ## The four variants
 
 | Variant | Source | Package lists | Package repositories | How packages get installed |
 |---|---|---|---|---|
-| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `175e63b6` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
-| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (187 packages; `edge` has 240) | None yet: this column is what those repos can serve |
-| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `c2fa7ba3` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
-| **Omarchy Mac** | [`omacom/omarchy-mac`](https://github.com/omacom/omarchy-mac) `quattro` @ `ba546a61` | Its own copy of `omarchy-base.packages`/`omarchy-other.packages`, minus `install/omarchy-aarch64-unavailable.packages` | Community `[omarchy-aarch64]` + `[asahi-alarm]` + ALARM; `pkgs.omarchy.org/edge/aarch64` only for explicit targets (Hyprland stack, `asdcontrol`, `tobi-try`) | `install.sh` on top of an Asahi ALARM install, via `yay` |
+| **Omacom x86** | [`omacom/omarchy`](https://github.com/omacom/omarchy) `quattro` @ `8e33e723` | `install/omarchy-base.packages`, `install/omarchy-other.packages` | Arch `core`/`extra`/`multilib` + `pkgs.omarchy.org/stable/x86_64` | ISO + archinstall |
+| **Omacom aarch64** | Same tree; no aarch64 lists or installer yet | The x86 lists, unchanged | Arch Linux ARM (`core`/`extra`/`alarm`/`aur`) + `pkgs.omarchy.org/stable/aarch64` (219 packages; `edge` has 299) | None yet: this column is what those repos can serve |
+| **Omarchy MX Mac** | [`maralcbr/omarchy-mx-mac`](https://github.com/maralcbr/omarchy-mx-mac) `main` @ `54670611` | `install/omarchy-base-asahi.packages`, `install/omarchy-other-asahi.packages` | ALARM + `[omarchy]` from `maralcbr/omarchy-pkgs` releases + Aurora kernel lane | macOS installer writes a prebuilt image |
+| **Omarchy Mac** | [`omacom/omarchy-mac`](https://github.com/omacom/omarchy-mac) `quattro` @ `667500c5` | Its own copy of `omarchy-base.packages`/`omarchy-other.packages`, minus `install/omarchy-aarch64-unavailable.packages` | Community `[omarchy-aarch64]` + `[asahi-alarm]` + ALARM; `pkgs.omarchy.org/edge/aarch64` only for explicit targets (Hyprland stack, `asdcontrol`, `tobi-try`) | `install.sh` on top of an Asahi ALARM install, via `yay` |
 
 ## Summary
 
 | | Omacom aarch64 | Omarchy MX Mac | Omarchy Mac |
 |---|---|---|---|
-| Core desktop set (165) | 161 served from stable, 2 only from `edge`, **2 missing** | 141 installed (3 renamed), **24 missing** | 133 installed (1 renamed), 0 unverified AUR candidates, 4 excluded, **27 missing**, 1 unresolved |
-| Platform & hardware set (65) | 37 served, 6 only from `edge`, **22 missing** (19 x86-hardware) | 55 covered or n/a, **10 missing** | 54 covered or n/a, 2 unverified AUR candidates, **9 missing** |
+| Core desktop set (165) | 161 served from stable, 2 only from `edge`, **2 missing** | 140 installed (3 renamed), **25 missing** | 132 installed (1 renamed), 0 unverified AUR candidates, 4 excluded, **28 missing**, 1 unresolved |
+| Platform & hardware set (70) | 40 served, 8 only from `edge`, **22 missing** (19 x86-hardware) | 55 covered or n/a, **15 missing** | 56 covered or n/a, 3 unverified AUR candidates, **11 missing** |
 
 ### Legend
 
@@ -71,7 +71,6 @@ Snapshot: 2026-11-02 09:29 (Brisbane), from the live package databases.
 | `docker-compose` | extra | ALARM | ✓ | ✓ ALARM |
 | `dosfstools` | core | ALARM | ✓ | ✓ ALARM |
 | `dotnet-runtime` | extra | omarchy (dotnet-runtime-bin) | ✓ | excluded |
-| `evince` | extra | ALARM | ✓ | ✓ ALARM |
 | `exfatprogs` | extra | ALARM | ✓ | ✓ ALARM |
 | `expac` | extra | ALARM | ✓ | ✓ ALARM |
 | `eza` | extra | ALARM | ✓ | ✓ ALARM |
@@ -153,6 +152,7 @@ Snapshot: 2026-11-02 09:29 (Brisbane), from the live package databases.
 | `owe` | omarchy | omarchy | ✗ | ✗ |
 | `pacman-contrib` | extra | ALARM | ✓ | ✓ ALARM |
 | `pamixer` | extra | ALARM | ✓ | ✓ ALARM |
+| `papers` | extra | ALARM | ✗ | ✗ |
 | `pinta` | extra | omarchy | ✓ | excluded |
 | `plocate` | extra | ALARM | ✓ | ✓ ALARM |
 | `plymouth` | extra | ALARM | ✓ | ✓ ALARM |
@@ -240,10 +240,11 @@ Snapshot: 2026-11-02 09:29 (Brisbane), from the live package databases.
 | `linux-omarchy-headers` | omarchy | omarchy | → linux-aurora-headers | → linux-asahi-headers |
 | `macbook12-spi-driver-dkms` ¹ | omarchy | ✗ | n/a | n/a |
 | `nvidia-580xx-dkms` ¹ | omarchy | ✗ | n/a | n/a |
-| `nvidia-dkms` ¹ | extra | edge only | n/a | n/a |
-| `nvidia-open-dkms` ¹ | extra | ALARM | n/a | n/a |
+| `nvidia-dkms` ¹ | extra | omarchy (nvidia-open-dkms) | n/a | n/a |
+| `nvidia-open-dkms` ¹ | extra | omarchy | n/a | n/a |
+| `linux-omarchy-nvidia-open` | unresolved | edge only | ✗ | ✗ |
 | `nvidia-580xx-utils` ¹ | omarchy | ✗ | n/a | n/a |
-| `nvidia-utils` ¹ | extra | ALARM | n/a | n/a |
+| `nvidia-utils` ¹ | extra | omarchy | n/a | n/a |
 | `lib32-nvidia-580xx-utils` ¹ | omarchy | ✗ | n/a | n/a |
 | `lib32-nvidia-utils` ¹ | multilib | ✗ | n/a | n/a |
 | `pipewire` | extra | ALARM | ✓ | ✓ ALARM |
@@ -266,13 +267,14 @@ Snapshot: 2026-11-02 09:29 (Brisbane), from the live package databases.
 | `vulkan-asahi` | extra | ALARM | ✓ | ✓ ALARM |
 | `linux-firmware-marvell` ¹ | core | ALARM | n/a | n/a |
 | `iptsd` | unresolved | edge only | ✗ | ✗ |
-| `surface-pro-11-sensors` | unresolved | edge only | ✗ | ✗ |
-| `surface-pro-11-support` | unresolved | edge only | ✗ | ✗ |
+| `microsoft-surface-pro-11-sensors` | unresolved | edge only | ✗ | ✗ |
+| `microsoft-surface-pro-11-support` | unresolved | edge only | ✗ | ✗ |
 | `dell-xps-touchpad-haptics` ¹ | omarchy | ✗ | n/a | n/a |
 | `dell-xps13-sidecar-amps` ¹ | omarchy | ✗ | n/a | n/a |
 | `linux-firmware-cirrus-dx13260` | omarchy | ✗ | ✗ | ✗ |
-| `asus-proart-p14-speaker-firmware` | unresolved | omarchy | ✗ | ✗ |
+| `asus-proart-p14-audio` | unresolved | edge only | ✗ | ✗ |
 | `asus-zenbook-a16-audio` | unresolved | edge only | ✗ | ✗ |
+| `asus-zenbook-14-ux3480qa-audio` | unresolved | edge only | ✗ | ✗ |
 | `asus-zenbook-a16-firmware` | unresolved | edge only | ✗ | ✗ |
 | `lsp-plugins-lv2` ¹ | extra | ALARM | n/a | n/a |
 | `apple-bcm-firmware-fetcher` | unresolved | ✗ | ✗ | ✗ |
@@ -281,6 +283,9 @@ Snapshot: 2026-11-02 09:29 (Brisbane), from the live package databases.
 | `linux-t2-headers` ¹ | arch-mact2 | ✗ | n/a | n/a |
 | `t2fanrd` ¹ | arch-mact2 | ✗ | n/a | n/a |
 | `qmk-hid` ¹ | omarchy | omarchy | n/a | n/a |
+| `v4l2loopback-dkms` | extra | ALARM | ✗ | ✓ ALARM |
+| `v4l2loopback-utils` | extra | ALARM | ✗ | ✓ ALARM |
+| `v4l2-relayd` | omarchy | omarchy | ✗ | ? AUR candidate |
 
 ## Missing from Omacom aarch64
 
@@ -296,10 +301,10 @@ Resolved against Arch Linux ARM and `pkgs.omarchy.org/stable/aarch64`.
 **Core desktop, only in `edge` (2)**: `omarchy-local-ai`, `omarchy-screensaver`. Promoting them to stable closes this gap.
 
 **Platform, missing (3)**: `yay-debug`, `linux-firmware-cirrus-dx13260`, `apple-bcm-firmware-fetcher`.
-**Platform, only in `edge` (5)**: `iptsd`, `surface-pro-11-sensors`, `surface-pro-11-support`, `asus-zenbook-a16-audio`, `asus-zenbook-a16-firmware`.
+**Platform, only in `edge` (8)**: `linux-omarchy-nvidia-open`, `iptsd`, `microsoft-surface-pro-11-sensors`, `microsoft-surface-pro-11-support`, `asus-proart-p14-audio`, `asus-zenbook-a16-audio`, `asus-zenbook-14-ux3480qa-audio`, `asus-zenbook-a16-firmware`.
 
 **x86 hardware, missing (19)**: `broadcom-wl-dkms`, `intel-ipu7-camera`, `intel-lpmd`, `intel-media-driver`, `libva-intel-driver`, `macbook12-spi-driver-dkms`, `nvidia-580xx-dkms`, `nvidia-580xx-utils`, `lib32-nvidia-580xx-utils`, `lib32-nvidia-utils`, `thermald`, `tuxedo-drivers-nocompatcheck-dkms`, `vpl-gpu-rt`, `dell-xps-touchpad-haptics`, `dell-xps13-sidecar-amps`, `apple-t2-audio-config`, `linux-t2`, `linux-t2-headers`, `t2fanrd`.
-ALARM does serve `asusctl`, `egl-wayland`, `libva-nvidia-driver`, `nvidia-open-dkms`, `nvidia-utils`, `sof-firmware`, `libvpl`, `vulkan-intel`, `vulkan-radeon`, `linux-firmware-marvell`, `lsp-plugins-lv2`, `qmk-hid`, which matter for generic Arm machines.
+ALARM does serve `asusctl`, `egl-wayland`, `libva-nvidia-driver`, `nvidia-dkms`, `nvidia-open-dkms`, `nvidia-utils`, `sof-firmware`, `libvpl`, `vulkan-intel`, `vulkan-radeon`, `linux-firmware-marvell`, `lsp-plugins-lv2`, `qmk-hid`, which matter for generic Arm machines.
 
 ## Missing from Omarchy MX Mac
 
@@ -323,6 +328,7 @@ Compared against `install/omarchy-*-asahi.packages` in this checkout.
 | `omarchy-screensaver` | core | edge only |
 | `omasnap` | core | omarchy |
 | `owe` | core | omarchy |
+| `papers` | core | ALARM |
 | `qt6-base` | core | ALARM |
 | `qt6-declarative` | core | ALARM |
 | `qt6-multimedia` | core | ALARM |
@@ -331,16 +337,21 @@ Compared against `install/omarchy-*-asahi.packages` in this checkout.
 | `superwhisper-bin` | core | omarchy |
 | `vi` | core | not in ALARM or `[omarchy]` |
 | `xorg-xsetroot` | core | ALARM |
+| `linux-omarchy-nvidia-open` | platform | edge only |
 | `pipewire-libcamera` | platform | ALARM |
 | `yay-debug` | platform | not in ALARM or `[omarchy]` |
 | `iptsd` | platform | edge only |
-| `surface-pro-11-sensors` | platform | edge only |
-| `surface-pro-11-support` | platform | edge only |
+| `microsoft-surface-pro-11-sensors` | platform | edge only |
+| `microsoft-surface-pro-11-support` | platform | edge only |
 | `linux-firmware-cirrus-dx13260` | platform | not in ALARM or `[omarchy]` |
-| `asus-proart-p14-speaker-firmware` | platform | omarchy |
+| `asus-proart-p14-audio` | platform | edge only |
 | `asus-zenbook-a16-audio` | platform | edge only |
+| `asus-zenbook-14-ux3480qa-audio` | platform | edge only |
 | `asus-zenbook-a16-firmware` | platform | edge only |
 | `apple-bcm-firmware-fetcher` | platform | not in ALARM or `[omarchy]` |
+| `v4l2loopback-dkms` | platform | ALARM |
+| `v4l2loopback-utils` | platform | ALARM |
+| `v4l2-relayd` | platform | omarchy |
 
 Renamed rather than missing: `mise-bin` → `mise`, `nvim` → `neovim`, `quickshell` → `quickshell-git`, `linux-omarchy` → `linux-aurora`, `linux-omarchy-headers` → `linux-aurora-headers`. The 32 x86-hardware packages are n/a.
 
@@ -350,7 +361,7 @@ Compared against `omacom/omarchy-mac` `quattro`: its base list minus the unavail
 resolved the way its installer does: explicit official-edge targets, then community
 `[omarchy-aarch64]`, `[asahi-alarm]` and ALARM, then an AUR build through `yay`.
 
-**Not in its lists (27)**
+**Not in its lists (28)**
 
 | Package | Where its installer would find it if listed |
 |---|---|
@@ -371,6 +382,7 @@ resolved the way its installer does: explicit official-edge targets, then commun
 | `omarchy-screensaver` | nowhere it searches |
 | `omasnap` | nowhere it searches |
 | `owe` | AUR candidate (build untested) |
+| `papers` | ALARM |
 | `qt6-base` | ALARM |
 | `qt6-declarative` | ALARM |
 | `qt6-multimedia` | ALARM |
@@ -393,7 +405,7 @@ resolved the way its installer does: explicit official-edge targets, then commun
 | `pinta` | Available (omarchy-aarch64); still excluded. |
 | `qemu-user-static-binfmt` | Not found in its repos or the AUR. |
 
-**Platform, missing (9)**: `yay-debug`, `iptsd`, `surface-pro-11-sensors`, `surface-pro-11-support`, `linux-firmware-cirrus-dx13260`, `asus-proart-p14-speaker-firmware`, `asus-zenbook-a16-audio`, `asus-zenbook-a16-firmware`, `apple-bcm-firmware-fetcher`. The 32 x86-hardware packages are n/a.
+**Platform, missing (11)**: `linux-omarchy-nvidia-open`, `yay-debug`, `iptsd`, `microsoft-surface-pro-11-sensors`, `microsoft-surface-pro-11-support`, `linux-firmware-cirrus-dx13260`, `asus-proart-p14-audio`, `asus-zenbook-a16-audio`, `asus-zenbook-14-ux3480qa-audio`, `asus-zenbook-a16-firmware`, `apple-bcm-firmware-fetcher`. The 32 x86-hardware packages are n/a.
 
 ## Regenerating
 
