@@ -1,8 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Suggestion
-    url: https://github.com/omacom/omarchy-mac/discussions/categories/ideas
-    about: This repository is feature-frozen. Suggest Apple Silicon features on omacom/omarchy-mac.
-  - name: Support
-    url: https://github.com/maralcbr/omarchy-mx-mac/discussions/categories/q-a
-    about: Ask for Omarchy MX Mac help in this repository. Use GitHub issues for verified bugs.
